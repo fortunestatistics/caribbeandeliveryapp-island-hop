@@ -1,34 +1,255 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Custom Caribbean color palette */
+:root {
+  --turquoise-50: #f0fdfa;
+  --turquoise-100: #ccfbf1;
+  --turquoise-200: #99f6e4;
+  --turquoise-300: #5eead4;
+  --turquoise-400: #2dd4bf;
+  --turquoise-500: #14b8a6;
+  --turquoise-600: #0d9488;
+  --turquoise-700: #0f766e;
+  --turquoise-800: #115e59;
+  --turquoise-900: #134e4a;
+  
+  --orange-50: #fff7ed;
+  --orange-100: #ffedd5;
+  --orange-200: #fed7aa;
+  --orange-300: #fdba74;
+  --orange-400: #fb923c;
+  --orange-500: #f97316;
+  --orange-600: #ea580c;
+  --orange-700: #c2410c;
+  --orange-800: #9a3412;
+  --orange-900: #7c2d12;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Custom utilities */
+.bg-turquoise-50 { background-color: var(--turquoise-50); }
+.bg-turquoise-100 { background-color: var(--turquoise-100); }
+.bg-turquoise-200 { background-color: var(--turquoise-200); }
+.bg-turquoise-300 { background-color: var(--turquoise-300); }
+.bg-turquoise-400 { background-color: var(--turquoise-400); }
+.bg-turquoise-500 { background-color: var(--turquoise-500); }
+.bg-turquoise-600 { background-color: var(--turquoise-600); }
+.bg-turquoise-700 { background-color: var(--turquoise-700); }
+.bg-turquoise-800 { background-color: var(--turquoise-800); }
+.bg-turquoise-900 { background-color: var(--turquoise-900); }
+
+.text-turquoise-50 { color: var(--turquoise-50); }
+.text-turquoise-100 { color: var(--turquoise-100); }
+.text-turquoise-200 { color: var(--turquoise-200); }
+.text-turquoise-300 { color: var(--turquoise-300); }
+.text-turquoise-400 { color: var(--turquoise-400); }
+.text-turquoise-500 { color: var(--turquoise-500); }
+.text-turquoise-600 { color: var(--turquoise-600); }
+.text-turquoise-700 { color: var(--turquoise-700); }
+.text-turquoise-800 { color: var(--turquoise-800); }
+.text-turquoise-900 { color: var(--turquoise-900); }
+
+.border-turquoise-200 { border-color: var(--turquoise-200); }
+.border-turquoise-300 { border-color: var(--turquoise-300); }
+.border-turquoise-500 { border-color: var(--turquoise-500); }
+
+.from-turquoise-50 { --tw-gradient-from: var(--turquoise-50); }
+.from-turquoise-400 { --tw-gradient-from: var(--turquoise-400); }
+.from-turquoise-500 { --tw-gradient-from: var(--turquoise-500); }
+.from-turquoise-600 { --tw-gradient-from: var(--turquoise-600); }
+
+.to-turquoise-400 { --tw-gradient-to: var(--turquoise-400); }
+.to-turquoise-500 { --tw-gradient-to: var(--turquoise-500); }
+.to-turquoise-600 { --tw-gradient-to: var(--turquoise-600); }
+
+.hover\:bg-turquoise-50:hover { background-color: var(--turquoise-50); }
+.hover\:text-orange-600:hover { color: var(--orange-600); }
+
+/* Orange utilities */
+.border-orange-200 { border-color: var(--orange-200); }
+.border-orange-300 { border-color: var(--orange-300); }
+.text-orange-600 { color: var(--orange-600); }
+.text-orange-700 { color: var(--orange-700); }
+.hover\:bg-orange-50:hover { background-color: var(--orange-50); }
+
+.from-orange-400 { --tw-gradient-from: var(--orange-400); }
+.from-orange-500 { --tw-gradient-from: var(--orange-500); }
+.from-orange-600 { --tw-gradient-from: var(--orange-600); }
+
+.to-orange-400 { --tw-gradient-to: var(--orange-400); }
+.to-orange-500 { --tw-gradient-to: var(--orange-500); }
+.to-orange-600 { --tw-gradient-to: var(--orange-600); }
+
+/* Additional gradient utilities for other colors */
+.from-red-500 { --tw-gradient-from: #ef4444; }
+.from-blue-500 { --tw-gradient-from: #3b82f6; }
+.from-green-500 { --tw-gradient-from: #10b981; }
+.from-purple-500 { --tw-gradient-from: #8b5cf6; }
+.from-yellow-500 { --tw-gradient-from: #f59e0b; }
+
+.to-orange-500 { --tw-gradient-to: var(--orange-500); }
+.to-cyan-500 { --tw-gradient-to: #06b6d4; }
+.to-emerald-500 { --tw-gradient-to: #10b981; }
+.to-pink-500 { --tw-gradient-to: #ec4899; }
+
+/* Custom animations and transitions */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.App-link {
-    color: #61dafb;
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom backdrop blur utilities */
+.backdrop-blur-md {
+  backdrop-filter: blur(12px);
+}
+
+/* Caribbean-themed gradients */
+.caribbean-gradient {
+  background: linear-gradient(135deg, var(--turquoise-400) 0%, var(--orange-400) 100%);
+}
+
+.caribbean-gradient-soft {
+  background: linear-gradient(135deg, var(--turquoise-50) 0%, var(--orange-50) 100%);
+}
+
+/* Loading spinner for chat */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom focus styles */
+.focus\:ring-turquoise-500:focus {
+  --tw-ring-color: var(--turquoise-500);
+}
+
+/* Card hover effects */
+.hover\:shadow-xl:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.hover\:-translate-y-2:hover {
+  transform: translateY(-0.5rem);
+}
+
+/* Progress bar gradient */
+.progress-gradient {
+  background: linear-gradient(90deg, var(--turquoise-500) 0%, var(--orange-500) 100%);
+}
+
+/* Button focus styles */
+button:focus {
+  outline: 2px solid var(--turquoise-500);
+  outline-offset: 2px;
+}
+
+/* Responsive design helpers */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Text selection color */
+::selection {
+  background-color: var(--turquoise-200);
+  color: var(--turquoise-900);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--turquoise-50);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--turquoise-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--turquoise-400);
+}
+
+/* Form input focus styles */
+input:focus, textarea:focus, select:focus {
+  border-color: var(--turquoise-500);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+}
+
+/* Disabled button styles */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Card hover transform */
+.group:hover .group-hover\:scale-110 {
+  transform: scale(1.1);
+}
+
+/* Subtle animations */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+.transition-transform {
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+.transition-shadow {
+  transition-property: box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
 }
