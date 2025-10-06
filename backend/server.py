@@ -424,6 +424,111 @@ async def get_restaurant(restaurant_id: str):
         raise HTTPException(status_code=404, detail="Restaurant not found")
     return Restaurant(**restaurant)
 
+# Order Management Routes
+@api_router.post("/orders", response_model=Order)
+async def create_order(order: Order, request: Request):
+    """Create new order"""
+    current_user = await get_current_user_from_request(request)
+    order.customer_id = current_user.id
+    
+    # Calculate estimated delivery time
+    order.estimated_delivery_time = datetime.now(timezone.utc)
+    
+    order_dict = prepare_for_mongo(order.dict())
+    await db.orders.insert_one(order_dict)
+    
+    # Notify restaurant via WebSocket
+    await manager.send_personal_message(
+        json.dumps({
+            "type": "new_order",
+            "order_id": order.id,
+            "order_number": order.order_number
+        }),
+        order.restaurant_id
+    )
+    
+    return order
+
+@api_router.get("/orders", response_model=List[Order])
+async def get_user_orders(request: Request):
+    """Get orders for current user"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type == "customer":
+        orders = await db.orders.find({"customer_id": current_user.id}).to_list(length=None)
+    elif current_user.user_type == "restaurant":
+        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+        if restaurant:
+            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).to_list(length=None)
+        else:
+            orders = []
+    elif current_user.user_type == "driver":
+        driver = await db.drivers.find_one({"user_id": current_user.id})
+        if driver:
+            orders = await db.orders.find({"driver_id": driver["id"]}).to_list(length=None)
+        else:
+            orders = []
+    else:
+        orders = []
+    
+    return [Order(**order) for order in orders]
+
+@api_router.put("/orders/{order_id}/status")
+async def update_order_status(order_id: str, status: str, request: Request):
+    """Update order status"""
+    current_user = await get_current_user_from_request(request)
+    
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Validate user can update this order
+    can_update = False
+    if current_user.user_type == "restaurant":
+        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+        if restaurant and restaurant["id"] == order["restaurant_id"]:
+            can_update = True
+    elif current_user.user_type == "driver":
+        driver = await db.drivers.find_one({"user_id": current_user.id})
+        if driver and driver["id"] == order.get("driver_id"):
+            can_update = True
+    
+    if not can_update:
+        raise HTTPException(status_code=403, detail="Not authorized to update this order")
+    
+    # Update order status with timestamp
+    update_data = {"status": status}
+    if status == "confirmed":
+        update_data["confirmed_at"] = datetime.now(timezone.utc).isoformat()
+    elif status == "ready":
+        update_data["prepared_at"] = datetime.now(timezone.utc).isoformat()
+    elif status == "picked_up":
+        update_data["picked_up_at"] = datetime.now(timezone.utc).isoformat()
+    elif status == "delivered":
+        update_data["delivered_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": update_data}
+    )
+    
+    # Notify relevant parties
+    notification = {
+        "type": "order_status_update",
+        "order_id": order_id,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Notify customer
+    await manager.send_personal_message(json.dumps(notification), order["customer_id"])
+    
+    # Notify driver if assigned
+    if order.get("driver_id"):
+        await manager.send_personal_message(json.dumps(notification), order["driver_id"])
+    
+    return {"message": f"Order status updated to {status}"}
+
 # Business Categories Routes
 @api_router.get("/business/categories", response_model=List[BusinessCategory])
 async def get_business_categories():
