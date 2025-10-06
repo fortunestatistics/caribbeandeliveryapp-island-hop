@@ -392,6 +392,38 @@ async def logout(request: Request):
     response.delete_cookie("session_token")
     return response
 
+# Restaurant Management Routes
+@api_router.post("/restaurants", response_model=Restaurant)
+async def create_restaurant(restaurant: Restaurant, request: Request):
+    """Create restaurant profile"""
+    current_user = await get_current_user_from_request(request)
+    restaurant.user_id = current_user.id
+    
+    restaurant_dict = prepare_for_mongo(restaurant.dict())
+    await db.restaurants.insert_one(restaurant_dict)
+    
+    # Update user type
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$set": {"user_type": "restaurant"}}
+    )
+    
+    return restaurant
+
+@api_router.get("/restaurants", response_model=List[Restaurant])
+async def get_restaurants():
+    """Get all active restaurants"""
+    restaurants = await db.restaurants.find({"status": "active"}).to_list(length=None)
+    return [Restaurant(**restaurant) for restaurant in restaurants]
+
+@api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
+async def get_restaurant(restaurant_id: str):
+    """Get restaurant by ID"""
+    restaurant = await db.restaurants.find_one({"id": restaurant_id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return Restaurant(**restaurant)
+
 # Business Categories Routes
 @api_router.get("/business/categories", response_model=List[BusinessCategory])
 async def get_business_categories():
