@@ -273,6 +273,36 @@ def parse_from_mongo(item):
                 item[key] = parse_from_mongo(value)
     return item
 
+# Authentication helper
+async def get_current_user_from_request(request: Request):
+    """Get current authenticated user from request"""
+    session_token = request.cookies.get("session_token")
+    
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    user = await db.users.find_one({"session_token": session_token})
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    return User(**user)
+
+# WebSocket endpoint
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await manager.send_personal_message(f"Message received: {data}", user_id)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)
+
 # Authentication Routes
 @api_router.post("/auth/session")
 async def create_session(session_data: SessionCreate, request: Request):
