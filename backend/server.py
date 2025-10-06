@@ -840,6 +840,64 @@ async def initialize_data():
             ]
             
             await db.pricing_tiers.insert_many(default_tiers)
+        
+        # Initialize sample restaurants
+        existing_restaurants = await db.restaurants.count_documents({})
+        if existing_restaurants == 0:
+            sample_restaurants = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "user_id": "sample_user_1",
+                    "name": "Caribbean Spice Kitchen",
+                    "description": "Authentic Caribbean cuisine with fresh local ingredients",
+                    "cuisine_type": "Caribbean",
+                    "address": {
+                        "street": "123 Bay Street",
+                        "city": "Kingston",
+                        "parish": "St. Andrew",
+                        "country": "Jamaica"
+                    },
+                    "phone": "+1-876-555-0123",
+                    "email": "info@caribbeanspice.com",
+                    "status": "active",
+                    "rating": 4.5,
+                    "delivery_fee": 5.0,
+                    "minimum_order": 15.0,
+                    "estimated_delivery_time": 30,
+                    "menu_items": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "name": "Jerk Chicken",
+                            "description": "Spicy marinated chicken grilled to perfection",
+                            "price": 18.99,
+                            "category": "Main Course",
+                            "available": True,
+                            "preparation_time": 20
+                        },
+                        {
+                            "id": str(uuid.uuid4()),
+                            "name": "Curry Goat",
+                            "description": "Traditional Caribbean curry goat with rice and peas",
+                            "price": 22.99,
+                            "category": "Main Course",
+                            "available": True,
+                            "preparation_time": 25
+                        },
+                        {
+                            "id": str(uuid.uuid4()),
+                            "name": "Festival",
+                            "description": "Sweet fried dumplings - perfect side dish",
+                            "price": 4.99,
+                            "category": "Sides",
+                            "available": True,
+                            "preparation_time": 10
+                        }
+                    ],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+            ]
+            
+            await db.restaurants.insert_many(sample_restaurants)
             
     except Exception as e:
         logging.error(f"Error initializing data: {e}")
