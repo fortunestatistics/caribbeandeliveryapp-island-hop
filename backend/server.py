@@ -529,6 +529,24 @@ async def update_order_status(order_id: str, status: str, request: Request):
     
     return {"message": f"Order status updated to {status}"}
 
+# Driver Management Routes
+@api_router.post("/drivers", response_model=Driver)
+async def create_driver(driver: Driver, request: Request):
+    """Create driver profile"""
+    current_user = await get_current_user_from_request(request)
+    driver.user_id = current_user.id
+    
+    driver_dict = prepare_for_mongo(driver.dict())
+    await db.drivers.insert_one(driver_dict)
+    
+    # Update user type
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$set": {"user_type": "driver"}}
+    )
+    
+    return driver
+
 # Business Categories Routes
 @api_router.get("/business/categories", response_model=List[BusinessCategory])
 async def get_business_categories():
