@@ -190,7 +190,14 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Services order with Taxi first as requested
   const services = [
+    {
+      icon: Car,
+      name: 'Taxi Service',
+      description: 'Reliable ride services across the islands',
+      color: 'from-yellow-500 to-orange-500'
+    },
     {
       icon: Utensils,
       name: 'Food Delivery',
@@ -214,12 +221,6 @@ const LandingPage = () => {
       name: 'Courier',
       description: 'Fast and secure package delivery',
       color: 'from-purple-500 to-pink-500'
-    },
-    {
-      icon: Car,
-      name: 'Taxi',
-      description: 'Reliable ride services across the islands',
-      color: 'from-yellow-500 to-orange-500'
     }
   ];
 
