@@ -74,6 +74,9 @@ class User(BaseModel):
     name: str
     picture: Optional[str] = None
     session_token: Optional[str] = None
+    user_type: str = "customer"  # customer, restaurant, driver, admin
+    phone: Optional[str] = None
+    address: Optional[Dict[str, str]] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SessionCreate(BaseModel):
