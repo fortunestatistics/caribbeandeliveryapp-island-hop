@@ -82,6 +82,78 @@ class User(BaseModel):
 class SessionCreate(BaseModel):
     session_id: str
 
+# Restaurant Models
+class MenuItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    description: str
+    price: float
+    category: str
+    image_url: Optional[str] = None
+    available: bool = True
+    preparation_time: int = 15  # minutes
+
+class Restaurant(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    name: str
+    description: str
+    cuisine_type: str
+    address: Dict[str, str]
+    phone: str
+    email: str
+    status: str = "active"  # active, inactive, suspended
+    rating: float = 0.0
+    delivery_fee: float = 5.0
+    minimum_order: float = 15.0
+    estimated_delivery_time: int = 30
+    menu_items: List[MenuItem] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Driver Models
+class Driver(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    license_number: str
+    vehicle_type: str
+    vehicle_plate: str
+    status: str = "offline"  # offline, online, busy
+    rating: float = 0.0
+    current_location: Optional[Dict[str, float]] = None  # lat, lng
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Order Models
+class OrderItem(BaseModel):
+    menu_item_id: str
+    name: str
+    price: float
+    quantity: int
+    special_instructions: Optional[str] = None
+
+class Order(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_number: str = Field(default_factory=lambda: f"ORD{str(uuid.uuid4())[:8].upper()}")
+    customer_id: str
+    restaurant_id: str
+    driver_id: Optional[str] = None
+    items: List[OrderItem]
+    subtotal: float
+    delivery_fee: float
+    tax: float
+    total: float
+    status: str = "pending"  # pending, confirmed, preparing, ready, picked_up, delivered, cancelled
+    delivery_address: Dict[str, str]
+    customer_phone: str
+    special_instructions: Optional[str] = None
+    estimated_delivery_time: datetime
+    payment_status: str = "pending"  # pending, paid, refunded
+    payment_session_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    confirmed_at: Optional[datetime] = None
+    prepared_at: Optional[datetime] = None
+    picked_up_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+
 # Business Onboarding Models
 class BusinessType(BaseModel):
     type: str
