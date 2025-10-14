@@ -1335,8 +1335,8 @@ const BusinessOnboarding = () => {
               </div>
             )}
 
-            {/* Step 4: Review & Submit */}
-            {currentStep === 4 && (
+            {/* Step 5: Review & Submit */}
+            {currentStep === 5 && (
               <div className="space-y-6" data-testid="review-submit-step">
                 <div className="text-center mb-6">
                   <h3 className="text-2xl font-bold text-gray-900 mb-2">Review Your Application</h3>
