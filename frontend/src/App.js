@@ -157,6 +157,9 @@ const Header = () => {
           <Link to="/analytics" className="text-gray-700 hover:text-orange-600 transition-colors">
             Analytics
           </Link>
+          <Link to="/car-rentals" className="text-gray-700 hover:text-orange-600 transition-colors">
+            Car Rentals
+          </Link>
           <Link to="/partner" className="text-gray-700 hover:text-orange-600 transition-colors">
             Become a Partner
           </Link>
