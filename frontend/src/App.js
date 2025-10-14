@@ -1820,6 +1820,21 @@ const BusinessOnboarding = () => {
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center">
+                        <CreditCard className="h-5 w-5 mr-2" />
+                        Banking Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div><strong>Account Holder:</strong> {formData.accountHolderName}</div>
+                      <div><strong>Bank:</strong> {formData.bankName}</div>
+                      <div><strong>Account Type:</strong> {formData.accountType}</div>
+                      <div><strong>Account Number:</strong> ****{formData.accountNumber?.slice(-4)}</div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
                         <Award className="h-5 w-5 mr-2" />
                         Next Steps
                       </CardTitle>
