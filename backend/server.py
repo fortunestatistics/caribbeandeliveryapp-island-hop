@@ -1417,6 +1417,13 @@ async def initialize_data():
                     "description": "Other business types requiring delivery services",
                     "commission_rate": 20.0,
                     "requirements": ["Business registration", "Insurance", "Product compliance certificates"]
+                },
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": "Car Rental",
+                    "description": "Vehicle rental services including airport pickups",
+                    "commission_rate": 10.0,
+                    "requirements": ["Business license", "Fleet insurance", "Commercial vehicle registration", "Driver verification system"]
                 }
             ]
             
