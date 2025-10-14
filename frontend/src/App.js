@@ -153,6 +153,9 @@ const Header = () => {
         </Link>
 
         <nav className="hidden md:flex items-center space-x-6">
+          <Link to="/analytics" className="text-gray-700 hover:text-orange-600 transition-colors">
+            Analytics
+          </Link>
           <Link to="/partner" className="text-gray-700 hover:text-orange-600 transition-colors">
             Become a Partner
           </Link>
