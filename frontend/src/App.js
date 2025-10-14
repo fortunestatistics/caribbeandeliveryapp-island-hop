@@ -575,6 +575,15 @@ const PartnerSelection = () => {
       color: 'from-blue-500 to-indigo-500',
       benefits: ['Fleet management system', 'Airport pickup integration', 'Insurance handling', 'Multi-location support'],
       commission: '10%'
+    },
+    {
+      type: 'business_supplier',
+      name: 'Business Supplier',
+      description: 'Any business needing delivery services - from groceries to retail',
+      icon: Building2,
+      color: 'from-emerald-500 to-teal-500',
+      benefits: ['Multi-category support', 'Flexible delivery options', 'Inventory management', 'Customer reach expansion'],
+      commission: '12-18%'
     }
   ];
 
