@@ -1814,7 +1814,7 @@ const BusinessOnboarding = () => {
                 Previous
               </Button>
               
-              {currentStep < 5 ? (
+              {currentStep < 6 ? (
                 <Button 
                   onClick={nextStep}
                   className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
