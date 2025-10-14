@@ -122,6 +122,69 @@ class Driver(BaseModel):
     current_location: Optional[Dict[str, float]] = None  # lat, lng
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# Car Rental Models
+class RentalVehicle(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    make: str
+    model: str
+    year: int
+    vehicle_type: str  # economy, compact, mid_size, full_size, luxury, suv, convertible
+    color: str
+    license_plate: str
+    fuel_type: str  # gasoline, diesel, electric, hybrid
+    transmission: str  # automatic, manual
+    passenger_capacity: int
+    daily_rate: float
+    weekly_rate: float
+    monthly_rate: float
+    mileage: int
+    features: List[str]  # ["GPS", "AC", "Bluetooth", "Backup Camera"]
+    images: List[str] = []
+    status: str = "available"  # available, rented, maintenance, out_of_service
+    location: str  # airport, downtown, hotel_pickup
+
+class CarRentalCompany(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    company_name: str
+    description: str
+    business_license: str
+    insurance_info: Dict[str, str]
+    locations: List[Dict[str, Any]]  # [{"name": "Airport", "address": {...}, "hours": {...}}]
+    contact_info: Dict[str, str]
+    fleet: List[RentalVehicle] = []
+    policies: Dict[str, Any]  # age_requirement, deposit, cancellation_policy
+    rating: float = 0.0
+    total_bookings: int = 0
+    status: str = "active"  # active, inactive, suspended
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RentalBooking(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    booking_number: str = Field(default_factory=lambda: f"RNT{str(uuid.uuid4())[:8].upper()}")
+    customer_id: str
+    rental_company_id: str
+    vehicle_id: str
+    pickup_location: str
+    dropoff_location: str
+    pickup_datetime: datetime
+    dropoff_datetime: datetime
+    rental_duration_days: int
+    daily_rate: float
+    total_cost: float
+    security_deposit: float
+    insurance_selected: bool = False
+    insurance_cost: float = 0.0
+    driver_info: Dict[str, str]  # license info, age verification
+    additional_services: List[str] = []  # ["GPS", "Child Seat", "Additional Driver"]
+    status: str = "pending"  # pending, confirmed, picked_up, completed, cancelled
+    payment_status: str = "pending"
+    special_requests: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    confirmed_at: Optional[datetime] = None
+    picked_up_at: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
+
 # Order Models
 class OrderItem(BaseModel):
     menu_item_id: str
