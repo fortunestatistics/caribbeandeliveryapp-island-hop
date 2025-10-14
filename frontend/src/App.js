@@ -770,7 +770,24 @@ const BusinessOnboarding = () => {
     serviceArea: '',
     businessModel: '',
     targetCustomers: '',
-    competitiveAdvantage: ''
+    competitiveAdvantage: '',
+    
+    // Business Supplier-specific fields  
+    businessCategory: '',
+    storeSize: '',
+    productCategories: [],
+    inventorySize: '',
+    specialServices: [],
+    businessLicense: '',
+    taxId: '',
+    yearsInBusiness: '',
+    
+    // Banking information
+    accountHolderName: '',
+    bankName: '',
+    accountNumber: '',
+    routingNumber: '',
+    accountType: ''
   });
 
   useEffect(() => {
