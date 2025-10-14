@@ -225,6 +225,12 @@ const LandingPage = () => {
       name: 'Courier',
       description: 'Fast and secure package delivery',
       color: 'from-purple-500 to-pink-500'
+    },
+    {
+      icon: Car,
+      name: 'Car Rental',
+      description: 'Airport and city car rental services',
+      color: 'from-blue-500 to-indigo-500'
     }
   ];
 
