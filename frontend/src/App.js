@@ -839,7 +839,7 @@ const BusinessOnboarding = () => {
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Business Onboarding</h1>
-          <p className="text-gray-600">Step {currentStep} of 4: {stepTitles[currentStep - 1]}</p>
+          <p className="text-gray-600">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
         </div>
 
         {/* Progress Bar */}
