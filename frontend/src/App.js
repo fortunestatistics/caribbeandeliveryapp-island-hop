@@ -1392,14 +1392,70 @@ const BusinessOnboarding = () => {
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center">
+                        <Target className="h-5 w-5 mr-2" />
+                        {getBusinessSpecificFields().title}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      {businessType === 'restaurant' && (
+                        <>
+                          <div><strong>Cuisine Type:</strong> {formData.cuisineType}</div>
+                          <div><strong>Kitchen Capacity:</strong> {formData.kitchenCapacity} orders/hour</div>
+                          <div><strong>Average Order Value:</strong> ${formData.averageOrderValue}</div>
+                          <div><strong>Peak Hours:</strong> {formData.peakHours}</div>
+                          {formData.specialDietaryOptions?.length > 0 && (
+                            <div><strong>Dietary Options:</strong> {formData.specialDietaryOptions.join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                      {businessType === 'pharmacy' && (
+                        <>
+                          <div><strong>Pharmacy License:</strong> {formData.pharmacyLicense}</div>
+                          <div><strong>Pharmacist:</strong> {formData.pharmacistInfo?.name}</div>
+                          <div><strong>License #:</strong> {formData.pharmacistInfo?.license}</div>
+                          <div><strong>Experience:</strong> {formData.pharmacistInfo?.experience} years</div>
+                          {formData.prescriptionServices?.length > 0 && (
+                            <div><strong>Services:</strong> {formData.prescriptionServices.join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                      {businessType === 'grocery' && (
+                        <>
+                          <div><strong>Store Size:</strong> {formData.storeSize} sq ft</div>
+                          <div><strong>Refrigerated Section:</strong> {formData.refrigeratedSection ? 'Yes' : 'No'}</div>
+                          <div><strong>Organic Products:</strong> {formData.organicProducts ? 'Yes' : 'No'}</div>
+                          <div><strong>Inventory System:</strong> {formData.inventorySystem}</div>
+                          {formData.productCategories?.length > 0 && (
+                            <div><strong>Categories:</strong> {formData.productCategories.join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                      {businessType === 'car_rental' && (
+                        <>
+                          <div><strong>Fleet Size:</strong> {formData.fleetSize} vehicles</div>
+                          <div><strong>Insurance Provider:</strong> {formData.insuranceProvider}</div>
+                          <div><strong>Airport Pickup:</strong> {formData.airportPickup ? 'Yes' : 'No'}</div>
+                          <div><strong>Chauffeur Services:</strong> {formData.driverServices ? 'Yes' : 'No'}</div>
+                          {formData.vehicleTypes?.length > 0 && (
+                            <div><strong>Vehicle Types:</strong> {formData.vehicleTypes.join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
                         <Award className="h-5 w-5 mr-2" />
                         Next Steps
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                       <div>✓ Application review (24-48 hours)</div>
-                      <div>✓ Background verification</div>
+                      <div>✓ Background & license verification</div>
                       <div>✓ Account setup & training</div>
+                      <div>✓ {businessType === 'car_rental' ? 'Fleet inspection' : businessType === 'pharmacy' ? 'Pharmacy audit' : businessType === 'restaurant' ? 'Kitchen inspection' : 'Business verification'}</div>
                       <div>✓ Go live and start earning!</div>
                     </CardContent>
                   </Card>
