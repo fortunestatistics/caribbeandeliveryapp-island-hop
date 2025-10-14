@@ -447,6 +447,15 @@ const PartnerSelection = () => {
       color: 'from-purple-500 to-pink-500',
       benefits: ['Flexible delivery options', 'Custom solutions', 'Dedicated support'],
       commission: '20%'
+    },
+    {
+      type: 'car_rental',
+      name: 'Car Rental',
+      description: 'Airport and city vehicle rental services',
+      icon: Car,
+      color: 'from-blue-500 to-indigo-500',
+      benefits: ['Fleet management system', 'Airport pickup integration', 'Insurance handling', 'Multi-location support'],
+      commission: '10%'
     }
   ];
 
