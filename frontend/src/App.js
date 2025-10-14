@@ -150,57 +150,161 @@ const AuthHandler = () => {
 // Header Component
 const Header = () => {
   const { user, login, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const navigationItems = [
+    { to: "/restaurants", label: "Restaurants", icon: Utensils },
+    { to: "/car-rentals", label: "Car Rentals", icon: Car },
+    { to: "/analytics", label: "Analytics", icon: TrendingUp },
+    { to: "/partner", label: "Become a Partner", icon: Building2 },
+    { to: "/driver", label: "Drive with Us", icon: Truck },
+    { to: "/support", label: "Support", icon: MessageCircle }
+  ];
 
   return (
-    <header className="bg-white/95 backdrop-blur-md border-b border-orange-200 sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <Link to="/" className="flex items-center space-x-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center">
-            <Package className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">IslandHop</h1>
-            <p className="text-xs text-turquoise-600">Caribbean Delivery</p>
-          </div>
-        </Link>
+    <>
+      <header className="bg-white/95 backdrop-blur-md border-b border-orange-200 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <Link to="/" className="flex items-center space-x-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center">
+                <Package className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">IslandHop</h1>
+                <p className="text-xs text-turquoise-600">Caribbean Delivery</p>
+              </div>
+            </Link>
 
-        <nav className="hidden md:flex items-center space-x-6">
-          <Link to="/analytics" className="text-gray-700 hover:text-orange-600 transition-colors">
-            Analytics
-          </Link>
-          <Link to="/car-rentals" className="text-gray-700 hover:text-orange-600 transition-colors">
-            Car Rentals
-          </Link>
-          <Link to="/partner" className="text-gray-700 hover:text-orange-600 transition-colors">
-            Become a Partner
-          </Link>
-          <Link to="/track" className="text-gray-700 hover:text-orange-600 transition-colors">
-            Track Order
-          </Link>
-          <Link to="/support" className="text-gray-700 hover:text-orange-600 transition-colors">
-            Support
-          </Link>
-        </nav>
+            {/* Desktop Navigation */}
+            <nav className="hidden lg:flex items-center space-x-6">
+              {navigationItems.map((item) => (
+                <Link 
+                  key={item.to}
+                  to={item.to} 
+                  className="text-gray-700 hover:text-orange-600 transition-colors font-medium"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
 
-        <div className="flex items-center space-x-4">
-          {user ? (
-            <div className="flex items-center space-x-3">
-              <span className="text-sm text-gray-700">Welcome, {user.name}</span>
-              <Button onClick={() => navigate('/dashboard')} variant="outline" size="sm">
-                Dashboard
-              </Button>
-              <Button onClick={logout} variant="ghost" size="sm">
-                Logout
-              </Button>
+            {/* Desktop Auth Section */}
+            <div className="hidden md:flex items-center space-x-4">
+              {user ? (
+                <div className="flex items-center space-x-3">
+                  <span className="text-sm text-gray-700 hidden lg:inline">Welcome, {user.name}</span>
+                  <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
+                    Dashboard
+                  </Button>
+                  <Button onClick={logout} variant="ghost" size="sm">
+                    Logout
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={() => login('/dashboard')} className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+                  Sign In
+                </Button>
+              )}
             </div>
-          ) : (
-            <Button onClick={() => login('/dashboard')} className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
-              Sign In
-            </Button>
+
+            {/* Mobile Menu Button */}
+            <button
+              className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              data-testid="mobile-menu-btn"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-6 w-6 text-gray-700" />
+              ) : (
+                <Menu className="h-6 w-6 text-gray-700" />
+              )}
+            </button>
+          </div>
+
+          {/* Mobile Navigation Menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden mt-4 pb-4 border-t border-gray-200 bg-white/95 backdrop-blur-md">
+              <nav className="flex flex-col space-y-1 mt-4">
+                {navigationItems.map((item) => {
+                  const IconComponent = item.icon;
+                  return (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      className="flex items-center space-x-3 px-4 py-3 text-gray-700 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                      data-testid={`mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <IconComponent className="h-5 w-5" />
+                      <span className="font-medium">{item.label}</span>
+                    </Link>
+                  );
+                })}
+                
+                {/* Mobile Auth Section */}
+                <div className="border-t border-gray-200 pt-4 px-4">
+                  {user ? (
+                    <div className="space-y-3">
+                      <div className="text-sm text-gray-600">
+                        Welcome, <span className="font-semibold">{user.name}</span>
+                      </div>
+                      <div className="flex flex-col space-y-2">
+                        <Button 
+                          onClick={() => {
+                            window.location.href = '/dashboard';
+                            setMobileMenuOpen(false);
+                          }}
+                          variant="outline" 
+                          size="sm"
+                          className="w-full justify-start"
+                          data-testid="mobile-dashboard-btn"
+                        >
+                          <Users className="h-4 w-4 mr-2" />
+                          Dashboard
+                        </Button>
+                        <Button 
+                          onClick={() => {
+                            logout();
+                            setMobileMenuOpen(false);
+                          }}
+                          variant="ghost" 
+                          size="sm"
+                          className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
+                          data-testid="mobile-logout-btn"
+                        >
+                          Logout
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button 
+                      onClick={() => {
+                        login('/dashboard');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                      data-testid="mobile-signin-btn"
+                    >
+                      Sign In
+                    </Button>
+                  )}
+                </div>
+              </nav>
+            </div>
           )}
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Overlay for mobile menu */}
+      {mobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/20 z-40 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+    </>
   );
 };
 
