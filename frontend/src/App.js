@@ -1476,8 +1476,207 @@ const BusinessOnboarding = () => {
               </div>
             )}
 
-            {/* Step 5: Review & Submit */}
+            {/* Step 5: Documents & Banking */}
             {currentStep === 5 && (
+              <div className="space-y-6" data-testid="documents-banking-step">
+                <div className="text-center mb-6">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                    Documents & Banking Information
+                  </h3>
+                  <p className="text-gray-600">
+                    Upload required documents and provide banking details for secure payouts
+                  </p>
+                </div>
+
+                {/* Document Upload Section */}
+                <Card className="bg-gray-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Package className="h-5 w-5 mr-2 text-turquoise-600" />
+                      Required Documents
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <Label htmlFor="businessLicense">Business License *</Label>
+                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600 mb-2">Upload Business License</p>
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            id="businessLicenseUpload"
+                            data-testid="business-license-upload"
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => document.getElementById('businessLicenseUpload').click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="taxId">Tax ID / EIN Document *</Label>
+                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600 mb-2">Upload Tax ID Document</p>
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            id="taxIdUpload"
+                            data-testid="tax-id-upload"
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => document.getElementById('taxIdUpload').click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="proofOfAddress">Proof of Business Address</Label>
+                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600 mb-2">Utility bill or lease agreement</p>
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            id="addressProofUpload"
+                            data-testid="address-proof-upload"
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => document.getElementById('addressProofUpload').click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="businessPhotos">Business Photos</Label>
+                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600 mb-2">Interior/exterior photos</p>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png"
+                            multiple
+                            className="hidden"
+                            id="businessPhotosUpload"
+                            data-testid="business-photos-upload"
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => document.getElementById('businessPhotosUpload').click()}
+                          >
+                            Choose Files
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Banking Information Section */}
+                <Card className="bg-blue-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <CreditCard className="h-5 w-5 mr-2 text-blue-600" />
+                      Banking Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                        <Input
+                          id="accountHolderName"
+                          value={formData.accountHolderName || ''}
+                          onChange={(e) => handleInputChange('accountHolderName', e.target.value)}
+                          placeholder="Exact name on bank account"
+                          data-testid="account-holder-input"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="bankName">Bank Name *</Label>
+                        <Input
+                          id="bankName"
+                          value={formData.bankName || ''}
+                          onChange={(e) => handleInputChange('bankName', e.target.value)}
+                          placeholder="Name of your bank"
+                          data-testid="bank-name-input"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="accountNumber">Account Number *</Label>
+                        <Input
+                          id="accountNumber"
+                          value={formData.accountNumber || ''}
+                          onChange={(e) => handleInputChange('accountNumber', e.target.value)}
+                          placeholder="Bank account number"
+                          data-testid="account-number-input"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="routingNumber">Routing Number *</Label>
+                        <Input
+                          id="routingNumber"
+                          value={formData.routingNumber || ''}
+                          onChange={(e) => handleInputChange('routingNumber', e.target.value)}
+                          placeholder="Bank routing number"
+                          data-testid="routing-number-input"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label htmlFor="accountType">Account Type *</Label>
+                        <Select 
+                          value={formData.accountType || ''} 
+                          onValueChange={(value) => handleInputChange('accountType', value)}
+                        >
+                          <SelectTrigger data-testid="account-type-select">
+                            <SelectValue placeholder="Select account type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="checking">Checking Account</SelectItem>
+                            <SelectItem value="savings">Savings Account</SelectItem>
+                            <SelectItem value="business">Business Account</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 p-4 bg-white rounded-lg border">
+                      <div className="flex items-start space-x-3">
+                        <Shield className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-1">Secure Banking Information</h4>
+                          <p className="text-sm text-gray-600">
+                            Your banking information is encrypted and securely stored. We use bank-level security to protect your financial data.
+                            Payouts are processed weekly and typically arrive within 1-2 business days.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Step 6: Review & Submit */}
+            {currentStep === 6 && (
               <div className="space-y-6" data-testid="review-submit-step">
                 <div className="text-center mb-6">
                   <h3 className="text-2xl font-bold text-gray-900 mb-2">Review Your Application</h3>
