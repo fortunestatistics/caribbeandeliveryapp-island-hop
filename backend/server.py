@@ -875,6 +875,14 @@ async def get_kpi_dashboard(date: Optional[str] = None):
             }
         }).to_list(length=None)
         
+        # Get rental bookings for the day
+        rental_bookings = await db.rental_bookings.find({
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lte": end_of_day.isoformat()
+            }
+        }).to_list(length=None)
+        
         # Calculate delivery performance KPIs
         completed_orders = [o for o in orders if o.get('status') == 'delivered']
         total_orders = len(orders)
