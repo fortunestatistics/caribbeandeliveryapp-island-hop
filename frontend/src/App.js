@@ -1074,8 +1074,180 @@ const BusinessOnboarding = () => {
               </div>
             )}
 
-            {/* Step 3: Pricing & Operations */}
+            {/* Step 3: Business-Specific Information */}
             {currentStep === 3 && (
+              <div className="space-y-6" data-testid="business-specific-step">
+                <div className="text-center mb-6">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                    {getBusinessSpecificFields().title}
+                  </h3>
+                  <p className="text-gray-600">
+                    Please provide information specific to your business type
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {getBusinessSpecificFields().fields.map((field, index) => (
+                    <div key={field.key} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                      <Label htmlFor={field.key}>
+                        {field.label} {field.required && '*'}
+                      </Label>
+                      
+                      {field.type === 'text' && (
+                        <Input
+                          id={field.key}
+                          value={field.key.includes('.') ? 
+                            field.key.split('.').reduce((obj, key) => obj?.[key], formData) || '' :
+                            formData[field.key] || ''
+                          }
+                          onChange={(e) => handleInputChange(field.key, e.target.value)}
+                          placeholder={field.placeholder}
+                          data-testid={`${field.key}-input`}
+                        />
+                      )}
+                      
+                      {field.type === 'number' && (
+                        <Input
+                          id={field.key}
+                          type="number"
+                          value={field.key.includes('.') ? 
+                            field.key.split('.').reduce((obj, key) => obj?.[key], formData) || '' :
+                            formData[field.key] || ''
+                          }
+                          onChange={(e) => handleInputChange(field.key, parseFloat(e.target.value) || 0)}
+                          placeholder={field.placeholder}
+                          data-testid={`${field.key}-input`}
+                        />
+                      )}
+                      
+                      {field.type === 'select' && (
+                        <Select 
+                          value={formData[field.key] || ''} 
+                          onValueChange={(value) => handleInputChange(field.key, value)}
+                        >
+                          <SelectTrigger data-testid={`${field.key}-select`}>
+                            <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {field.options.map((option) => (
+                              <SelectItem key={option} value={option.toLowerCase().replace(/\s+/g, '_')}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      
+                      {field.type === 'textarea' && (
+                        <Textarea
+                          id={field.key}
+                          value={formData[field.key] || ''}
+                          onChange={(e) => handleInputChange(field.key, e.target.value)}
+                          placeholder={field.placeholder}
+                          rows={3}
+                          data-testid={`${field.key}-textarea`}
+                        />
+                      )}
+                      
+                      {field.type === 'checkbox' && (
+                        <div className="flex items-center space-x-2 mt-2">
+                          <input
+                            type="checkbox"
+                            id={field.key}
+                            checked={formData[field.key] || false}
+                            onChange={(e) => handleInputChange(field.key, e.target.checked)}
+                            data-testid={`${field.key}-checkbox`}
+                          />
+                          <Label htmlFor={field.key} className="text-sm">
+                            Yes, this service is available
+                          </Label>
+                        </div>
+                      )}
+                      
+                      {field.type === 'multiselect' && (
+                        <div className="space-y-2">
+                          <div className="text-sm text-gray-600">Select all that apply:</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {field.options.map((option) => (
+                              <div key={option} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  id={`${field.key}-${option}`}
+                                  checked={(formData[field.key] || []).includes(option)}
+                                  onChange={(e) => {
+                                    const currentValues = formData[field.key] || [];
+                                    if (e.target.checked) {
+                                      handleInputChange(field.key, [...currentValues, option]);
+                                    } else {
+                                      handleInputChange(field.key, currentValues.filter(v => v !== option));
+                                    }
+                                  }}
+                                  data-testid={`${field.key}-${option.toLowerCase().replace(/\s+/g, '-')}`}
+                                />
+                                <Label htmlFor={`${field.key}-${option}`} className="text-sm">
+                                  {option}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Business-specific help text */}
+                <div className="mt-8 p-4 bg-turquoise-50 rounded-lg">
+                  <h4 className="font-semibold text-turquoise-800 mb-2">
+                    {businessType === 'restaurant' && 'Restaurant Guidelines'}
+                    {businessType === 'pharmacy' && 'Pharmacy Requirements'}
+                    {businessType === 'grocery' && 'Grocery Store Information'}
+                    {businessType === 'car_rental' && 'Car Rental Guidelines'}
+                    {!['restaurant', 'pharmacy', 'grocery', 'car_rental'].includes(businessType) && 'Business Information'}
+                  </h4>
+                  <div className="text-sm text-turquoise-700">
+                    {businessType === 'restaurant' && (
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Ensure you have valid food handler's licenses for all staff</li>
+                        <li>Menu items should include allergen information</li>
+                        <li>Kitchen capacity should reflect realistic order volumes</li>
+                        <li>Consider peak hours for optimal delivery scheduling</li>
+                      </ul>
+                    )}
+                    {businessType === 'pharmacy' && (
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Valid pharmacy license is required before approval</li>
+                        <li>Licensed pharmacist must be available during operating hours</li>
+                        <li>Prescription delivery requires special handling protocols</li>
+                        <li>Insurance verification systems must be in place</li>
+                      </ul>
+                    )}
+                    {businessType === 'grocery' && (
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Refrigerated items require temperature-controlled delivery</li>
+                        <li>Inventory system helps track product availability</li>
+                        <li>Local supplier partnerships enhance freshness</li>
+                        <li>Product categorization improves customer experience</li>
+                      </ul>
+                    )}
+                    {businessType === 'car_rental' && (
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>All vehicles must have valid registration and insurance</li>
+                        <li>Driver background checks are required for chauffeur services</li>
+                        <li>Airport pickup requires special permits and scheduling</li>
+                        <li>Vehicle maintenance records must be up to date</li>
+                      </ul>
+                    )}
+                    {!['restaurant', 'pharmacy', 'grocery', 'car_rental'].includes(businessType) && (
+                      <p>Provide detailed information about your business to help us understand your service requirements and create the best partnership experience.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Operations & Pricing */}
+            {currentStep === 4 && (
               <div className="space-y-6" data-testid="pricing-operations-step">
                 <div>
                   <Label>Select Pricing Tier *</Label>
