@@ -1439,6 +1439,13 @@ async def initialize_data():
                     "description": "Vehicle rental services including airport pickups",
                     "commission_rate": 10.0,
                     "requirements": ["Business license", "Fleet insurance", "Commercial vehicle registration", "Driver verification system"]
+                },
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": "Business Supplier",
+                    "description": "Any business needing delivery services - retail, grocery, specialty stores",
+                    "commission_rate": 15.0,
+                    "requirements": ["Business license", "Tax ID/EIN", "Proof of address", "Insurance", "Product compliance"]
                 }
             ]
             
