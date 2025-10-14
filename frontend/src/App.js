@@ -1497,6 +1497,7 @@ function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/analytics" element={<KPIDashboard />} />
+            <Route path="/car-rentals" element={<CarRentalPage />} />
             <Route path="/partner" element={<PartnerSelection />} />
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
             <Route path="/support" element={<AISupport />} />
