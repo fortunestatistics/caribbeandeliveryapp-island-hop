@@ -39,7 +39,18 @@ import {
   Zap,
   Heart,
   Award,
-  Target
+  Target,
+  Plus,
+  Minus,
+  ChefHat,
+  Truck,
+  Timer,
+  Navigation,
+  Eye,
+  Edit,
+  Settings,
+  Menu,
+  X
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
