@@ -871,9 +871,10 @@ const BusinessOnboarding = () => {
 
   const stepTitles = [
     'Business Owner Information',
-    'Business Details',
+    'Business Details', 
     'Business-Specific Information',
     'Operations & Pricing',
+    'Documents & Banking',
     'Review & Submit'
   ];
 
