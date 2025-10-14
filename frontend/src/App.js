@@ -603,7 +603,50 @@ const BusinessOnboarding = () => {
     estimatedPrepTime: 30,
     selectedPricingTier: '',
     // Documents
-    documents: []
+    documents: [],
+    
+    // Restaurant-specific fields
+    cuisineType: '',
+    menuCategories: [],
+    kitchenCapacity: '',
+    foodSafetyRating: '',
+    averageOrderValue: '',
+    peakHours: '',
+    specialDietaryOptions: [],
+    
+    // Pharmacy-specific fields
+    pharmacyLicense: '',
+    pharmacistInfo: {
+      name: '',
+      license: '',
+      experience: ''
+    },
+    prescriptionServices: [],
+    insuranceAccepted: [],
+    controlledSubstancesLicense: '',
+    
+    // Grocery-specific fields
+    storeSize: '',
+    productCategories: [],
+    refrigeratedSection: false,
+    organicProducts: false,
+    localSuppliers: [],
+    inventorySystem: '',
+    
+    // Car Rental-specific fields
+    fleetSize: '',
+    vehicleTypes: [],
+    insuranceProvider: '',
+    airportPickup: false,
+    driverServices: false,
+    rentalLocations: [],
+    
+    // General Business-specific fields
+    industryType: '',
+    serviceArea: '',
+    businessModel: '',
+    targetCustomers: '',
+    competitiveAdvantage: ''
   });
 
   useEffect(() => {
