@@ -249,6 +249,81 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
 
+# KPI Models
+class CustomerRating(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    customer_id: str
+    restaurant_id: str
+    driver_id: Optional[str] = None
+    food_rating: float  # 1-5 stars
+    delivery_rating: float  # 1-5 stars
+    overall_rating: float  # 1-5 stars
+    feedback: Optional[str] = None
+    delivery_time_satisfaction: float  # 1-5 stars
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DriverPerformance(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    driver_id: str
+    date: datetime
+    orders_completed: int
+    total_delivery_time: int  # in minutes
+    average_delivery_time: float
+    on_time_deliveries: int
+    late_deliveries: int
+    earnings: float
+    distance_traveled: float  # in kilometers
+    fuel_cost: float
+    customer_ratings: float
+    active_hours: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DailyOperations(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    total_orders: int
+    completed_orders: int
+    cancelled_orders: int
+    total_revenue: float
+    total_delivery_time: int  # total minutes
+    average_delivery_time: float
+    on_time_deliveries: int
+    late_deliveries: int
+    active_drivers: int
+    total_customers: int
+    new_customers: int
+    customer_satisfaction_avg: float
+    operational_costs: float
+    profit: float
+    peak_hours: List[Dict[str, Any]]  # [{"hour": 12, "orders": 45}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class KPIMetrics(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    date: datetime
+    # Delivery Performance KPIs
+    avg_delivery_time: float  # minutes
+    on_time_delivery_rate: float  # percentage
+    # Customer Satisfaction KPIs
+    customer_satisfaction_score: float  # 1-5 scale
+    net_promoter_score: float  # -100 to +100
+    # Driver Performance KPIs
+    driver_retention_rate: float  # percentage
+    avg_driver_rating: float  # 1-5 scale
+    driver_earnings_per_hour: float
+    # Financial KPIs
+    avg_order_value: float
+    order_completion_cost: float
+    revenue_per_order: float
+    profit_margin: float  # percentage
+    # Operational KPIs
+    order_completion_rate: float  # percentage
+    peak_hour_efficiency: float  # percentage
+    customer_acquisition_cost: float
+    customer_lifetime_value: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Helper functions
 def prepare_for_mongo(data):
     """Prepare data for MongoDB storage"""
