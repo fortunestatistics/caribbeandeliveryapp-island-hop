@@ -918,7 +918,14 @@ async def get_kpi_dashboard(date: Optional[str] = None):
         
         # Financial metrics
         total_revenue = sum(o.get('total', 0) for o in completed_orders)
-        avg_order_value = total_revenue / completed_count if completed_count > 0 else 0
+        
+        # Add rental revenue
+        completed_rentals = [r for r in rental_bookings if r.get('status') == 'completed']
+        rental_revenue = sum(r.get('total_cost', 0) for r in completed_rentals)
+        total_revenue += rental_revenue
+        
+        total_transactions = completed_count + len(completed_rentals)
+        avg_order_value = total_revenue / total_transactions if total_transactions > 0 else 0
         
         # Order completion cost (estimated)
         estimated_cost_per_order = 8.50  # Base cost including driver pay, fuel, operations
