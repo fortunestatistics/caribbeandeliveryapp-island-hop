@@ -685,6 +685,165 @@ async def create_driver(driver: Driver, request: Request):
     
     return driver
 
+# Car Rental Management Routes
+@api_router.post("/car-rentals", response_model=CarRentalCompany)
+async def create_rental_company(company: CarRentalCompany, request: Request):
+    """Create car rental company profile"""
+    current_user = await get_current_user_from_request(request)
+    company.user_id = current_user.id
+    
+    company_dict = prepare_for_mongo(company.dict())
+    await db.car_rental_companies.insert_one(company_dict)
+    
+    # Update user type
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$set": {"user_type": "car_rental"}}
+    )
+    
+    return company
+
+@api_router.get("/car-rentals", response_model=List[CarRentalCompany])
+async def get_rental_companies():
+    """Get all active car rental companies"""
+    companies = await db.car_rental_companies.find({"status": "active"}).to_list(length=None)
+    return [CarRentalCompany(**company) for company in companies]
+
+@api_router.get("/car-rentals/{company_id}", response_model=CarRentalCompany)
+async def get_rental_company(company_id: str):
+    """Get car rental company by ID"""
+    company = await db.car_rental_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Car rental company not found")
+    return CarRentalCompany(**company)
+
+@api_router.put("/car-rentals/{company_id}/fleet")
+async def update_fleet(company_id: str, vehicles: List[RentalVehicle], request: Request):
+    """Update car rental company fleet"""
+    current_user = await get_current_user_from_request(request)
+    
+    company = await db.car_rental_companies.find_one({"id": company_id, "user_id": current_user.id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Car rental company not found")
+    
+    vehicles_dict = [prepare_for_mongo(vehicle.dict()) for vehicle in vehicles]
+    await db.car_rental_companies.update_one(
+        {"id": company_id},
+        {"$set": {"fleet": vehicles_dict}}
+    )
+    
+    return {"message": "Fleet updated successfully"}
+
+@api_router.get("/car-rentals/{company_id}/available-vehicles")
+async def get_available_vehicles(
+    company_id: str,
+    pickup_date: str,
+    dropoff_date: str,
+    location: Optional[str] = None
+):
+    """Get available vehicles for rental period"""
+    company = await db.car_rental_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Car rental company not found")
+    
+    # Filter available vehicles (simple logic - in real app would check bookings)
+    available_vehicles = [
+        vehicle for vehicle in company.get("fleet", [])
+        if vehicle.get("status") == "available" and
+        (not location or vehicle.get("location") == location)
+    ]
+    
+    return available_vehicles
+
+@api_router.post("/car-rentals/bookings", response_model=RentalBooking)
+async def create_rental_booking(booking: RentalBooking, request: Request):
+    """Create new car rental booking"""
+    current_user = await get_current_user_from_request(request)
+    booking.customer_id = current_user.id
+    
+    # Calculate rental duration and cost
+    pickup = datetime.fromisoformat(booking.pickup_datetime.isoformat())
+    dropoff = datetime.fromisoformat(booking.dropoff_datetime.isoformat())
+    booking.rental_duration_days = max(1, (dropoff - pickup).days)
+    
+    booking_dict = prepare_for_mongo(booking.dict())
+    await db.rental_bookings.insert_one(booking_dict)
+    
+    # Notify rental company
+    await manager.send_personal_message(
+        json.dumps({
+            "type": "new_rental_booking",
+            "booking_id": booking.id,
+            "booking_number": booking.booking_number
+        }),
+        booking.rental_company_id
+    )
+    
+    return booking
+
+@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
+async def get_rental_bookings(request: Request):
+    """Get rental bookings for current user"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type == "customer":
+        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
+    elif current_user.user_type == "car_rental":
+        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
+        if company:
+            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
+        else:
+            bookings = []
+    else:
+        bookings = []
+    
+    return [RentalBooking(**booking) for booking in bookings]
+
+@api_router.put("/car-rentals/bookings/{booking_id}/status")
+async def update_booking_status(booking_id: str, status: str, request: Request):
+    """Update rental booking status"""
+    current_user = await get_current_user_from_request(request)
+    
+    booking = await db.rental_bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Validate user can update this booking
+    can_update = False
+    if current_user.user_type == "car_rental":
+        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
+        if company and company["id"] == booking["rental_company_id"]:
+            can_update = True
+    
+    if not can_update:
+        raise HTTPException(status_code=403, detail="Not authorized to update this booking")
+    
+    # Update booking status with timestamp
+    update_data = {"status": status}
+    if status == "confirmed":
+        update_data["confirmed_at"] = datetime.now(timezone.utc).isoformat()
+    elif status == "picked_up":
+        update_data["picked_up_at"] = datetime.now(timezone.utc).isoformat()
+    elif status == "completed":
+        update_data["returned_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.rental_bookings.update_one(
+        {"id": booking_id},
+        {"$set": update_data}
+    )
+    
+    # Notify customer
+    notification = {
+        "type": "rental_status_update",
+        "booking_id": booking_id,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await manager.send_personal_message(json.dumps(notification), booking["customer_id"])
+    
+    return {"message": f"Booking status updated to {status}"}
+
 # KPI & Analytics Routes
 @api_router.post("/analytics/customer-rating")
 async def submit_customer_rating(rating: CustomerRating, request: Request):
