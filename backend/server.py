@@ -1526,6 +1526,163 @@ async def initialize_data():
             ]
             
             await db.restaurants.insert_many(sample_restaurants)
+        
+        # Initialize sample car rental companies
+        existing_rentals = await db.car_rental_companies.count_documents({})
+        if existing_rentals == 0:
+            sample_rentals = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "user_id": "sample_rental_user_1",
+                    "company_name": "Caribbean Wheels",
+                    "description": "Premier car rental service with airport pickup and island-wide coverage",
+                    "business_license": "CRB-2024-001",
+                    "insurance_info": {
+                        "provider": "Caribbean General Insurance",
+                        "policy_number": "CG-FL-789456",
+                        "coverage": "Comprehensive Commercial Fleet"
+                    },
+                    "locations": [
+                        {
+                            "name": "Norman Manley International Airport",
+                            "address": {
+                                "street": "Airport Terminal Building",
+                                "city": "Kingston",
+                                "parish": "St. Andrew",
+                                "country": "Jamaica"
+                            },
+                            "hours": {
+                                "monday": {"open": "06:00", "close": "23:00"},
+                                "tuesday": {"open": "06:00", "close": "23:00"},
+                                "wednesday": {"open": "06:00", "close": "23:00"},
+                                "thursday": {"open": "06:00", "close": "23:00"},
+                                "friday": {"open": "06:00", "close": "23:00"},
+                                "saturday": {"open": "06:00", "close": "23:00"},
+                                "sunday": {"open": "06:00", "close": "23:00"}
+                            }
+                        },
+                        {
+                            "name": "Downtown Kingston",
+                            "address": {
+                                "street": "15 King Street",
+                                "city": "Kingston",
+                                "parish": "St. Andrew", 
+                                "country": "Jamaica"
+                            },
+                            "hours": {
+                                "monday": {"open": "08:00", "close": "18:00"},
+                                "tuesday": {"open": "08:00", "close": "18:00"},
+                                "wednesday": {"open": "08:00", "close": "18:00"},
+                                "thursday": {"open": "08:00", "close": "18:00"},
+                                "friday": {"open": "08:00", "close": "18:00"},
+                                "saturday": {"open": "09:00", "close": "17:00"},
+                                "sunday": {"open": "10:00", "close": "16:00"}
+                            }
+                        }
+                    ],
+                    "contact_info": {
+                        "phone": "+1-876-555-RENT",
+                        "email": "bookings@caribbeanwheels.com",
+                        "website": "www.caribbeanwheels.com"
+                    },
+                    "fleet": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "make": "Toyota",
+                            "model": "Corolla",
+                            "year": 2023,
+                            "vehicle_type": "economy",
+                            "color": "White",
+                            "license_plate": "JA-ECO-001",
+                            "fuel_type": "gasoline",
+                            "transmission": "automatic",
+                            "passenger_capacity": 5,
+                            "daily_rate": 45.0,
+                            "weekly_rate": 280.0,
+                            "monthly_rate": 1050.0,
+                            "mileage": 15000,
+                            "features": ["Air Conditioning", "Bluetooth", "USB Charging", "Backup Camera"],
+                            "images": [],
+                            "status": "available",
+                            "location": "airport"
+                        },
+                        {
+                            "id": str(uuid.uuid4()),
+                            "make": "Nissan",
+                            "model": "Altima",
+                            "year": 2023,
+                            "vehicle_type": "mid_size",
+                            "color": "Silver",
+                            "license_plate": "JA-MID-002",
+                            "fuel_type": "gasoline",
+                            "transmission": "automatic",
+                            "passenger_capacity": 5,
+                            "daily_rate": 65.0,
+                            "weekly_rate": 420.0,
+                            "monthly_rate": 1580.0,
+                            "mileage": 12000,
+                            "features": ["Air Conditioning", "GPS Navigation", "Bluetooth", "Sunroof", "Premium Audio"],
+                            "images": [],
+                            "status": "available",
+                            "location": "airport"
+                        },
+                        {
+                            "id": str(uuid.uuid4()),
+                            "make": "Honda",
+                            "model": "CR-V",
+                            "year": 2023,
+                            "vehicle_type": "suv",
+                            "color": "Black",
+                            "license_plate": "JA-SUV-003",
+                            "fuel_type": "gasoline",
+                            "transmission": "automatic",
+                            "passenger_capacity": 7,
+                            "daily_rate": 85.0,
+                            "weekly_rate": 560.0,
+                            "monthly_rate": 2100.0,
+                            "mileage": 8000,
+                            "features": ["Air Conditioning", "GPS Navigation", "4WD", "Roof Rack", "Premium Sound", "Leather Seats"],
+                            "images": [],
+                            "status": "available",
+                            "location": "airport"
+                        },
+                        {
+                            "id": str(uuid.uuid4()),
+                            "make": "BMW",
+                            "model": "X3",
+                            "year": 2024,
+                            "vehicle_type": "luxury",
+                            "color": "Blue",
+                            "license_plate": "JA-LUX-004",
+                            "fuel_type": "gasoline",
+                            "transmission": "automatic",
+                            "passenger_capacity": 5,
+                            "daily_rate": 150.0,
+                            "weekly_rate": 980.0,
+                            "monthly_rate": 3700.0,
+                            "mileage": 5000,
+                            "features": ["Premium Interior", "GPS Navigation", "Heated Seats", "Panoramic Sunroof", "Premium Sound", "All-Wheel Drive"],
+                            "images": [],
+                            "status": "available",
+                            "location": "downtown"
+                        }
+                    ],
+                    "policies": {
+                        "minimum_age": 21,
+                        "maximum_age": 75,
+                        "security_deposit": 200.0,
+                        "cancellation_policy": "Free cancellation up to 24 hours before pickup",
+                        "fuel_policy": "Return with same fuel level",
+                        "mileage_policy": "Unlimited local mileage"
+                    },
+                    "rating": 4.7,
+                    "total_bookings": 156,
+                    "status": "active",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+            ]
+            
+            await db.car_rental_companies.insert_many(sample_rentals)
             
     except Exception as e:
         logging.error(f"Error initializing data: {e}")
