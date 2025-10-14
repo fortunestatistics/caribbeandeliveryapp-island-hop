@@ -928,6 +928,22 @@ const BusinessOnboarding = () => {
             { key: 'rentalLocations', label: 'Rental Locations', type: 'multiselect', options: ['Airport Terminal', 'Downtown', 'Hotel Pickup', 'Cruise Port', 'Shopping Centers'] }
           ]
         };
+      case 'business_supplier':
+        return {
+          title: 'Business Supplier Information',
+          fields: [
+            { key: 'businessCategory', label: 'Primary Business Category', type: 'select', options: ['🛒 Grocery Store', '💊 Pharmacy', '🛍️ Retail Shop', '🥖 Bakery', '🍷 Liquor Store', '💐 Florist', '🐾 Pet Store', '🔨 Hardware Store', '📚 Bookstore', '✨ Other'], required: true },
+            { key: 'storeSize', label: 'Store Size', type: 'select', options: ['Small (Under 1,000 sq ft)', 'Medium (1,000-5,000 sq ft)', 'Large (5,000-15,000 sq ft)', 'Extra Large (15,000+ sq ft)'] },
+            { key: 'productCategories', label: 'Product Categories', type: 'multiselect', options: ['Food & Beverages', 'Health & Beauty', 'Electronics', 'Clothing & Accessories', 'Home & Garden', 'Sports & Outdoors', 'Toys & Games', 'Books & Media', 'Automotive', 'Pet Supplies', 'Office Supplies', 'Pharmacy Items'] },
+            { key: 'inventorySize', label: 'Approximate Inventory Size', type: 'select', options: ['Under 100 items', '100-500 items', '500-2,000 items', '2,000-10,000 items', '10,000+ items'] },
+            { key: 'averageOrderValue', label: 'Expected Average Order Value ($)', type: 'number' },
+            { key: 'specialServices', label: 'Special Services', type: 'multiselect', options: ['Same-day delivery', 'Scheduled delivery', 'Temperature-controlled items', 'Prescription delivery', 'Gift wrapping', 'Assembly service', 'Installation', 'Return/exchange pickup'] },
+            { key: 'businessLicense', label: 'Business License Number', type: 'text', required: true },
+            { key: 'taxId', label: 'Tax ID / EIN', type: 'text', required: true },
+            { key: 'yearsInBusiness', label: 'Years in Business', type: 'number' },
+            { key: 'competitiveAdvantage', label: 'What makes your business unique?', type: 'textarea', placeholder: 'Describe your unique selling points, quality, pricing, or special offerings' }
+          ]
+        };
       default:
         return {
           title: 'Business Information',
