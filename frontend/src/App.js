@@ -1798,6 +1798,22 @@ const BusinessOnboarding = () => {
                           )}
                         </>
                       )}
+                      {businessType === 'business_supplier' && (
+                        <>
+                          <div><strong>Business Category:</strong> {formData.businessCategory}</div>
+                          <div><strong>Store Size:</strong> {formData.storeSize}</div>
+                          <div><strong>Inventory Size:</strong> {formData.inventorySize}</div>
+                          <div><strong>Years in Business:</strong> {formData.yearsInBusiness} years</div>
+                          <div><strong>Business License:</strong> {formData.businessLicense}</div>
+                          <div><strong>Tax ID:</strong> {formData.taxId}</div>
+                          {formData.productCategories?.length > 0 && (
+                            <div><strong>Product Categories:</strong> {formData.productCategories.join(', ')}</div>
+                          )}
+                          {formData.specialServices?.length > 0 && (
+                            <div><strong>Special Services:</strong> {formData.specialServices.join(', ')}</div>
+                          )}
+                        </>
+                      )}
                     </CardContent>
                   </Card>
 
