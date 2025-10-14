@@ -622,6 +622,312 @@ async def create_driver(driver: Driver, request: Request):
     
     return driver
 
+# KPI & Analytics Routes
+@api_router.post("/analytics/customer-rating")
+async def submit_customer_rating(rating: CustomerRating, request: Request):
+    """Submit customer rating for order"""
+    try:
+        current_user = await get_current_user_from_request(request)
+        rating.customer_id = current_user.id
+        
+        rating_dict = prepare_for_mongo(rating.dict())
+        await db.customer_ratings.insert_one(rating_dict)
+        
+        return {"message": "Rating submitted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/analytics/kpi-dashboard")
+async def get_kpi_dashboard(date: Optional[str] = None):
+    """Get comprehensive KPI dashboard data"""
+    try:
+        target_date = datetime.fromisoformat(date) if date else datetime.now(timezone.utc)
+        start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Get orders for the day
+        orders = await db.orders.find({
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lte": end_of_day.isoformat()
+            }
+        }).to_list(length=None)
+        
+        # Calculate delivery performance KPIs
+        completed_orders = [o for o in orders if o.get('status') == 'delivered']
+        total_orders = len(orders)
+        completed_count = len(completed_orders)
+        
+        # Average delivery time calculation
+        delivery_times = []
+        on_time_count = 0
+        
+        for order in completed_orders:
+            if order.get('delivered_at') and order.get('created_at'):
+                created = datetime.fromisoformat(order['created_at'])
+                delivered = datetime.fromisoformat(order['delivered_at'])
+                delivery_time = (delivered - created).total_seconds() / 60  # minutes
+                delivery_times.append(delivery_time)
+                
+                # Check if on time (assuming 30 min standard)
+                if delivery_time <= 30:
+                    on_time_count += 1
+        
+        avg_delivery_time = sum(delivery_times) / len(delivery_times) if delivery_times else 0
+        on_time_rate = (on_time_count / completed_count * 100) if completed_count > 0 else 0
+        
+        # Customer satisfaction
+        ratings = await db.customer_ratings.find({
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lte": end_of_day.isoformat()
+            }
+        }).to_list(length=None)
+        
+        avg_rating = sum(r.get('overall_rating', 0) for r in ratings) / len(ratings) if ratings else 0
+        
+        # Financial metrics
+        total_revenue = sum(o.get('total', 0) for o in completed_orders)
+        avg_order_value = total_revenue / completed_count if completed_count > 0 else 0
+        
+        # Order completion cost (estimated)
+        estimated_cost_per_order = 8.50  # Base cost including driver pay, fuel, operations
+        total_costs = completed_count * estimated_cost_per_order
+        order_completion_cost = estimated_cost_per_order
+        
+        # Driver performance
+        active_drivers = await db.drivers.count_documents({"status": {"$in": ["online", "busy"]}})
+        all_drivers = await db.drivers.count_documents({})
+        
+        # Get driver ratings
+        driver_ratings = await db.customer_ratings.find({
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lte": end_of_day.isoformat()
+            }
+        }).to_list(length=None)
+        
+        avg_driver_rating = sum(r.get('delivery_rating', 0) for r in driver_ratings) / len(driver_ratings) if driver_ratings else 0
+        
+        kpi_data = {
+            "date": target_date.isoformat(),
+            "delivery_performance": {
+                "avg_delivery_time": round(avg_delivery_time, 2),
+                "on_time_delivery_rate": round(on_time_rate, 2),
+                "total_orders": total_orders,
+                "completed_orders": completed_count,
+                "order_completion_rate": round((completed_count / total_orders * 100) if total_orders > 0 else 0, 2)
+            },
+            "customer_satisfaction": {
+                "avg_rating": round(avg_rating, 2),
+                "total_ratings": len(ratings),
+                "delivery_satisfaction": round(sum(r.get('delivery_time_satisfaction', 0) for r in ratings) / len(ratings) if ratings else 0, 2)
+            },
+            "driver_performance": {
+                "active_drivers": active_drivers,
+                "total_drivers": all_drivers,
+                "avg_driver_rating": round(avg_driver_rating, 2),
+                "driver_utilization_rate": round((active_drivers / all_drivers * 100) if all_drivers > 0 else 0, 2)
+            },
+            "financial_metrics": {
+                "total_revenue": round(total_revenue, 2),
+                "avg_order_value": round(avg_order_value, 2),
+                "order_completion_cost": round(order_completion_cost, 2),
+                "estimated_profit": round(total_revenue - total_costs, 2),
+                "profit_margin": round(((total_revenue - total_costs) / total_revenue * 100) if total_revenue > 0 else 0, 2)
+            }
+        }
+        
+        return kpi_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/analytics/daily-operations/{date}")
+async def get_daily_operations(date: str):
+    """Get detailed daily operations report"""
+    try:
+        target_date = datetime.fromisoformat(date)
+        start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Orders analysis
+        orders = await db.orders.find({
+            "created_at": {
+                "$gte": start_of_day.isoformat(),
+                "$lte": end_of_day.isoformat()
+            }
+        }).to_list(length=None)
+        
+        # Peak hours analysis
+        hourly_orders = {}
+        for order in orders:
+            hour = datetime.fromisoformat(order['created_at']).hour
+            hourly_orders[hour] = hourly_orders.get(hour, 0) + 1
+        
+        peak_hours = [{"hour": hour, "orders": count} for hour, count in hourly_orders.items()]
+        peak_hours.sort(key=lambda x: x["orders"], reverse=True)
+        
+        # Customer analysis
+        unique_customers = set(o.get('customer_id') for o in orders)
+        total_customers = len(unique_customers)
+        
+        # Revenue analysis
+        completed_orders = [o for o in orders if o.get('status') == 'delivered']
+        total_revenue = sum(o.get('total', 0) for o in completed_orders)
+        
+        operations_data = {
+            "date": date,
+            "summary": {
+                "total_orders": len(orders),
+                "completed_orders": len(completed_orders),
+                "cancelled_orders": len([o for o in orders if o.get('status') == 'cancelled']),
+                "total_revenue": round(total_revenue, 2),
+                "unique_customers": total_customers
+            },
+            "peak_hours": peak_hours[:5],  # Top 5 busiest hours
+            "hourly_breakdown": hourly_orders
+        }
+        
+        return operations_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/analytics/driver-performance/{driver_id}")
+async def get_driver_performance(driver_id: str, days: int = 7):
+    """Get individual driver performance metrics"""
+    try:
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timezone.timedelta(days=days)
+        
+        # Get driver's orders
+        orders = await db.orders.find({
+            "driver_id": driver_id,
+            "created_at": {
+                "$gte": start_date.isoformat(),
+                "$lte": end_date.isoformat()
+            }
+        }).to_list(length=None)
+        
+        completed_orders = [o for o in orders if o.get('status') == 'delivered']
+        
+        # Calculate performance metrics
+        delivery_times = []
+        earnings = 0
+        on_time_count = 0
+        
+        for order in completed_orders:
+            if order.get('delivered_at') and order.get('created_at'):
+                created = datetime.fromisoformat(order['created_at'])
+                delivered = datetime.fromisoformat(order['delivered_at'])
+                delivery_time = (delivered - created).total_seconds() / 60
+                delivery_times.append(delivery_time)
+                
+                if delivery_time <= 30:
+                    on_time_count += 1
+                
+                # Calculate driver earnings (80% of delivery fee)
+                earnings += order.get('delivery_fee', 0) * 0.8
+        
+        # Get driver ratings
+        ratings = await db.customer_ratings.find({
+            "driver_id": driver_id,
+            "created_at": {
+                "$gte": start_date.isoformat(),
+                "$lte": end_date.isoformat()
+            }
+        }).to_list(length=None)
+        
+        avg_rating = sum(r.get('delivery_rating', 0) for r in ratings) / len(ratings) if ratings else 0
+        avg_delivery_time = sum(delivery_times) / len(delivery_times) if delivery_times else 0
+        on_time_rate = (on_time_count / len(completed_orders) * 100) if completed_orders else 0
+        
+        performance_data = {
+            "driver_id": driver_id,
+            "period": f"{days} days",
+            "metrics": {
+                "total_orders": len(orders),
+                "completed_orders": len(completed_orders),
+                "avg_delivery_time": round(avg_delivery_time, 2),
+                "on_time_rate": round(on_time_rate, 2),
+                "total_earnings": round(earnings, 2),
+                "avg_rating": round(avg_rating, 2),
+                "efficiency_score": round((on_time_rate + (avg_rating * 20)) / 2, 2)  # Combined metric
+            }
+        }
+        
+        return performance_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/analytics/financial-summary")
+async def get_financial_summary(start_date: str, end_date: str):
+    """Get comprehensive financial analysis"""
+    try:
+        start = datetime.fromisoformat(start_date)
+        end = datetime.fromisoformat(end_date)
+        
+        # Get orders in date range
+        orders = await db.orders.find({
+            "created_at": {
+                "$gte": start.isoformat(),
+                "$lte": end.isoformat()
+            },
+            "status": "delivered"
+        }).to_list(length=None)
+        
+        # Revenue calculations
+        total_revenue = sum(o.get('total', 0) for o in orders)
+        subtotal_revenue = sum(o.get('subtotal', 0) for o in orders)
+        delivery_fee_revenue = sum(o.get('delivery_fee', 0) for o in orders)
+        tax_revenue = sum(o.get('tax', 0) for o in orders)
+        
+        # Cost calculations (estimates)
+        driver_payouts = delivery_fee_revenue * 0.8  # Drivers get 80% of delivery fee
+        payment_processing_fees = total_revenue * 0.029  # ~2.9% for payment processing
+        operational_costs = len(orders) * 2.50  # Estimated operational cost per order
+        
+        total_costs = driver_payouts + payment_processing_fees + operational_costs
+        net_profit = total_revenue - total_costs
+        
+        # Calculate metrics
+        avg_order_value = total_revenue / len(orders) if orders else 0
+        profit_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
+        
+        financial_data = {
+            "period": f"{start_date} to {end_date}",
+            "revenue_breakdown": {
+                "total_revenue": round(total_revenue, 2),
+                "subtotal_revenue": round(subtotal_revenue, 2),
+                "delivery_fees": round(delivery_fee_revenue, 2),
+                "tax_collected": round(tax_revenue, 2)
+            },
+            "cost_breakdown": {
+                "driver_payouts": round(driver_payouts, 2),
+                "payment_processing": round(payment_processing_fees, 2),
+                "operational_costs": round(operational_costs, 2),
+                "total_costs": round(total_costs, 2)
+            },
+            "profitability": {
+                "net_profit": round(net_profit, 2),
+                "profit_margin": round(profit_margin, 2),
+                "avg_order_value": round(avg_order_value, 2),
+                "cost_per_order": round(total_costs / len(orders) if orders else 0, 2)
+            },
+            "kpis": {
+                "total_orders": len(orders),
+                "revenue_per_order": round(total_revenue / len(orders) if orders else 0, 2),
+                "avg_order_completion_cost": round(total_costs / len(orders) if orders else 0, 2)
+            }
+        }
+        
+        return financial_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Business Categories Routes
 @api_router.get("/business/categories", response_model=List[BusinessCategory])
 async def get_business_categories():
