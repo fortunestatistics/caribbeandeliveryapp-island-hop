@@ -748,9 +748,75 @@ const BusinessOnboarding = () => {
   const stepTitles = [
     'Business Owner Information',
     'Business Details',
-    'Pricing & Operations',
+    'Business-Specific Information',
+    'Operations & Pricing',
     'Review & Submit'
   ];
+
+  const getBusinessSpecificFields = () => {
+    switch (businessType) {
+      case 'restaurant':
+        return {
+          title: 'Restaurant Information',
+          fields: [
+            { key: 'cuisineType', label: 'Cuisine Type', type: 'select', options: ['Caribbean', 'International', 'Seafood', 'Vegetarian', 'Fast Food', 'Fine Dining'] },
+            { key: 'kitchenCapacity', label: 'Kitchen Capacity (orders/hour)', type: 'number' },
+            { key: 'foodSafetyRating', label: 'Food Safety Rating', type: 'select', options: ['A', 'B', 'C', 'Pending'] },
+            { key: 'averageOrderValue', label: 'Expected Average Order Value ($)', type: 'number' },
+            { key: 'peakHours', label: 'Peak Operating Hours', type: 'text', placeholder: 'e.g., 12:00-14:00, 18:00-21:00' },
+            { key: 'specialDietaryOptions', label: 'Special Dietary Options', type: 'multiselect', options: ['Vegetarian', 'Vegan', 'Gluten-Free', 'Diabetic-Friendly', 'Halal', 'Kosher'] }
+          ]
+        };
+      case 'pharmacy':
+        return {
+          title: 'Pharmacy Information',
+          fields: [
+            { key: 'pharmacyLicense', label: 'Pharmacy License Number', type: 'text', required: true },
+            { key: 'pharmacistInfo.name', label: 'Licensed Pharmacist Name', type: 'text', required: true },
+            { key: 'pharmacistInfo.license', label: 'Pharmacist License Number', type: 'text', required: true },
+            { key: 'pharmacistInfo.experience', label: 'Years of Experience', type: 'number' },
+            { key: 'controlledSubstancesLicense', label: 'Controlled Substances License', type: 'text' },
+            { key: 'prescriptionServices', label: 'Prescription Services', type: 'multiselect', options: ['Home Delivery', 'Consultation', 'Compounding', 'Vaccination', 'Health Screening'] },
+            { key: 'insuranceAccepted', label: 'Insurance Plans Accepted', type: 'multiselect', options: ['SAGICOR', 'Guardian Life', 'NCB Insurance', 'Private Pay', 'Government Health Card'] }
+          ]
+        };
+      case 'grocery':
+        return {
+          title: 'Grocery Store Information',
+          fields: [
+            { key: 'storeSize', label: 'Store Size (sq ft)', type: 'number' },
+            { key: 'productCategories', label: 'Product Categories', type: 'multiselect', options: ['Fresh Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Bakery', 'Frozen Foods', 'Beverages', 'Household Items', 'Personal Care'] },
+            { key: 'refrigeratedSection', label: 'Refrigerated Section Available', type: 'checkbox' },
+            { key: 'organicProducts', label: 'Organic Products Available', type: 'checkbox' },
+            { key: 'inventorySystem', label: 'Inventory Management System', type: 'select', options: ['Manual', 'Basic POS', 'Advanced Inventory System', 'Cloud-based System'] },
+            { key: 'localSuppliers', label: 'Local Suppliers', type: 'textarea', placeholder: 'List your main local suppliers' }
+          ]
+        };
+      case 'car_rental':
+        return {
+          title: 'Car Rental Information',
+          fields: [
+            { key: 'fleetSize', label: 'Fleet Size (number of vehicles)', type: 'number', required: true },
+            { key: 'vehicleTypes', label: 'Vehicle Categories', type: 'multiselect', options: ['Economy', 'Compact', 'Mid-size', 'Full-size', 'SUV', 'Luxury', 'Van/Minivan', 'Convertible'] },
+            { key: 'insuranceProvider', label: 'Fleet Insurance Provider', type: 'text', required: true },
+            { key: 'airportPickup', label: 'Airport Pickup Service', type: 'checkbox' },
+            { key: 'driverServices', label: 'Chauffeur Services Available', type: 'checkbox' },
+            { key: 'rentalLocations', label: 'Rental Locations', type: 'multiselect', options: ['Airport Terminal', 'Downtown', 'Hotel Pickup', 'Cruise Port', 'Shopping Centers'] }
+          ]
+        };
+      default:
+        return {
+          title: 'Business Information',
+          fields: [
+            { key: 'industryType', label: 'Industry Type', type: 'select', options: ['Retail', 'Services', 'Manufacturing', 'Technology', 'Healthcare', 'Education', 'Other'] },
+            { key: 'serviceArea', label: 'Primary Service Area', type: 'text' },
+            { key: 'businessModel', label: 'Business Model', type: 'select', options: ['B2C', 'B2B', 'B2B2C', 'Marketplace', 'Subscription'] },
+            { key: 'targetCustomers', label: 'Target Customer Demographics', type: 'textarea' },
+            { key: 'competitiveAdvantage', label: 'Competitive Advantage', type: 'textarea' }
+          ]
+        };
+    }
+  };
 
   if (!user) {
     return (
