@@ -1003,7 +1003,7 @@ const BusinessOnboarding = () => {
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div 
               className="bg-gradient-to-r from-turquoise-500 to-orange-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(currentStep / 5) * 100}%` }}
+              style={{ width: `${(currentStep / 6) * 100}%` }}
             ></div>
           </div>
         </div>
