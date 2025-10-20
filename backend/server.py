@@ -35,6 +35,17 @@ api_router = APIRouter(prefix="/api")
 # Environment variables
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+# Initialize Stripe
+if STRIPE_API_KEY:
+    stripe.api_key = STRIPE_API_KEY
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
 
 # WebSocket connection manager
 class ConnectionManager:
