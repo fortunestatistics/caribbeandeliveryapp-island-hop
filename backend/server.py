@@ -73,6 +73,157 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Authentication Helper Functions
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    
+    user = await db.users.find_one({"id": user_id})
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return User(**user)
+
+# Authentication Models
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    user_type: str = "customer"  # customer, restaurant, driver
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: Dict[str, Any]
+
+class PasswordReset(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+# Order Models
+class OrderItem(BaseModel):
+    menu_item_id: str
+    name: str
+    quantity: int
+    price: float
+    notes: Optional[str] = None
+
+class Order(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: str
+    restaurant_id: Optional[str] = None
+    driver_id: Optional[str] = None
+    service_type: str  # food, taxi, grocery, pharmacy, courier, car_rental
+    items: List[OrderItem] = []
+    subtotal: float
+    delivery_fee: float
+    tip: float = 0.0
+    tax: float = 0.0
+    total: float
+    status: str = "pending"  # pending, confirmed, preparing, ready, picked_up, in_transit, delivered, cancelled
+    pickup_address: Dict[str, Any]
+    delivery_address: Dict[str, Any]
+    customer_phone: str
+    payment_status: str = "pending"  # pending, paid, failed, refunded
+    payment_method: str  # card, cash, wallet
+    payment_intent_id: Optional[str] = None
+    estimated_delivery_time: Optional[datetime] = None
+    actual_delivery_time: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class OrderCreate(BaseModel):
+    restaurant_id: Optional[str] = None
+    service_type: str
+    items: List[OrderItem] = []
+    subtotal: float
+    delivery_fee: float
+    tip: float = 0.0
+    total: float
+    pickup_address: Dict[str, Any]
+    delivery_address: Dict[str, Any]
+    customer_phone: str
+    payment_method: str
+
+class OrderUpdate(BaseModel):
+    status: Optional[str] = None
+    driver_id: Optional[str] = None
+    estimated_delivery_time: Optional[datetime] = None
+
+# Chat Message Models
+class ChatMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    sender_id: str
+    sender_type: str  # customer, driver
+    message: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+class ChatMessageCreate(BaseModel):
+    order_id: str
+    sender_type: str
+    message: str
+
+# Subscription Models
+class SubscriptionPlan(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    user_type: str  # business, driver
+    tier: str  # starter, professional, enterprise, basic, pro, premium
+    price_monthly: float
+    price_yearly: float
+    features: List[str]
+    commission_rate: float  # percentage
+    stripe_price_id_monthly: Optional[str] = None
+    stripe_price_id_yearly: Optional[str] = None
+
+class UserSubscription(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    plan_id: str
+    stripe_subscription_id: Optional[str] = None
+    status: str = "active"  # active, cancelled, past_due, incomplete
+    billing_cycle: str = "monthly"  # monthly, yearly
+    current_period_start: datetime
+    current_period_end: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SubscriptionCreate(BaseModel):
+    plan_id: str
+    billing_cycle: str
+    payment_method_id: str
+
 # Models
 class StatusCheck(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
