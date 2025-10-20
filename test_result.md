@@ -196,6 +196,9 @@ frontend:
       - working: true
         agent: "main"
         comment: "Driver onboarding form created with 5-step process. Routes added to App.js. Screenshot verified - page loads correctly at /driver-onboarding showing Personal Information step."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TESTING COMPLETED: All 5 steps tested successfully. Form navigation works perfectly - Personal Info → Vehicle Info → Documents → Banking → Review. All form fields accept input correctly, step indicators update properly, Previous/Next buttons function as expected. Screenshots captured for each step. Sample data: John Doe, Toyota Corolla 2020, Jamaica location."
 
   - task: "Restaurant Onboarding Form"
     implemented: true
@@ -208,18 +211,24 @@ frontend:
       - working: true
         agent: "main"
         comment: "Restaurant onboarding form created with 5-step process. Routes added to App.js. Screenshot verified - page loads correctly at /restaurant-onboarding showing Business Information step."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TESTING COMPLETED: All 5 steps tested successfully. Form navigation works perfectly - Business Info → Operating Hours → Documents → Banking → Review. All form fields accept input correctly, cuisine selection works, operating hours can be modified, step indicators update properly, Previous/Next buttons function as expected. Screenshots captured for each step. Sample data: Island Spice Kitchen, Caribbean/Seafood cuisine, Montego Bay location."
 
   - task: "Business/Supplier Onboarding Form"
     implemented: true
-    working: "NA"
+    working: false
     file: "frontend/src/App.js"
-    stuck_count: 0
+    stuck_count: 1
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "General business onboarding with 6-step process in App.js. Needs end-to-end testing."
+      - working: false
+        agent: "testing"
+        comment: "❌ AUTHENTICATION REQUIRED: Business onboarding (/partner/onboarding) requires user authentication. Clicking 'Apply as General Business' or 'Apply as Business Supplier' redirects to homepage instead of onboarding form. Direct URL access also redirects to homepage. This is a critical issue preventing testing of the 6-step business onboarding process. The form code exists in App.js but is protected behind authentication."
 
   - task: "Partner Selection Page"
     implemented: true
