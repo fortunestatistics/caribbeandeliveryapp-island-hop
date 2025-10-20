@@ -77,8 +77,8 @@ const DriverOnboarding = () => {
   ];
 
   const vehicleTypes = [
-    { value: 'motorcycle', label: 'Motorcycle', icon: Motorcycle, description: 'Fast delivery for small items' },
-    { value: 'bicycle', label: 'Bicycle', icon: Bicycle, description: 'Eco-friendly city deliveries' },
+    { value: 'motorcycle', label: 'Motorcycle', icon: Bike, description: 'Fast delivery for small items' },
+    { value: 'bicycle', label: 'Bicycle', icon: Bike, description: 'Eco-friendly city deliveries' },
     { value: 'car', label: 'Car', icon: Car, description: 'Standard vehicle for most deliveries' },
     { value: 'van', label: 'Van/Truck', icon: Truck, description: 'Large items and bulk deliveries' }
   ];
