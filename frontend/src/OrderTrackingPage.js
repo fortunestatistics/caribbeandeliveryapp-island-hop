@@ -35,15 +35,62 @@ const OrderTrackingPage = () => {
   const [searchParams] = useSearchParams();
   const serviceType = searchParams.get('service') || 'food';
   const messagesEndRef = useRef(null);
+  const wsRef = useRef(null);
 
   const [order, setOrder] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Demo order data - replace with API call
+  // Fetch order data from API
   useEffect(() => {
-    // Simulate API call
+    const fetchOrder = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (!user.id) {
+          // Use demo data if not logged in
+          loadDemoData();
+          return;
+        }
+
+        const response = await orderAPI.getById(orderId);
+        setOrder(response.data);
+        
+        // Load chat messages
+        const chatResponse = await chatAPI.getMessages(orderId);
+        setMessages(chatResponse.data);
+        
+        // Connect to WebSocket for real-time updates
+        wsRef.current = createWebSocket(user.id, handleWebSocketMessage);
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching order:', error);
+        // Fallback to demo data
+        loadDemoData();
+      }
+    };
+
+    fetchOrder();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [orderId]);
+
+  const handleWebSocketMessage = (data) => {
+    console.log('WebSocket message:', data);
+    
+    if (data.type === 'order_update' && data.order?.id === orderId) {
+      setOrder(data.order);
+    } else if (data.type === 'new_message' && data.message?.order_id === orderId) {
+      setMessages(prev => [...prev, data.message]);
+    }
+  };
+
+  const loadDemoData = () => {
     setTimeout(() => {
       setOrder({
         id: orderId || 'ORD-12345',
