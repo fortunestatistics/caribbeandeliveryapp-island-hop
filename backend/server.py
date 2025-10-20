@@ -1133,6 +1133,128 @@ async def get_chat_messages(
     
     return [ChatMessage(**msg) for msg in messages]
 
+# Subscription & Payment Routes
+@api_router.get("/subscriptions/plans", response_model=List[SubscriptionPlan])
+async def get_subscription_plans(user_type: str = "business"):
+    """Get available subscription plans"""
+    plans = await db.subscription_plans.find({"user_type": user_type}).to_list(length=None)
+    return [SubscriptionPlan(**plan) for plan in plans]
+
+@api_router.post("/subscriptions/subscribe")
+async def create_subscription(
+    subscription_data: SubscriptionCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create new subscription"""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    
+    # Get plan details
+    plan = await db.subscription_plans.find_one({"id": subscription_data.plan_id})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    try:
+        # Create Stripe subscription
+        price_id = (plan['stripe_price_id_yearly'] if subscription_data.billing_cycle == 'yearly' 
+                   else plan['stripe_price_id_monthly'])
+        
+        subscription = stripe.Subscription.create(
+            customer=current_user.email,  # In production, use Stripe customer ID
+            items=[{"price": price_id}],
+            payment_method=subscription_data.payment_method_id,
+            off_session=True,
+            expand=['latest_invoice.payment_intent']
+        )
+        
+        # Save subscription to database
+        user_subscription = UserSubscription(
+            user_id=current_user.id,
+            plan_id=plan['id'],
+            stripe_subscription_id=subscription.id,
+            billing_cycle=subscription_data.billing_cycle,
+            current_period_start=datetime.fromtimestamp(subscription.current_period_start, tz=timezone.utc),
+            current_period_end=datetime.fromtimestamp(subscription.current_period_end, tz=timezone.utc)
+        )
+        
+        sub_dict = prepare_for_mongo(user_subscription.dict())
+        await db.user_subscriptions.insert_one(sub_dict)
+        
+        return {"message": "Subscription created", "subscription": user_subscription.dict()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/payments/create-payment-intent")
+async def create_payment_intent(
+    amount: float,
+    currency: str = "usd",
+    current_user: User = Depends(get_current_user)
+):
+    """Create Stripe payment intent for order"""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    
+    try:
+        intent = stripe.PaymentIntent.create(
+            amount=int(amount * 100),  # Convert to cents
+            currency=currency,
+            metadata={
+                'user_id': current_user.id,
+                'user_email': current_user.email
+            }
+        )
+        
+        return {
+            "clientSecret": intent.client_secret,
+            "paymentIntentId": intent.id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/payments/confirm-payment")
+async def confirm_payment(
+    payment_intent_id: str,
+    order_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Confirm payment and update order"""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    
+    try:
+        # Verify payment intent
+        intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+        
+        if intent.status == "succeeded":
+            # Update order payment status
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {
+                    "payment_status": "paid",
+                    "payment_intent_id": payment_intent_id,
+                    "status": "confirmed"
+                }}
+            )
+            
+            # Get updated order
+            order = await db.orders.find_one({"id": order_id})
+            
+            # Notify restaurant
+            if order and order.get('restaurant_id'):
+                await manager.send_personal_message(
+                    json.dumps({
+                        "type": "payment_confirmed",
+                        "order_id": order_id
+                    }),
+                    order['restaurant_id']
+                )
+            
+            return {"message": "Payment confirmed", "status": "success"}
+        else:
+            raise HTTPException(status_code=400, detail="Payment not completed")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # Driver Management Routes
 @api_router.post("/drivers", response_model=Driver)
 async def create_driver(driver: Driver, request: Request):
