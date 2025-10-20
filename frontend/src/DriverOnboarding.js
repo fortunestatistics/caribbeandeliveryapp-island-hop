@@ -17,8 +17,7 @@ import {
   Upload,
   MapPin,
   Truck,
-  Motorcycle,
-  Bicycle
+  Bike
 } from 'lucide-react';
 import axios from 'axios';
 
