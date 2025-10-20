@@ -48,12 +48,40 @@ const AuthPage = ({ mode = 'login' }) => {
       }
     }
 
-    // API call would go here
-    console.log('Form submitted:', formData);
-    
-    // For demo, just navigate to dashboard
-    alert(authMode === 'login' ? 'Login successful!' : 'Account created successfully!');
-    navigate('/dashboard');
+    try {
+      if (authMode === 'login') {
+        const response = await authAPI.login({
+          email: formData.email,
+          password: formData.password
+        });
+        
+        // Save token and user
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        
+        alert('Login successful!');
+        navigate('/dashboard');
+      } else {
+        const response = await authAPI.register({
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          phone: formData.phone,
+          address: formData.address,
+          user_type: 'customer'
+        });
+        
+        // Save token and user
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        
+        alert('Account created successfully!');
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
+      console.error('Auth error:', error);
+    }
   };
 
   const handleSocialLogin = (provider) => {
