@@ -452,7 +452,7 @@ const LandingPage = () => {
                   </p>
                   <Button
                     className={`w-full bg-gradient-to-r ${service.color} text-white`}
-                    onClick={() => navigate(`/order/DEMO-${service.serviceType.toUpperCase()}?service=${service.serviceType}`)}
+                    onClick={() => navigate(service.route)}
                   >
                     Order Now
                   </Button>
