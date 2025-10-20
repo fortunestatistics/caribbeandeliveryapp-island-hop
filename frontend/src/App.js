@@ -322,37 +322,43 @@ const LandingPage = () => {
       icon: Car,
       name: 'Taxi Service',
       description: 'Reliable ride services across the islands',
-      color: 'from-yellow-500 to-orange-500'
+      color: 'from-yellow-500 to-orange-500',
+      serviceType: 'taxi'
     },
     {
       icon: Utensils,
       name: 'Food Delivery',
       description: 'Fresh Caribbean cuisine delivered to your door',
-      color: 'from-red-500 to-orange-500'
+      color: 'from-red-500 to-orange-500',
+      serviceType: 'food'
     },
     {
       icon: Pill,
       name: 'Pharmacy',
       description: 'Prescription & health products delivery',
-      color: 'from-blue-500 to-cyan-500'
+      color: 'from-blue-500 to-cyan-500',
+      serviceType: 'pharmacy'
     },
     {
       icon: ShoppingCart,
       name: 'Groceries',
       description: 'Fresh groceries and household items',
-      color: 'from-green-500 to-emerald-500'
+      color: 'from-green-500 to-emerald-500',
+      serviceType: 'grocery'
     },
     {
       icon: Package,
       name: 'Courier',
       description: 'Fast and secure package delivery',
-      color: 'from-purple-500 to-pink-500'
+      color: 'from-purple-500 to-pink-500',
+      serviceType: 'courier'
     },
     {
       icon: Car,
       name: 'Car Rental',
       description: 'Airport and city car rental services',
-      color: 'from-blue-500 to-indigo-500'
+      color: 'from-blue-500 to-indigo-500',
+      serviceType: 'car_rental'
     }
   ];
 
