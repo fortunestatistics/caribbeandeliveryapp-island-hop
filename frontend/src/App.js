@@ -2577,6 +2577,7 @@ function App() {
             <Route path="/driver-onboarding" element={<DriverOnboarding />} />
             <Route path="/restaurant-onboarding" element={<RestaurantOnboarding />} />
             <Route path="/driver" element={<DriverRegistration />} />
+            <Route path="/order/:orderId" element={<OrderTrackingPage />} />
             <Route path="/support" element={<AISupport />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="*" element={<Navigate to="/" />} />
