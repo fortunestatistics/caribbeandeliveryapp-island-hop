@@ -16,6 +16,7 @@ import {
   Chrome,
   Apple
 } from 'lucide-react';
+import { authAPI } from './services/api';
 
 const AuthPage = ({ mode = 'login' }) => {
   const navigate = useNavigate();
