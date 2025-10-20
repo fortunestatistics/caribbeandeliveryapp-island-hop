@@ -1,0 +1,450 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
+import { Input } from './components/ui/input';
+import { 
+  ShoppingCart, 
+  Plus, 
+  Minus, 
+  Search,
+  Star,
+  Clock,
+  MapPin,
+  Trash2,
+  ArrowRight
+} from 'lucide-react';
+
+const RestaurantMenu = () => {
+  const navigate = useNavigate();
+  const { restaurantId } = useParams();
+  const [cart, setCart] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  // Demo restaurant data
+  const restaurant = {
+    id: restaurantId || 'island-spice',
+    name: 'Island Spice Kitchen',
+    cuisine: 'Caribbean',
+    rating: 4.8,
+    reviews: 342,
+    deliveryTime: '25-35 min',
+    deliveryFee: 12.00,
+    minOrder: 15.00,
+    address: '123 Main Street, Kingston, Jamaica'
+  };
+
+  const categories = ['All', 'Popular', 'Mains', 'Sides', 'Drinks', 'Desserts'];
+
+  const menuItems = [
+    {
+      id: 1,
+      name: 'Jerk Chicken Plate',
+      description: 'Authentic jerk chicken with rice & peas, festival, and plantains',
+      price: 18.00,
+      category: 'Mains',
+      image: '🍗',
+      popular: true,
+      spicy: true
+    },
+    {
+      id: 2,
+      name: 'Curry Goat',
+      description: 'Tender goat meat in Caribbean curry sauce with rice',
+      price: 22.00,
+      category: 'Mains',
+      image: '🍛',
+      popular: true,
+      spicy: false
+    },
+    {
+      id: 3,
+      name: 'Ackee & Saltfish',
+      description: "Jamaica's national dish served with bammy or festival",
+      price: 16.00,
+      category: 'Mains',
+      image: '🐟',
+      popular: true,
+      spicy: false
+    },
+    {
+      id: 4,
+      name: 'Oxtail Dinner',
+      description: 'Braised oxtail with butter beans, rice & peas',
+      price: 28.00,
+      category: 'Mains',
+      image: '🥘',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 5,
+      name: 'Beef Patty',
+      description: 'Flaky pastry filled with seasoned beef',
+      price: 4.50,
+      category: 'Sides',
+      image: '🥟',
+      popular: true,
+      spicy: true
+    },
+    {
+      id: 6,
+      name: 'Rice & Peas',
+      description: 'Coconut rice with kidney beans',
+      price: 5.00,
+      category: 'Sides',
+      image: '🍚',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 7,
+      name: 'Fried Plantains',
+      description: 'Sweet ripe plantains fried to perfection',
+      price: 4.00,
+      category: 'Sides',
+      image: '🍌',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 8,
+      name: 'Festival',
+      description: 'Sweet fried dumplings',
+      price: 3.50,
+      category: 'Sides',
+      image: '🥖',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 9,
+      name: 'Callaloo',
+      description: 'Traditional Caribbean greens',
+      price: 6.00,
+      category: 'Sides',
+      image: '🥬',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 10,
+      name: 'Sorrel Drink',
+      description: 'Refreshing hibiscus drink',
+      price: 3.50,
+      category: 'Drinks',
+      image: '🧃',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 11,
+      name: 'Ginger Beer',
+      description: 'Spicy homemade ginger beer',
+      price: 3.50,
+      category: 'Drinks',
+      image: '🥤',
+      popular: true,
+      spicy: true
+    },
+    {
+      id: 12,
+      name: 'Coconut Water',
+      description: 'Fresh coconut water',
+      price: 4.00,
+      category: 'Drinks',
+      image: '🥥',
+      popular: false,
+      spicy: false
+    },
+    {
+      id: 13,
+      name: 'Rum Cake',
+      description: 'Traditional Caribbean rum cake',
+      price: 7.00,
+      category: 'Desserts',
+      image: '🍰',
+      popular: true,
+      spicy: false
+    },
+    {
+      id: 14,
+      name: 'Sweet Potato Pudding',
+      description: 'Grated sweet potato with coconut',
+      price: 6.00,
+      category: 'Desserts',
+      image: '🍮',
+      popular: false,
+      spicy: false
+    }
+  ];
+
+  const filteredItems = menuItems.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         item.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || 
+                           selectedCategory === 'popular' && item.popular ||
+                           item.category.toLowerCase() === selectedCategory.toLowerCase();
+    return matchesSearch && matchesCategory;
+  });
+
+  const addToCart = (item) => {
+    const existingItem = cart.find(cartItem => cartItem.id === item.id);
+    if (existingItem) {
+      setCart(cart.map(cartItem =>
+        cartItem.id === item.id
+          ? { ...cartItem, quantity: cartItem.quantity + 1 }
+          : cartItem
+      ));
+    } else {
+      setCart([...cart, { ...item, quantity: 1 }]);
+    }
+  };
+
+  const updateQuantity = (itemId, change) => {
+    setCart(cart.map(item => {
+      if (item.id === itemId) {
+        const newQuantity = item.quantity + change;
+        return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
+      }
+      return item;
+    }).filter(item => item.quantity > 0));
+  };
+
+  const removeFromCart = (itemId) => {
+    setCart(cart.filter(item => item.id !== itemId));
+  };
+
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const total = subtotal + restaurant.deliveryFee;
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+      <div className="container mx-auto px-4 max-w-7xl">
+        {/* Restaurant Header */}
+        <Card className="mb-8">
+          <CardContent className="p-6">
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/restaurants')}
+              className="mb-4"
+            >
+              ← Back to Restaurants
+            </Button>
+            <div className="flex items-start justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">{restaurant.name}</h1>
+                <div className="flex items-center space-x-4 text-gray-600 mb-3">
+                  <div className="flex items-center">
+                    <Star className="h-5 w-5 text-yellow-500 fill-current mr-1" />
+                    <span className="font-semibold">{restaurant.rating}</span>
+                    <span className="ml-1">({restaurant.reviews} reviews)</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Clock className="h-5 w-5 mr-1" />
+                    <span>{restaurant.deliveryTime}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <MapPin className="h-5 w-5 mr-1" />
+                    <span>{restaurant.address}</span>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-turquoise-100 text-turquoise-700">{restaurant.cuisine}</Badge>
+                  <Badge variant="outline">Delivery ${restaurant.deliveryFee.toFixed(2)}</Badge>
+                  <Badge variant="outline">Min ${restaurant.minOrder.toFixed(2)}</Badge>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Menu Section */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Search & Filter */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                  <Input
+                    placeholder="Search menu items..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((category) => (
+                    <Button
+                      key={category}
+                      size="sm"
+                      variant={selectedCategory === category.toLowerCase() ? 'default' : 'outline'}
+                      onClick={() => setSelectedCategory(category.toLowerCase())}
+                      className={selectedCategory === category.toLowerCase() 
+                        ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
+                        : ''
+                      }
+                    >
+                      {category}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Menu Items */}
+            <div className="space-y-4">
+              {filteredItems.map((item) => (
+                <Card key={item.id} className="hover:shadow-lg transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start space-x-4">
+                      <div className="text-5xl">{item.image}</div>
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                              {item.name}
+                              {item.popular && (
+                                <Badge className="ml-2 bg-yellow-100 text-yellow-700">Popular</Badge>
+                              )}
+                              {item.spicy && (
+                                <span className="ml-2">🌶️</span>
+                              )}
+                            </h3>
+                            <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                          </div>
+                          <p className="text-xl font-bold text-gray-900">${item.price.toFixed(2)}</p>
+                        </div>
+                        <Button
+                          className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                          onClick={() => addToCart(item)}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add to Cart
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {filteredItems.length === 0 && (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <p className="text-gray-600">No items found matching your search.</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Cart Section */}
+          <div className="lg:sticky lg:top-8 h-fit">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <ShoppingCart className="h-5 w-5 mr-2" />
+                    Your Cart
+                  </span>
+                  {cartItemCount > 0 && (
+                    <Badge className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+                      {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {cart.length === 0 ? (
+                  <div className="text-center py-8">
+                    <ShoppingCart className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-600">Your cart is empty</p>
+                    <p className="text-sm text-gray-500 mt-2">Add items from the menu to get started</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
+                      {cart.map((item) => (
+                        <div key={item.id} className="flex items-start space-x-3 pb-4 border-b">
+                          <div className="text-3xl">{item.image}</div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-gray-900 truncate">{item.name}</h4>
+                            <p className="text-sm text-gray-600">${item.price.toFixed(2)}</p>
+                            <div className="flex items-center space-x-2 mt-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateQuantity(item.id, -1)}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <span className="font-semibold px-3">{item.quantity}</span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateQuantity(item.id, 1)}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-600"
+                                onClick={() => removeFromCart(item.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="font-semibold text-gray-900">
+                            ${(item.price * item.quantity).toFixed(2)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2 mb-6">
+                      <div className="flex justify-between text-gray-600">
+                        <span>Subtotal</span>
+                        <span>${subtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-600">
+                        <span>Delivery Fee</span>
+                        <span>${restaurant.deliveryFee.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
+                        <span>Total</span>
+                        <span>${total.toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    {subtotal < restaurant.minOrder && (
+                      <div className="mb-4 p-3 bg-yellow-50 rounded-lg text-sm text-yellow-800">
+                        Add ${(restaurant.minOrder - subtotal).toFixed(2)} more to reach minimum order
+                      </div>
+                    )}
+
+                    <Button
+                      className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                      disabled={subtotal < restaurant.minOrder}
+                      onClick={() => navigate('/checkout', { state: { cart, restaurant, total } })}
+                    >
+                      Proceed to Checkout
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default RestaurantMenu;
