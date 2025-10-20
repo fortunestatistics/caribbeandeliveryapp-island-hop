@@ -159,7 +159,7 @@ const Header = () => {
     { to: "/car-rentals", label: "Car Rentals", icon: Car },
     { to: "/analytics", label: "Analytics", icon: TrendingUp },
     { to: "/partner", label: "Become a Partner", icon: Building2 },
-    { to: "/driver", label: "Drive with Us", icon: Truck },
+    { to: "/driver-onboarding", label: "Drive with Us", icon: Truck },
     { to: "/support", label: "Support", icon: MessageCircle }
   ];
 
