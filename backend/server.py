@@ -607,6 +607,111 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
 
+# JWT Authentication Routes
+@api_router.post("/auth/register", response_model=Token)
+async def register(user_data: UserRegister):
+    """Register a new user"""
+    # Check if user already exists
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Hash password
+    hashed_password = get_password_hash(user_data.password)
+    
+    # Create user
+    user = User(
+        email=user_data.email,
+        name=user_data.name,
+        phone=user_data.phone,
+        address={"street": user_data.address} if user_data.address else None,
+        user_type=user_data.user_type
+    )
+    
+    # Store user with hashed password
+    user_dict = user.dict()
+    user_dict['hashed_password'] = hashed_password
+    user_dict = prepare_for_mongo(user_dict)
+    await db.users.insert_one(user_dict)
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user.dict()
+    }
+
+@api_router.post("/auth/login", response_model=Token)
+async def login(credentials: UserLogin):
+    """Login user"""
+    # Find user
+    user_doc = await db.users.find_one({"email": credentials.email})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Verify password
+    if not verify_password(credentials.password, user_doc.get('hashed_password', '')):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    user = User(**user_doc)
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user.dict()
+    }
+
+@api_router.get("/auth/me", response_model=User)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Get current user"""
+    return current_user
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(data: PasswordReset):
+    """Initiate password reset"""
+    user = await db.users.find_one({"email": data.email})
+    if not user:
+        # Don't reveal if email exists
+        return {"message": "If the email exists, a reset link has been sent"}
+    
+    # Create reset token (expires in 1 hour)
+    reset_token = create_access_token(
+        data={"sub": user['id'], "email": user['email'], "type": "password_reset"},
+        expires_delta=timedelta(hours=1)
+    )
+    
+    # In production, send email with reset link
+    # For now, just return the token
+    return {
+        "message": "Password reset token generated",
+        "token": reset_token  # Remove this in production
+    }
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: PasswordResetConfirm):
+    """Reset password with token"""
+    try:
+        payload = jwt.decode(data.token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "password_reset":
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+        
+        user_id = payload.get("sub")
+        hashed_password = get_password_hash(data.new_password)
+        
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"hashed_password": hashed_password}}
+        )
+        
+        return {"message": "Password reset successfully"}
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
 # Authentication Routes
 @api_router.post("/auth/session")
 async def create_session(session_data: SessionCreate, request: Request):
