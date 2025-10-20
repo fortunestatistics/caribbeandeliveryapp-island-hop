@@ -156,15 +156,35 @@ const OrderTrackingPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (newMessage.trim()) {
-      setMessages([...messages, {
-        id: messages.length + 1,
-        sender: 'customer',
-        text: newMessage,
-        time: new Date()
-      }]);
-      setNewMessage('');
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        if (user.id) {
+          // Send via API
+          const response = await chatAPI.sendMessage({
+            order_id: orderId,
+            sender_type: 'customer',
+            message: newMessage
+          });
+          
+          setMessages([...messages, response.data]);
+        } else {
+          // Demo mode
+          setMessages([...messages, {
+            id: messages.length + 1,
+            sender: 'customer',
+            text: newMessage,
+            time: new Date()
+          }]);
+        }
+        
+        setNewMessage('');
+      } catch (error) {
+        console.error('Error sending message:', error);
+        alert('Failed to send message');
+      }
     }
   };
 
