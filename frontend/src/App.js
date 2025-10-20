@@ -5,6 +5,8 @@ import CarRentalPage from './CarRentalPage';
 import DriverOnboarding from './DriverOnboarding';
 import RestaurantOnboarding from './RestaurantOnboarding';
 import OrderTrackingPage from './OrderTrackingPage';
+import DriverEarningsDashboard from './DriverEarningsDashboard';
+import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
