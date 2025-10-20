@@ -793,11 +793,10 @@ const BusinessOnboarding = () => {
   });
 
   useEffect(() => {
-    // Temporarily disabled for demo purposes
-    // if (!user) {
-    //   navigate('/');
-    //   return;
-    // }
+    if (!user) {
+      navigate('/');
+      return;
+    }
     fetchCategories();
     fetchPricingTiers();
   }, [user, navigate]);
