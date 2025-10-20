@@ -146,7 +146,8 @@ const OrderTrackingPage = () => {
 
       setLoading(false);
     }, 1000);
-  }, [orderId, serviceType]);
+  };
+
 
   useEffect(() => {
     scrollToBottom();
