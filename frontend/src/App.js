@@ -540,7 +540,8 @@ const PartnerSelection = () => {
       icon: Utensils,
       color: 'from-red-500 to-orange-500',
       benefits: ['Increased visibility', 'Order management system', 'Real-time analytics'],
-      commission: '15%'
+      commission: '15%',
+      route: '/restaurant-onboarding'
     },
     {
       type: 'pharmacy',
@@ -549,7 +550,8 @@ const PartnerSelection = () => {
       icon: Pill,
       color: 'from-blue-500 to-cyan-500',
       benefits: ['Secure delivery network', 'Prescription handling', 'Insurance compliance'],
-      commission: '8%'
+      commission: '8%',
+      route: '/partner/onboarding?type=pharmacy'
     },
     {
       type: 'grocery',
@@ -558,7 +560,8 @@ const PartnerSelection = () => {
       icon: ShoppingCart,
       color: 'from-green-500 to-emerald-500',
       benefits: ['Bulk order handling', 'Inventory management', 'Fresh product delivery'],
-      commission: '12%'
+      commission: '12%',
+      route: '/partner/onboarding?type=grocery'
     },
     {
       type: 'general_business',
@@ -567,7 +570,8 @@ const PartnerSelection = () => {
       icon: Building2,
       color: 'from-purple-500 to-pink-500',
       benefits: ['Flexible delivery options', 'Custom solutions', 'Dedicated support'],
-      commission: '20%'
+      commission: '20%',
+      route: '/partner/onboarding?type=general_business'
     },
     {
       type: 'car_rental',
@@ -576,7 +580,8 @@ const PartnerSelection = () => {
       icon: Car,
       color: 'from-blue-500 to-indigo-500',
       benefits: ['Fleet management system', 'Airport pickup integration', 'Insurance handling', 'Multi-location support'],
-      commission: '10%'
+      commission: '10%',
+      route: '/partner/onboarding?type=car_rental'
     },
     {
       type: 'business_supplier',
@@ -585,7 +590,8 @@ const PartnerSelection = () => {
       icon: Building2,
       color: 'from-emerald-500 to-teal-500',
       benefits: ['Multi-category support', 'Flexible delivery options', 'Inventory management', 'Customer reach expansion'],
-      commission: '12-18%'
+      commission: '12-18%',
+      route: '/partner/onboarding?type=business_supplier'
     }
   ];
 
