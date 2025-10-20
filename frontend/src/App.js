@@ -163,7 +163,7 @@ const Header = () => {
   const navigationItems = [
     { to: "/restaurants", label: "Restaurants", icon: Utensils },
     { to: "/car-rentals", label: "Car Rentals", icon: Car },
-    { to: "/analytics", label: "Analytics", icon: TrendingUp },
+    { to: "/pricing", label: "Pricing", icon: DollarSign },
     { to: "/partner", label: "Become a Partner", icon: Building2 },
     { to: "/driver-onboarding", label: "Drive with Us", icon: Truck },
     { to: "/support", label: "Support", icon: MessageCircle }
