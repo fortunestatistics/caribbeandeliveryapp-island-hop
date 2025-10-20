@@ -2212,6 +2212,345 @@ const Dashboard = () => {
   );
 };
 
+// Restaurants Page Component
+const RestaurantsPage = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+            Caribbean Restaurants
+          </h1>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            Discover authentic Caribbean cuisine delivered fresh to your door
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {/* Sample restaurant cards - this would be populated from API */}
+          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
+            <CardContent className="p-6">
+              <div className="w-full h-48 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg mb-4 flex items-center justify-center">
+                <Utensils className="h-12 w-12 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Island Spice Kitchen</h3>
+              <p className="text-gray-600 mb-4">Authentic Jamaican cuisine with a modern twist</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <span className="text-sm">4.8 (120 reviews)</span>
+                </div>
+                <Badge>30-45 min</Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
+            <CardContent className="p-6">
+              <div className="w-full h-48 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg mb-4 flex items-center justify-center">
+                <ChefHat className="h-12 w-12 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Tropical Delights</h3>
+              <p className="text-gray-600 mb-4">Fresh seafood and tropical flavors</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <span className="text-sm">4.6 (89 reviews)</span>
+                </div>
+                <Badge>25-40 min</Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
+            <CardContent className="p-6">
+              <div className="w-full h-48 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg mb-4 flex items-center justify-center">
+                <Utensils className="h-12 w-12 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Caribbean Fusion</h3>
+              <p className="text-gray-600 mb-4">International dishes with Caribbean flair</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <span className="text-sm">4.9 (156 reviews)</span>
+                </div>
+                <Badge>35-50 min</Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="text-center mt-12">
+          <Button 
+            onClick={() => navigate('/partner')}
+            className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+          >
+            <Building2 className="h-5 w-5 mr-2" />
+            Add Your Restaurant
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Driver Registration Component
+const DriverRegistration = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    licenseNumber: '',
+    vehicleType: '',
+    vehicleMake: '',
+    vehicleModel: '',
+    vehicleYear: '',
+    licensePlate: '',
+    insuranceProvider: '',
+    emergencyContact: '',
+    emergencyPhone: '',
+    availability: []
+  });
+
+  const handleInputChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API}/driver/register`, formData, {
+        withCredentials: true
+      });
+
+      toast({
+        title: "Registration Submitted!",
+        description: "We'll review your application and get back to you within 24 hours.",
+      });
+
+      navigate('/dashboard');
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to submit registration. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+      <div className="container mx-auto px-4 max-w-2xl">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">
+            Drive with IslandHop
+          </h1>
+          <p className="text-gray-600">
+            Join our network of professional drivers and start earning today
+          </p>
+        </div>
+
+        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+          <CardContent className="p-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="fullName">Full Name *</Label>
+                  <Input
+                    id="fullName"
+                    value={formData.fullName}
+                    onChange={(e) => handleInputChange('fullName', e.target.value)}
+                    placeholder="Enter your full name"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    placeholder="your.email@example.com"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="phone">Phone Number *</Label>
+                  <Input
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    placeholder="+1 (xxx) xxx-xxxx"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="licenseNumber">Driver's License Number *</Label>
+                  <Input
+                    id="licenseNumber"
+                    value={formData.licenseNumber}
+                    onChange={(e) => handleInputChange('licenseNumber', e.target.value)}
+                    placeholder="License number"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="vehicleType">Vehicle Type *</Label>
+                  <Select value={formData.vehicleType} onValueChange={(value) => handleInputChange('vehicleType', value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select vehicle type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="car">Car</SelectItem>
+                      <SelectItem value="motorcycle">Motorcycle</SelectItem>
+                      <SelectItem value="van">Van</SelectItem>
+                      <SelectItem value="truck">Truck</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="vehicleMake">Vehicle Make *</Label>
+                  <Input
+                    id="vehicleMake"
+                    value={formData.vehicleMake}
+                    onChange={(e) => handleInputChange('vehicleMake', e.target.value)}
+                    placeholder="e.g., Toyota, Honda"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="vehicleModel">Vehicle Model *</Label>
+                  <Input
+                    id="vehicleModel"
+                    value={formData.vehicleModel}
+                    onChange={(e) => handleInputChange('vehicleModel', e.target.value)}
+                    placeholder="e.g., Camry, Civic"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="vehicleYear">Vehicle Year *</Label>
+                  <Input
+                    id="vehicleYear"
+                    type="number"
+                    value={formData.vehicleYear}
+                    onChange={(e) => handleInputChange('vehicleYear', e.target.value)}
+                    placeholder="2020"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="licensePlate">License Plate *</Label>
+                  <Input
+                    id="licensePlate"
+                    value={formData.licensePlate}
+                    onChange={(e) => handleInputChange('licensePlate', e.target.value)}
+                    placeholder="ABC-1234"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="insuranceProvider">Insurance Provider *</Label>
+                  <Input
+                    id="insuranceProvider"
+                    value={formData.insuranceProvider}
+                    onChange={(e) => handleInputChange('insuranceProvider', e.target.value)}
+                    placeholder="Insurance company name"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="emergencyContact">Emergency Contact Name *</Label>
+                  <Input
+                    id="emergencyContact"
+                    value={formData.emergencyContact}
+                    onChange={(e) => handleInputChange('emergencyContact', e.target.value)}
+                    placeholder="Emergency contact name"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="emergencyPhone">Emergency Contact Phone *</Label>
+                  <Input
+                    id="emergencyPhone"
+                    value={formData.emergencyPhone}
+                    onChange={(e) => handleInputChange('emergencyPhone', e.target.value)}
+                    placeholder="+1 (xxx) xxx-xxxx"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-6">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => navigate('/')}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                >
+                  Submit Application
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <div className="mt-8 text-center">
+          <Card className="bg-gradient-to-r from-turquoise-500 to-orange-500 border-0 text-white">
+            <CardContent className="p-6">
+              <h3 className="text-xl font-bold mb-2">Why Drive with IslandHop?</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-2xl font-bold">$25+</div>
+                  <div className="opacity-90">Per Hour Potential</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">24/7</div>
+                  <div className="opacity-90">Driver Support</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">Weekly</div>
+                  <div className="opacity-90">Fast Payouts</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
 // App Component
 function App() {
   return (
