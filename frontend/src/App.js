@@ -644,7 +644,7 @@ const PartnerSelection = () => {
 
                 <Button 
                   className={`w-full bg-gradient-to-r ${partner.color} text-white`}
-                  onClick={() => navigate(`/partner/onboarding?type=${partner.type}`)}
+                  onClick={() => navigate(partner.route)}
                   data-testid={`apply-${partner.type}-btn`}
                 >
                   Apply as {partner.name}
