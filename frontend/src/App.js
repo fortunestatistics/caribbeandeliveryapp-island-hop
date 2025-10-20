@@ -2600,6 +2600,10 @@ function App() {
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
             <Route path="/restaurant/:restaurantId" element={<RestaurantMenu />} />
+            <Route path="/taxi-booking" element={<TaxiBookingForm />} />
+            <Route path="/courier-order" element={<CourierOrderForm />} />
+            <Route path="/pharmacy-order" element={<PharmacyOrderForm />} />
+            <Route path="/grocery-order" element={<GroceryOrderForm />} />
             <Route path="/car-rentals" element={<CarRentalPage />} />
             <Route path="/analytics" element={<KPIDashboard />} />
             <Route path="/partner" element={<PartnerSelection />} />
