@@ -427,9 +427,15 @@ const LandingPage = () => {
                   <h3 className="text-xl font-bold text-gray-900 mb-3">
                     {service.name}
                   </h3>
-                  <p className="text-gray-600 leading-relaxed">
+                  <p className="text-gray-600 leading-relaxed mb-6">
                     {service.description}
                   </p>
+                  <Button
+                    className={`w-full bg-gradient-to-r ${service.color} text-white`}
+                    onClick={() => navigate(`/order/DEMO-${service.serviceType.toUpperCase()}?service=${service.serviceType}`)}
+                  >
+                    Order Now
+                  </Button>
                 </CardContent>
               </Card>
             ))}
