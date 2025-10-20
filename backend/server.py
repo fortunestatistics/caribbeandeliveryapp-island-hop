@@ -938,6 +938,201 @@ async def update_order_status(order_id: str, status: str, request: Request):
     
     return {"message": f"Order status updated to {status}"}
 
+# Enhanced Order Management Routes
+@api_router.post("/orders/create", response_model=Order)
+async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
+    """Create new order with payment processing"""
+    order = Order(
+        customer_id=current_user.id,
+        **order_data.dict()
+    )
+    
+    # Calculate estimated delivery time (30 mins from now)
+    order.estimated_delivery_time = datetime.now(timezone.utc) + timedelta(minutes=30)
+    
+    order_dict = prepare_for_mongo(order.dict())
+    await db.orders.insert_one(order_dict)
+    
+    # Find available driver
+    if order.service_type in ['food', 'grocery', 'pharmacy', 'courier']:
+        available_driver = await db.drivers.find_one({"status": "online"})
+        if available_driver:
+            order.driver_id = available_driver['id']
+            await db.orders.update_one(
+                {"id": order.id},
+                {"$set": {"driver_id": available_driver['id']}}
+            )
+            # Update driver status
+            await db.drivers.update_one(
+                {"id": available_driver['id']},
+                {"$set": {"status": "busy"}}
+            )
+    
+    # Notify restaurant via WebSocket
+    if order.restaurant_id:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "new_order",
+                "order": order.dict()
+            }),
+            order.restaurant_id
+        )
+    
+    # Notify driver
+    if order.driver_id:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "new_assignment",
+                "order": order.dict()
+            }),
+            order.driver_id
+        )
+    
+    return order
+
+@api_router.get("/orders/{order_id}", response_model=Order)
+async def get_order(order_id: str, current_user: User = Depends(get_current_user)):
+    """Get order by ID"""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Check if user has access to this order
+    if order['customer_id'] != current_user.id:
+        # Check if user is the driver or restaurant owner
+        if current_user.user_type == "driver":
+            driver = await db.drivers.find_one({"user_id": current_user.id})
+            if not driver or order.get('driver_id') != driver['id']:
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user.user_type == "restaurant":
+            restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+            if not restaurant or order.get('restaurant_id') != restaurant['id']:
+                raise HTTPException(status_code=403, detail="Access denied")
+        else:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    return Order(**order)
+
+@api_router.put("/orders/{order_id}/status", response_model=Order)
+async def update_order_status_endpoint(
+    order_id: str, 
+    update_data: OrderUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """Update order status and notify relevant parties"""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    update_dict = {
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if update_data.status:
+        update_dict["status"] = update_data.status
+    if update_data.driver_id:
+        update_dict["driver_id"] = update_data.driver_id
+    if update_data.estimated_delivery_time:
+        update_dict["estimated_delivery_time"] = update_data.estimated_delivery_time.isoformat()
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": update_dict}
+    )
+    
+    # Get updated order
+    updated_order = await db.orders.find_one({"id": order_id})
+    order_obj = Order(**updated_order)
+    
+    # Notify customer via WebSocket
+    await manager.send_personal_message(
+        json.dumps({
+            "type": "order_update",
+            "order": order_obj.dict()
+        }),
+        order_obj.customer_id
+    )
+    
+    # Notify driver
+    if order_obj.driver_id:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "order_update",
+                "order": order_obj.dict()
+            }),
+            order_obj.driver_id
+        )
+    
+    return order_obj
+
+@api_router.get("/orders/user/history", response_model=List[Order])
+async def get_user_order_history(
+    current_user: User = Depends(get_current_user),
+    limit: int = 20,
+    skip: int = 0
+):
+    """Get order history for current user"""
+    orders = await db.orders.find(
+        {"customer_id": current_user.id}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(length=None)
+    
+    return [Order(**order) for order in orders]
+
+# Chat/Messaging Routes
+@api_router.post("/chat/send", response_model=ChatMessage)
+async def send_message(
+    message_data: ChatMessageCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Send message in order chat"""
+    # Verify user is part of this order
+    order = await db.orders.find_one({"id": message_data.order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    message = ChatMessage(
+        **message_data.dict(),
+        sender_id=current_user.id
+    )
+    
+    message_dict = prepare_for_mongo(message.dict())
+    await db.chat_messages.insert_one(message_dict)
+    
+    # Notify recipient via WebSocket
+    recipient_id = None
+    if message_data.sender_type == "customer":
+        recipient_id = order.get('driver_id')
+    else:
+        recipient_id = order['customer_id']
+    
+    if recipient_id:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "new_message",
+                "message": message.dict()
+            }),
+            recipient_id
+        )
+    
+    return message
+
+@api_router.get("/chat/{order_id}/messages", response_model=List[ChatMessage])
+async def get_chat_messages(
+    order_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get all messages for an order"""
+    # Verify user is part of this order
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    messages = await db.chat_messages.find(
+        {"order_id": order_id}
+    ).sort("timestamp", 1).to_list(length=None)
+    
+    return [ChatMessage(**msg) for msg in messages]
+
 # Driver Management Routes
 @api_router.post("/drivers", response_model=Driver)
 async def create_driver(driver: Driver, request: Request):
