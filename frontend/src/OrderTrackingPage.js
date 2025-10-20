@@ -24,7 +24,7 @@ import {
   Star,
   ThumbsUp
 } from 'lucide-react';
-import axios from 'axios';
+import { orderAPI, chatAPI, createWebSocket } from './services/api';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
