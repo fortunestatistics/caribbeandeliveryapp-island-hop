@@ -211,9 +211,14 @@ const Header = () => {
                   </Button>
                 </div>
               ) : (
-                <Button onClick={() => login('/dashboard')} className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
-                  Sign In
-                </Button>
+                <div className="flex items-center space-x-3">
+                  <Button onClick={() => window.location.href = '/login'} variant="outline">
+                    Sign In
+                  </Button>
+                  <Button onClick={() => window.location.href = '/signup'} className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+                    Sign Up
+                  </Button>
+                </div>
               )}
             </div>
 
