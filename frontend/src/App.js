@@ -979,21 +979,22 @@ const BusinessOnboarding = () => {
     }
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="p-8 text-center">
-          <CardHeader>
-            <CardTitle>Authentication Required</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="mb-4">Please sign in to continue with business onboarding.</p>
-            <Button onClick={() => navigate('/')}>Go to Home</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  // Temporarily disabled for demo purposes
+  // if (!user) {
+  //   return (
+  //     <div className="min-h-screen flex items-center justify-center">
+  //       <Card className="p-8 text-center">
+  //         <CardHeader>
+  //           <CardTitle>Authentication Required</CardTitle>
+  //         </CardHeader>
+  //         <CardContent>
+  //           <p className="mb-4">Please sign in to continue with business onboarding.</p>
+  //           <Button onClick={() => navigate('/')}>Go to Home</Button>
+  //         </CardContent>
+  //       </Card>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
