@@ -4,6 +4,7 @@ import KPIDashboard from './KPIDashboard';
 import CarRentalPage from './CarRentalPage';
 import DriverOnboarding from './DriverOnboarding';
 import RestaurantOnboarding from './RestaurantOnboarding';
+import OrderTrackingPage from './OrderTrackingPage';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
