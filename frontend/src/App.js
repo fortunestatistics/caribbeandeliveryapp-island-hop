@@ -2223,10 +2223,14 @@ function App() {
           
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/analytics" element={<KPIDashboard />} />
+            <Route path="/restaurants" element={<RestaurantsPage />} />
             <Route path="/car-rentals" element={<CarRentalPage />} />
+            <Route path="/analytics" element={<KPIDashboard />} />
             <Route path="/partner" element={<PartnerSelection />} />
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
+            <Route path="/driver-onboarding" element={<DriverOnboarding />} />
+            <Route path="/restaurant-onboarding" element={<RestaurantOnboarding />} />
+            <Route path="/driver" element={<DriverRegistration />} />
             <Route path="/support" element={<AISupport />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="*" element={<Navigate to="/" />} />
