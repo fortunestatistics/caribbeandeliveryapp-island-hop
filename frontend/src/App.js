@@ -2586,7 +2586,11 @@ function App() {
           
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/signup" element={<AuthPage mode="signup" />} />
+            <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
+            <Route path="/restaurant/:restaurantId" element={<RestaurantMenu />} />
             <Route path="/car-rentals" element={<CarRentalPage />} />
             <Route path="/analytics" element={<KPIDashboard />} />
             <Route path="/partner" element={<PartnerSelection />} />
