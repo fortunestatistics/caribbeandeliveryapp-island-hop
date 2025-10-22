@@ -832,13 +832,10 @@ const BusinessOnboarding = () => {
   });
 
   useEffect(() => {
-    if (!user) {
-      navigate('/');
-      return;
-    }
+    // Authentication removed for demo access
     fetchCategories();
     fetchPricingTiers();
-  }, [user, navigate]);
+  }, [navigate]);
 
   const fetchCategories = async () => {
     try {
