@@ -92,10 +92,19 @@ const AuthProvider = ({ children }) => {
   const checkAuth = async () => {
     try {
       const response = await axios.get(`${API}/auth/me`, {
-        withCredentials: true
+        withCredentials: true,
+        validateStatus: (status) => status < 500 // Don't throw on 4xx errors
       });
-      setUser(response.data);
+      if (response.status === 200) {
+        setUser(response.data);
+      } else {
+        setUser(null);
+      }
     } catch (error) {
+      // Only log actual server errors (5xx)
+      if (error.response?.status >= 500) {
+        console.error('Auth check error:', error);
+      }
       setUser(null);
     } finally {
       setLoading(false);
