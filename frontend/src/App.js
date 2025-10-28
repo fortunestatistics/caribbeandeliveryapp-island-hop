@@ -617,39 +617,6 @@ const LandingPage = () => {
     </div>
   );
 };
-        <div className="container mx-auto px-4 text-center">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-              Ready to Get Started?
-            </h2>
-            <p className="text-xl text-gray-600 mb-8">
-              Join thousands of satisfied customers enjoying Caribbean convenience
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button 
-                size="lg" 
-                className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white px-8 py-4 text-lg"
-                onClick={() => navigate('/services')}
-                data-testid="start-ordering-btn"
-              >
-                Start Ordering
-              </Button>
-              <Button 
-                size="lg" 
-                variant="outline" 
-                className="border-2 border-turquoise-300 text-turquoise-700 hover:bg-turquoise-50 px-8 py-4 text-lg"
-                onClick={() => navigate('/partner')}
-                data-testid="join-as-partner-btn"
-              >
-                Join as Partner
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-};
 
 // Partner Selection Page
 const PartnerSelection = () => {
