@@ -63,7 +63,10 @@ import {
   Settings,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  Apple,
+  Smartphone,
+  ArrowRight
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
