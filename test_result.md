@@ -318,6 +318,24 @@ agent_communication:
       - Landing Page: ✅ Caribbean-themed hero section displays correctly
       
       Next Steps: Backend API testing needed for all onboarding flows. Frontend E2E testing for form submissions.
+  - agent: "main"
+    message: |
+      Bug Fixes Complete (Session 2):
+      ✅ Fixed CORS Configuration:
+         - Changed from wildcard (*) to specific origins for credential support
+         - Added http://localhost:3000 and production URL to CORS_ORIGINS
+      
+      ✅ Fixed WebSocket Errors:
+         - Removed incorrect WDS_SOCKET_PORT=443 from frontend .env
+         - WebSocket connection errors resolved
+      
+      ✅ Improved Error Handling:
+         - Updated AuthProvider to handle 403 errors gracefully
+         - Suppressed non-critical authentication errors in console
+      
+      Remaining Console Messages:
+      - 403 on /api/auth/me (expected when not logged in - not critical)
+      - PostHog analytics request (third-party - can be ignored)
   - agent: "testing"
     message: |
       COMPREHENSIVE ONBOARDING TESTING COMPLETED:
