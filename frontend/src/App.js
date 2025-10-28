@@ -62,7 +62,8 @@ import {
   Edit,
   Settings,
   Menu,
-  X
+  X,
+  ChevronRight
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
