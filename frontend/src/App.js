@@ -339,7 +339,9 @@ const LandingPage = () => {
       description: 'Reliable ride services across the islands',
       color: 'from-yellow-500 to-orange-500',
       serviceType: 'taxi',
-      route: '/taxi-booking'
+      route: '/taxi-booking',
+      image: '🚕',
+      tagline: 'Your ride, your way'
     },
     {
       icon: Utensils,
@@ -347,7 +349,9 @@ const LandingPage = () => {
       description: 'Fresh Caribbean cuisine delivered to your door',
       color: 'from-red-500 to-orange-500',
       serviceType: 'food',
-      route: '/restaurants'
+      route: '/restaurants',
+      image: '🍽️',
+      tagline: 'Delicious delivered'
     },
     {
       icon: Pill,
@@ -355,7 +359,9 @@ const LandingPage = () => {
       description: 'Prescription & health products delivery',
       color: 'from-blue-500 to-cyan-500',
       serviceType: 'pharmacy',
-      route: '/pharmacy-order'
+      route: '/pharmacy-order',
+      image: '💊',
+      tagline: 'Health at your door'
     },
     {
       icon: ShoppingCart,
@@ -363,7 +369,9 @@ const LandingPage = () => {
       description: 'Fresh groceries and household items',
       color: 'from-green-500 to-emerald-500',
       serviceType: 'grocery',
-      route: '/grocery-order'
+      route: '/grocery-order',
+      image: '🛒',
+      tagline: 'Fresh from the market'
     },
     {
       icon: Package,
@@ -371,7 +379,9 @@ const LandingPage = () => {
       description: 'Fast and secure package delivery',
       color: 'from-purple-500 to-pink-500',
       serviceType: 'courier',
-      route: '/courier-order'
+      route: '/courier-order',
+      image: '📦',
+      tagline: 'Delivered with care'
     },
     {
       icon: Car,
@@ -379,155 +389,230 @@ const LandingPage = () => {
       description: 'Airport and city car rental services',
       color: 'from-blue-500 to-indigo-500',
       serviceType: 'car_rental',
-      route: '/car-rentals'
+      route: '/car-rentals',
+      image: '🚗',
+      tagline: 'Drive your adventure'
+    }
+  ];
+
+  const stats = [
+    { number: '50K+', label: 'Active Users' },
+    { number: '5K+', label: 'Partner Businesses' },
+    { number: '100K+', label: 'Deliveries Completed' },
+    { number: '4.8', label: 'Average Rating' }
+  ];
+
+  const features = [
+    {
+      icon: '⚡',
+      title: 'Lightning Fast',
+      description: 'Average delivery in under 30 minutes across the islands'
+    },
+    {
+      icon: '🛡️',
+      title: 'Secure & Safe',
+      description: 'Verified partners and encrypted transactions'
+    },
+    {
+      icon: '💰',
+      title: 'Best Prices',
+      description: 'Competitive rates with no hidden fees'
+    },
+    {
+      icon: '📱',
+      title: 'Easy Tracking',
+      description: 'Real-time updates from pickup to delivery'
     }
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 lg:py-32">
-        <div className="absolute inset-0 bg-gradient-to-br from-turquoise-400/20 via-transparent to-orange-400/20"></div>
-        <div className="relative container mx-auto px-4 text-center">
-          <div className="max-w-4xl mx-auto">
-            <h1 className="text-5xl lg:text-7xl font-bold text-gray-900 mb-6 leading-tight">
-              Caribbean Delivery
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-turquoise-600 to-orange-600">
-                Made Simple
-              </span>
+    <div className="min-h-screen bg-white">
+      {/* Hero Section - Modern & Clean */}
+      <section className="relative overflow-hidden bg-gradient-to-br from-turquoise-500 via-cyan-500 to-orange-500 pt-20 pb-32">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00em0wLTIwYzAtMi4yMS0xLjc5LTQtNC00cy00IDEuNzktNCA0IDEuNzkgNCA0IDQgNC0xLjc5IDQtNHptLTIwIDBjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00eiIvPjwvZz48L2c+PC9zdmc+')] opacity-20"></div>
+        
+        <div className="relative container mx-auto px-4">
+          <div className="max-w-4xl mx-auto text-center text-white">
+            <div className="inline-block mb-6 px-6 py-2 bg-white/20 backdrop-blur-sm rounded-full">
+              <span className="text-sm font-semibold">🏝️ Caribbean's #1 Delivery Platform</span>
+            </div>
+            
+            <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight">
+              Everything you need,
+              <br />
+              <span className="text-yellow-300">delivered instantly</span>
             </h1>
-            <p className="text-xl lg:text-2xl text-gray-600 mb-8 leading-relaxed">
-              From fresh Caribbean cuisine to everyday essentials, we deliver island life to your doorstep
+            
+            <p className="text-xl md:text-2xl mb-10 text-white/90 font-light max-w-2xl mx-auto">
+              From fresh meals to everyday essentials. Fast, reliable delivery across the Caribbean islands.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Button 
                 size="lg" 
-                className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white px-8 py-4 text-lg"
-                onClick={() => navigate('/services')}
-                data-testid="order-now-btn"
+                className="bg-white text-turquoise-600 hover:bg-gray-50 px-10 py-7 text-lg font-semibold shadow-2xl hover:shadow-xl transition-all hover:scale-105"
+                onClick={() => {
+                  const servicesSection = document.getElementById('services');
+                  servicesSection?.scrollIntoView({ behavior: 'smooth' });
+                }}
               >
-                Order Now
+                Get Started
+                <ChevronRight className="ml-2 h-5 w-5" />
               </Button>
               <Button 
                 size="lg" 
-                variant="outline" 
-                className="border-2 border-orange-300 text-orange-700 hover:bg-orange-50 px-8 py-4 text-lg"
+                variant="outline"
+                className="border-2 border-white text-white hover:bg-white hover:text-turquoise-600 px-10 py-7 text-lg font-semibold backdrop-blur-sm bg-white/10 transition-all hover:scale-105"
                 onClick={() => navigate('/partner')}
-                data-testid="become-partner-btn"
               >
                 Become a Partner
               </Button>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
+              {stats.map((stat, index) => (
+                <div key={index} className="text-center">
+                  <div className="text-4xl md:text-5xl font-bold mb-2">{stat.number}</div>
+                  <div className="text-sm md:text-base text-white/80">{stat.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Services Section */}
-      <section className="py-16 lg:py-24">
+      {/* Services Section - Card Grid */}
+      <section id="services" className="py-20 bg-gray-50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-              Our Services
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+              What do you need?
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Complete delivery solutions for island living
+              Choose from our wide range of delivery services
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
             {services.map((service, index) => (
-              <Card 
-                key={index} 
-                className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border-0 bg-white/80 backdrop-blur-sm"
-                data-testid={`service-card-${service.name.toLowerCase().replace(/\s+/g, '-')}`}
+              <div 
+                key={index}
+                onClick={() => navigate(service.route)}
+                className="group cursor-pointer"
               >
-                <CardContent className="p-8 text-center">
-                  <div className={`inline-flex w-16 h-16 rounded-2xl bg-gradient-to-r ${service.color} items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300`}>
-                    <service.icon className="h-8 w-8 text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-3">
-                    {service.name}
-                  </h3>
-                  <p className="text-gray-600 leading-relaxed mb-6">
-                    {service.description}
-                  </p>
-                  <Button
-                    className={`w-full bg-gradient-to-r ${service.color} text-white`}
-                    onClick={() => navigate(service.route)}
-                  >
-                    Order Now
-                  </Button>
-                </CardContent>
-              </Card>
+                <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 bg-white h-full">
+                  <div className={`absolute inset-0 bg-gradient-to-br ${service.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
+                  
+                  <CardContent className="p-8">
+                    <div className="flex items-start justify-between mb-6">
+                      <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${service.color} flex items-center justify-center text-3xl shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                        {service.image}
+                      </div>
+                      <ChevronRight className="h-6 w-6 text-gray-400 group-hover:text-gray-900 group-hover:translate-x-1 transition-all" />
+                    </div>
+                    
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                      {service.name}
+                    </h3>
+                    
+                    <p className="text-sm font-medium text-gray-500 mb-3">
+                      {service.tagline}
+                    </p>
+                    
+                    <p className="text-gray-600 leading-relaxed">
+                      {service.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-16 lg:py-24 bg-gradient-to-r from-turquoise-500/10 to-orange-500/10">
+      {/* Features Section - Modern 4-column */}
+      <section className="py-20 bg-white">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-                Why Choose IslandHop?
-              </h2>
-              <div className="space-y-6">
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Zap className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Lightning Fast Delivery</h3>
-                    <p className="text-gray-600">Real-time tracking with average delivery times under 30 minutes</p>
-                  </div>
-                </div>
+          <div className="text-center mb-16">
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+              Why IslandHop?
+            </h2>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              The smartest way to get things delivered across the Caribbean
+            </p>
+          </div>
 
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Shield className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Secure & Reliable</h3>
-                    <p className="text-gray-600">End-to-end encryption and verified partner network</p>
-                  </div>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
+            {features.map((feature, index) => (
+              <div key={index} className="text-center p-6">
+                <div className="text-6xl mb-4">{feature.icon}</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">
+                  {feature.title}
+                </h3>
+                <p className="text-gray-600 leading-relaxed">
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Heart className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Island Community</h3>
-                    <p className="text-gray-600">Supporting local businesses across the Caribbean</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="relative">
-              <div className="aspect-square bg-gradient-to-br from-turquoise-400 to-orange-400 rounded-3xl p-8 text-white">
-                <div className="h-full flex flex-col justify-center items-center text-center">
-                  <div className="text-6xl font-bold mb-4">24/7</div>
-                  <div className="text-xl mb-6">AI Customer Support</div>
-                  <Button 
-                    variant="secondary" 
-                    size="lg"
-                    onClick={() => navigate('/support')}
-                    data-testid="chat-support-btn"
-                  >
-                    <MessageCircle className="h-5 w-5 mr-2" />
-                    Chat Now
-                  </Button>
-                </div>
-              </div>
+      {/* App Download Section */}
+      <section className="py-20 bg-gradient-to-r from-turquoise-500 to-orange-500">
+        <div className="container mx-auto px-4">
+          <div className="max-w-4xl mx-auto text-center text-white">
+            <h2 className="text-4xl md:text-5xl font-bold mb-6">
+              Get the IslandHop App
+            </h2>
+            <p className="text-xl mb-10 text-white/90">
+              Order faster and track your deliveries in real-time
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Button 
+                size="lg" 
+                className="bg-black hover:bg-gray-900 text-white px-8 py-6 text-base font-semibold"
+              >
+                <Apple className="mr-3 h-6 w-6" />
+                Download on App Store
+              </Button>
+              <Button 
+                size="lg" 
+                className="bg-white hover:bg-gray-50 text-gray-900 px-8 py-6 text-base font-semibold"
+              >
+                <Smartphone className="mr-3 h-6 w-6" />
+                Get it on Google Play
+              </Button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-16 lg:py-24">
+      {/* Partner CTA */}
+      <section className="py-20 bg-gray-900 text-white">
+        <div className="container mx-auto px-4">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-4xl md:text-5xl font-bold mb-6">
+              Grow your business with IslandHop
+            </h2>
+            <p className="text-xl mb-10 text-gray-300">
+              Join thousands of restaurants, stores, and drivers earning more every day
+            </p>
+            <Button 
+              size="lg" 
+              className="bg-gradient-to-r from-turquoise-500 to-orange-500 hover:from-turquoise-600 hover:to-orange-600 text-white px-12 py-7 text-lg font-semibold shadow-xl hover:shadow-2xl transition-all hover:scale-105"
+              onClick={() => navigate('/partner')}
+            >
+              Become a Partner
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+};
         <div className="container mx-auto px-4 text-center">
           <div className="max-w-4xl mx-auto">
             <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
