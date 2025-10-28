@@ -277,6 +277,9 @@ frontend:
       - working: true
         agent: "main"
         comment: "Landing page with Caribbean-themed hero section and services. Screenshot verified - loads correctly with proper styling."
+      - working: true
+        agent: "main"
+        comment: "Fixed missing icons issue. Added ChevronRight, Apple, Smartphone, and ArrowRight icons to imports. Removed duplicate orphaned JSX code causing compilation error. Landing page now fully functional with all sections (Hero, Services, Features, App Download, Partner CTA) rendering correctly."
 
   - task: "Mobile Responsive Navigation"
     implemented: true
