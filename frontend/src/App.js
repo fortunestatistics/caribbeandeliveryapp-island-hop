@@ -344,17 +344,22 @@ const Header = () => {
     <>
       <header className="bg-white/95 backdrop-blur-md border-b border-orange-200 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2">
+            <Link to="/" className="flex items-center space-x-2 flex-shrink-0">
               <div className="w-10 h-10 bg-gradient-to-br from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center">
                 <Package className="h-6 w-6 text-white" />
               </div>
-              <div>
+              <div className="hidden sm:block">
                 <h1 className="text-xl font-bold text-gray-900">IslandHop</h1>
                 <p className="text-xs text-turquoise-600">Caribbean Delivery</p>
               </div>
             </Link>
+
+            {/* Global Search - Desktop */}
+            <div className="hidden md:flex flex-1 max-w-2xl">
+              <GlobalSearch />
+            </div>
 
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center space-x-6">
