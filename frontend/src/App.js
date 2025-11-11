@@ -173,6 +173,158 @@ const AuthHandler = () => {
   return null;
 };
 
+// Global Search Component
+const GlobalSearch = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const navigate = useNavigate();
+  const searchRef = React.useRef(null);
+
+  // Debounce search
+  useEffect(() => {
+    const delaySearch = setTimeout(() => {
+      if (searchQuery.trim().length >= 2) {
+        performSearch(searchQuery);
+      } else {
+        setSearchResults([]);
+        setShowResults(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(delaySearch);
+  }, [searchQuery]);
+
+  // Close search results when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setShowResults(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const performSearch = async (query) => {
+    setIsSearching(true);
+    try {
+      const response = await axios.get(`${API}/search?q=${encodeURIComponent(query)}`);
+      setSearchResults(response.data.results || []);
+      setShowResults(true);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleResultClick = (result) => {
+    setShowResults(false);
+    setSearchQuery('');
+    
+    // Navigate based on result type
+    if (result.type === 'vendor') {
+      if (result.vendor_type === 'restaurant') {
+        navigate(`/restaurants/${result.id}`);
+      } else if (result.vendor_type === 'pharmacy') {
+        navigate(`/pharmacy/${result.id}`);
+      } else if (result.vendor_type === 'grocery') {
+        navigate(`/grocery/${result.id}`);
+      }
+    } else if (result.type === 'product') {
+      // Navigate to vendor page with product highlighted
+      navigate(`/restaurants/${result.vendor_id}?product=${result.id}`);
+    }
+  };
+
+  return (
+    <div ref={searchRef} className="relative flex-1 max-w-xl mx-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <Input
+          type="text"
+          placeholder="Search for restaurants, products, pharmacies..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
+          className="pl-10 pr-4 py-2 w-full border-gray-300 focus:border-turquoise-500 focus:ring-turquoise-500"
+        />
+        {isSearching && (
+          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+            <div className="animate-spin h-5 w-5 border-2 border-turquoise-500 border-t-transparent rounded-full"></div>
+          </div>
+        )}
+      </div>
+
+      {/* Search Results Dropdown */}
+      {showResults && searchResults.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 max-h-96 overflow-y-auto z-50">
+          {/* Vendors */}
+          {searchResults.filter(r => r.type === 'vendor').length > 0 && (
+            <div className="p-2">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Vendors</div>
+              {searchResults.filter(r => r.type === 'vendor').map((result, index) => (
+                <button
+                  key={`vendor-${index}`}
+                  onClick={() => handleResultClick(result)}
+                  className="w-full text-left px-3 py-3 hover:bg-gray-50 rounded-lg transition-colors flex items-center space-x-3"
+                >
+                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${
+                    result.vendor_type === 'restaurant' ? 'from-red-500 to-orange-500' :
+                    result.vendor_type === 'pharmacy' ? 'from-blue-500 to-cyan-500' :
+                    'from-green-500 to-emerald-500'
+                  } flex items-center justify-center text-white text-xl`}>
+                    {result.vendor_type === 'restaurant' ? '🍽️' :
+                     result.vendor_type === 'pharmacy' ? '💊' : '🛒'}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-900">{result.name}</div>
+                    <div className="text-sm text-gray-500 capitalize">{result.vendor_type}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Products */}
+          {searchResults.filter(r => r.type === 'product').length > 0 && (
+            <div className="p-2 border-t border-gray-100">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Products</div>
+              {searchResults.filter(r => r.type === 'product').map((result, index) => (
+                <button
+                  key={`product-${index}`}
+                  onClick={() => handleResultClick(result)}
+                  className="w-full text-left px-3 py-3 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  <div className="font-semibold text-gray-900">{result.name}</div>
+                  <div className="text-sm text-gray-500">{result.vendor_name}</div>
+                  {result.price && (
+                    <div className="text-sm font-medium text-turquoise-600">${result.price}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* No Results */}
+      {showResults && searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-4 z-50">
+          <div className="text-center text-gray-500">
+            <Search className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+            <p>No results found for "{searchQuery}"</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Header Component
 const Header = () => {
   const { user, login, logout } = useAuth();
