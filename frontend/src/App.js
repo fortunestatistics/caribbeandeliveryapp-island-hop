@@ -415,6 +415,11 @@ const Header = () => {
           {/* Mobile Navigation Menu */}
           {mobileMenuOpen && (
             <div className="md:hidden mt-4 pb-4 border-t border-gray-200 bg-white/95 backdrop-blur-md">
+              {/* Mobile Search */}
+              <div className="px-4 py-3">
+                <GlobalSearch />
+              </div>
+              
               <nav className="flex flex-col space-y-1 mt-4">
                 {navigationItems.map((item) => {
                   const IconComponent = item.icon;
