@@ -819,6 +819,103 @@ async def create_restaurant(restaurant: Restaurant, request: Request):
     
     return restaurant
 
+# Global Search Endpoint
+@api_router.get("/search")
+async def global_search(q: str):
+    """
+    Global search across vendors (restaurants, pharmacies, groceries) and products
+    """
+    if not q or len(q) < 2:
+        return {"results": []}
+    
+    search_query = {"$regex": q, "$options": "i"}
+    results = []
+    
+    # Search Restaurants
+    restaurants = await db.restaurants.find({
+        "$or": [
+            {"name": search_query},
+            {"cuisine": search_query},
+            {"description": search_query}
+        ],
+        "status": "active"
+    }).limit(5).to_list(length=None)
+    
+    for restaurant in restaurants:
+        results.append({
+            "id": restaurant.get("id"),
+            "name": restaurant.get("name"),
+            "type": "vendor",
+            "vendor_type": "restaurant",
+            "description": restaurant.get("description", ""),
+            "cuisine": restaurant.get("cuisine", [])
+        })
+    
+    # Search Pharmacies (from business onboarding with pharmacy type)
+    pharmacies = await db.businesses.find({
+        "$or": [
+            {"business_name": search_query},
+            {"business_description": search_query}
+        ],
+        "business_type": "pharmacy",
+        "status": "active"
+    }).limit(5).to_list(length=None)
+    
+    for pharmacy in pharmacies:
+        results.append({
+            "id": pharmacy.get("id"),
+            "name": pharmacy.get("business_name"),
+            "type": "vendor",
+            "vendor_type": "pharmacy",
+            "description": pharmacy.get("business_description", "")
+        })
+    
+    # Search Grocery Stores
+    groceries = await db.businesses.find({
+        "$or": [
+            {"business_name": search_query},
+            {"business_description": search_query}
+        ],
+        "business_type": "grocery",
+        "status": "active"
+    }).limit(5).to_list(length=None)
+    
+    for grocery in groceries:
+        results.append({
+            "id": grocery.get("id"),
+            "name": grocery.get("business_name"),
+            "type": "vendor",
+            "vendor_type": "grocery",
+            "description": grocery.get("business_description", "")
+        })
+    
+    # Search Menu Items / Products (if you have a menu_items collection)
+    # This searches within restaurant menus
+    if "menu_items" in await db.list_collection_names():
+        menu_items = await db.menu_items.find({
+            "$or": [
+                {"name": search_query},
+                {"description": search_query},
+                {"category": search_query}
+            ],
+            "available": True
+        }).limit(10).to_list(length=None)
+        
+        for item in menu_items:
+            # Get vendor name
+            vendor = await db.restaurants.find_one({"id": item.get("vendor_id")})
+            results.append({
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "type": "product",
+                "vendor_id": item.get("vendor_id"),
+                "vendor_name": vendor.get("name") if vendor else "Unknown",
+                "price": item.get("price"),
+                "description": item.get("description", "")
+            })
+    
+    return {"results": results[:20]}  # Limit to top 20 results
+
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
     """Get all active restaurants"""
