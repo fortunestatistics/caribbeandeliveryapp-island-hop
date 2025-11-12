@@ -242,7 +242,7 @@ const GlobalSearch = () => {
   };
 
   return (
-    <div ref={searchRef} className="relative flex-1 max-w-xl mx-4">
+    <div ref={searchRef} className="relative flex-1 max-w-3xl mx-4">
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
         <Input
@@ -251,7 +251,7 @@ const GlobalSearch = () => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
-          className="pl-10 pr-4 py-2 w-full border-gray-300 focus:border-turquoise-500 focus:ring-turquoise-500"
+          className="pl-10 pr-4 py-3 w-full text-base border-gray-300 focus:border-turquoise-500 focus:ring-turquoise-500"
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
