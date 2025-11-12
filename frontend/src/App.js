@@ -357,7 +357,7 @@ const Header = () => {
             </Link>
 
             {/* Global Search - Desktop */}
-            <div className="hidden md:flex flex-1 max-w-2xl">
+            <div className="hidden md:flex flex-1 max-w-4xl">
               <GlobalSearch />
             </div>
 
