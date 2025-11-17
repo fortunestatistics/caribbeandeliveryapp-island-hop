@@ -142,6 +142,7 @@ class Order(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     restaurant_id: Optional[str] = None
+    vendor_id: Optional[str] = None  # Generic vendor ID for non-restaurant services
     driver_id: Optional[str] = None
     service_type: str  # food, taxi, grocery, pharmacy, courier, car_rental
     items: List[OrderItem] = []
@@ -150,6 +151,22 @@ class Order(BaseModel):
     tip: float = 0.0
     tax: float = 0.0
     total: float
+    
+    # Commission and payout fields
+    commission_rate: float = 0.0  # Percentage (e.g., 15.0 for 15%)
+    commission_amount: float = 0.0  # Calculated commission
+    vendor_payout: float = 0.0  # Amount vendor receives (subtotal - commission)
+    platform_earnings: float = 0.0  # Platform's share (commission + platform delivery portion)
+    driver_earnings: float = 0.0  # Driver's share (driver delivery portion + tip)
+    driver_delivery_portion: float = 0.0  # Driver's portion of delivery fee (60%)
+    platform_delivery_portion: float = 0.0  # Platform's portion of delivery fee (40%)
+    
+    # Payout tracking
+    vendor_payout_status: str = "pending"  # pending, scheduled, paid, failed
+    driver_payout_status: str = "pending"  # pending, accumulated, paid, failed
+    vendor_payout_date: Optional[datetime] = None
+    driver_payout_date: Optional[datetime] = None
+    
     status: str = "pending"  # pending, confirmed, preparing, ready, picked_up, in_transit, delivered, cancelled
     pickup_address: Dict[str, Any]
     delivery_address: Dict[str, Any]
