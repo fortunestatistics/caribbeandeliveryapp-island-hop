@@ -1329,7 +1329,7 @@ async def update_order_status(order_id: str, status: str, request: Request):
         raise HTTPException(status_code=403, detail="Not authorized to update this order")
     
     # Update order status with timestamp
-    update_data = {"status": status}
+    update_data = {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if status == "confirmed":
         update_data["confirmed_at"] = datetime.now(timezone.utc).isoformat()
     elif status == "ready":
@@ -1338,6 +1338,23 @@ async def update_order_status(order_id: str, status: str, request: Request):
         update_data["picked_up_at"] = datetime.now(timezone.utc).isoformat()
     elif status == "delivered":
         update_data["delivered_at"] = datetime.now(timezone.utc).isoformat()
+        update_data["actual_delivery_time"] = datetime.now(timezone.utc).isoformat()
+        
+        # Automatically add driver earnings to wallet
+        if order.get("driver_id"):
+            driver_earnings = order.get("driver_earnings", 0)
+            await db.driver_wallets.update_one(
+                {"driver_id": order["driver_id"]},
+                {
+                    "$inc": {
+                        "balance": driver_earnings,
+                        "total_earned": driver_earnings
+                    },
+                    "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+                },
+                upsert=True
+            )
+            update_data["driver_payout_status"] = "accumulated"
     
     await db.orders.update_one(
         {"id": order_id},
