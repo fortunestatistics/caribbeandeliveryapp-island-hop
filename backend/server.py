@@ -303,7 +303,58 @@ class Driver(BaseModel):
     status: str = "offline"  # offline, online, busy
     rating: float = 0.0
     current_location: Optional[Dict[str, float]] = None  # lat, lng
+    wallet_balance: float = 0.0  # Accumulated earnings
+    total_earnings: float = 0.0  # Lifetime earnings
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Driver Wallet Models
+class DriverWallet(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    driver_id: str
+    balance: float = 0.0
+    total_earned: float = 0.0
+    total_withdrawn: float = 0.0
+    pending_amount: float = 0.0  # From orders not yet completed
+    stripe_account_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DriverWithdrawal(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    driver_id: str
+    amount: float
+    status: str = "pending"  # pending, processing, completed, failed
+    method: str  # bank_transfer, stripe, mobile_money
+    bank_details: Optional[Dict[str, Any]] = None
+    stripe_transfer_id: Optional[str] = None
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+# Vendor Stripe Connect Models
+class VendorStripeAccount(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    vendor_id: str  # restaurant_id or business_id
+    vendor_type: str  # restaurant, pharmacy, grocery, business
+    stripe_account_id: str  # Stripe Connect account ID
+    account_status: str = "pending"  # pending, active, restricted, disabled
+    onboarding_complete: bool = False
+    charges_enabled: bool = False
+    payouts_enabled: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class VendorPayout(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    vendor_id: str
+    vendor_type: str
+    amount: float  # Total payout amount
+    order_ids: List[str]  # Orders included in this payout
+    payout_date: datetime
+    status: str = "scheduled"  # scheduled, processing, completed, failed
+    stripe_payout_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: Optional[datetime] = None
 
 # Car Rental Models
 class RentalVehicle(BaseModel):
