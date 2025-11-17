@@ -701,6 +701,210 @@ async def get_current_user_from_request(request: Request):
     
     return User(**user)
 
+# Stripe Connect & Payout Routes
+@api_router.post("/vendors/{vendor_id}/stripe-connect")
+async def create_vendor_stripe_account(vendor_id: str, vendor_type: str, email: str):
+    """Create Stripe Express Connect account for vendor"""
+    try:
+        # Create Stripe Express account
+        account = stripe.Account.create(
+            type="express",
+            country="US",
+            email=email,
+            capabilities={
+                "card_payments": {"requested": True},
+                "transfers": {"requested": True},
+            },
+        )
+        
+        # Save to database
+        stripe_account = VendorStripeAccount(
+            vendor_id=vendor_id,
+            vendor_type=vendor_type,
+            stripe_account_id=account.id
+        )
+        await db.vendor_stripe_accounts.insert_one(stripe_account.dict())
+        
+        # Create account link for onboarding
+        account_link = stripe.AccountLink.create(
+            account=account.id,
+            refresh_url=f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/vendor/stripe-refresh",
+            return_url=f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/vendor/stripe-return",
+            type="account_onboarding",
+        )
+        
+        return {
+            "success": True,
+            "account_id": account.id,
+            "onboarding_url": account_link.url
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/vendors/{vendor_id}/stripe-account")
+async def get_vendor_stripe_account(vendor_id: str):
+    """Get vendor's Stripe Connect account status"""
+    stripe_account = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id})
+    if not stripe_account:
+        return {"connected": False}
+    
+    try:
+        # Get account status from Stripe
+        account = stripe.Account.retrieve(stripe_account["stripe_account_id"])
+        
+        # Update database
+        await db.vendor_stripe_accounts.update_one(
+            {"vendor_id": vendor_id},
+            {"$set": {
+                "account_status": "active" if account.charges_enabled else "restricted",
+                "onboarding_complete": account.details_submitted,
+                "charges_enabled": account.charges_enabled,
+                "payouts_enabled": account.payouts_enabled,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        return {
+            "connected": True,
+            "account_id": account.id,
+            "charges_enabled": account.charges_enabled,
+            "payouts_enabled": account.payouts_enabled,
+            "onboarding_complete": account.details_submitted
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+@api_router.post("/payouts/process-daily-batch")
+async def process_daily_vendor_payouts():
+    """
+    Process daily batch payouts for all vendors
+    This should be called by a cron job once per day
+    """
+    try:
+        # Get yesterday's date range
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday = today - timedelta(days=1)
+        
+        # Get all completed orders from yesterday that need payout
+        completed_orders = await db.orders.find({
+            "status": "delivered",
+            "vendor_payout_status": "pending",
+            "actual_delivery_time": {
+                "$gte": yesterday.isoformat(),
+                "$lt": today.isoformat()
+            }
+        }).to_list(length=None)
+        
+        # Group orders by vendor
+        vendor_orders = {}
+        for order in completed_orders:
+            vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+            if vendor_id not in vendor_orders:
+                vendor_orders[vendor_id] = []
+            vendor_orders[vendor_id].append(order)
+        
+        payouts_processed = []
+        
+        # Process payout for each vendor
+        for vendor_id, orders in vendor_orders.items():
+            total_payout = sum(order.get("vendor_payout", 0) for order in orders)
+            order_ids = [order["id"] for order in orders]
+            
+            # Get vendor's Stripe account
+            stripe_account = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id})
+            
+            if not stripe_account or not stripe_account.get("payouts_enabled"):
+                # Mark as failed if no Stripe account
+                payout = VendorPayout(
+                    vendor_id=vendor_id,
+                    vendor_type="unknown",
+                    amount=total_payout,
+                    order_ids=order_ids,
+                    payout_date=today,
+                    status="failed"
+                )
+                await db.vendor_payouts.insert_one(payout.dict())
+                continue
+            
+            try:
+                # Create Stripe transfer
+                transfer = stripe.Transfer.create(
+                    amount=int(total_payout * 100),  # Convert to cents
+                    currency="usd",
+                    destination=stripe_account["stripe_account_id"],
+                    description=f"Daily payout for {len(orders)} orders"
+                )
+                
+                # Record payout
+                payout = VendorPayout(
+                    vendor_id=vendor_id,
+                    vendor_type=stripe_account.get("vendor_type", "unknown"),
+                    amount=total_payout,
+                    order_ids=order_ids,
+                    payout_date=today,
+                    status="completed",
+                    stripe_payout_id=transfer.id,
+                    completed_at=datetime.now(timezone.utc)
+                )
+                await db.vendor_payouts.insert_one(payout.dict())
+                
+                # Update order statuses
+                await db.orders.update_many(
+                    {"id": {"$in": order_ids}},
+                    {"$set": {
+                        "vendor_payout_status": "paid",
+                        "vendor_payout_date": today.isoformat()
+                    }}
+                )
+                
+                payouts_processed.append({
+                    "vendor_id": vendor_id,
+                    "amount": total_payout,
+                    "orders_count": len(orders),
+                    "status": "completed"
+                })
+                
+            except Exception as e:
+                # Record failed payout
+                payout = VendorPayout(
+                    vendor_id=vendor_id,
+                    vendor_type=stripe_account.get("vendor_type", "unknown"),
+                    amount=total_payout,
+                    order_ids=order_ids,
+                    payout_date=today,
+                    status="failed"
+                )
+                payout_dict = payout.dict()
+                payout_dict["error"] = str(e)
+                await db.vendor_payouts.insert_one(payout_dict)
+                
+                payouts_processed.append({
+                    "vendor_id": vendor_id,
+                    "amount": total_payout,
+                    "orders_count": len(orders),
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "date": yesterday.date().isoformat(),
+            "vendors_processed": len(vendor_orders),
+            "total_payouts": len(payouts_processed),
+            "payouts": payouts_processed
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/vendors/{vendor_id}/payouts")
+async def get_vendor_payouts(vendor_id: str, limit: int = 30):
+    """Get vendor's payout history"""
+    payouts = await db.vendor_payouts.find(
+        {"vendor_id": vendor_id}
+    ).sort("payout_date", -1).limit(limit).to_list(length=None)
+    return payouts
+
 # WebSocket endpoint
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
