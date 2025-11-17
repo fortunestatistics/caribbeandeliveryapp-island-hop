@@ -1038,25 +1038,42 @@ async def get_restaurant(restaurant_id: str):
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
-    """Create new order"""
+    """Create new order with automatic commission calculation"""
     current_user = await get_current_user_from_request(request)
     order.customer_id = current_user.id
     
+    # Determine vendor ID and type
+    vendor_id = order.restaurant_id or order.vendor_id
+    if order.service_type == "food":
+        vendor_type = "restaurant"
+    elif order.service_type == "pharmacy":
+        vendor_type = "pharmacy"
+    elif order.service_type == "grocery":
+        vendor_type = "grocery"
+    elif order.service_type == "car_rental":
+        vendor_type = "car_rental"
+    else:
+        vendor_type = "business"
+    
+    # Calculate commission and payment splits
+    order = await calculate_order_financials(order, vendor_id, vendor_type)
+    
     # Calculate estimated delivery time
-    order.estimated_delivery_time = datetime.now(timezone.utc)
+    order.estimated_delivery_time = datetime.now(timezone.utc) + timedelta(minutes=30)
     
     order_dict = prepare_for_mongo(order.dict())
     await db.orders.insert_one(order_dict)
     
-    # Notify restaurant via WebSocket
-    await manager.send_personal_message(
-        json.dumps({
-            "type": "new_order",
-            "order_id": order.id,
-            "order_number": order.order_number
-        }),
-        order.restaurant_id
-    )
+    # Notify vendor via WebSocket
+    if vendor_id:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "new_order",
+                "order_id": order.id,
+                "vendor_payout": order.vendor_payout
+            }),
+            vendor_id
+        )
     
     return order
 
