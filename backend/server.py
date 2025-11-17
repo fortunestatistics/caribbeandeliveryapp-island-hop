@@ -1484,6 +1484,10 @@ async def create_driver(driver: Driver, request: Request):
     driver_dict = prepare_for_mongo(driver.dict())
     await db.drivers.insert_one(driver_dict)
     
+    # Create driver wallet
+    wallet = DriverWallet(driver_id=driver.id)
+    await db.driver_wallets.insert_one(wallet.dict())
+    
     # Update user type
     await db.users.update_one(
         {"id": current_user.id},
@@ -1491,6 +1495,111 @@ async def create_driver(driver: Driver, request: Request):
     )
     
     return driver
+
+# Driver Wallet Routes
+@api_router.get("/drivers/{driver_id}/wallet")
+async def get_driver_wallet(driver_id: str, request: Request):
+    """Get driver's wallet balance and earnings"""
+    wallet = await db.driver_wallets.find_one({"driver_id": driver_id})
+    if not wallet:
+        # Create wallet if it doesn't exist
+        wallet = DriverWallet(driver_id=driver_id)
+        await db.driver_wallets.insert_one(wallet.dict())
+    
+    # Get pending earnings from completed orders
+    completed_orders = await db.orders.find({
+        "driver_id": driver_id,
+        "status": "delivered",
+        "driver_payout_status": "pending"
+    }).to_list(length=None)
+    
+    pending_earnings = sum(order.get("driver_earnings", 0) for order in completed_orders)
+    
+    return {
+        **wallet,
+        "pending_earnings": pending_earnings,
+        "available_balance": wallet.get("balance", 0),
+        "total_earned": wallet.get("total_earned", 0)
+    }
+
+@api_router.post("/drivers/{driver_id}/wallet/add-earnings")
+async def add_driver_earnings(driver_id: str, order_id: str):
+    """Add earnings from a completed order to driver's wallet"""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order.get("status") != "delivered":
+        raise HTTPException(status_code=400, detail="Order not yet delivered")
+    
+    if order.get("driver_payout_status") == "accumulated":
+        raise HTTPException(status_code=400, detail="Earnings already added")
+    
+    # Update wallet
+    driver_earnings = order.get("driver_earnings", 0)
+    await db.driver_wallets.update_one(
+        {"driver_id": driver_id},
+        {
+            "$inc": {
+                "balance": driver_earnings,
+                "total_earned": driver_earnings
+            },
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
+    )
+    
+    # Update order payout status
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"driver_payout_status": "accumulated"}}
+    )
+    
+    return {"success": True, "amount_added": driver_earnings}
+
+@api_router.post("/drivers/{driver_id}/wallet/withdraw")
+async def request_driver_withdrawal(driver_id: str, amount: float, method: str, request: Request):
+    """Request withdrawal from driver's wallet"""
+    wallet = await db.driver_wallets.find_one({"driver_id": driver_id})
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+    
+    if wallet.get("balance", 0) < amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+    
+    if amount < 10.0:
+        raise HTTPException(status_code=400, detail="Minimum withdrawal amount is $10")
+    
+    # Create withdrawal request
+    withdrawal = DriverWithdrawal(
+        driver_id=driver_id,
+        amount=amount,
+        method=method
+    )
+    
+    await db.driver_withdrawals.insert_one(withdrawal.dict())
+    
+    # Deduct from available balance
+    await db.driver_wallets.update_one(
+        {"driver_id": driver_id},
+        {
+            "$inc": {"balance": -amount, "total_withdrawn": amount},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
+    )
+    
+    return {
+        "success": True,
+        "withdrawal_id": withdrawal.id,
+        "amount": amount,
+        "status": "pending",
+        "message": "Withdrawal request submitted. Processing within 1-2 business days."
+    }
+
+@api_router.get("/drivers/{driver_id}/withdrawals")
+async def get_driver_withdrawals(driver_id: str):
+    """Get driver's withdrawal history"""
+    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
+    return withdrawals
 
 # Car Rental Management Routes
 @api_router.post("/car-rentals", response_model=CarRentalCompany)
