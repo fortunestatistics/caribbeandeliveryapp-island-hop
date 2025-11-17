@@ -356,6 +356,43 @@ class VendorPayout(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
 
+# Helper function to calculate commission and split payments
+async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
+    """
+    Calculate commission, vendor payout, platform earnings, and driver earnings
+    """
+    # Get vendor's subscription plan to determine commission rate
+    subscription = await db.user_subscriptions.find_one({"user_id": vendor_id, "status": "active"})
+    
+    if subscription:
+        plan = await db.subscription_plans.find_one({"id": subscription["plan_id"]})
+        commission_rate = plan.get("commission_rate", 15.0) if plan else 15.0
+    else:
+        # Default commission rates by vendor type if no subscription
+        default_rates = {
+            "restaurant": 15.0,
+            "pharmacy": 8.0,
+            "grocery": 12.0,
+            "car_rental": 10.0,
+            "business": 20.0
+        }
+        commission_rate = default_rates.get(vendor_type, 15.0)
+    
+    # Calculate commission
+    order.commission_rate = commission_rate
+    order.commission_amount = round(order.subtotal * (commission_rate / 100), 2)
+    order.vendor_payout = round(order.subtotal - order.commission_amount, 2)
+    
+    # Split delivery fee: 60% to driver, 40% to platform
+    order.driver_delivery_portion = round(order.delivery_fee * 0.6, 2)
+    order.platform_delivery_portion = round(order.delivery_fee * 0.4, 2)
+    
+    # Calculate total earnings
+    order.driver_earnings = round(order.driver_delivery_portion + order.tip, 2)
+    order.platform_earnings = round(order.commission_amount + order.platform_delivery_portion, 2)
+    
+    return order
+
 # Car Rental Models
 class RentalVehicle(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
