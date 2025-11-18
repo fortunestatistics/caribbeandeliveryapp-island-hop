@@ -2982,8 +2982,16 @@ async def get_status_checks():
 # Initialize data on startup
 @app.on_event("startup")
 async def initialize_data():
-    """Initialize default data"""
+    """Initialize default data and indexes"""
     try:
+        # Create geospatial index for driver locations (for smart matching)
+        await db.drivers.create_index([("current_location", "2dsphere")])
+        print("✅ Created geospatial index for driver locations")
+        
+        # Create TTL index for driver location history (auto-delete after 1 hour)
+        await db.driver_locations.create_index("timestamp", expireAfterSeconds=3600)
+        print("✅ Created TTL index for driver location history")
+        
         # Check if business categories exist
         existing_categories = await db.business_categories.count_documents({})
         
