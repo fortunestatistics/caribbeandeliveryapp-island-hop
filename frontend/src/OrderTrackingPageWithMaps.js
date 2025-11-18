@@ -1,0 +1,581 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { Badge } from './components/ui/badge';
+import { 
+  MapPin, 
+  Phone, 
+  MessageCircle, 
+  Clock, 
+  User,
+  Package,
+  CheckCircle,
+  Truck,
+  Send,
+  Star
+} from 'lucide-react';
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+const GOOGLE_MAPS_API_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+
+const mapContainerStyle = {
+  width: '100%',
+  height: '500px'
+};
+
+const OrderTrackingPageWithMaps = () => {
+  const navigate = useNavigate();
+  const { orderId } = useParams();
+  const messagesEndRef = useRef(null);
+  const wsRef = useRef(null);
+  const mapRef = useRef(null);
+
+  const [order, setOrder] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [directions, setDirections] = useState(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratings, setRatings] = useState({
+    vendor_rating: 5,
+    driver_rating: 5,
+    food_quality: 5,
+    delivery_speed: 5,
+    vendor_review: '',
+    driver_review: ''
+  });
+
+  // Calculate map center and zoom
+  const getMapCenter = () => {
+    if (driverLocation?.location) {
+      return {
+        lat: driverLocation.location.lat,
+        lng: driverLocation.location.lng
+      };
+    }
+    if (order?.delivery_address?.latitude) {
+      return {
+        lat: order.delivery_address.latitude,
+        lng: order.delivery_address.longitude
+      };
+    }
+    return { lat: 18.1096, lng: -77.2975 }; // Jamaica default
+  };
+
+  // Fetch order data
+  useEffect(() => {
+    const fetchOrder = async () => {
+      try {
+        const response = await axios.get(`${API}/orders/${orderId}`, {
+          withCredentials: true
+        });
+        setOrder(response.data);
+        setLoading(false);
+        
+        // If order is delivered, show rating modal
+        if (response.data.status === 'delivered') {
+          const hasRated = await checkIfRated();
+          if (!hasRated) {
+            setTimeout(() => setShowRatingModal(true), 2000);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching order:', error);
+        setLoading(false);
+      }
+    };
+
+    if (orderId) {
+      fetchOrder();
+    }
+  }, [orderId]);
+
+  // Check if user has already rated this order
+  const checkIfRated = async () => {
+    try {
+      const response = await axios.get(`${API}/ratings?order_id=${orderId}`, {
+        withCredentials: true
+      });
+      return response.data.length > 0;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Fetch driver location
+  useEffect(() => {
+    if (!order || !order.driver_id) return;
+
+    const fetchDriverLocation = async () => {
+      try {
+        const response = await axios.get(`${API}/orders/${orderId}/driver-location`);
+        setDriverLocation(response.data);
+        
+        // Calculate route if we have both pickup and driver location
+        if (response.data.has_driver && response.data.location && order.delivery_address) {
+          calculateRoute(response.data.location, order.delivery_address);
+        }
+      } catch (error) {
+        console.error('Error fetching driver location:', error);
+      }
+    };
+
+    fetchDriverLocation();
+    const interval = setInterval(fetchDriverLocation, 10000); // Update every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [order, orderId]);
+
+  // Calculate route using Google Directions API
+  const calculateRoute = useCallback((origin, destination) => {
+    if (!window.google) return;
+
+    const directionsService = new window.google.maps.DirectionsService();
+    directionsService.route(
+      {
+        origin: new window.google.maps.LatLng(origin.lat, origin.lng),
+        destination: new window.google.maps.LatLng(destination.latitude, destination.longitude),
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === window.google.maps.DirectionsStatus.OK) {
+          setDirections(result);
+        }
+      }
+    );
+  }, []);
+
+  // WebSocket for real-time updates
+  useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (!user.id) return;
+
+    const ws = new WebSocket(
+      BACKEND_URL.replace('http', 'ws') + `/ws/${user.id}`
+    );
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'driver_location_update' && data.driver_id === order?.driver_id) {
+        setDriverLocation(prev => ({
+          ...prev,
+          location: { lat: data.latitude, lng: data.longitude },
+          last_update: new Date().toISOString()
+        }));
+        
+        // Update route
+        if (order?.delivery_address) {
+          calculateRoute(
+            { lat: data.latitude, lng: data.longitude },
+            order.delivery_address
+          );
+        }
+      }
+      
+      if (data.type === 'order_status_update' && data.order_id === orderId) {
+        setOrder(prev => ({ ...prev, status: data.status }));
+        
+        // Show rating modal when delivered
+        if (data.status === 'delivered') {
+          setTimeout(() => setShowRatingModal(true), 2000);
+        }
+      }
+      
+      if (data.type === 'new_message') {
+        setMessages(prev => [...prev, data.message]);
+      }
+    };
+
+    wsRef.current = ws;
+
+    return () => {
+      ws.close();
+    };
+  }, [order, orderId, calculateRoute]);
+
+  // Send chat message
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+
+    try {
+      await axios.post(`${API}/chat/send`, {
+        order_id: orderId,
+        message: newMessage,
+        sender_type: 'customer'
+      }, {
+        withCredentials: true
+      });
+
+      setNewMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  // Submit rating
+  const submitRating = async () => {
+    try {
+      await axios.post(`${API}/ratings`, {
+        order_id: orderId,
+        ...ratings
+      }, {
+        withCredentials: true
+      });
+
+      setShowRatingModal(false);
+      alert('Thank you for your feedback!');
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert('Failed to submit rating. Please try again.');
+    }
+  };
+
+  // Status badge color
+  const getStatusColor = (status) => {
+    const colors = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-blue-100 text-blue-800',
+      preparing: 'bg-purple-100 text-purple-800',
+      ready: 'bg-green-100 text-green-800',
+      picked_up: 'bg-indigo-100 text-indigo-800',
+      in_transit: 'bg-blue-100 text-blue-800',
+      delivered: 'bg-green-100 text-green-800',
+      cancelled: 'bg-red-100 text-red-800'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900">Order Not Found</h2>
+          <Button onClick={() => navigate('/')} className="mt-4">
+            Go Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="container mx-auto px-4 max-w-6xl">
+        {/* Header */}
+        <div className="mb-6">
+          <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
+            ← Back
+          </Button>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Track Your Order</h1>
+              <p className="text-gray-600">Order ID: {orderId.substring(0, 8)}</p>
+            </div>
+            <Badge className={getStatusColor(order.status)}>
+              {order.status.replace('_', ' ').toUpperCase()}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Left Column: Map & Status */}
+          <div className="space-y-6">
+            {/* Google Map */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5" />
+                  Live Tracking
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY}>
+                  <GoogleMap
+                    mapContainerStyle={mapContainerStyle}
+                    center={getMapCenter()}
+                    zoom={14}
+                    onLoad={map => mapRef.current = map}
+                  >
+                    {/* Driver Location Marker */}
+                    {driverLocation?.has_driver && driverLocation?.location && (
+                      <Marker
+                        position={{
+                          lat: driverLocation.location.lat,
+                          lng: driverLocation.location.lng
+                        }}
+                        icon={{
+                          url: 'data:image/svg+xml;base64,' + btoa(`
+                            <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+                              <circle cx="20" cy="20" r="15" fill="#0EA5E9" stroke="white" stroke-width="3"/>
+                              <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">🚗</text>
+                            </svg>
+                          `),
+                          scaledSize: new window.google.maps.Size(40, 40)
+                        }}
+                        title="Driver Location"
+                      />
+                    )}
+
+                    {/* Delivery Location Marker */}
+                    {order.delivery_address && (
+                      <Marker
+                        position={{
+                          lat: order.delivery_address.latitude,
+                          lng: order.delivery_address.longitude
+                        }}
+                        icon={{
+                          url: 'data:image/svg+xml;base64,' + btoa(`
+                            <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+                              <circle cx="20" cy="20" r="15" fill="#10B981" stroke="white" stroke-width="3"/>
+                              <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">📍</text>
+                            </svg>
+                          `),
+                          scaledSize: new window.google.maps.Size(40, 40)
+                        }}
+                        title="Delivery Location"
+                      />
+                    )}
+
+                    {/* Route */}
+                    {directions && (
+                      <DirectionsRenderer
+                        directions={directions}
+                        options={{
+                          suppressMarkers: true,
+                          polylineOptions: {
+                            strokeColor: '#0EA5E9',
+                            strokeWeight: 5
+                          }
+                        }}
+                      />
+                    )}
+                  </GoogleMap>
+                </LoadScript>
+
+                {/* Driver Info Below Map */}
+                {driverLocation?.has_driver && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-900">{driverLocation.driver_name}</p>
+                        <p className="text-sm text-gray-600">{driverLocation.vehicle_type} • {driverLocation.vehicle_plate}</p>
+                      </div>
+                      <Button size="sm" variant="outline">
+                        <Phone className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Order Status Timeline */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Order Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {['pending', 'confirmed', 'preparing', 'ready', 'picked_up', 'in_transit', 'delivered'].map((status, index) => {
+                    const isCompleted = ['pending', 'confirmed', 'preparing', 'ready', 'picked_up', 'in_transit', 'delivered'].indexOf(order.status) >= index;
+                    const isCurrent = order.status === status;
+
+                    return (
+                      <div key={status} className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                          isCompleted ? 'bg-green-500' : 'bg-gray-200'
+                        }`}>
+                          {isCompleted ? (
+                            <CheckCircle className="h-5 w-5 text-white" />
+                          ) : (
+                            <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className={`font-medium ${isCurrent ? 'text-turquoise-600' : 'text-gray-900'}`}>
+                            {status.replace('_', ' ').toUpperCase()}
+                          </p>
+                          {isCurrent && (
+                            <p className="text-sm text-gray-600">In progress...</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column: Order Details & Chat */}
+          <div className="space-y-6">
+            {/* Order Details */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5" />
+                  Order Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600">Subtotal</p>
+                  <p className="text-lg font-semibold">${order.subtotal?.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Delivery Fee</p>
+                  <p className="text-lg font-semibold">${order.delivery_fee?.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Total</p>
+                  <p className="text-2xl font-bold text-turquoise-600">${order.total?.toFixed(2)}</p>
+                </div>
+                
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-gray-600 mb-2">Delivery Address</p>
+                  <p className="font-medium">{order.delivery_address?.street_address}</p>
+                  <p className="text-sm text-gray-600">
+                    {order.delivery_address?.city}, {order.delivery_address?.postal_code}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Chat */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5" />
+                  Chat with Driver
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 overflow-y-auto mb-4 space-y-2">
+                  {messages.map((msg, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg ${
+                        msg.sender_type === 'customer'
+                          ? 'bg-turquoise-100 ml-auto max-w-[80%]'
+                          : 'bg-gray-100 mr-auto max-w-[80%]'
+                      }`}
+                    >
+                      <p className="text-sm">{msg.message}</p>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+                
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Type a message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                  />
+                  <Button onClick={sendMessage}>
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Rating Modal */}
+        {showRatingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <Card className="max-w-md w-full">
+              <CardHeader>
+                <CardTitle>Rate Your Experience</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Vendor Rating */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">Restaurant Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        onClick={() => setRatings(prev => ({ ...prev, vendor_rating: star }))}
+                        className="focus:outline-none"
+                      >
+                        <Star
+                          className={`h-8 w-8 ${
+                            star <= ratings.vendor_rating
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Driver Rating */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">Driver Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        onClick={() => setRatings(prev => ({ ...prev, driver_rating: star }))}
+                        className="focus:outline-none"
+                      >
+                        <Star
+                          className={`h-8 w-8 ${
+                            star <= ratings.driver_rating
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Written Review */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">Additional Comments (Optional)</label>
+                  <textarea
+                    className="w-full p-2 border rounded-md"
+                    rows={3}
+                    value={ratings.vendor_review}
+                    onChange={(e) => setRatings(prev => ({ ...prev, vendor_review: e.target.value }))}
+                    placeholder="Tell us about your experience..."
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button onClick={() => setShowRatingModal(false)} variant="outline" className="flex-1">
+                    Skip
+                  </Button>
+                  <Button onClick={submitRating} className="flex-1">
+                    Submit Rating
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default OrderTrackingPageWithMaps;
