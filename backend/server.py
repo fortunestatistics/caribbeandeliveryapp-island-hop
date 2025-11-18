@@ -356,6 +356,73 @@ class VendorPayout(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
 
+# Rating & Review Models
+class Rating(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    customer_id: str
+    vendor_id: Optional[str] = None  # restaurant_id or business_id
+    driver_id: Optional[str] = None
+    vendor_rating: Optional[int] = None  # 1-5 stars
+    driver_rating: Optional[int] = None  # 1-5 stars
+    food_quality: Optional[int] = None  # 1-5 stars
+    delivery_speed: Optional[int] = None  # 1-5 stars
+    vendor_review: Optional[str] = None
+    driver_review: Optional[str] = None
+    response_from_vendor: Optional[str] = None
+    response_date: Optional[datetime] = None
+    is_flagged: bool = False
+    flag_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RatingCreate(BaseModel):
+    order_id: str
+    vendor_rating: Optional[int] = None
+    driver_rating: Optional[int] = None
+    food_quality: Optional[int] = None
+    delivery_speed: Optional[int] = None
+    vendor_review: Optional[str] = None
+    driver_review: Optional[str] = None
+
+# Driver Location Tracking Models
+class DriverLocation(BaseModel):
+    driver_id: str
+    latitude: float
+    longitude: float
+    heading: Optional[float] = None  # Direction in degrees
+    speed: Optional[float] = None  # Speed in km/h
+    accuracy: Optional[float] = None  # Accuracy in meters
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Notification Models  
+class Notification(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    type: str  # order_update, promotion, system, payment
+    title: str
+    message: str
+    data: Optional[Dict[str, Any]] = None  # Extra data (order_id, etc.)
+    read: bool = False
+    sent_via: List[str] = []  # push, email, sms
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Promo Code Models
+class PromoCode(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    code: str
+    type: str  # percentage, fixed_amount, free_delivery
+    value: float  # Percentage or dollar amount
+    min_order_amount: float = 0.0
+    max_discount: Optional[float] = None
+    usage_limit: Optional[int] = None  # Total uses allowed
+    usage_per_user: int = 1
+    used_count: int = 0
+    service_types: List[str] = []  # Empty = all services
+    valid_from: datetime
+    valid_until: datetime
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Helper function to calculate commission and split payments
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
