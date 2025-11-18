@@ -1889,6 +1889,387 @@ async def get_driver_withdrawals(driver_id: str):
     withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
     return withdrawals
 
+# Driver Location & GPS Tracking Routes
+@api_router.post("/drivers/{driver_id}/location")
+async def update_driver_location(driver_id: str, latitude: float, longitude: float, heading: Optional[float] = None, speed: Optional[float] = None):
+    """Update driver's current location (called every 5-10 seconds)"""
+    location = DriverLocation(
+        driver_id=driver_id,
+        latitude=latitude,
+        longitude=longitude,
+        heading=heading,
+        speed=speed
+    )
+    
+    # Store in database (with TTL index for auto-cleanup after 1 hour)
+    await db.driver_locations.insert_one(location.dict())
+    
+    # Update driver's current_location field
+    await db.drivers.update_one(
+        {"id": driver_id},
+        {"$set": {
+            "current_location": {"lat": latitude, "lng": longitude},
+            "last_location_update": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify any customers tracking this driver via WebSocket
+    active_orders = await db.orders.find({
+        "driver_id": driver_id,
+        "status": {"$in": ["picked_up", "in_transit"]}
+    }).to_list(length=None)
+    
+    for order in active_orders:
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "driver_location_update",
+                "driver_id": driver_id,
+                "latitude": latitude,
+                "longitude": longitude,
+                "heading": heading
+            }),
+            order["customer_id"]
+        )
+    
+    return {"success": True}
+
+@api_router.get("/drivers/{driver_id}/location")
+async def get_driver_location(driver_id: str):
+    """Get driver's most recent location"""
+    driver = await db.drivers.find_one({"id": driver_id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    
+    return {
+        "driver_id": driver_id,
+        "location": driver.get("current_location"),
+        "last_update": driver.get("last_location_update"),
+        "status": driver.get("status")
+    }
+
+@api_router.get("/orders/{order_id}/driver-location")
+async def get_order_driver_location(order_id: str):
+    """Get live driver location for an order"""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if not order.get("driver_id"):
+        return {"has_driver": False}
+    
+    driver = await db.drivers.find_one({"id": order["driver_id"]})
+    if not driver:
+        return {"has_driver": False}
+    
+    return {
+        "has_driver": True,
+        "driver_id": driver["id"],
+        "location": driver.get("current_location"),
+        "last_update": driver.get("last_location_update"),
+        "driver_name": driver.get("name", "Driver"),
+        "driver_phone": driver.get("phone"),
+        "vehicle_type": driver.get("vehicle_type"),
+        "vehicle_plate": driver.get("vehicle_plate")
+    }
+
+# Smart Driver Matching Routes
+@api_router.post("/orders/{order_id}/find-driver")
+async def find_and_assign_driver(order_id: str):
+    """
+    Smart algorithm to find and assign best available driver
+    Based on: proximity, availability, rating, vehicle type
+    """
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    pickup_location = order.get("pickup_address", {})
+    pickup_lat = pickup_location.get("latitude")
+    pickup_lng = pickup_location.get("longitude")
+    
+    if not pickup_lat or not pickup_lng:
+        raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
+    
+    # Find online drivers within 10km radius
+    # Using MongoDB geospatial query (requires 2dsphere index)
+    nearby_drivers = await db.drivers.find({
+        "status": "online",
+        "current_location": {
+            "$near": {
+                "$geometry": {
+                    "type": "Point",
+                    "coordinates": [pickup_lng, pickup_lat]
+                },
+                "$maxDistance": 10000  # 10km in meters
+            }
+        }
+    }).to_list(length=100)
+    
+    if not nearby_drivers:
+        # Fallback: find any online driver
+        nearby_drivers = await db.drivers.find({"status": "online"}).to_list(length=None)
+    
+    if not nearby_drivers:
+        return {
+            "success": False,
+            "message": "No available drivers found",
+            "drivers_notified": 0
+        }
+    
+    # Score and rank drivers
+    scored_drivers = []
+    for driver in nearby_drivers:
+        driver_loc = driver.get("current_location", {})
+        if not driver_loc:
+            continue
+            
+        # Calculate distance (simple euclidean for now)
+        import math
+        driver_lat = driver_loc.get("lat", 0)
+        driver_lng = driver_loc.get("lng", 0)
+        distance = math.sqrt((driver_lat - pickup_lat)**2 + (driver_lng - pickup_lng)**2) * 111  # Rough km
+        
+        # Score: lower distance = higher score, higher rating = higher score
+        score = (driver.get("rating", 3.0) * 10) - distance
+        
+        scored_drivers.append({
+            "driver": driver,
+            "distance": distance,
+            "score": score
+        })
+    
+    # Sort by score (highest first)
+    scored_drivers.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Notify top 3 drivers
+    drivers_notified = []
+    for i, item in enumerate(scored_drivers[:3]):
+        driver = item["driver"]
+        await manager.send_personal_message(
+            json.dumps({
+                "type": "new_order_request",
+                "order_id": order_id,
+                "pickup_address": order.get("pickup_address"),
+                "delivery_address": order.get("delivery_address"),
+                "estimated_distance": round(item["distance"], 2),
+                "estimated_earnings": order.get("driver_earnings", 0),
+                "timeout": 30  # Driver has 30 seconds to accept
+            }),
+            driver["user_id"]
+        )
+        drivers_notified.append({
+            "driver_id": driver["id"],
+            "distance_km": round(item["distance"], 2)
+        })
+    
+    # Store notified drivers for this order
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "drivers_notified": [d["driver_id"] for d in drivers_notified],
+            "driver_search_started": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {
+        "success": True,
+        "drivers_notified": len(drivers_notified),
+        "drivers": drivers_notified
+    }
+
+@api_router.post("/orders/{order_id}/accept-driver")
+async def driver_accept_order(order_id: str, driver_id: str):
+    """Driver accepts an order assignment"""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order.get("driver_id"):
+        raise HTTPException(status_code=400, detail="Order already has a driver")
+    
+    # Assign driver
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "driver_id": driver_id,
+            "driver_assigned_at": datetime.now(timezone.utc).isoformat(),
+            "status": "confirmed"
+        }}
+    )
+    
+    # Update driver status
+    await db.drivers.update_one(
+        {"id": driver_id},
+        {"$set": {"status": "busy"}}
+    )
+    
+    # Notify customer
+    await manager.send_personal_message(
+        json.dumps({
+            "type": "driver_assigned",
+            "order_id": order_id,
+            "driver_id": driver_id
+        }),
+        order["customer_id"]
+    )
+    
+    return {"success": True, "message": "Order accepted"}
+
+@api_router.post("/orders/{order_id}/reject-driver")
+async def driver_reject_order(order_id: str, driver_id: str):
+    """Driver rejects an order assignment"""
+    # Continue searching for next driver
+    # In production, implement timeout and move to next driver automatically
+    return {"success": True, "message": "Order rejected, searching for another driver"}
+
+# Rating & Review Routes
+@api_router.post("/ratings", response_model=Rating)
+async def create_rating(rating_data: RatingCreate, request: Request):
+    """Customer submits rating after order delivery"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Get order details
+    order = await db.orders.find_one({"id": rating_data.order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order.get("customer_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your order")
+    
+    if order.get("status") != "delivered":
+        raise HTTPException(status_code=400, detail="Order not yet delivered")
+    
+    # Check if already rated
+    existing = await db.ratings.find_one({"order_id": rating_data.order_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Order already rated")
+    
+    # Create rating
+    rating = Rating(
+        order_id=rating_data.order_id,
+        customer_id=current_user.id,
+        vendor_id=order.get("restaurant_id") or order.get("vendor_id"),
+        driver_id=order.get("driver_id"),
+        vendor_rating=rating_data.vendor_rating,
+        driver_rating=rating_data.driver_rating,
+        food_quality=rating_data.food_quality,
+        delivery_speed=rating_data.delivery_speed,
+        vendor_review=rating_data.vendor_review,
+        driver_review=rating_data.driver_review
+    )
+    
+    await db.ratings.insert_one(rating.dict())
+    
+    # Update vendor average rating
+    if rating.vendor_id and rating.vendor_rating:
+        vendor_ratings = await db.ratings.find({
+            "vendor_id": rating.vendor_id,
+            "vendor_rating": {"$ne": None}
+        }).to_list(length=None)
+        avg_rating = sum(r.get("vendor_rating", 0) for r in vendor_ratings) / len(vendor_ratings)
+        
+        await db.restaurants.update_one(
+            {"id": rating.vendor_id},
+            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(vendor_ratings)}}
+        )
+        await db.businesses.update_one(
+            {"id": rating.vendor_id},
+            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(vendor_ratings)}}
+        )
+    
+    # Update driver average rating
+    if rating.driver_id and rating.driver_rating:
+        driver_ratings = await db.ratings.find({
+            "driver_id": rating.driver_id,
+            "driver_rating": {"$ne": None}
+        }).to_list(length=None)
+        avg_rating = sum(r.get("driver_rating", 0) for r in driver_ratings) / len(driver_ratings)
+        
+        await db.drivers.update_one(
+            {"id": rating.driver_id},
+            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(driver_ratings)}}
+        )
+    
+    return rating
+
+@api_router.get("/vendors/{vendor_id}/ratings")
+async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
+    """Get ratings for a vendor"""
+    ratings = await db.ratings.find({
+        "vendor_id": vendor_id,
+        "vendor_rating": {"$ne": None}
+    }).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
+    
+    # Get customer names
+    for rating in ratings:
+        customer = await db.users.find_one({"id": rating["customer_id"]})
+        rating["customer_name"] = customer.get("name", "Anonymous") if customer else "Anonymous"
+    
+    return ratings
+
+@api_router.get("/drivers/{driver_id}/ratings")
+async def get_driver_ratings(driver_id: str, limit: int = 20):
+    """Get ratings for a driver"""
+    ratings = await db.ratings.find({
+        "driver_id": driver_id,
+        "driver_rating": {"$ne": None}
+    }).sort("created_at", -1).limit(limit).to_list(length=None)
+    
+    return ratings
+
+# Notification Routes
+@api_router.post("/notifications/send")
+async def send_notification(user_id: str, title: str, message: str, type: str = "system", data: Optional[Dict] = None):
+    """Send notification to user (push + in-app)"""
+    notification = Notification(
+        user_id=user_id,
+        type=type,
+        title=title,
+        message=message,
+        data=data
+    )
+    
+    await db.notifications.insert_one(notification.dict())
+    
+    # Send via WebSocket for in-app
+    await manager.send_personal_message(
+        json.dumps({
+            "type": "notification",
+            "notification": {
+                "id": notification.id,
+                "title": title,
+                "message": message,
+                "data": data
+            }
+        }),
+        user_id
+    )
+    
+    # TODO: Send push notification via Firebase when user provides config
+    
+    return {"success": True, "notification_id": notification.id}
+
+@api_router.get("/notifications")
+async def get_user_notifications(request: Request, unread_only: bool = False):
+    """Get user's notifications"""
+    current_user = await get_current_user_from_request(request)
+    
+    query = {"user_id": current_user.id}
+    if unread_only:
+        query["read"] = False
+    
+    notifications = await db.notifications.find(query).sort("created_at", -1).limit(50).to_list(length=None)
+    return notifications
+
+@api_router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str):
+    """Mark notification as read"""
+    await db.notifications.update_one(
+        {"id": notification_id},
+        {"$set": {"read": True}}
+    )
+    return {"success": True}
+
 # Car Rental Management Routes
 @api_router.post("/car-rentals", response_model=CarRentalCompany)
 async def create_rental_company(company: CarRentalCompany, request: Request):
