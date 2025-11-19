@@ -1628,6 +1628,128 @@ async def admin_cancel_order(order_id: str, request: Request):
     
     return {"success": True}
 
+# Promo Code Routes
+@api_router.post("/promo-codes", response_model=PromoCode)
+async def create_promo_code(promo: PromoCode, request: Request):
+    """Create new promo code (admin only)"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Check if code already exists
+    existing = await db.promo_codes.find_one({"code": promo.code})
+    if existing:
+        raise HTTPException(status_code=400, detail="Promo code already exists")
+    
+    promo_dict = prepare_for_mongo(promo.dict())
+    await db.promo_codes.insert_one(promo_dict)
+    
+    return promo
+
+@api_router.get("/promo-codes")
+async def get_promo_codes(active_only: bool = False):
+    """Get all promo codes"""
+    query = {"active": True} if active_only else {}
+    promo_codes = await db.promo_codes.find(query).to_list(length=None)
+    return promo_codes
+
+@api_router.get("/promo-codes/{code}/validate")
+async def validate_promo_code(code: str, order_total: float, service_type: str):
+    """Validate promo code for an order"""
+    promo = await db.promo_codes.find_one({"code": code.upper()})
+    
+    if not promo:
+        raise HTTPException(status_code=404, detail="Promo code not found")
+    
+    # Check if active
+    if not promo.get("active"):
+        raise HTTPException(status_code=400, detail="Promo code is inactive")
+    
+    # Check dates
+    now = datetime.now(timezone.utc)
+    valid_from = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
+    valid_until = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
+    
+    if now < valid_from:
+        raise HTTPException(status_code=400, detail="Promo code not yet valid")
+    if now > valid_until:
+        raise HTTPException(status_code=400, detail="Promo code has expired")
+    
+    # Check usage limit
+    if promo.get("usage_limit") and promo.get("used_count", 0) >= promo["usage_limit"]:
+        raise HTTPException(status_code=400, detail="Promo code usage limit reached")
+    
+    # Check minimum order
+    if order_total < promo.get("min_order_amount", 0):
+        raise HTTPException(status_code=400, detail=f"Minimum order amount is ${promo.get('min_order_amount', 0)}")
+    
+    # Check service types
+    if promo.get("service_types") and len(promo["service_types"]) > 0:
+        if service_type not in promo["service_types"]:
+            raise HTTPException(status_code=400, detail="Promo code not valid for this service type")
+    
+    # Calculate discount
+    discount = 0
+    if promo["type"] == "percentage":
+        discount = order_total * (promo["value"] / 100)
+        if promo.get("max_discount"):
+            discount = min(discount, promo["max_discount"])
+    elif promo["type"] == "fixed_amount":
+        discount = promo["value"]
+    elif promo["type"] == "free_delivery":
+        discount = 5.0  # Assuming $5 delivery fee
+    
+    return {
+        "valid": True,
+        "code": promo["code"],
+        "type": promo["type"],
+        "discount": round(discount, 2),
+        "message": f"Promo code applied! You save ${round(discount, 2)}"
+    }
+
+@api_router.post("/promo-codes/{code}/apply")
+async def apply_promo_code(code: str, user_id: str):
+    """Mark promo code as used"""
+    promo = await db.promo_codes.find_one({"code": code.upper()})
+    
+    if not promo:
+        raise HTTPException(status_code=404, detail="Promo code not found")
+    
+    # Increment usage count
+    await db.promo_codes.update_one(
+        {"code": code.upper()},
+        {"$inc": {"used_count": 1}}
+    )
+    
+    # Track user usage (for per-user limits)
+    await db.promo_code_usage.insert_one({
+        "promo_code_id": promo["id"],
+        "user_id": user_id,
+        "used_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"success": True}
+
+@api_router.put("/promo-codes/{promo_id}", response_model=PromoCode)
+async def update_promo_code(promo_id: str, promo: PromoCode, request: Request):
+    """Update promo code"""
+    current_user = await get_current_user_from_request(request)
+    
+    promo_dict = prepare_for_mongo(promo.dict())
+    await db.promo_codes.update_one(
+        {"id": promo_id},
+        {"$set": promo_dict}
+    )
+    
+    return promo
+
+@api_router.delete("/promo-codes/{promo_id}")
+async def delete_promo_code(promo_id: str, request: Request):
+    """Delete promo code"""
+    current_user = await get_current_user_from_request(request)
+    
+    await db.promo_codes.delete_one({"id": promo_id})
+    
+    return {"success": True}
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
