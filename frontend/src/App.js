@@ -2852,6 +2852,8 @@ function App() {
             <Route path="/restaurant-onboarding" element={<RestaurantOnboarding />} />
             <Route path="/menu-management" element={<RestaurantMenuManagement />} />
             <Route path="/vendor-dashboard" element={<VendorDashboard />} />
+            <Route path="/driver-dashboard" element={<DriverDashboard />} />
+            <Route path="/admin" element={<AdminPanel />} />
             <Route path="/driver" element={<DriverRegistration />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
             <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />
