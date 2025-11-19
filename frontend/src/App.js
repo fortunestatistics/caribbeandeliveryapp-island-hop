@@ -8,6 +8,8 @@ import RestaurantMenuManagement from './RestaurantMenuManagement';
 import VendorDashboard from './VendorDashboard';
 import DriverDashboard from './DriverDashboard';
 import AdminPanel from './AdminPanel';
+import PromoCodeManagement from './PromoCodeManagement';
+import AddressManagement from './AddressManagement';
 import OrderTrackingPage from './OrderTrackingPageWithMaps';
 import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
