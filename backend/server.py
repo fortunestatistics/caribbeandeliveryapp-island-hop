@@ -290,8 +290,28 @@ class Restaurant(BaseModel):
     delivery_fee: float = 5.0
     minimum_order: float = 15.0
     estimated_delivery_time: int = 30
-    menu_items: List[MenuItem] = []
+    menu_items: List[Dict] = []  # Will store menu item IDs
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Menu Item Models
+class MenuItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    restaurant_id: str
+    name: str
+    description: Optional[str] = None
+    price: float
+    category: str
+    image_url: Optional[str] = None
+    available: bool = True
+    is_vegetarian: bool = False
+    is_vegan: bool = False
+    is_gluten_free: bool = False
+    spice_level: str = "none"  # none, mild, medium, hot, extra_hot
+    preparation_time: int = 15  # minutes
+    customizations: List[str] = []  # e.g., ["Extra sauce", "No onions"]
+    variants: List[Dict] = []  # e.g., [{"name": "Small", "price": 8.99}, {"name": "Large", "price": 12.99}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # Driver Models
 class Driver(BaseModel):
