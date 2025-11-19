@@ -1509,6 +1509,125 @@ async def get_vendor_stats(request: Request):
         "total_earnings": total_earnings
     }
 
+# Admin Panel Routes
+@api_router.get("/admin/stats")
+async def get_admin_stats(request: Request):
+    """Get admin dashboard statistics"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Check if user is admin (you should have proper role checking)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Total users
+    total_users = await db.users.count_documents({})
+    
+    # Total orders
+    total_orders = await db.orders.count_documents({})
+    
+    # Total revenue (platform earnings)
+    all_orders = await db.orders.find({"status": "delivered"}).to_list(length=None)
+    total_revenue = sum(order.get("platform_earnings", 0) for order in all_orders)
+    
+    # Active drivers
+    active_drivers = await db.drivers.count_documents({"status": "online"})
+    
+    # Active vendors
+    active_vendors = await db.restaurants.count_documents({"status": "active"})
+    active_vendors += await db.businesses.count_documents({"status": "active"})
+    
+    # Pending verifications
+    pending_verifications = await db.restaurants.count_documents({"status": "pending"})
+    pending_verifications += await db.drivers.count_documents({"status": "pending"})
+    
+    return {
+        "total_users": total_users,
+        "total_orders": total_orders,
+        "total_revenue": total_revenue,
+        "active_drivers": active_drivers,
+        "active_vendors": active_vendors,
+        "pending_verifications": pending_verifications
+    }
+
+@api_router.get("/admin/users")
+async def get_all_users(request: Request, limit: int = 100):
+    """Get all users for admin"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = await db.users.find({}).limit(limit).to_list(length=None)
+    return users
+
+@api_router.get("/admin/orders")
+async def get_all_orders(request: Request, limit: int = 100):
+    """Get all orders for admin"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    orders = await db.orders.find({}).sort("created_at", -1).limit(limit).to_list(length=None)
+    return orders
+
+@api_router.get("/admin/disputes")
+async def get_all_disputes(request: Request):
+    """Get all disputes for admin"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # In production, you'd have a disputes collection
+    # For now return empty
+    return []
+
+@api_router.post("/admin/users/{user_id}/suspend")
+async def suspend_user(user_id: str, request: Request):
+    """Suspend a user"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"status": "suspended"}}
+    )
+    
+    return {"success": True}
+
+@api_router.post("/admin/users/{user_id}/activate")
+async def activate_user(user_id: str, request: Request):
+    """Activate a user"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"status": "active"}}
+    )
+    
+    return {"success": True}
+
+@api_router.post("/admin/orders/{order_id}/cancel")
+async def admin_cancel_order(order_id: str, request: Request):
+    """Admin cancel an order"""
+    current_user = await get_current_user_from_request(request)
+    
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": "cancelled", "cancelled_by": "admin"}}
+    )
+    
+    return {"success": True}
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
