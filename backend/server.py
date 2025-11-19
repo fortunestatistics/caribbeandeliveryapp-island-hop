@@ -1767,6 +1767,97 @@ async def delete_promo_code(promo_id: str, request: Request):
     
     return {"success": True}
 
+# Address Management Routes
+@api_router.post("/addresses", response_model=Address)
+async def create_address(address: Address, request: Request):
+    """Create new address"""
+    current_user = await get_current_user_from_request(request)
+    address.user_id = current_user.id
+    
+    # If this is set as default, unset other defaults
+    if address.is_default:
+        await db.addresses.update_many(
+            {"user_id": current_user.id},
+            {"$set": {"is_default": False}}
+        )
+    
+    address_dict = prepare_for_mongo(address.dict())
+    await db.addresses.insert_one(address_dict)
+    
+    return address
+
+@api_router.get("/addresses")
+async def get_user_addresses(request: Request):
+    """Get user's saved addresses"""
+    current_user = await get_current_user_from_request(request)
+    addresses = await db.addresses.find({"user_id": current_user.id}).to_list(length=None)
+    return addresses
+
+@api_router.put("/addresses/{address_id}", response_model=Address)
+async def update_address(address_id: str, address: Address, request: Request):
+    """Update address"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ownership
+    existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Address not found")
+    
+    # If setting as default, unset other defaults
+    if address.is_default:
+        await db.addresses.update_many(
+            {"user_id": current_user.id, "id": {"$ne": address_id}},
+            {"$set": {"is_default": False}}
+        )
+    
+    address.updated_at = datetime.now(timezone.utc)
+    address_dict = prepare_for_mongo(address.dict())
+    
+    await db.addresses.update_one(
+        {"id": address_id},
+        {"$set": address_dict}
+    )
+    
+    return address
+
+@api_router.delete("/addresses/{address_id}")
+async def delete_address(address_id: str, request: Request):
+    """Delete address"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ownership
+    existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Address not found")
+    
+    await db.addresses.delete_one({"id": address_id})
+    
+    return {"success": True}
+
+@api_router.post("/addresses/{address_id}/set-default")
+async def set_default_address(address_id: str, request: Request):
+    """Set address as default"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ownership
+    existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Address not found")
+    
+    # Unset all defaults
+    await db.addresses.update_many(
+        {"user_id": current_user.id},
+        {"$set": {"is_default": False}}
+    )
+    
+    # Set this as default
+    await db.addresses.update_one(
+        {"id": address_id},
+        {"$set": {"is_default": True}}
+    )
+    
+    return {"success": True}
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
