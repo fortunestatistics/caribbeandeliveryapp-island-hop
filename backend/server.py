@@ -2092,6 +2092,64 @@ async def get_driver_withdrawals(driver_id: str):
     withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
     return withdrawals
 
+# Driver Dashboard Routes
+@api_router.get("/drivers/me")
+async def get_current_driver(request: Request):
+    """Get current driver profile"""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return driver
+
+@api_router.put("/drivers/status")
+async def update_driver_status(status: str, request: Request):
+    """Update driver online/offline status"""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    
+    await db.drivers.update_one(
+        {"id": driver["id"]},
+        {"$set": {"status": status}}
+    )
+    
+    return {"success": True, "status": status}
+
+@api_router.get("/drivers/order-requests")
+async def get_driver_order_requests(request: Request):
+    """Get pending order requests for driver"""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    
+    # Get orders where driver was notified but not yet assigned
+    orders = await db.orders.find({
+        "drivers_notified": driver["id"],
+        "driver_id": None,
+        "status": "pending"
+    }).to_list(length=None)
+    
+    return orders
+
+@api_router.get("/drivers/active-orders")
+async def get_driver_active_orders(request: Request):
+    """Get driver's active orders"""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    
+    # Get orders assigned to driver that are not yet delivered
+    orders = await db.orders.find({
+        "driver_id": driver["id"],
+        "status": {"$in": ["ready", "picked_up", "in_transit"]}
+    }).sort("created_at", 1).to_list(length=None)
+    
+    return orders
+
 # Driver Location & GPS Tracking Routes
 @api_router.post("/drivers/{driver_id}/location")
 async def update_driver_location(driver_id: str, latitude: float, longitude: float, heading: Optional[float] = None, speed: Optional[float] = None):
