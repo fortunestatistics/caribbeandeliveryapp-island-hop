@@ -1326,6 +1326,106 @@ async def get_restaurant(restaurant_id: str):
         raise HTTPException(status_code=404, detail="Restaurant not found")
     return Restaurant(**restaurant)
 
+# Menu Management Routes
+@api_router.post("/menu-items", response_model=MenuItem)
+async def create_menu_item(item: MenuItem, request: Request):
+    """Create new menu item"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Get restaurant for current user
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found for user")
+    
+    item.restaurant_id = restaurant["id"]
+    item_dict = prepare_for_mongo(item.dict())
+    await db.menu_items.insert_one(item_dict)
+    
+    return item
+
+@api_router.get("/restaurants/my-menu")
+async def get_my_menu(request: Request):
+    """Get menu items for current restaurant"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Get restaurant for current user
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found for user")
+    
+    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).to_list(length=None)
+    return menu_items
+
+@api_router.get("/restaurants/{restaurant_id}/menu")
+async def get_restaurant_menu(restaurant_id: str):
+    """Get menu items for a restaurant (public)"""
+    menu_items = await db.menu_items.find({
+        "restaurant_id": restaurant_id,
+        "available": True
+    }).to_list(length=None)
+    return menu_items
+
+@api_router.put("/menu-items/{item_id}", response_model=MenuItem)
+async def update_menu_item(item_id: str, item: MenuItem, request: Request):
+    """Update menu item"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ownership
+    existing_item = await db.menu_items.find_one({"id": item_id})
+    if not existing_item:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant or restaurant["id"] != existing_item["restaurant_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    item.updated_at = datetime.now(timezone.utc)
+    item_dict = prepare_for_mongo(item.dict())
+    
+    await db.menu_items.update_one(
+        {"id": item_id},
+        {"$set": item_dict}
+    )
+    
+    return item
+
+@api_router.delete("/menu-items/{item_id}")
+async def delete_menu_item(item_id: str, request: Request):
+    """Delete menu item"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ownership
+    existing_item = await db.menu_items.find_one({"id": item_id})
+    if not existing_item:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant or restaurant["id"] != existing_item["restaurant_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.menu_items.delete_one({"id": item_id})
+    
+    return {"success": True}
+
+@api_router.get("/menu-categories")
+async def get_menu_categories():
+    """Get default menu categories"""
+    categories = [
+        "Appetizers",
+        "Main Course",
+        "Desserts",
+        "Beverages",
+        "Sides",
+        "Specials",
+        "Breakfast",
+        "Lunch",
+        "Dinner",
+        "Seafood",
+        "Vegetarian",
+        "Vegan"
+    ]
+    return categories
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
