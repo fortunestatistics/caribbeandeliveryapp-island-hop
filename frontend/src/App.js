@@ -6,6 +6,8 @@ import DriverOnboarding from './DriverOnboarding';
 import RestaurantOnboarding from './RestaurantOnboarding';
 import RestaurantMenuManagement from './RestaurantMenuManagement';
 import VendorDashboard from './VendorDashboard';
+import DriverDashboard from './DriverDashboard';
+import AdminPanel from './AdminPanel';
 import OrderTrackingPage from './OrderTrackingPageWithMaps';
 import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
