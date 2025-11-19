@@ -443,6 +443,23 @@ class PromoCode(BaseModel):
     active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# Address Models
+class Address(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    label: str  # home, work, other
+    street_address: str
+    city: str
+    state: str
+    postal_code: Optional[str] = None
+    country: str = "Jamaica"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    delivery_instructions: Optional[str] = None
+    is_default: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Helper function to calculate commission and split payments
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
