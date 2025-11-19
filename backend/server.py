@@ -1426,6 +1426,89 @@ async def get_menu_categories():
     ]
     return categories
 
+# Vendor Dashboard Routes
+@api_router.get("/vendors/my-orders")
+async def get_vendor_orders(request: Request):
+    """Get all orders for current vendor"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Get vendor (restaurant or business)
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    business = await db.businesses.find_one({"user_id": current_user.id})
+    
+    if restaurant:
+        orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).to_list(length=None)
+    elif business:
+        orders = await db.orders.find({"vendor_id": business["id"]}).sort("created_at", -1).to_list(length=None)
+    else:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    return orders
+
+@api_router.get("/vendors/stats")
+async def get_vendor_stats(request: Request):
+    """Get vendor dashboard statistics"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Get vendor (restaurant or business)
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    business = await db.businesses.find_one({"user_id": current_user.id})
+    
+    if restaurant:
+        vendor_id = restaurant["id"]
+        filter_field = "restaurant_id"
+    elif business:
+        vendor_id = business["id"]
+        filter_field = "vendor_id"
+    else:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    # Get today's date range
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+    
+    # Today's orders
+    today_orders = await db.orders.count_documents({
+        filter_field: vendor_id,
+        "created_at": {
+            "$gte": today.isoformat(),
+            "$lt": tomorrow.isoformat()
+        }
+    })
+    
+    # Today's revenue
+    today_orders_list = await db.orders.find({
+        filter_field: vendor_id,
+        "created_at": {
+            "$gte": today.isoformat(),
+            "$lt": tomorrow.isoformat()
+        },
+        "status": {"$ne": "cancelled"}
+    }).to_list(length=None)
+    
+    today_revenue = sum(order.get("vendor_payout", 0) for order in today_orders_list)
+    
+    # Pending orders
+    pending_orders = await db.orders.count_documents({
+        filter_field: vendor_id,
+        "status": "pending"
+    })
+    
+    # Total earnings (all time)
+    all_orders = await db.orders.find({
+        filter_field: vendor_id,
+        "status": "delivered"
+    }).to_list(length=None)
+    
+    total_earnings = sum(order.get("vendor_payout", 0) for order in all_orders)
+    
+    return {
+        "today_orders": today_orders,
+        "today_revenue": today_revenue,
+        "pending_orders": pending_orders,
+        "total_earnings": total_earnings
+    }
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
