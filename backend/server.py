@@ -460,6 +460,29 @@ class Address(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# Support Ticket Models
+class SupportTicket(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    subject: str
+    category: str  # general, order_issue, payment, refund, account, technical
+    order_id: Optional[str] = None
+    description: str
+    status: str = "open"  # open, in_progress, resolved, closed
+    priority: str = "normal"  # low, normal, high, urgent
+    assigned_to: Optional[str] = None  # Support agent ID
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: Optional[datetime] = None
+
+class TicketMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_id: str
+    sender_id: str
+    sender_type: str  # customer, agent, system
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Helper function to calculate commission and split payments
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
