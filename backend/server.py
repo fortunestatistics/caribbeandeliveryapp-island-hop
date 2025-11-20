@@ -1881,6 +1881,96 @@ async def set_default_address(address_id: str, request: Request):
     
     return {"success": True}
 
+# Support Ticket Routes
+@api_router.post("/support/tickets", response_model=SupportTicket)
+async def create_support_ticket(ticket: SupportTicket, request: Request):
+    """Create new support ticket"""
+    current_user = await get_current_user_from_request(request)
+    ticket.user_id = current_user.id
+    
+    ticket_dict = prepare_for_mongo(ticket.dict())
+    await db.support_tickets.insert_one(ticket_dict)
+    
+    return ticket
+
+@api_router.get("/support/tickets")
+async def get_user_tickets(request: Request):
+    """Get user's support tickets"""
+    current_user = await get_current_user_from_request(request)
+    tickets = await db.support_tickets.find({"user_id": current_user.id}).sort("created_at", -1).to_list(length=None)
+    return tickets
+
+@api_router.get("/support/tickets/{ticket_id}")
+async def get_ticket(ticket_id: str, request: Request):
+    """Get ticket details"""
+    current_user = await get_current_user_from_request(request)
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
+
+@api_router.post("/support/tickets/{ticket_id}/messages", response_model=TicketMessage)
+async def add_ticket_message(ticket_id: str, message: str, sender_type: str, request: Request):
+    """Add message to ticket"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ticket ownership
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    ticket_message = TicketMessage(
+        ticket_id=ticket_id,
+        sender_id=current_user.id,
+        sender_type=sender_type,
+        message=message
+    )
+    
+    await db.ticket_messages.insert_one(ticket_message.dict())
+    
+    # Update ticket status if customer replied
+    if sender_type == 'customer' and ticket.get("status") == "resolved":
+        await db.support_tickets.update_one(
+            {"id": ticket_id},
+            {"$set": {"status": "open", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    return ticket_message
+
+@api_router.get("/support/tickets/{ticket_id}/messages")
+async def get_ticket_messages(ticket_id: str, request: Request):
+    """Get all messages for a ticket"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ticket ownership
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    messages = await db.ticket_messages.find({"ticket_id": ticket_id}).sort("created_at", 1).to_list(length=None)
+    return messages
+
+@api_router.put("/support/tickets/{ticket_id}/close")
+async def close_ticket(ticket_id: str, request: Request):
+    """Close support ticket"""
+    current_user = await get_current_user_from_request(request)
+    
+    # Verify ticket ownership
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    await db.support_tickets.update_one(
+        {"id": ticket_id},
+        {"$set": {
+            "status": "closed",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "resolved_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"success": True}
+
 # Order Management Routes
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
