@@ -483,6 +483,38 @@ class TicketMessage(BaseModel):
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# Scheduled Order Models
+class ScheduledOrder(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    service_type: str
+    restaurant_id: Optional[str] = None
+    items: List[Dict] = []
+    delivery_address_id: str
+    scheduled_datetime: datetime
+    status: str = "pending"  # pending, confirmed, cancelled, completed
+    is_recurring: bool = False
+    recurring_pattern: Optional[str] = None  # daily, weekly, monthly
+    recurrence_days: List[int] = []  # Days of week (0=Sunday)
+    recurring_order_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RecurringOrder(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    service_type: str
+    restaurant_id: Optional[str] = None
+    items: List[Dict] = []
+    delivery_address_id: str
+    recurrence_pattern: str  # daily, weekly, monthly
+    recurrence_days: List[int] = []  # Days of week (0=Sunday)
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    next_occurrence: datetime
+    active: bool = True
+    orders_created: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Helper function to calculate commission and split payments
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
