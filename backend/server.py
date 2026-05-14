@@ -1737,6 +1737,10 @@ async def validate_promo_code(code: str, order_total: float, service_type: str):
     now = datetime.now(timezone.utc)
     valid_from = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
     valid_until = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
+    if valid_from.tzinfo is None:
+        valid_from = valid_from.replace(tzinfo=timezone.utc)
+    if valid_until.tzinfo is None:
+        valid_until = valid_until.replace(tzinfo=timezone.utc)
     
     if now < valid_from:
         raise HTTPException(status_code=400, detail="Promo code not yet valid")
@@ -1855,6 +1859,10 @@ async def update_address(address_id: str, address: Address, request: Request):
     existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
     if not existing:
         raise HTTPException(status_code=404, detail="Address not found")
+    
+    # Force server-controlled fields (prevent client from overwriting ownership)
+    address.id = address_id
+    address.user_id = current_user.id
     
     # If setting as default, unset other defaults
     if address.is_default:
