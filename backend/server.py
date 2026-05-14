@@ -150,6 +150,8 @@ class Order(BaseModel):
     delivery_fee: float
     tip: float = 0.0
     tax: float = 0.0
+    discount: float = 0.0
+    promo_code: Optional[str] = None
     total: float
     
     # Commission and payout fields
@@ -3510,6 +3512,131 @@ class TipUpdateRequest(BaseModel):
     tip: float  # absolute dollar amount
 
 
+class ApplyPromoToOrderRequest(BaseModel):
+    code: str
+
+
+def _recompute_order_total(order_doc: dict) -> float:
+    """Compute total from order parts: subtotal + delivery_fee + tax + tip - discount."""
+    return round(
+        float(order_doc.get("subtotal", 0) or 0)
+        + float(order_doc.get("delivery_fee", 0) or 0)
+        + float(order_doc.get("tax", 0) or 0)
+        + float(order_doc.get("tip", 0) or 0)
+        - float(order_doc.get("discount", 0) or 0),
+        2,
+    )
+
+
+@api_router.post("/orders/{order_id}/apply-promo")
+async def apply_promo_to_order(order_id: str, payload: ApplyPromoToOrderRequest, request: Request):
+    """Validate a promo code against an unpaid order and apply the discount."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Cannot apply a promo code after payment")
+
+    code = (payload.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Promo code is required")
+
+    promo = await db.promo_codes.find_one({"code": code}, {"_id": 0})
+    if not promo or not promo.get("active"):
+        raise HTTPException(status_code=404, detail="Promo code not found or inactive")
+
+    # Date validity (tz-safe)
+    now = datetime.now(timezone.utc)
+    try:
+        vf = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
+        vu = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
+        if vf.tzinfo is None: vf = vf.replace(tzinfo=timezone.utc)
+        if vu.tzinfo is None: vu = vu.replace(tzinfo=timezone.utc)
+        if now < vf:
+            raise HTTPException(status_code=400, detail="Promo code not yet valid")
+        if now > vu:
+            raise HTTPException(status_code=400, detail="Promo code has expired")
+    except KeyError:
+        pass  # No date constraints set
+
+    if promo.get("usage_limit") and promo.get("used_count", 0) >= promo["usage_limit"]:
+        raise HTTPException(status_code=400, detail="Promo code usage limit reached")
+
+    subtotal = float(order.get("subtotal", 0) or 0)
+    if subtotal < promo.get("min_order_amount", 0):
+        raise HTTPException(status_code=400, detail=f"Minimum subtotal is ${promo.get('min_order_amount', 0)}")
+
+    service_types = promo.get("service_types") or []
+    if service_types and order.get("service_type") not in service_types:
+        raise HTTPException(status_code=400, detail="Promo not valid for this service type")
+
+    # Calculate discount
+    if promo["type"] == "percentage":
+        discount = subtotal * (float(promo["value"]) / 100.0)
+        if promo.get("max_discount"):
+            discount = min(discount, float(promo["max_discount"]))
+    elif promo["type"] == "fixed_amount":
+        discount = float(promo["value"])
+    elif promo["type"] == "free_delivery":
+        discount = float(order.get("delivery_fee", 0) or 0)
+    else:
+        discount = 0.0
+    discount = round(min(discount, subtotal), 2)
+
+    updated = {**order, "discount": discount, "promo_code": code}
+    new_total = _recompute_order_total(updated)
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "discount": discount,
+            "promo_code": code,
+            "total": new_total,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    # Atomically record usage (idempotent per (code, order_id))
+    await db.promo_codes.update_one({"code": code}, {"$inc": {"used_count": 1}})
+    await db.promo_code_usage.update_one(
+        {"promo_code_id": promo["id"], "order_id": order_id},
+        {"$setOnInsert": {
+            "promo_code_id": promo["id"],
+            "user_id": current_user.id,
+            "order_id": order_id,
+            "used_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+    return {
+        "success": True,
+        "code": code,
+        "discount": discount,
+        "total": new_total,
+        "message": f"Promo applied! You saved ${discount:.2f}",
+    }
+
+
+@api_router.delete("/orders/{order_id}/promo")
+async def remove_promo_from_order(order_id: str, request: Request):
+    """Remove a promo code previously applied to an unpaid order."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Cannot remove a promo code after payment")
+
+    updated = {**order, "discount": 0, "promo_code": None}
+    new_total = _recompute_order_total(updated)
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"discount": 0, "promo_code": None, "total": new_total,
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"success": True, "total": new_total}
+
+
 @api_router.put("/orders/{order_id}/tip")
 async def update_order_tip(order_id: str, payload: TipUpdateRequest, request: Request):
     """
@@ -3527,10 +3654,9 @@ async def update_order_tip(order_id: str, payload: TipUpdateRequest, request: Re
         raise HTTPException(status_code=400, detail="Cannot change tip after payment")
 
     new_tip = round(float(payload.tip), 2)
-    old_tip = float(order.get("tip", 0) or 0)
-    new_total = round(float(order.get("total", 0) or 0) - old_tip + new_tip, 2)
     driver_delivery_portion = float(order.get("driver_delivery_portion", 0) or 0)
     new_driver_earnings = round(driver_delivery_portion + new_tip, 2)
+    new_total = _recompute_order_total({**order, "tip": new_tip})
 
     await db.orders.update_one(
         {"id": order_id},
@@ -3585,6 +3711,9 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
             "user_id": current_user.id,
             "user_email": current_user.email,
         },
+        # 'card' on Stripe Checkout automatically enables Apple Pay & Google Pay
+        # wallets on supported devices (Safari/iOS for Apple Pay, Chrome/Android for Google Pay).
+        payment_methods=["card"],
     )
     session = await stripe_checkout.create_checkout_session(checkout_request)
 

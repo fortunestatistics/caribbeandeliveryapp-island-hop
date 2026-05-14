@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart } from 'lucide-react';
+import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -23,6 +23,9 @@ export const CheckoutPage = () => {
   const [tipSaving, setTipSaving] = useState(false);
   const [selectedTip, setSelectedTip] = useState(null); // 0 | 2 | 3 | 5 | 'custom'
   const [customTip, setCustomTip] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [promoSaving, setPromoSaving] = useState(false);
+  const [promoFeedback, setPromoFeedback] = useState(null); // {type: 'success'|'error', text}
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -70,6 +73,43 @@ export const CheckoutPage = () => {
   const handleCustomTipBlur = () => {
     const v = parseFloat(customTip);
     if (!isNaN(v) && v >= 0) applyTip(v);
+  };
+
+  const applyPromo = async () => {
+    const code = promoInput.trim().toUpperCase();
+    if (!code) return;
+    setPromoSaving(true);
+    setPromoFeedback(null);
+    try {
+      const res = await axios.post(
+        `${API}/orders/${orderId}/apply-promo`,
+        { code },
+        { headers: authHeaders() }
+      );
+      // Refresh full order
+      const fresh = await axios.get(`${API}/orders/${orderId}`, { headers: authHeaders() });
+      setOrder(fresh.data);
+      setPromoFeedback({ type: 'success', text: res.data.message });
+      setPromoInput('');
+    } catch (e) {
+      setPromoFeedback({ type: 'error', text: e?.response?.data?.detail || 'Could not apply code' });
+    } finally {
+      setPromoSaving(false);
+    }
+  };
+
+  const removePromo = async () => {
+    setPromoSaving(true);
+    try {
+      await axios.delete(`${API}/orders/${orderId}/promo`, { headers: authHeaders() });
+      const fresh = await axios.get(`${API}/orders/${orderId}`, { headers: authHeaders() });
+      setOrder(fresh.data);
+      setPromoFeedback(null);
+    } catch (e) {
+      setPromoFeedback({ type: 'error', text: e?.response?.data?.detail || 'Could not remove code' });
+    } finally {
+      setPromoSaving(false);
+    }
   };
 
   const handlePay = async () => {
@@ -210,16 +250,120 @@ export const CheckoutPage = () => {
               {(order.tip || 0) > 0 && (
                 <div className="flex justify-between text-teal-700"><span>Driver tip</span><span data-testid="checkout-tip">+${(order.tip || 0).toFixed(2)}</span></div>
               )}
+              {(order.discount || 0) > 0 && (
+                <div className="flex justify-between text-rose-600">
+                  <span>Discount {order.promo_code && <span className="text-xs">({order.promo_code})</span>}</span>
+                  <span data-testid="checkout-discount">−${(order.discount || 0).toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between border-t pt-2 mt-2 font-semibold">
                 <span>Total</span>
                 <span data-testid="checkout-total">${(order.total || 0).toFixed(2)}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <ShieldCheck className="h-4 w-4 text-green-600" />
-              Payments are securely processed by Stripe. We never store your card details.
+            {/* Promo code */}
+            {!isPaid && (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold">
+                  <Tag className="h-4 w-4 text-teal-600" />
+                  Promo code
+                </div>
+                {order.promo_code ? (
+                  <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
+                    <div className="text-sm">
+                      <span className="font-mono font-semibold text-rose-700" data-testid="checkout-applied-promo">{order.promo_code}</span>
+                      <span className="text-rose-600 ml-2">−${(order.discount || 0).toFixed(2)} applied</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={removePromo}
+                      disabled={promoSaving}
+                      className="text-gray-500 hover:text-rose-700 disabled:opacity-50"
+                      data-testid="checkout-remove-promo"
+                      aria-label="Remove promo code"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={promoInput}
+                      onChange={(e) => { setPromoInput(e.target.value); setPromoFeedback(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } }}
+                      placeholder="Enter code"
+                      className="flex-1 px-3 py-2 border rounded-md text-sm uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      data-testid="checkout-promo-input"
+                    />
+                    <Button
+                      type="button"
+                      onClick={applyPromo}
+                      disabled={promoSaving || !promoInput.trim()}
+                      variant="outline"
+                      data-testid="checkout-apply-promo-btn"
+                    >
+                      {promoSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                    </Button>
+                  </div>
+                )}
+                {promoFeedback && (
+                  <p
+                    className={`text-xs mt-2 ${promoFeedback.type === 'success' ? 'text-green-700' : 'text-red-600'}`}
+                    data-testid="checkout-promo-feedback"
+                  >
+                    {promoFeedback.text}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Accepted payment methods */}
+            <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <ShieldCheck className="h-4 w-4 text-green-600" />
+                Powered by Stripe
+              </div>
+              <div className="flex items-center gap-2" aria-label="Accepted payment methods" data-testid="checkout-accepted-methods">
+                {/* Visa */}
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Visa">
+                  <rect width="34" height="22" rx="3" fill="#fff"/>
+                  <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="9" fill="#1A1F71" letterSpacing="0.5">VISA</text>
+                </svg>
+                {/* Mastercard */}
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Mastercard">
+                  <rect width="34" height="22" rx="3" fill="#fff"/>
+                  <circle cx="14" cy="11" r="6" fill="#EB001B"/>
+                  <circle cx="20" cy="11" r="6" fill="#F79E1B" fillOpacity="0.9"/>
+                </svg>
+                {/* Amex */}
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200" aria-label="American Express">
+                  <rect width="34" height="22" rx="3" fill="#2E77BC"/>
+                  <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="7" fill="#fff" letterSpacing="0.3">AMEX</text>
+                </svg>
+                {/* Apple Pay */}
+                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-gray-200 bg-black" aria-label="Apple Pay" data-testid="apple-pay-badge">
+                  <rect width="42" height="22" rx="3" fill="#000"/>
+                  <text x="6.5" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="600" fontSize="10" fill="#fff"></text>
+                  <text x="14" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="500" fontSize="9" fill="#fff">Pay</text>
+                </svg>
+                {/* Google Pay */}
+                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Google Pay">
+                  <rect width="42" height="22" rx="3" fill="#fff"/>
+                  <text x="3" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#4285F4">G</text>
+                  <text x="8" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#EA4335">o</text>
+                  <text x="13" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#FBBC05">o</text>
+                  <text x="18" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#4285F4">g</text>
+                  <text x="23" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#34A853">l</text>
+                  <text x="26" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#EA4335">e</text>
+                  <text x="32" y="15" fontFamily="Arial, sans-serif" fontWeight="500" fontSize="8" fill="#5F6368">Pay</text>
+                </svg>
+              </div>
             </div>
+            <p className="text-xs text-gray-400 -mt-3">
+              Apple Pay & Google Pay appear automatically on supported devices (Safari/iOS, Chrome/Android).
+            </p>
 
             {error && <div className="text-sm text-red-600" data-testid="checkout-error">{error}</div>}
 
