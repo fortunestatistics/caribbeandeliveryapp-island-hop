@@ -843,7 +843,7 @@ def parse_from_mongo(item):
 
 # Authentication helper
 async def get_current_user_from_request(request: Request):
-    """Get current authenticated user from request"""
+    """Get current authenticated user from request (supports session token cookie or JWT Bearer)"""
     session_token = request.cookies.get("session_token")
     
     if not session_token:
@@ -854,11 +854,23 @@ async def get_current_user_from_request(request: Request):
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    # Try session token lookup first
     user = await db.users.find_one({"session_token": session_token})
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    
-    return User(**user)
+    if user:
+        return User(**user)
+
+    # Fallback: try decoding as JWT (issued by /auth/login or /auth/register)
+    try:
+        payload = jwt.decode(session_token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id:
+            user = await db.users.find_one({"id": user_id})
+            if user:
+                return User(**user)
+    except JWTError:
+        pass
+
+    raise HTTPException(status_code=401, detail="Invalid session")
 
 # Stripe Connect & Payout Routes
 @api_router.post("/vendors/{vendor_id}/stripe-connect")
@@ -3716,6 +3728,143 @@ async def get_chat_history(session_id: str):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Scheduled Order Routes
+class ScheduledOrderCreate(BaseModel):
+    service_type: str
+    restaurant_id: Optional[str] = None
+    items: List[Dict] = []
+    delivery_address_id: str = ""
+    scheduled_date: str  # YYYY-MM-DD
+    scheduled_time: str  # HH:MM
+    is_recurring: bool = False
+    recurrence_pattern: Optional[str] = None  # daily, weekly, monthly
+    recurrence_days: List[int] = []
+    end_date: Optional[str] = None
+
+def _compute_next_occurrence(start_dt: datetime, pattern: str, days: List[int]) -> datetime:
+    """Compute the next occurrence after start_dt for a recurring schedule."""
+    if pattern == "daily":
+        return start_dt + timedelta(days=1)
+    if pattern == "weekly":
+        if not days:
+            return start_dt + timedelta(days=7)
+        # find next day-of-week from `days`
+        for offset in range(1, 15):
+            candidate = start_dt + timedelta(days=offset)
+            # Python weekday(): Mon=0..Sun=6. JS getDay(): Sun=0..Sat=6 — frontend uses Sun=0
+            js_dow = (candidate.weekday() + 1) % 7
+            if js_dow in days:
+                return candidate
+        return start_dt + timedelta(days=7)
+    if pattern == "monthly":
+        # naive +30 days
+        return start_dt + timedelta(days=30)
+    return start_dt + timedelta(days=1)
+
+@api_router.post("/scheduled-orders", response_model=ScheduledOrder)
+async def create_scheduled_order(payload: ScheduledOrderCreate, request: Request):
+    """Schedule an order for a future date/time. Optionally recurring."""
+    current_user = await get_current_user_from_request(request)
+    try:
+        scheduled_dt = datetime.fromisoformat(f"{payload.scheduled_date}T{payload.scheduled_time}:00")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date or time format")
+
+    if scheduled_dt <= datetime.now():
+        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+
+    recurring_id: Optional[str] = None
+    if payload.is_recurring:
+        if not payload.recurrence_pattern:
+            raise HTTPException(status_code=400, detail="recurrence_pattern required for recurring orders")
+        end_dt = None
+        if payload.end_date:
+            try:
+                end_dt = datetime.fromisoformat(f"{payload.end_date}T23:59:59")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+        recurring = RecurringOrder(
+            user_id=current_user.id,
+            service_type=payload.service_type,
+            restaurant_id=payload.restaurant_id,
+            items=payload.items,
+            delivery_address_id=payload.delivery_address_id,
+            recurrence_pattern=payload.recurrence_pattern,
+            recurrence_days=payload.recurrence_days,
+            start_date=scheduled_dt,
+            end_date=end_dt,
+            next_occurrence=_compute_next_occurrence(scheduled_dt, payload.recurrence_pattern, payload.recurrence_days),
+            orders_created=1,
+        )
+        await db.recurring_orders.insert_one(recurring.dict())
+        recurring_id = recurring.id
+
+    scheduled = ScheduledOrder(
+        user_id=current_user.id,
+        service_type=payload.service_type,
+        restaurant_id=payload.restaurant_id,
+        items=payload.items,
+        delivery_address_id=payload.delivery_address_id,
+        scheduled_datetime=scheduled_dt,
+        is_recurring=payload.is_recurring,
+        recurring_pattern=payload.recurrence_pattern,
+        recurrence_days=payload.recurrence_days,
+        recurring_order_id=recurring_id,
+    )
+    await db.scheduled_orders.insert_one(scheduled.dict())
+    return scheduled
+
+@api_router.get("/scheduled-orders", response_model=List[ScheduledOrder])
+async def list_scheduled_orders(request: Request):
+    """List upcoming scheduled orders for the current user."""
+    current_user = await get_current_user_from_request(request)
+    cursor = db.scheduled_orders.find(
+        {"user_id": current_user.id, "status": {"$in": ["pending", "confirmed"]}},
+        {"_id": 0},
+    ).sort("scheduled_datetime", 1)
+    orders = await cursor.to_list(length=200)
+    return [ScheduledOrder(**o) for o in orders]
+
+@api_router.delete("/scheduled-orders/{order_id}")
+async def cancel_scheduled_order(order_id: str, request: Request):
+    """Cancel a scheduled order."""
+    current_user = await get_current_user_from_request(request)
+    result = await db.scheduled_orders.update_one(
+        {"id": order_id, "user_id": current_user.id},
+        {"$set": {"status": "cancelled"}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Scheduled order not found")
+    return {"success": True, "id": order_id, "status": "cancelled"}
+
+@api_router.get("/recurring-orders", response_model=List[RecurringOrder])
+async def list_recurring_orders(request: Request):
+    """List active recurring orders for the current user."""
+    current_user = await get_current_user_from_request(request)
+    cursor = db.recurring_orders.find(
+        {"user_id": current_user.id, "active": True},
+        {"_id": 0},
+    ).sort("next_occurrence", 1)
+    items = await cursor.to_list(length=200)
+    return [RecurringOrder(**r) for r in items]
+
+@api_router.delete("/recurring-orders/{recurring_id}")
+async def delete_recurring_order(recurring_id: str, request: Request):
+    """Delete (deactivate) a recurring order and cancel its pending children."""
+    current_user = await get_current_user_from_request(request)
+    result = await db.recurring_orders.update_one(
+        {"id": recurring_id, "user_id": current_user.id},
+        {"$set": {"active": False}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Recurring order not found")
+    # Cancel its future pending scheduled orders
+    await db.scheduled_orders.update_many(
+        {"user_id": current_user.id, "recurring_order_id": recurring_id, "status": "pending"},
+        {"$set": {"status": "cancelled"}},
+    )
+    return {"success": True, "id": recurring_id, "active": False}
 
 # Status Routes
 @api_router.get("/")

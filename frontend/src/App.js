@@ -10,6 +10,7 @@ import DriverDashboard from './DriverDashboard';
 import AdminPanel from './AdminPanel';
 import PromoCodeManagement from './PromoCodeManagement';
 import AddressManagement from './AddressManagement';
+import OrderScheduling from './OrderScheduling';
 import OrderTrackingPage from './OrderTrackingPageWithMaps';
 import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
@@ -2858,6 +2859,7 @@ function App() {
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="/promo-codes" element={<PromoCodeManagement />} />
             <Route path="/addresses" element={<AddressManagement />} />
+            <Route path="/scheduled-orders" element={<OrderScheduling />} />
             <Route path="/driver" element={<DriverRegistration />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
             <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />

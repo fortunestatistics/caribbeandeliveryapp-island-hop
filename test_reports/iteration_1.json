@@ -1,0 +1,51 @@
+{
+  "summary": "Ran 27 pytest cases against IslandHop backend. NEW Scheduled-Order + Recurring-Order endpoints PASS 100% (8/8) including 401-no-auth, 400-past-date, 400-missing-recurrence-pattern, one-time create, recurring weekly create with end_date, list, cancel-child, delete-recurring cascades to child cancellation. JWT-Bearer fallback in get_current_user_from_request works for /scheduled-orders, /recurring-orders, /support/tickets — BUT /addresses still 500s due to a pre-existing _id serialization bug, not an auth bug. 6 failures are all the same root cause: several GET endpoints return raw Mongo cursors with ObjectId _id, which FastAPI cannot JSON-encode.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/addresses", "issue": "500 — returns raw Mongo cursor; ObjectId _id breaks jsonable_encoder ('ObjectId object is not iterable'). Fix: project {_id:0} or map to Address(**doc).dict().", "priority": "HIGH"},
+      {"endpoint": "GET /api/promo-codes", "issue": "500 — same _id ObjectId serialization issue (line 1735).", "priority": "HIGH"},
+      {"endpoint": "GET /api/support/tickets and GET /api/support/tickets/{id}", "issue": "500 — same _id ObjectId issue (lines 1944, 1951).", "priority": "HIGH"},
+      {"endpoint": "GET /api/drivers/{id}/wallet", "issue": "500 Internal Server Error (likely same ObjectId issue or missing wallet doc).", "priority": "HIGH"},
+      {"endpoint": "GET /api/restaurants", "issue": "500 — Restaurant docs in DB lack required fields (cuisine_type, address, phone, email) AND _id ObjectId still iterates. Pydantic validation cascades into ObjectId encoding error.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/auth/me", "issue": "DUPLICATE route registration — defined at line 1149 (Depends(get_current_user)) AND again at line 1248 reading session_token cookie. First wins, second is dead code; remove duplicate."},
+      {"endpoint": "PUT /api/orders/{order_id}/status", "issue": "DUPLICATE route registration at lines 2084 and 2232. Remove one."},
+      {"endpoint": "GET /api/admin/stats", "issue": "Comment in test_credentials.md claims 'no admin role gate' but server.py:1603 DOES check user_type=='admin' and returns 403. Update docs OR remove the gate — they disagree."},
+      {"endpoint": "POST /api/drivers/{id}/location", "issue": "Accepts latitude/longitude/heading/speed as QUERY params, not request body — unusual for a POST that frontends typically send JSON. Consider migrating to a Pydantic body model."},
+      {"endpoint": "POST /api/promo-codes/{code}/apply", "issue": "Takes user_id as query param and is unauthenticated; anyone can mark codes as used for arbitrary users. Should derive user from JWT."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_islandhop_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix ObjectId/_id serialization in GET endpoints by either (a) adding {'_id': 0} projection to all find() calls that return raw cursors, or (b) parse_from_mongo + drop _id before returning. Affected: /api/addresses, /api/promo-codes, /api/support/tickets (+/{id}), /api/drivers/{id}/wallet, /api/restaurants.",
+    "Remove duplicate @api_router.get('/auth/me') at line 1248 and duplicate @api_router.put('/orders/{order_id}/status') at line 2232.",
+    "Reconcile admin gating: either keep user_type=='admin' check on /api/admin/* and update test_credentials.md, or remove the check.",
+    "Authenticate POST /api/promo-codes/{code}/apply via Bearer token instead of unauthenticated user_id query param.",
+    "Optional: convert POST /api/drivers/{id}/location to JSON body to match REST conventions and what the frontend would send."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 4229 lines — split into modules (auth, orders, scheduled_orders, vendors, drivers, payments, analytics).",
+    "Two ObjectId leaks pattern: every `find(...).to_list()` that's returned directly (or via `find_one` returned directly) without _id projection produces 500s. Pattern repeats across the file — fix systemically.",
+    "Duplicate route registrations silently shadow each other (auth/me, orders/status) — high risk of behaviour drift.",
+    "Several admin endpoints use get_current_user_from_request but only /admin/stats and /admin/users enforce user_type='admin'; /admin/orders, /admin/disputes, suspend/activate also need the same gate (review).",
+    "promo-codes/apply has no auth — security issue; usage_per_user cannot be enforced.",
+    "datetime.now() (naive) compared against scheduled_dt parsed from isoformat (naive) at line 3774 — works only because both are naive; switch to timezone-aware everywhere to avoid silent bugs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_islandhop_backend.py"
+  ],
+  "success_rate": {"backend": "78% (21/27 pytest cases)", "frontend": "skipped per request"},
+  "test_credentials": "Tests register fresh users per run with unique emails like sched_test_<timestamp>_<uuid>@test.com / Test1234!.",
+  "seed_data_creation": "Each test run creates 3 throwaway users (customer, restaurant, driver), a few scheduled/recurring orders, an address, a promo code and a support ticket. No persistent fixtures.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Scheduled-Order endpoints are SOLID — no further action needed there. Remaining failures are all the same _id ObjectId serialization bug across several GET endpoints. Once the main agent fixes those, rerun /app/backend/tests/test_islandhop_backend.py — all 27 cases should pass. Tests use BASE_URL=REACT_APP_BACKEND_URL from /app/frontend/.env. JWT-Bearer auth is the only auth flow tested; session cookies were not exercised.",
+  "rca of the issue": "FastAPI's jsonable_encoder cannot serialize Mongo's bson.ObjectId. Endpoints like /api/addresses (server.py:1860), /api/promo-codes (1735), /api/support/tickets (1944, 1951), /api/drivers/{id}/wallet, /api/restaurants do `find(...).to_list()` and return the list directly. The _id field (ObjectId) is included, hitting encoder.py:322 'ObjectId is not iterable'. Fix patterns: (1) add `{ '_id': 0 }` projection to find calls, OR (2) iterate and pop _id before returning, OR (3) use response_model=List[ModelName] so Pydantic strips extra fields. The brand-new /api/scheduled-orders & /api/recurring-orders endpoints already use {'_id':0} projection — that pattern should be propagated."
+}
