@@ -616,13 +616,6 @@ class RentalBooking(BaseModel):
     returned_at: Optional[datetime] = None
 
 # Order Models
-class OrderItem(BaseModel):
-    menu_item_id: str
-    name: str
-    price: float
-    quantity: int
-    special_instructions: Optional[str] = None
-
 # Business Onboarding Models
 class BusinessType(BaseModel):
     type: str
@@ -3577,7 +3570,14 @@ async def get_checkout_status(session_id: str):
     once, even if called multiple times in parallel.
     """
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
-    status = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        status = await stripe_checkout.get_checkout_status(session_id)
+    except stripe.error.InvalidRequestError as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=404, detail=f"Checkout session not found: {e.user_message or str(e)}")
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Checkout session not found: {e}")
 
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not txn:
