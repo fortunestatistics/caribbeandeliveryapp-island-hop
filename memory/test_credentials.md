@@ -28,4 +28,4 @@ Authorization: Bearer <access_token>
 ## Notes for testing agent
 - Customer-facing endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`.
 - Vendor/Driver-specific endpoints assume the user has the corresponding `user_type`. Register with `"user_type":"restaurant"` or `"driver"` if needed.
-- For admin endpoints (`/api/admin/*`) there is no admin role gate yet — they are open.
+- Admin endpoints (`/api/admin/*`) DO enforce `user_type == "admin"` and return 403 otherwise. To test, register with `"user_type":"admin"` or manually update a user's `user_type` field in Mongo before calling them.

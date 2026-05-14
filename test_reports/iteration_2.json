@@ -1,0 +1,51 @@
+{
+  "summary": "Re-ran /app/backend/tests/test_islandhop_backend.py (27 cases) after main agent's iteration-1 fixes. RESULT: 25/27 PASS (92.6%), up from 21/27 (78%). All 6 originally critical ObjectId/_id 500 failures are NOW FIXED and return 200. The /api/auth/me duplicate-route fix is verified (full User object returned, email matches). Scheduled-Order + Recurring-Order suite continues to pass 100% (8/8) after auth-helper edits. Two NEW failures surfaced — both pre-existing bugs NOT in this iteration's scope (PUT /addresses lets client overwrite user_id which breaks subsequent ownership checks; GET /promo-codes/{code}/validate has naive-vs-aware datetime comparison that was already called out in iteration_1 critical_code_review_comments #6).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/addresses/{address_id}",
+        "issue": "Handler does NOT override address.user_id from request body before $set (compare to POST /addresses line 1828 which DOES). Result: any field, including user_id, is overwritten by client input. In the test, the previous test agent passed user_id='ignored-server-overrides' which is then persisted, and the subsequent POST /addresses/{id}/set-default ownership check (line 1896) returns 404. SECURITY: an authenticated user can also write user_id of someone else into their address doc. Fix: add `address.user_id = current_user.id` immediately after the ownership check at server.py:1857. PRE-EXISTING bug; not introduced by the iteration-2 fixes.",
+        "priority": "MEDIUM"
+      },
+      {
+        "endpoint": "GET /api/promo-codes/{code}/validate",
+        "issue": "500 — `TypeError: can't compare offset-naive and offset-aware datetimes` at server.py:1741. `now = datetime.now(timezone.utc)` is aware, but `datetime.fromisoformat(promo['valid_from'].replace('Z','+00:00'))` returns NAIVE when the stored value has no offset (which is what create_promo_code stores when client posts `datetime.utcnow().isoformat()` — no Z, no offset). Fix options: (a) normalise stored dates to UTC ISO with offset at create time, (b) replace tzinfo if missing: `if vf.tzinfo is None: vf = vf.replace(tzinfo=timezone.utc)`. PRE-EXISTING bug — already flagged in iteration_1 critical_code_review_comments #6.",
+        "priority": "MEDIUM"
+      }
+    ],
+    "retested_and_now_passing": [
+      "GET /api/addresses — 200 OK (no _id leak)",
+      "GET /api/promo-codes — 200 OK (no _id leak)",
+      "GET /api/support/tickets — 200 OK (no _id leak)",
+      "GET /api/support/tickets/{id} — 200 OK (no _id leak)",
+      "GET /api/drivers/{driver_id}/wallet — 200 OK",
+      "GET /api/restaurants — 200 OK (tolerant of legacy docs)",
+      "GET /api/auth/me — returns full User object incl. email (duplicate session-cookie variant removed)"
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_islandhop_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Patch PUT /api/addresses/{address_id} (server.py:1850) to set `address.user_id = current_user.id` after ownership check — prevents ownership hijack and unblocks the set-default test.",
+    "Patch GET /api/promo-codes/{code}/validate (server.py:1738-1741) to normalise parsed datetimes to UTC-aware (e.g. `if vf.tzinfo is None: vf = vf.replace(tzinfo=timezone.utc)`), OR store dates already with UTC offset in create_promo_code.",
+    "(Backlog from iteration_1, still open) Authenticate POST /api/promo-codes/{code}/apply via Bearer token; migrate POST /api/drivers/{id}/location to JSON body; resolve admin gating docs."
+  ],
+  "critical_code_review_comments": [
+    "PUT handlers across the codebase should never trust `user_id`/`owner_id` from the request body — always override from the authenticated user. Audit other PUT endpoints (orders, support tickets, payments) for the same shape.",
+    "Datetime handling is mixed: prepare_for_mongo stores ISO strings, validate parses with fromisoformat+replace('Z'). Standardise on UTC-aware datetimes end-to-end OR always coerce on read.",
+    "server.py is still ~4165 lines after route removals — long-term split into routers/modules (auth, addresses, promo_codes, support, scheduled_orders, drivers, vendors, analytics)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "92.6% (25/27 pytest cases)", "frontend": "skipped per request"},
+  "test_credentials": "Tests register fresh users per run with unique emails like sched_test_<timestamp>_<uuid>@test.com / Test1234!.",
+  "seed_data_creation": "Each run creates 3 throwaway users (customer/restaurant/driver), a few scheduled/recurring orders, an address, a promo code, and a support ticket. No persistent fixtures.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-2 retest confirms all 6 ObjectId/_id fixes and both duplicate-route removals are effective. Remaining 2 failures are pre-existing bugs unrelated to the iteration-2 scope. If main agent applies the two listed patches, re-running /app/backend/tests/test_islandhop_backend.py should yield 27/27. Tests use BASE_URL=REACT_APP_BACKEND_URL from /app/frontend/.env and JWT Bearer auth only.",
+  "rca of the issue": "Both new failures are unrelated to iteration-2 fixes. (1) PUT /api/addresses overwrites server-controlled fields with client input because the handler does not re-assign user_id after ownership check (POST does — copy that pattern). (2) Promo-code validate compares datetime.now(timezone.utc) (aware) with fromisoformat-parsed valid_from (naive when no offset stored), raising TypeError; either always store offset-aware ISO or coerce to UTC on read."
+}

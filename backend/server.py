@@ -1245,27 +1245,6 @@ async def create_session(session_data: SessionCreate, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/auth/me")
-async def get_current_user(request: Request):
-    """Get current authenticated user"""
-    # Check cookie first
-    session_token = request.cookies.get("session_token")
-    
-    # Fallback to Authorization header
-    if not session_token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
-    
-    if not session_token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    user = await db.users.find_one({"session_token": session_token})
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    
-    return User(**user)
-
 @api_router.post("/auth/logout")
 async def logout(request: Request):
     """Logout user"""
@@ -1399,13 +1378,20 @@ async def global_search(q: str):
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
     """Get all active restaurants"""
-    restaurants = await db.restaurants.find({"status": "active"}).to_list(length=None)
-    return [Restaurant(**restaurant) for restaurant in restaurants]
+    restaurants = await db.restaurants.find({"status": "active"}, {"_id": 0}).to_list(length=None)
+    valid = []
+    for r in restaurants:
+        try:
+            valid.append(Restaurant(**r))
+        except Exception:
+            # Skip documents that don't conform to the schema (legacy/incomplete seeds)
+            continue
+    return valid
 
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
 async def get_restaurant(restaurant_id: str):
     """Get restaurant by ID"""
-    restaurant = await db.restaurants.find_one({"id": restaurant_id})
+    restaurant = await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
     return Restaurant(**restaurant)
@@ -1732,7 +1718,7 @@ async def create_promo_code(promo: PromoCode, request: Request):
 async def get_promo_codes(active_only: bool = False):
     """Get all promo codes"""
     query = {"active": True} if active_only else {}
-    promo_codes = await db.promo_codes.find(query).to_list(length=None)
+    promo_codes = await db.promo_codes.find(query, {"_id": 0}).to_list(length=None)
     return promo_codes
 
 @api_router.get("/promo-codes/{code}/validate")
@@ -1857,7 +1843,7 @@ async def create_address(address: Address, request: Request):
 async def get_user_addresses(request: Request):
     """Get user's saved addresses"""
     current_user = await get_current_user_from_request(request)
-    addresses = await db.addresses.find({"user_id": current_user.id}).to_list(length=None)
+    addresses = await db.addresses.find({"user_id": current_user.id}, {"_id": 0}).to_list(length=None)
     return addresses
 
 @api_router.put("/addresses/{address_id}", response_model=Address)
@@ -1941,14 +1927,14 @@ async def create_support_ticket(ticket: SupportTicket, request: Request):
 async def get_user_tickets(request: Request):
     """Get user's support tickets"""
     current_user = await get_current_user_from_request(request)
-    tickets = await db.support_tickets.find({"user_id": current_user.id}).sort("created_at", -1).to_list(length=None)
+    tickets = await db.support_tickets.find({"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
     return tickets
 
 @api_router.get("/support/tickets/{ticket_id}")
 async def get_ticket(ticket_id: str, request: Request):
     """Get ticket details"""
     current_user = await get_current_user_from_request(request)
-    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id}, {"_id": 0})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
@@ -2229,58 +2215,6 @@ async def get_order(order_id: str, current_user: User = Depends(get_current_user
     
     return Order(**order)
 
-@api_router.put("/orders/{order_id}/status", response_model=Order)
-async def update_order_status_endpoint(
-    order_id: str, 
-    update_data: OrderUpdate,
-    current_user: User = Depends(get_current_user)
-):
-    """Update order status and notify relevant parties"""
-    order = await db.orders.find_one({"id": order_id})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    update_dict = {
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    if update_data.status:
-        update_dict["status"] = update_data.status
-    if update_data.driver_id:
-        update_dict["driver_id"] = update_data.driver_id
-    if update_data.estimated_delivery_time:
-        update_dict["estimated_delivery_time"] = update_data.estimated_delivery_time.isoformat()
-    
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": update_dict}
-    )
-    
-    # Get updated order
-    updated_order = await db.orders.find_one({"id": order_id})
-    order_obj = Order(**updated_order)
-    
-    # Notify customer via WebSocket
-    await manager.send_personal_message(
-        json.dumps({
-            "type": "order_update",
-            "order": order_obj.dict()
-        }),
-        order_obj.customer_id
-    )
-    
-    # Notify driver
-    if order_obj.driver_id:
-        await manager.send_personal_message(
-            json.dumps({
-                "type": "order_update",
-                "order": order_obj.dict()
-            }),
-            order_obj.driver_id
-        )
-    
-    return order_obj
-
 @api_router.get("/orders/user/history", response_model=List[Order])
 async def get_user_order_history(
     current_user: User = Depends(get_current_user),
@@ -2497,18 +2431,20 @@ async def create_driver(driver: Driver, request: Request):
 @api_router.get("/drivers/{driver_id}/wallet")
 async def get_driver_wallet(driver_id: str, request: Request):
     """Get driver's wallet balance and earnings"""
-    wallet = await db.driver_wallets.find_one({"driver_id": driver_id})
+    wallet = await db.driver_wallets.find_one({"driver_id": driver_id}, {"_id": 0})
     if not wallet:
         # Create wallet if it doesn't exist
-        wallet = DriverWallet(driver_id=driver_id)
-        await db.driver_wallets.insert_one(wallet.dict())
+        wallet_obj = DriverWallet(driver_id=driver_id)
+        await db.driver_wallets.insert_one(wallet_obj.dict())
+        wallet = wallet_obj.dict()
+        wallet.pop("_id", None)
     
     # Get pending earnings from completed orders
     completed_orders = await db.orders.find({
         "driver_id": driver_id,
         "status": "delivered",
         "driver_payout_status": "pending"
-    }).to_list(length=None)
+    }, {"_id": 0}).to_list(length=None)
     
     pending_earnings = sum(order.get("driver_earnings", 0) for order in completed_orders)
     
