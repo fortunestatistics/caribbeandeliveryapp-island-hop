@@ -623,30 +623,6 @@ class OrderItem(BaseModel):
     quantity: int
     special_instructions: Optional[str] = None
 
-class Order(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    order_number: str = Field(default_factory=lambda: f"ORD{str(uuid.uuid4())[:8].upper()}")
-    customer_id: str
-    restaurant_id: str
-    driver_id: Optional[str] = None
-    items: List[OrderItem]
-    subtotal: float
-    delivery_fee: float
-    tax: float
-    total: float
-    status: str = "pending"  # pending, confirmed, preparing, ready, picked_up, delivered, cancelled
-    delivery_address: Dict[str, str]
-    customer_phone: str
-    special_instructions: Optional[str] = None
-    estimated_delivery_time: datetime
-    payment_status: str = "pending"  # pending, paid, refunded
-    payment_session_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    confirmed_at: Optional[datetime] = None
-    prepared_at: Optional[datetime] = None
-    picked_up_at: Optional[datetime] = None
-    delivered_at: Optional[datetime] = None
-
 # Business Onboarding Models
 class BusinessType(BaseModel):
     type: str
@@ -3529,92 +3505,420 @@ async def get_business_application(application_id: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Payment Routes
+# ============================================================
+# PAYMENT ROUTES — Phase A/B/C
+# ============================================================
+# Phase A: Customer Checkout via Stripe-hosted Checkout (server-controlled amounts)
+# Phase B: Vendor Stripe Connect onboarding + scheduled payouts
+# Phase C: Refunds + driver payouts
+# ============================================================
+
+class CheckoutForOrderRequest(BaseModel):
+    order_id: str
+    origin_url: str  # window.location.origin from frontend
+
 @api_router.post("/payments/checkout/session")
-async def create_checkout_session(request_data: dict, request: Request):
-    """Create Stripe checkout session"""
-    try:
-        host_url = str(request.base_url).rstrip('/')
-        webhook_url = f"{host_url}/api/payments/webhook/stripe"
-        
-        stripe_checkout = StripeCheckout(
-            api_key=STRIPE_API_KEY,
-            webhook_url=webhook_url
-        )
-        
-        # Create checkout session request
-        checkout_request = CheckoutSessionRequest(**request_data)
-        
-        # Create session
-        session = await stripe_checkout.create_checkout_session(checkout_request)
-        
-        # Store payment transaction
-        payment = PaymentTransaction(
-            session_id=session.session_id,
-            amount=request_data.get("amount", 0.0),
-            currency=request_data.get("currency", "usd"),
-            metadata=request_data.get("metadata", {})
-        )
-        
-        payment_dict = prepare_for_mongo(payment.dict())
-        await db.payment_transactions.insert_one(payment_dict)
-        
-        return {"url": session.url, "session_id": session.session_id}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def create_order_checkout_session(payload: CheckoutForOrderRequest, request: Request):
+    """
+    Phase A: Create Stripe-hosted checkout for an EXISTING order.
+    Amount is taken from the order in DB — never trusted from frontend.
+    """
+    current_user = await get_current_user_from_request(request)
+
+    order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Order is already paid")
+
+    amount = float(order.get("total") or 0.0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order total")
+
+    host_url = str(request.base_url).rstrip('/')
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+
+    origin = payload.origin_url.rstrip('/')
+    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&order_id={payload.order_id}"
+    cancel_url = f"{origin}/payment/cancel?order_id={payload.order_id}"
+
+    checkout_request = CheckoutSessionRequest(
+        amount=float(amount),
+        currency="usd",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            "order_id": payload.order_id,
+            "user_id": current_user.id,
+            "user_email": current_user.email,
+        },
+    )
+    session = await stripe_checkout.create_checkout_session(checkout_request)
+
+    payment = PaymentTransaction(
+        session_id=session.session_id,
+        user_id=current_user.id,
+        email=current_user.email,
+        amount=amount,
+        currency="usd",
+        payment_status="initiated",
+        metadata={"order_id": payload.order_id, "user_id": current_user.id},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+
+    return {"url": session.url, "session_id": session.session_id}
+
 
 @api_router.get("/payments/checkout/status/{session_id}")
 async def get_checkout_status(session_id: str):
-    """Get checkout session status"""
-    try:
-        stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
-        
-        # Get status from Stripe
-        status = await stripe_checkout.get_checkout_status(session_id)
-        
-        # Update local payment record
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {
-                "$set": {
-                    "payment_status": status.payment_status,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }
-            }
-        )
-        
-        return status.dict()
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """
+    Phase A: Poll Stripe checkout status. Idempotent — only marks the order paid
+    once, even if called multiple times in parallel.
+    """
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
+    status = await stripe_checkout.get_checkout_status(session_id)
 
-@api_router.post("/payments/webhook/stripe")
-async def stripe_webhook(request: Request):
-    """Handle Stripe webhooks"""
-    try:
-        body = await request.body()
-        signature = request.headers.get("Stripe-Signature")
-        
-        stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
-        webhook_response = await stripe_checkout.handle_webhook(body, signature)
-        
-        # Update payment transaction
-        if webhook_response.session_id:
-            await db.payment_transactions.update_one(
-                {"session_id": webhook_response.session_id},
-                {
-                    "$set": {
-                        "payment_status": webhook_response.payment_status,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }
-                }
+    txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not txn:
+        raise HTTPException(status_code=404, detail="Payment transaction not found")
+
+    # Idempotency: only act on transition into a paid state
+    already_paid = txn.get("payment_status") == "paid"
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {
+            "payment_status": status.payment_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    if status.payment_status == "paid" and not already_paid:
+        order_id = (txn.get("metadata") or {}).get("order_id")
+        if order_id:
+            await db.orders.update_one(
+                {"id": order_id, "payment_status": {"$ne": "paid"}},
+                {"$set": {
+                    "payment_status": "paid",
+                    "paid_at": datetime.now(timezone.utc).isoformat(),
+                }},
             )
-        
-        return {"status": "success"}
-    
+
+    return {
+        "status": status.status,
+        "payment_status": status.payment_status,
+        "amount_total": status.amount_total,
+        "currency": status.currency,
+        "metadata": status.metadata,
+    }
+
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Phase A: Stripe webhook receiver (canonical path)."""
+    body = await request.body()
+    signature = request.headers.get("Stripe-Signature")
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
+    try:
+        webhook_response = await stripe_checkout.handle_webhook(body, signature)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Invalid signature / malformed payload — Stripe expects a non-2xx so it retries
+        raise HTTPException(status_code=400, detail=f"Webhook verification failed: {e}")
+
+    if webhook_response.session_id:
+        txn = await db.payment_transactions.find_one({"session_id": webhook_response.session_id}, {"_id": 0})
+        already_paid = bool(txn and txn.get("payment_status") == "paid")
+        await db.payment_transactions.update_one(
+            {"session_id": webhook_response.session_id},
+            {"$set": {
+                "payment_status": webhook_response.payment_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        if webhook_response.payment_status == "paid" and not already_paid and txn:
+            order_id = (txn.get("metadata") or {}).get("order_id")
+            if order_id:
+                await db.orders.update_one(
+                    {"id": order_id, "payment_status": {"$ne": "paid"}},
+                    {"$set": {
+                        "payment_status": "paid",
+                        "paid_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+    return {"status": "ok"}
+
+
+# Legacy alias kept for any older clients still calling /api/payments/webhook/stripe
+@api_router.post("/payments/webhook/stripe")
+async def stripe_webhook_legacy(request: Request):
+    return await stripe_webhook(request)
+
+
+# ============================================================
+# Phase B: Vendor Stripe Connect onboarding (auth-gated wrapper)
+# ============================================================
+class ConnectOnboardingRequest(BaseModel):
+    return_url: str  # frontend URL to return to after Stripe onboarding
+
+
+@api_router.post("/vendor/connect/onboarding")
+async def vendor_connect_onboarding(payload: ConnectOnboardingRequest, request: Request):
+    """
+    Phase B: Authenticated wrapper. Creates a Stripe Connect Express account
+    for the current vendor user (restaurant/business/driver) if missing, and
+    returns the hosted onboarding URL.
+    """
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    current_user = await get_current_user_from_request(request)
+
+    # Find the vendor entity owned by the current user
+    vendor_id = None
+    vendor_type = None
+    if current_user.user_type == "restaurant":
+        restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0})
+        if restaurant:
+            vendor_id, vendor_type = restaurant["id"], "restaurant"
+    elif current_user.user_type == "driver":
+        driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+        if driver:
+            vendor_id, vendor_type = driver["id"], "driver"
+    elif current_user.user_type == "business":
+        biz = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0})
+        if biz:
+            vendor_id, vendor_type = biz["id"], "business"
+
+    if not vendor_id:
+        raise HTTPException(status_code=404, detail="No vendor profile found for current user")
+
+    existing = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+
+    try:
+        if existing:
+            account_id = existing["stripe_account_id"]
+        else:
+            account = stripe.Account.create(
+                type="express",
+                country="US",
+                email=current_user.email,
+                capabilities={
+                    "card_payments": {"requested": True},
+                    "transfers": {"requested": True},
+                },
+            )
+            account_id = account.id
+            sa = VendorStripeAccount(
+                vendor_id=vendor_id,
+                vendor_type=vendor_type,
+                stripe_account_id=account_id,
+            )
+            await db.vendor_stripe_accounts.insert_one(prepare_for_mongo(sa.dict()))
+
+        return_url = payload.return_url.rstrip('/')
+        account_link = stripe.AccountLink.create(
+            account=account_id,
+            refresh_url=f"{return_url}/vendor/stripe-refresh",
+            return_url=f"{return_url}/vendor/stripe-return",
+            type="account_onboarding",
+        )
+        return {
+            "onboarding_url": account_link.url,
+            "account_id": account_id,
+            "vendor_id": vendor_id,
+            "vendor_type": vendor_type,
+        }
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
+
+
+@api_router.get("/vendor/connect/status")
+async def vendor_connect_status(request: Request):
+    """Phase B: Returns the current vendor's Stripe Connect status (charges/payouts enabled)."""
+    current_user = await get_current_user_from_request(request)
+
+    vendor_id = None
+    if current_user.user_type == "restaurant":
+        v = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0})
+        vendor_id = v and v["id"]
+    elif current_user.user_type == "driver":
+        v = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+        vendor_id = v and v["id"]
+    elif current_user.user_type == "business":
+        v = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0})
+        vendor_id = v and v["id"]
+
+    if not vendor_id:
+        return {"connected": False, "reason": "no_vendor_profile"}
+
+    sa = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not sa:
+        return {"connected": False, "vendor_id": vendor_id}
+
+    try:
+        account = stripe.Account.retrieve(sa["stripe_account_id"])
+        await db.vendor_stripe_accounts.update_one(
+            {"vendor_id": vendor_id},
+            {"$set": {
+                "account_status": "active" if account.charges_enabled else "restricted",
+                "onboarding_complete": account.details_submitted,
+                "charges_enabled": account.charges_enabled,
+                "payouts_enabled": account.payouts_enabled,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        return {
+            "connected": True,
+            "vendor_id": vendor_id,
+            "account_id": sa["stripe_account_id"],
+            "charges_enabled": account.charges_enabled,
+            "payouts_enabled": account.payouts_enabled,
+            "onboarding_complete": account.details_submitted,
+        }
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        return {"connected": False, "error": e.user_message or str(e)}
+
+
+# ============================================================
+# Phase C: Refunds
+# ============================================================
+class RefundRequest(BaseModel):
+    amount: Optional[float] = None  # if None → full refund
+    reason: Optional[str] = None    # 'duplicate' | 'fraudulent' | 'requested_by_customer'
+
+
+@api_router.post("/orders/{order_id}/refund")
+async def refund_order(order_id: str, payload: RefundRequest, request: Request):
+    """
+    Phase C: Issue a refund for an order.
+    Only the customer who placed the order or an admin user can issue.
+    """
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    current_user = await get_current_user_from_request(request)
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if current_user.user_type != "admin" and order.get("customer_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to refund this order")
+    if order.get("payment_status") != "paid":
+        raise HTTPException(status_code=400, detail="Order is not paid; nothing to refund")
+    if order.get("payment_status") == "refunded":
+        raise HTTPException(status_code=400, detail="Order already refunded")
+
+    # Find the successful payment_transaction for this order
+    txn = await db.payment_transactions.find_one(
+        {"metadata.order_id": order_id, "payment_status": "paid"},
+        {"_id": 0},
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="No paid transaction found for this order")
+
+    # Retrieve the Stripe Checkout Session to get its payment_intent
+    try:
+        session = stripe.checkout.Session.retrieve(txn["session_id"])
+        payment_intent_id = session.payment_intent
+        if not payment_intent_id:
+            raise HTTPException(status_code=400, detail="No payment intent on session")
+
+        refund_kwargs = {"payment_intent": payment_intent_id}
+        if payload.amount is not None:
+            if payload.amount <= 0 or payload.amount > float(order.get("total") or 0):
+                raise HTTPException(status_code=400, detail="Invalid refund amount")
+            refund_kwargs["amount"] = int(round(payload.amount * 100))
+        if payload.reason in {"duplicate", "fraudulent", "requested_by_customer"}:
+            refund_kwargs["reason"] = payload.reason
+
+        refund = stripe.Refund.create(**refund_kwargs)
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=502, detail=f"Stripe refund failed: {e.user_message or str(e)}")
+
+    refund_amount = (refund.amount or 0) / 100.0
+    is_full = abs(refund_amount - float(order.get("total") or 0)) < 0.01
+    new_status = "refunded" if is_full else "partially_refunded"
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "payment_status": new_status,
+            "refunded_amount": float(order.get("refunded_amount", 0)) + refund_amount,
+            "refund_id": refund.id,
+            "refunded_at": datetime.now(timezone.utc).isoformat(),
+            "vendor_payout_status": "reversed",
+        }},
+    )
+    # Record the refund event for audit
+    await db.refunds.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "amount": refund_amount,
+        "stripe_refund_id": refund.id,
+        "reason": payload.reason,
+        "issued_by": current_user.id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "success": True,
+        "order_id": order_id,
+        "refund_id": refund.id,
+        "amount": refund_amount,
+        "status": new_status,
+    }
+
+
+# ============================================================
+# Phase C: Driver Payouts via Stripe Transfer to connected account
+# ============================================================
+@api_router.post("/drivers/{driver_id}/payout")
+async def process_driver_payout(driver_id: str, request: Request):
+    """Phase C: Pay out a driver's accumulated wallet balance to their connected Stripe account."""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    current_user = await get_current_user_from_request(request)
+
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    # Only the driver themselves or admin
+    if current_user.user_type != "admin" and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    wallet = await db.driver_wallets.find_one({"driver_id": driver_id}, {"_id": 0})
+    balance = float((wallet or {}).get("balance", 0) or 0)
+    if balance < 10:
+        raise HTTPException(status_code=400, detail="Minimum payout amount is $10")
+
+    sa = await db.vendor_stripe_accounts.find_one({"vendor_id": driver_id}, {"_id": 0})
+    if not sa or not sa.get("payouts_enabled"):
+        raise HTTPException(status_code=400, detail="Driver Stripe Connect not enabled — complete onboarding first")
+
+    try:
+        transfer = stripe.Transfer.create(
+            amount=int(round(balance * 100)),
+            currency="usd",
+            destination=sa["stripe_account_id"],
+            description=f"Driver payout — {driver_id}",
+        )
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=502, detail=f"Stripe transfer failed: {e.user_message or str(e)}")
+
+    await db.driver_wallets.update_one(
+        {"driver_id": driver_id},
+        {"$inc": {"balance": -balance, "total_withdrawn": balance},
+         "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.driver_withdrawals.insert_one({
+        "id": str(uuid.uuid4()),
+        "driver_id": driver_id,
+        "amount": balance,
+        "method": "stripe",
+        "stripe_transfer_id": transfer.id,
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"success": True, "amount": balance, "transfer_id": transfer.id}
+
 
 # AI Chat Routes
 @api_router.post("/chat/message")
@@ -3831,6 +4135,28 @@ async def get_status_checks():
 @app.on_event("startup")
 async def initialize_data():
     """Initialize default data and indexes"""
+    # Phase B: Schedule nightly vendor payouts at 02:00 UTC
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        if not hasattr(app.state, "scheduler") or app.state.scheduler is None:
+            scheduler = AsyncIOScheduler(timezone="UTC")
+
+            async def _nightly_payouts():
+                try:
+                    await process_daily_vendor_payouts()
+                    logger.info("✅ Nightly vendor payout batch completed")
+                except Exception as e:
+                    logger.error(f"❌ Nightly vendor payout failed: {e}")
+
+            scheduler.add_job(_nightly_payouts, CronTrigger(hour=2, minute=0), id="nightly_vendor_payouts", replace_existing=True)
+            scheduler.start()
+            app.state.scheduler = scheduler
+            print("✅ APScheduler started — nightly vendor payouts scheduled at 02:00 UTC")
+    except Exception as e:
+        print(f"⚠️ Could not start scheduler: {e}")
+
     try:
         # Create geospatial index for driver locations (for smart matching)
         await db.drivers.create_index([("current_location", "2dsphere")])
@@ -4170,4 +4496,10 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        sched = getattr(app.state, "scheduler", None)
+        if sched:
+            sched.shutdown(wait=False)
+    except Exception:
+        pass
     client.close()

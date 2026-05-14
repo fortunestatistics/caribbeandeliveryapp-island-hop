@@ -11,6 +11,8 @@ import AdminPanel from './AdminPanel';
 import PromoCodeManagement from './PromoCodeManagement';
 import AddressManagement from './AddressManagement';
 import OrderScheduling from './OrderScheduling';
+import { CheckoutPage, PaymentSuccess, PaymentCancel } from './CheckoutPage';
+import VendorStripeConnect from './VendorStripeConnect';
 import OrderTrackingPage from './OrderTrackingPageWithMaps';
 import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
@@ -2860,6 +2862,12 @@ function App() {
             <Route path="/promo-codes" element={<PromoCodeManagement />} />
             <Route path="/addresses" element={<AddressManagement />} />
             <Route path="/scheduled-orders" element={<OrderScheduling />} />
+            <Route path="/checkout/:orderId" element={<CheckoutPage />} />
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/cancel" element={<PaymentCancel />} />
+            <Route path="/vendor/connect-stripe" element={<VendorStripeConnect />} />
+            <Route path="/vendor/stripe-return" element={<VendorStripeConnect />} />
+            <Route path="/vendor/stripe-refresh" element={<VendorStripeConnect />} />
             <Route path="/driver" element={<DriverRegistration />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
             <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />
