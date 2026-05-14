@@ -3506,6 +3506,45 @@ async def get_business_application(application_id: str, request: Request):
 # Phase C: Refunds + driver payouts
 # ============================================================
 
+class TipUpdateRequest(BaseModel):
+    tip: float  # absolute dollar amount
+
+
+@api_router.put("/orders/{order_id}/tip")
+async def update_order_tip(order_id: str, payload: TipUpdateRequest, request: Request):
+    """
+    Update the tip on an unpaid order. Recomputes total + driver_earnings.
+    Customers can change the tip any time before they pay.
+    """
+    current_user = await get_current_user_from_request(request)
+    if payload.tip < 0 or payload.tip > 500:
+        raise HTTPException(status_code=400, detail="Tip must be between $0 and $500")
+
+    order = await db.orders.find_one({"id": order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Cannot change tip after payment")
+
+    new_tip = round(float(payload.tip), 2)
+    old_tip = float(order.get("tip", 0) or 0)
+    new_total = round(float(order.get("total", 0) or 0) - old_tip + new_tip, 2)
+    driver_delivery_portion = float(order.get("driver_delivery_portion", 0) or 0)
+    new_driver_earnings = round(driver_delivery_portion + new_tip, 2)
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "tip": new_tip,
+            "total": new_total,
+            "driver_earnings": new_driver_earnings,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return updated
+
+
 class CheckoutForOrderRequest(BaseModel):
     order_id: str
     origin_url: str  # window.location.origin from frontend

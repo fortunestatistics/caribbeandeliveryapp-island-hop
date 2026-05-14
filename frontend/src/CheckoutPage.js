@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft } from 'lucide-react';
+import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -20,6 +20,9 @@ export const CheckoutPage = () => {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [tipSaving, setTipSaving] = useState(false);
+  const [selectedTip, setSelectedTip] = useState(null); // 0 | 2 | 3 | 5 | 'custom'
+  const [customTip, setCustomTip] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -27,6 +30,10 @@ export const CheckoutPage = () => {
       try {
         const res = await axios.get(`${API}/orders/${orderId}`, { headers: authHeaders() });
         setOrder(res.data);
+        const currentTip = Number(res.data?.tip || 0);
+        if ([0, 2, 3, 5].includes(currentTip)) setSelectedTip(currentTip);
+        else if (currentTip > 0) { setSelectedTip('custom'); setCustomTip(String(currentTip)); }
+        else setSelectedTip(0);
       } catch (e) {
         setError(e?.response?.data?.detail || 'Order not found');
       } finally {
@@ -35,6 +42,35 @@ export const CheckoutPage = () => {
     };
     load();
   }, [orderId]);
+
+  const applyTip = async (tipValue) => {
+    if (order?.payment_status === 'paid') return;
+    setTipSaving(true);
+    setError('');
+    try {
+      const res = await axios.put(
+        `${API}/orders/${orderId}/tip`,
+        { tip: Number(tipValue) || 0 },
+        { headers: authHeaders() }
+      );
+      setOrder(res.data);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to update tip');
+    } finally {
+      setTipSaving(false);
+    }
+  };
+
+  const handleTipChip = (val) => {
+    setSelectedTip(val);
+    setCustomTip('');
+    applyTip(val);
+  };
+
+  const handleCustomTipBlur = () => {
+    const v = parseFloat(customTip);
+    if (!isNaN(v) && v >= 0) applyTip(v);
+  };
 
   const handlePay = async () => {
     setCreating(true);
@@ -75,6 +111,7 @@ export const CheckoutPage = () => {
   }
 
   const isPaid = order?.payment_status === 'paid';
+  const tipChips = [0, 2, 3, 5];
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4">
@@ -97,6 +134,69 @@ export const CheckoutPage = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Tip selector */}
+            {!isPaid && (
+              <div className="border border-teal-100 bg-teal-50/40 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-semibold text-sm flex items-center gap-1.5">
+                      <Heart className="h-4 w-4 text-rose-500 fill-rose-500" />
+                      Tip your driver
+                    </p>
+                    <p className="text-xs text-gray-500">100% of tips go directly to your driver</p>
+                  </div>
+                  {tipSaving && <Loader2 className="h-4 w-4 animate-spin text-teal-600" />}
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {tipChips.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => handleTipChip(t)}
+                      disabled={tipSaving}
+                      className={`py-2 rounded-md text-sm font-medium transition-colors border ${
+                        selectedTip === t
+                          ? 'bg-teal-600 text-white border-teal-600'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-teal-300'
+                      } disabled:opacity-50`}
+                      data-testid={`tip-chip-${t}`}
+                    >
+                      ${t}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTip('custom')}
+                    className={`py-2 rounded-md text-sm font-medium transition-colors border ${
+                      selectedTip === 'custom'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-gray-700 border-gray-200 hover:border-teal-300'
+                    }`}
+                    data-testid="tip-chip-custom"
+                  >
+                    Custom
+                  </button>
+                </div>
+                {selectedTip === 'custom' && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-sm text-gray-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="500"
+                      value={customTip}
+                      onChange={(e) => setCustomTip(e.target.value)}
+                      onBlur={handleCustomTipBlur}
+                      placeholder="0.00"
+                      className="flex-1 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      data-testid="tip-custom-input"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-gray-600">Order ID</span><span className="font-mono text-xs" data-testid="checkout-order-id">{order.id}</span></div>
               <div className="flex justify-between"><span className="text-gray-600">Service</span><span className="capitalize">{order.service_type}</span></div>
@@ -104,8 +204,11 @@ export const CheckoutPage = () => {
               {order.delivery_fee != null && (
                 <div className="flex justify-between"><span className="text-gray-600">Delivery fee</span><span>${(order.delivery_fee || 0).toFixed(2)}</span></div>
               )}
-              {order.platform_fee != null && (
-                <div className="flex justify-between"><span className="text-gray-600">Platform fee</span><span>${(order.platform_fee || 0).toFixed(2)}</span></div>
+              {order.tax != null && order.tax > 0 && (
+                <div className="flex justify-between"><span className="text-gray-600">Tax</span><span>${(order.tax || 0).toFixed(2)}</span></div>
+              )}
+              {(order.tip || 0) > 0 && (
+                <div className="flex justify-between text-teal-700"><span>Driver tip</span><span data-testid="checkout-tip">+${(order.tip || 0).toFixed(2)}</span></div>
               )}
               <div className="flex justify-between border-t pt-2 mt-2 font-semibold">
                 <span>Total</span>
@@ -122,7 +225,7 @@ export const CheckoutPage = () => {
 
             <Button
               onClick={handlePay}
-              disabled={creating || isPaid}
+              disabled={creating || isPaid || tipSaving}
               className="w-full bg-teal-600 hover:bg-teal-700 text-white"
               data-testid="checkout-pay-btn"
             >
