@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X } from 'lucide-react';
+import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Wallet } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -26,6 +26,7 @@ export const CheckoutPage = () => {
   const [promoInput, setPromoInput] = useState('');
   const [promoSaving, setPromoSaving] = useState(false);
   const [promoFeedback, setPromoFeedback] = useState(null); // {type: 'success'|'error', text}
+  const [walletBalance, setWalletBalance] = useState(null); // USD number or null
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -44,6 +45,10 @@ export const CheckoutPage = () => {
       }
     };
     load();
+    // Try to fetch wallet balance for "Pay with wallet" UX
+    axios.get(`${API}/wallet`, { headers: authHeaders() })
+      .then((r) => setWalletBalance(Number(r.data?.balances?.USD || 0)))
+      .catch(() => setWalletBalance(null));
   }, [orderId]);
 
   const applyTip = async (tipValue) => {
@@ -124,6 +129,18 @@ export const CheckoutPage = () => {
       window.location.href = res.data.url;
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to start checkout');
+      setCreating(false);
+    }
+  };
+
+  const handlePayWithWallet = async () => {
+    setCreating(true);
+    setError('');
+    try {
+      await axios.post(`${API}/wallet/pay-order`, { order_id: orderId }, { headers: authHeaders() });
+      navigate(`/payment/success?order_id=${orderId}&via=wallet`);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to pay from wallet');
       setCreating(false);
     }
   };
@@ -381,6 +398,21 @@ export const CheckoutPage = () => {
                 <><CreditCard className="h-4 w-4 mr-2" /> Pay ${(order.total || 0).toFixed(2)}</>
               )}
             </Button>
+
+            {!isPaid && walletBalance !== null && (
+              <Button
+                onClick={handlePayWithWallet}
+                disabled={creating || tipSaving || walletBalance < (order.total || 0)}
+                variant="outline"
+                className="w-full border-teal-300 text-teal-700 hover:bg-teal-50"
+                data-testid="checkout-pay-wallet-btn"
+              >
+                <Wallet className="h-4 w-4 mr-2" />
+                {walletBalance < (order.total || 0)
+                  ? `Wallet balance: $${walletBalance.toFixed(2)} (insufficient)`
+                  : `Pay with wallet (balance: $${walletBalance.toFixed(2)})`}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
