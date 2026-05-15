@@ -22,7 +22,18 @@ Build **IslandHop**, a comprehensive Caribbean delivery app with multi-service c
 - **Backend tests**: 48 pytest cases, 100% passing (`/app/backend/tests/test_islandhop_backend.py` + `test_payments.py`).
 
 ## What's Implemented (CHANGELOG)
-### Feb 2026 — Payment system overhaul (this session)
+### Feb 2026 — Wallet + CariPay (this session)
+- **IslandHop in-app multi-currency wallet** (USD, JMD, TTD, BBD, GHS, NGN, ZAR).
+- Endpoints: `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/link` & `DELETE`, `POST /api/wallet/deposit` (from CariPay), `POST /api/wallet/withdraw` (to CariPay), `POST /api/wallet/send` (P2P between IslandHop users), `POST /api/wallet/pay-order` (wallet → order). All atomic via Mongo `$inc` with compare-and-set debits.
+- **CariPay client** (`/app/backend/caripay_client.py`) with `MOCK_CARIPAY=true` toggle — short-circuits to simulated success today; flip to false + fill `_real_deposit/_real_withdrawal` once CariPay's API is live.
+- **Webhook receiver** `POST /api/webhook/caripay` with HMAC-SHA256 signature verification (skipped in MOCK), idempotency by `external_transfer_id`, currency allowlist.
+- Frontend page `/wallet` — gradient USD balance card, JMD card, CariPay link/unlink, deposit/withdraw/send modals, transaction history.
+- "Pay with wallet" button added to `CheckoutPage` (alongside Stripe Pay).
+- Race-fix on `/wallet/pay-order`: order lock acquired BEFORE wallet debit.
+- Email lookup in P2P send made case-insensitive.
+- 36 new pytest cases — backend total **84/84 passing**.
+
+### Feb 2026 — Payment system overhaul (previous session)
 **Phase A — Customer can actually pay**
 - `POST /api/payments/checkout/session` — server-controlled amounts (reads `total` from DB; never trusts frontend). Returns Stripe-hosted Checkout URL + session_id.
 - `GET /api/payments/checkout/status/{session_id}` — idempotent polling, marks order `payment_status='paid'` exactly once.

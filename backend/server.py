@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
 import json
+import re
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
@@ -4332,7 +4333,10 @@ async def wallet_p2p_send(payload: WalletSendRequest, request: Request):
     if currency not in SUPPORTED_WALLET_CURRENCIES:
         raise HTTPException(status_code=400, detail="Unsupported currency")
 
-    recipient = await db.users.find_one({"email": payload.recipient_email.lower().strip()}, {"_id": 0})
+    recipient = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(payload.recipient_email.strip())}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if not recipient:
         raise HTTPException(status_code=404, detail="Recipient not found on IslandHop")
     if recipient["id"] == current_user.id:
@@ -4378,12 +4382,26 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
     if float(wallet.get("balances", {}).get("USD", 0)) < amount:
         raise HTTPException(status_code=400, detail="Insufficient wallet balance (USD)")
 
-    await _debit_wallet(current_user.id, amount, "USD")
-    await db.orders.update_one(
+    # Acquire the order lock FIRST (compare-and-set on payment_status) so two
+    # concurrent pay-order calls can't both debit the wallet for the same order.
+    lock_result = await db.orders.update_one(
         {"id": payload.order_id, "payment_status": {"$ne": "paid"}},
         {"$set": {"payment_status": "paid", "payment_method": "wallet",
                   "paid_at": datetime.now(timezone.utc).isoformat()}},
     )
+    if lock_result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Order already paid")
+
+    try:
+        await _debit_wallet(current_user.id, amount, "USD")
+    except HTTPException:
+        # Revert the order lock if the debit failed (race after the check above)
+        await db.orders.update_one(
+            {"id": payload.order_id},
+            {"$set": {"payment_status": "pending"},
+             "$unset": {"paid_at": "", "payment_method": ""}},
+        )
+        raise
     txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="order_payment",
                             amount=amount, currency="USD", status="completed",
                             order_id=payload.order_id, note="Paid order from wallet")
@@ -4413,6 +4431,9 @@ async def caripay_webhook(request: Request):
     amount = float(event.get("amount", 0) or 0)
     currency = (event.get("currency") or "USD").upper()
     status = (event.get("status") or "").lower()
+
+    if currency not in SUPPORTED_WALLET_CURRENCIES:
+        return {"received": True, "ignored": True, "reason": f"unsupported_currency:{currency}"}
 
     if not handle:
         return {"received": True, "ignored": True, "reason": "no_handle"}
