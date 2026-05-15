@@ -2129,6 +2129,28 @@ async def update_order_status(order_id: str, status: str, request: Request):
                 upsert=True
             )
             update_data["driver_payout_status"] = "accumulated"
+
+            # Also credit the driver's IslandHop in-app wallet (separate from
+            # the legacy driver_wallets bucket) so the earnings appear in their
+            # /wallet page transaction history.
+            driver_row = await db.drivers.find_one({"id": order["driver_id"]}, {"_id": 0})
+            driver_user_id = (driver_row or {}).get("user_id")
+            if driver_user_id and driver_earnings:
+                tip_part = float(order.get("tip", 0) or 0)
+                delivery_part = max(float(driver_earnings) - tip_part, 0.0)
+                if delivery_part > 0:
+                    await _credit_wallet_with_txn(
+                        driver_user_id, delivery_part, "USD",
+                        txn_type="payout_in", order_id=order_id,
+                        note="Delivery earnings",
+                    )
+                if tip_part > 0:
+                    await _credit_wallet_with_txn(
+                        driver_user_id, tip_part, "USD",
+                        txn_type="tip_in", order_id=order_id,
+                        counterparty_user_id=order.get("customer_id"),
+                        note="Customer tip",
+                    )
     
     await db.orders.update_one(
         {"id": order_id},
@@ -4007,6 +4029,43 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
     if order.get("payment_status") == "refunded":
         raise HTTPException(status_code=400, detail="Order already refunded")
 
+    # If the order was paid from the IslandHop wallet, refund directly to wallet —
+    # there is no Stripe charge to reverse.
+    if order.get("payment_method") == "wallet":
+        order_total = float(order.get("total") or 0)
+        refund_amount = _round_money(payload.amount) if payload.amount is not None else _round_money(order_total)
+        if refund_amount <= 0 or refund_amount > order_total:
+            raise HTTPException(status_code=400, detail="Invalid refund amount")
+        is_full = abs(refund_amount - order_total) < 0.01
+        new_status = "refunded" if is_full else "partially_refunded"
+        await _credit_wallet_with_txn(
+            order["customer_id"], refund_amount, "USD",
+            txn_type="refund", order_id=order_id, note="Wallet refund",
+        )
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "payment_status": new_status,
+                "refunded_amount": float(order.get("refunded_amount", 0)) + refund_amount,
+                "refunded_at": datetime.now(timezone.utc).isoformat(),
+                "vendor_payout_status": "reversed",
+            }},
+        )
+        await db.refunds.insert_one({
+            "id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "amount": refund_amount,
+            "stripe_refund_id": None,
+            "method": "wallet",
+            "reason": payload.reason,
+            "issued_by": current_user.id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"success": True, "order_id": order_id, "method": "wallet",
+                "amount": refund_amount, "status": new_status}
+
+    # Otherwise — Stripe refund flow (original behaviour)
+
     # Find the successful payment_transaction for this order
     txn = await db.payment_transactions.find_one(
         {"metadata.order_id": order_id, "payment_status": "paid"},
@@ -4165,6 +4224,31 @@ async def _record_txn(**fields) -> WalletTransaction:
     return txn
 
 
+def _round_money(amount: float) -> float:
+    """Round to 2 decimal places (cents) — call on every external amount."""
+    return round(float(amount or 0), 2)
+
+
+async def _credit_wallet_with_txn(user_id: str, amount: float, currency: str, *,
+                                  txn_type: str, order_id: Optional[str] = None,
+                                  counterparty_user_id: Optional[str] = None,
+                                  counterparty_handle: Optional[str] = None,
+                                  external_transfer_id: Optional[str] = None,
+                                  note: Optional[str] = None) -> None:
+    """Credit a wallet AND log a wallet_transaction in one helper."""
+    if amount <= 0:
+        return
+    wallet = await _get_or_create_wallet(user_id)
+    await _credit_wallet(user_id, _round_money(amount), currency)
+    await _record_txn(
+        user_id=user_id, wallet_id=wallet["id"], type=txn_type,
+        amount=_round_money(amount), currency=currency, status="completed",
+        order_id=order_id, counterparty_user_id=counterparty_user_id,
+        counterparty_handle=counterparty_handle,
+        external_transfer_id=external_transfer_id, note=note,
+    )
+
+
 @api_router.get("/wallet")
 async def get_my_wallet(request: Request):
     current_user = await get_current_user_from_request(request)
@@ -4225,6 +4309,7 @@ class WalletAmountRequest(BaseModel):
 async def wallet_deposit(payload: WalletAmountRequest, request: Request):
     """Pull funds from the linked CariPay account into the user's IslandHop wallet."""
     current_user = await get_current_user_from_request(request)
+    payload.amount = _round_money(payload.amount)
     if payload.amount <= 0 or payload.amount > 10000:
         raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
     currency = (payload.currency or "USD").upper()
@@ -4327,6 +4412,7 @@ class WalletSendRequest(BaseModel):
 async def wallet_p2p_send(payload: WalletSendRequest, request: Request):
     """Send funds wallet → wallet between two IslandHop users."""
     current_user = await get_current_user_from_request(request)
+    payload.amount = _round_money(payload.amount)
     if payload.amount <= 0 or payload.amount > 10000:
         raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
     currency = (payload.currency or "USD").upper()
@@ -4363,6 +4449,171 @@ async def wallet_p2p_send(payload: WalletSendRequest, request: Request):
 
 class PayOrderWithWalletRequest(BaseModel):
     order_id: str
+
+
+# --- Request money (Venmo/Cash-App style) ---
+class MoneyRequest(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    requester_user_id: str
+    requester_email: str
+    payer_user_id: str
+    payer_email: str
+    amount: float
+    currency: str = "USD"
+    note: Optional[str] = None
+    status: str = "pending"  # pending | approved | declined | cancelled
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: Optional[datetime] = None
+    p2p_transaction_id: Optional[str] = None
+
+
+class CreateMoneyRequest(BaseModel):
+    payer_email: str
+    amount: float
+    currency: str = "USD"
+    note: Optional[str] = None
+
+
+@api_router.post("/wallet/requests")
+async def create_money_request(payload: CreateMoneyRequest, request: Request):
+    """Ask another IslandHop user for money. They see it in their /wallet page."""
+    current_user = await get_current_user_from_request(request)
+    amount = _round_money(payload.amount)
+    if amount <= 0 or amount > 10000:
+        raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
+    currency = (payload.currency or "USD").upper()
+    if currency not in SUPPORTED_WALLET_CURRENCIES:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+
+    payer = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(payload.payer_email.strip())}$", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not payer:
+        raise HTTPException(status_code=404, detail="Recipient of request not found on IslandHop")
+    if payer["id"] == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot request from yourself")
+
+    req = MoneyRequest(
+        requester_user_id=current_user.id,
+        requester_email=current_user.email,
+        payer_user_id=payer["id"],
+        payer_email=payer["email"],
+        amount=amount,
+        currency=currency,
+        note=payload.note,
+    )
+    await db.money_requests.insert_one(prepare_for_mongo(req.dict()))
+    return req.dict()
+
+
+@api_router.get("/wallet/requests")
+async def list_money_requests(request: Request):
+    """List both incoming (someone asked me for money) and outgoing (I asked someone)."""
+    current_user = await get_current_user_from_request(request)
+    incoming = await db.money_requests.find(
+        {"payer_user_id": current_user.id}, {"_id": 0},
+    ).sort("created_at", -1).limit(100).to_list(length=100)
+    outgoing = await db.money_requests.find(
+        {"requester_user_id": current_user.id}, {"_id": 0},
+    ).sort("created_at", -1).limit(100).to_list(length=100)
+    return {"incoming": incoming, "outgoing": outgoing}
+
+
+@api_router.post("/wallet/requests/{request_id}/approve")
+async def approve_money_request(request_id: str, request: Request):
+    """Approve an incoming request — executes the P2P transfer."""
+    current_user = await get_current_user_from_request(request)
+    req = await db.money_requests.find_one({"id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["payer_user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not the payer of this request")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {req['status']}")
+
+    amount = _round_money(req["amount"])
+    currency = req["currency"]
+
+    sender_wallet = await _get_or_create_wallet(current_user.id)
+    if float(sender_wallet.get("balances", {}).get(currency, 0)) < amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+
+    # Lock the request first to prevent double-approval (race)
+    lock = await db.money_requests.update_one(
+        {"id": request_id, "status": "pending"},
+        {"$set": {"status": "approved", "resolved_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if lock.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Request already resolved")
+
+    try:
+        await _debit_wallet(current_user.id, amount, currency)
+    except HTTPException:
+        # Revert lock if the debit failed
+        await db.money_requests.update_one(
+            {"id": request_id},
+            {"$set": {"status": "pending"}, "$unset": {"resolved_at": ""}},
+        )
+        raise
+
+    await _get_or_create_wallet(req["requester_user_id"])
+    await _credit_wallet(req["requester_user_id"], amount, currency)
+
+    sender_txn = await _record_txn(
+        user_id=current_user.id, wallet_id=sender_wallet["id"], type="p2p_send",
+        amount=amount, currency=currency, status="completed",
+        counterparty_user_id=req["requester_user_id"],
+        note=f"Paid request: {req.get('note') or ''}".strip(),
+    )
+    req_wallet = await db.wallets.find_one({"user_id": req["requester_user_id"]}, {"_id": 0})
+    await _record_txn(
+        user_id=req["requester_user_id"], wallet_id=req_wallet["id"], type="p2p_receive",
+        amount=amount, currency=currency, status="completed",
+        counterparty_user_id=current_user.id,
+        note=f"Request paid: {req.get('note') or ''}".strip(),
+    )
+    await db.money_requests.update_one(
+        {"id": request_id},
+        {"$set": {"p2p_transaction_id": sender_txn.id}},
+    )
+    return {"success": True, "request_id": request_id, "amount": amount, "currency": currency}
+
+
+@api_router.post("/wallet/requests/{request_id}/decline")
+async def decline_money_request(request_id: str, request: Request):
+    """Decline an incoming request — no funds move."""
+    current_user = await get_current_user_from_request(request)
+    req = await db.money_requests.find_one({"id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["payer_user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not the payer of this request")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {req['status']}")
+    await db.money_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"success": True, "request_id": request_id, "status": "declined"}
+
+
+@api_router.delete("/wallet/requests/{request_id}")
+async def cancel_money_request(request_id: str, request: Request):
+    """Requester cancels their own outgoing request."""
+    current_user = await get_current_user_from_request(request)
+    req = await db.money_requests.find_one({"id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["requester_user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="You did not create this request")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {req['status']}")
+    await db.money_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": "cancelled", "resolved_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"success": True, "request_id": request_id, "status": "cancelled"}
 
 
 @api_router.post("/wallet/pay-order")

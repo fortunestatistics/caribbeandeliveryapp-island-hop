@@ -1,0 +1,60 @@
+{
+  "summary": "Validated iteration-5 wallet features: Request Money endpoints, refund-to-wallet path, server-side amount rounding, and driver-delivery credit code path. NEW /app/backend/tests/test_wallet_requests_refunds.py = 32/32 PASS. Regression suite (test_islandhop_backend.py + test_payments.py + test_wallet.py) = 84/84 PASS, baseline preserved. TOTAL backend: 116/116 (100%). Coverage: (a) Request Money: 26 cases covering 401 unauth, 400 amount-range/unsupported-currency/self-request/double-resolve, 404 unknown-payer/unknown-id, 403 non-payer-approve/decline + non-requester-cancel + requester-approve, 400 insufficient-balance with proper lock revert, happy path balance + txn (p2p_send/p2p_receive) verification, status transitions visible in /wallet/requests list. (b) Refund-to-wallet: full refund (status='refunded', wallet credited, refund txn recorded), partial refund (status='partially_refunded', exact amount credited), invalid amount 400 (>order_total + negative), 403/404 for other-user refund. (c) Amount rounding: deposit(10.105) returns 10.10 (banker's rounding via round(float,2)) — verified in response, /wallet/transactions, and balance — NOT 10.105. (d) Driver delivery credit: static-inspected the guard `if driver_user_id and driver_earnings:` and presence of txn_type='payout_in'/'tip_in' (full E2E driver-row seeding deemed out-of-scope per request hint).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/wallet/requests/{id}/approve",
+        "issue": "Lock-revert path on insufficient-balance is correct but uses {$unset: {resolved_at: ''}} *after* setting resolved_at in the lock; if _debit_wallet throws a 400, both `status='pending'` and `resolved_at unset` happen — verified. However if _credit_wallet (next step after debit) failed transiently, money would be debited from payer without crediting requester (no compensating action). Same NON-atomic concern flagged in iter-4 for /wallet/send. LOW priority for MVP."
+      },
+      {
+        "endpoint": "POST /api/wallet/requests",
+        "issue": "Note string is stored verbatim; no length cap. Recommend max_length on the Pydantic model (Field(max_length=200)) to prevent abuse."
+      },
+      {
+        "endpoint": "POST /api/wallet/requests",
+        "issue": "Currency on the request is recorded but the approve handler only checks payer's balance in that currency. If requester's wallet for that currency hasn't been auto-created, _get_or_create_wallet is called — fine. But there's no constraint that requester has any history in that currency, which is intentional but worth noting."
+      },
+      {
+        "endpoint": "PUT /api/orders/{id}/status (delivered)",
+        "issue": "Could not E2E-test driver-wallet credit because the `delivered` transition requires caller to be the assigned driver (driver row with matching user_id), and there's no admin/seed endpoint to wire that up. Negative path (no driver row) is guarded correctly by static inspection."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_wallet_requests_refunds.py",
+    "/app/test_reports/pytest/pytest_wallet_iter5.xml",
+    "/app/test_reports/pytest/pytest_regression_iter5.xml"
+  ],
+  "action_items": [
+    "(LOW) Consider transaction-wrapping the approve flow (debit + credit + record_txn) so a mid-flow failure can compensate. Today the lock-revert covers debit failures but not credit/record failures.",
+    "(LOW) Add Field(max_length=200) on CreateMoneyRequest.note to prevent abusive payloads.",
+    "(LOW) Consider auto-checking currency consistency: if request currency differs from sender's available currencies, current behaviour is 400-insufficient-balance which is correct but message could be clearer.",
+    "(INFO) For full coverage of the driver-delivery wallet-credit happy path, an admin endpoint to seed `db.drivers` rows + assign driver_id to an order would unblock E2E tests."
+  ],
+  "critical_code_review_comments": [
+    "Money request approve handler correctly locks via {$set: status:'approved'} with {status:'pending'} guard — race-safe at the Mongo layer. Second concurrent approve correctly returns 400 'Request already resolved'.",
+    "Refund-to-wallet branch (server.py:4034-4065) cleanly bypasses Stripe when payment_method=='wallet' and records refund with method='wallet', stripe_refund_id=null. Matches spec exactly.",
+    "_round_money uses round(float, 2) which is banker's rounding due to IEEE-754 — 10.105 → 10.10 not 10.11. This is consistent and deterministic; document the rounding mode for accounting reconciliation.",
+    "Driver delivery credit (server.py:2136-2153) properly guards with `if driver_user_id and driver_earnings:` so a missing drivers row silently skips, AND tip vs delivery split is correct (tip_part = order.tip, delivery_part = driver_earnings - tip_part, max 0).",
+    "MoneyRequest schema is well-defined — UUID id, both user_id+email captured (denormalised but useful for display), resolved_at + p2p_transaction_id for audit. Good design.",
+    "Email lookup in create_money_request uses case-insensitive regex (server.py:4489) — better than /wallet/send which still uses exact lowercase match. Recommend porting the regex pattern to /wallet/send for consistency.",
+    "server.py is now ~5300 lines; wallet section still belongs in routers/wallet.py. Re-flagged from iter-4.",
+    "Refund branch credits wallet BEFORE updating order.payment_status — if the order update fails the customer is double-credited. Should reorder (update orders first, then credit) — same compare-and-set pattern as pay-order from iter-4.",
+    "DELETE /wallet/requests/{id} returns 200 with body for a cancel — FastAPI convention is 204; current behaviour is fine but inconsistent with REST norms."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_wallet_requests_refunds.py (NEW — 32 test cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (116/116: 32 new + 84 regression)",
+    "frontend": "skipped per request"
+  },
+  "test_credentials": "Fresh users registered per run via /api/auth/register with unique lowercase emails (reqA_<ts>_<hex>@test.com etc.) / Test1234!. JWT Bearer auth.",
+  "seed_data_creation": "Per run: 3 base users (reqA=requester, reqB=payer pre-funded with $100, reqC=stranger) + 1 broke user for insufficient-balance approve test + 1 refund_user pre-funded with $500 + 1 'other' user for 403 refund check + 1 rounding-test user. ~10 disposable wallets total, all isolated by unique emails. No persistent fixtures; DB grows monotonically.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Four pytest suites cover the backend now: test_islandhop_backend.py (27 core), test_payments.py (21 Stripe/Connect), test_wallet.py (36 wallet+CariPay), test_wallet_requests_refunds.py (32 requests+refunds+rounding). Total 116 cases @ 100%. All read REACT_APP_BACKEND_URL from env. CariPay fully mocked (MOCK_CARIPAY=true). The driver-delivery credit happy path is the only flow NOT E2E-tested — requires an admin seed for db.drivers + order.driver_id assignment. If the main agent adds that, a new test class TestDriverDeliveryCreditE2E can verify the 'payout_in' + 'tip_in' txns appear in the driver's /api/wallet/transactions. Main known minor issue from iter-4 (refund credits wallet before updating order, possible double-credit on race) is still present — re-flagged here.",
+  "rca of the issue": "No active bugs. All endpoints behave per spec. Test-script note: TestAmountRounding test relies on banker's rounding (round(10.105,2)==10.10 in CPython) — if rounding mode is ever changed to ROUND_HALF_UP via Decimal, change assertion to accept 10.11 (already in the `in (10.10, 10.11)` tolerance set)."
+}

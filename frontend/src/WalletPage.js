@@ -6,7 +6,7 @@ import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
 import {
   Wallet as WalletIcon, ArrowDownToLine, ArrowUpFromLine, Send, Link2, Link2Off,
-  Loader2, AlertCircle, CheckCircle2, History, X,
+  Loader2, AlertCircle, CheckCircle2, History, X, HandCoins, Check, Ban,
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -56,10 +56,11 @@ const Modal = ({ open, onClose, title, children }) => {
 const WalletPage = () => {
   const [wallet, setWallet] = useState(null);
   const [txns, setTxns] = useState([]);
+  const [requests, setRequests] = useState({ incoming: [], outgoing: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [activeModal, setActiveModal] = useState(null); // 'deposit' | 'withdraw' | 'send' | 'link'
+  const [activeModal, setActiveModal] = useState(null); // 'deposit' | 'withdraw' | 'send' | 'link' | 'request'
   const [busy, setBusy] = useState(false);
 
   // Form state
@@ -72,12 +73,14 @@ const WalletPage = () => {
 
   const refresh = useCallback(async () => {
     try {
-      const [w, t] = await Promise.all([
+      const [w, t, r] = await Promise.all([
         axios.get(`${API}/wallet`, { headers: authHeaders() }),
         axios.get(`${API}/wallet/transactions`, { headers: authHeaders() }),
+        axios.get(`${API}/wallet/requests`, { headers: authHeaders() }),
       ]);
       setWallet(w.data);
       setTxns(t.data);
+      setRequests(r.data);
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to load wallet');
     } finally {
@@ -133,6 +136,38 @@ const WalletPage = () => {
       await refresh();
     } catch (e) {
       setError(e?.response?.data?.detail || `Failed to ${path}`);
+    } finally { setBusy(false); }
+  };
+
+  const submitRequest = async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
+    if (!recipientEmail.trim()) { setError('Enter the payer\'s email'); return; }
+    setBusy(true); setError('');
+    try {
+      await axios.post(`${API}/wallet/requests`,
+        { payer_email: recipientEmail.trim(), amount: amt, currency, note: note || null },
+        { headers: authHeaders() });
+      flash('Request sent!');
+      closeModal();
+      await refresh();
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to send request');
+    } finally { setBusy(false); }
+  };
+
+  const resolveRequest = async (id, action) => {
+    setBusy(true); setError('');
+    try {
+      if (action === 'cancel') {
+        await axios.delete(`${API}/wallet/requests/${id}`, { headers: authHeaders() });
+      } else {
+        await axios.post(`${API}/wallet/requests/${id}/${action}`, {}, { headers: authHeaders() });
+      }
+      flash(action === 'approve' ? 'Request paid' : action === 'decline' ? 'Request declined' : 'Request cancelled');
+      await refresh();
+    } catch (e) {
+      setError(e?.response?.data?.detail || `Failed to ${action}`);
     } finally { setBusy(false); }
   };
 
@@ -222,7 +257,7 @@ const WalletPage = () => {
         </Card>
 
         {/* Quick actions */}
-        <div className="grid sm:grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           <Button
             variant="outline"
             disabled={!linked}
@@ -255,7 +290,75 @@ const WalletPage = () => {
             <span className="text-sm font-semibold">Send</span>
             <span className="text-xs text-gray-500">To IslandHop user</span>
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => setActiveModal('request')}
+            className="h-auto py-4 flex-col gap-2"
+            data-testid="wallet-request-btn"
+          >
+            <HandCoins className="h-6 w-6 text-violet-600" />
+            <span className="text-sm font-semibold">Request</span>
+            <span className="text-xs text-gray-500">Ask for money</span>
+          </Button>
         </div>
+
+        {/* Pending money requests */}
+        {(requests.incoming.length > 0 || requests.outgoing.length > 0) && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <HandCoins className="h-5 w-5 text-violet-600" /> Money requests
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {requests.incoming.filter((r) => r.status === 'pending').length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Incoming · they want money from you</p>
+                  <div className="divide-y" data-testid="wallet-incoming-requests">
+                    {requests.incoming.filter((r) => r.status === 'pending').map((r) => (
+                      <div key={r.id} className="py-3 flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{r.requester_email}</p>
+                          <p className="text-xs text-gray-500 truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">${formatAmt(r.amount)} {r.currency}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => resolveRequest(r.id, 'approve')} disabled={busy} className="bg-green-600 hover:bg-green-700 text-white" data-testid={`approve-${r.id}`}>
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => resolveRequest(r.id, 'decline')} disabled={busy} data-testid={`decline-${r.id}`}>
+                            <Ban className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {requests.outgoing.filter((r) => r.status === 'pending').length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Outgoing · you asked for money</p>
+                  <div className="divide-y" data-testid="wallet-outgoing-requests">
+                    {requests.outgoing.filter((r) => r.status === 'pending').map((r) => (
+                      <div key={r.id} className="py-3 flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">To: {r.payer_email}</p>
+                          <p className="text-xs text-gray-500 truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <p className="font-semibold text-right">${formatAmt(r.amount)} {r.currency}</p>
+                        <Button size="sm" variant="outline" onClick={() => resolveRequest(r.id, 'cancel')} disabled={busy} data-testid={`cancel-${r.id}`}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* History */}
         <Card>
@@ -376,6 +479,36 @@ const WalletPage = () => {
           {error && <p className="text-xs text-red-600">{error}</p>}
           <Button onClick={() => submitTransfer('send')} disabled={busy} className="w-full bg-teal-600 hover:bg-teal-700 text-white" data-testid="send-submit-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send money'}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Request modal */}
+      <Modal open={activeModal === 'request'} onClose={closeModal} title="Request money from another user">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Payer email</label>
+            <Input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="friend@example.com" data-testid="request-payer-input" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Amount</label>
+              <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" data-testid="request-amount-input" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Currency</label>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
+                <option value="USD">USD</option><option value="JMD">JMD</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Note (optional)</label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Split the dinner bill" />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <Button onClick={submitRequest} disabled={busy} className="w-full bg-violet-600 hover:bg-violet-700 text-white" data-testid="request-submit-btn">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send request'}
           </Button>
         </div>
       </Modal>

@@ -400,18 +400,30 @@ export const CheckoutPage = () => {
             </Button>
 
             {!isPaid && walletBalance !== null && (
-              <Button
-                onClick={handlePayWithWallet}
-                disabled={creating || tipSaving || walletBalance < (order.total || 0)}
-                variant="outline"
-                className="w-full border-teal-300 text-teal-700 hover:bg-teal-50"
-                data-testid="checkout-pay-wallet-btn"
-              >
-                <Wallet className="h-4 w-4 mr-2" />
-                {walletBalance < (order.total || 0)
-                  ? `Wallet balance: $${walletBalance.toFixed(2)} (insufficient)`
-                  : `Pay with wallet (balance: $${walletBalance.toFixed(2)})`}
-              </Button>
+              <>
+                <Button
+                  onClick={handlePayWithWallet}
+                  disabled={creating || tipSaving || walletBalance < (order.total || 0)}
+                  variant="outline"
+                  className="w-full border-teal-300 text-teal-700 hover:bg-teal-50"
+                  data-testid="checkout-pay-wallet-btn"
+                >
+                  <Wallet className="h-4 w-4 mr-2" />
+                  {walletBalance < (order.total || 0)
+                    ? `Wallet balance: $${walletBalance.toFixed(2)} (insufficient)`
+                    : `Pay with wallet (balance: $${walletBalance.toFixed(2)})`}
+                </Button>
+                {walletBalance < (order.total || 0) && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/wallet')}
+                    className="w-full text-center text-xs text-teal-600 hover:text-teal-800 hover:underline"
+                    data-testid="checkout-topup-link"
+                  >
+                    Top up your wallet → goes to /wallet
+                  </button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

@@ -78,7 +78,8 @@ import {
   Apple,
   Smartphone,
   ArrowRight,
-  Search
+  Search,
+  Wallet as WalletIcon
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -344,6 +345,7 @@ const Header = () => {
   const navigationItems = [
     { to: "/restaurants", label: "Restaurants", icon: Utensils },
     { to: "/car-rentals", label: "Car Rentals", icon: Car },
+    { to: "/wallet", label: "Wallet", icon: WalletIcon },
     { to: "/analytics", label: "Analytics", icon: TrendingUp },
     { to: "/pricing", label: "Pricing", icon: DollarSign },
     { to: "/partner", label: "Become a Partner", icon: Building2 },
