@@ -174,7 +174,7 @@ const DriverOnboarding = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         {/* Header */}
         <div className="text-center mb-8">
@@ -191,7 +191,7 @@ const DriverOnboarding = () => {
                 className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                  index <= currentStep - 1 ? 'bg-gold-500/15 text-white' : 'bg-gray-300 text-muted-foreground'
+                  index <= currentStep - 1 ? 'bg-gold-gradient text-matte-900 shadow-gold-glow font-bold' : 'bg-matte-800 text-muted-foreground border border-border'
                 }`}>
                   {index + 1}
                 </div>
@@ -199,7 +199,7 @@ const DriverOnboarding = () => {
               </div>
             ))}
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-matte-800 border border-border rounded-full h-2">
             <div 
               className="bg-gold-gradient h-2 rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / 5) * 100}%` }}
@@ -207,7 +207,7 @@ const DriverOnboarding = () => {
           </div>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+        <Card className="bg-matte-800 border border-border shadow-2xl">
           <CardContent className="p-8">
             {/* Step 1: Personal Information */}
             {currentStep === 1 && (

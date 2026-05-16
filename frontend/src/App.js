@@ -815,7 +815,7 @@ const PartnerSelection = () => {
       name: 'Restaurant',
       description: 'Join our food delivery network and reach more customers',
       icon: Utensils,
-      color: 'from-red-500 to-orange-500',
+      color: 'from-gold-300 to-gold-700',
       benefits: ['Increased visibility', 'Order management system', 'Real-time analytics'],
       commission: '15%',
       route: '/restaurant-onboarding'
@@ -835,7 +835,7 @@ const PartnerSelection = () => {
       name: 'Grocery Store',
       description: 'Expand your grocery business with delivery services',
       icon: ShoppingCart,
-      color: 'from-green-500 to-emerald-500',
+      color: 'from-gold-500 to-gold-700',
       benefits: ['Bulk order handling', 'Inventory management', 'Fresh product delivery'],
       commission: '12%',
       route: '/partner/onboarding?type=grocery'
@@ -845,7 +845,7 @@ const PartnerSelection = () => {
       name: 'General Business',
       description: 'Any business needing reliable delivery services',
       icon: Building2,
-      color: 'from-purple-500 to-pink-500',
+      color: 'from-gold-300 to-neon-cyan',
       benefits: ['Flexible delivery options', 'Custom solutions', 'Dedicated support'],
       commission: '20%',
       route: '/partner/onboarding?type=general_business'
@@ -855,7 +855,7 @@ const PartnerSelection = () => {
       name: 'Car Rental',
       description: 'Airport and city vehicle rental services',
       icon: Car,
-      color: 'from-blue-500 to-indigo-500',
+      color: 'from-neon-cyan to-gold-300',
       benefits: ['Fleet management system', 'Airport pickup integration', 'Insurance handling', 'Multi-location support'],
       commission: '10%',
       route: '/partner/onboarding?type=car_rental'
@@ -865,7 +865,7 @@ const PartnerSelection = () => {
       name: 'Business Supplier',
       description: 'Any business needing delivery services - from groceries to retail',
       icon: Building2,
-      color: 'from-emerald-500 to-teal-500',
+      color: 'from-gold-700 to-gold-300',
       benefits: ['Multi-category support', 'Flexible delivery options', 'Inventory management', 'Customer reach expansion'],
       commission: '12-18%',
       route: '/partner/onboarding?type=business_supplier'
@@ -873,11 +873,15 @@ const PartnerSelection = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
-      <div className="container mx-auto px-4">
+    <div className="min-h-screen bg-matte-900 py-16 relative overflow-hidden">
+      {/* Ambient gold glow to match landing page */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.12),transparent_60%)] pointer-events-none"></div>
+      <div className="absolute -top-20 -right-20 h-80 w-80 rounded-full bg-gold-500/10 blur-3xl pointer-events-none"></div>
+
+      <div className="relative container mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="text-4xl lg:text-5xl font-bold text-foreground mb-6">
-            Become a Partner
+          <h1 className="font-heading text-4xl lg:text-5xl font-bold text-white mb-6">
+            Become a <span className="text-gold-gradient">Partner</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
             Join IslandHop's growing network of Caribbean businesses and reach more customers than ever before
@@ -888,18 +892,18 @@ const PartnerSelection = () => {
           {partnerTypes.map((partner, index) => (
             <Card 
               key={index} 
-              className="group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border-0 bg-white/80 backdrop-blur-sm overflow-hidden"
+              className="group bg-matte-800 border border-border hover:border-gold-500/40 hover:shadow-card-hover hover:-translate-y-1 transition-all duration-300 overflow-hidden"
               data-testid={`partner-type-${partner.type}`}
             >
-              <div className={`h-2 bg-gradient-to-r ${partner.color}`}></div>
+              <div className={`h-1 bg-gradient-to-r ${partner.color}`}></div>
               <CardContent className="p-8">
                 <div className="flex items-center mb-6">
-                  <div className={`w-16 h-16 bg-gradient-to-r ${partner.color} rounded-2xl flex items-center justify-center mr-4`}>
-                    <partner.icon className="h-8 w-8 text-white" />
+                  <div className={`w-16 h-16 bg-gradient-to-r ${partner.color} rounded-2xl flex items-center justify-center mr-4 shadow-gold-glow`}>
+                    <partner.icon className="h-8 w-8 text-matte-900" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold text-foreground">{partner.name}</h3>
-                    <Badge variant="secondary" className="mt-1">{partner.commission} commission</Badge>
+                    <h3 className="font-heading text-2xl font-bold text-white">{partner.name}</h3>
+                    <Badge className="mt-1 bg-gold-500/15 text-gold-300 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
                   </div>
                 </div>
 
@@ -908,11 +912,11 @@ const PartnerSelection = () => {
                 </p>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold text-foreground mb-3">Key Benefits:</h4>
+                  <h4 className="font-semibold text-white mb-3">Key Benefits:</h4>
                   <ul className="space-y-2">
                     {partner.benefits.map((benefit, idx) => (
                       <li key={idx} className="flex items-center text-sm text-muted-foreground">
-                        <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0" />
+                        <CheckCircle className="h-4 w-4 text-gold-300 mr-2 flex-shrink-0" />
                         {benefit}
                       </li>
                     ))}
@@ -920,7 +924,7 @@ const PartnerSelection = () => {
                 </div>
 
                 <Button 
-                  className={`w-full bg-gradient-to-r ${partner.color} text-white`}
+                  className="w-full"
                   onClick={() => navigate(partner.route)}
                   data-testid={`apply-${partner.type}-btn`}
                 >
@@ -932,21 +936,21 @@ const PartnerSelection = () => {
         </div>
 
         <div className="mt-16 text-center">
-          <Card className="max-w-4xl mx-auto bg-gold-gradient border-0 text-white">
+          <Card className="max-w-4xl mx-auto bg-matte-800 border border-gold-500/30 shadow-gold-glow">
             <CardContent className="p-8">
-              <h3 className="text-2xl font-bold mb-4">Why Partner with IslandHop?</h3>
+              <h3 className="font-heading text-2xl font-bold mb-6 text-white">Why Partner with <span className="text-gold-gradient">IslandHop?</span></h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
-                  <div className="text-3xl font-bold mb-2">10K+</div>
-                  <div className="text-sm opacity-90">Active Customers</div>
+                  <div className="text-3xl font-bold mb-2 text-gold-gradient">10K+</div>
+                  <div className="text-sm text-muted-foreground">Active Customers</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold mb-2">500+</div>
-                  <div className="text-sm opacity-90">Partner Businesses</div>
+                  <div className="text-3xl font-bold mb-2 text-gold-gradient">500+</div>
+                  <div className="text-sm text-muted-foreground">Partner Businesses</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold mb-2">98%</div>
-                  <div className="text-sm opacity-90">On-time Delivery</div>
+                  <div className="text-3xl font-bold mb-2 text-gold-gradient">98%</div>
+                  <div className="text-sm text-muted-foreground">On-time Delivery</div>
                 </div>
               </div>
             </CardContent>
@@ -1278,7 +1282,7 @@ const BusinessOnboarding = () => {
   */
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">Business Onboarding</h1>
@@ -1294,7 +1298,7 @@ const BusinessOnboarding = () => {
                 className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                  index <= currentStep - 1 ? 'bg-gold-500/15 text-white' : 'bg-gray-300 text-muted-foreground'
+                  index <= currentStep - 1 ? 'bg-gold-gradient text-matte-900 shadow-gold-glow font-bold' : 'bg-matte-800 text-muted-foreground border border-border'
                 }`}>
                   {index + 1}
                 </div>
@@ -1302,7 +1306,7 @@ const BusinessOnboarding = () => {
               </div>
             ))}
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-matte-800 border border-border rounded-full h-2">
             <div 
               className="bg-gold-gradient h-2 rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / 6) * 100}%` }}
@@ -1310,7 +1314,7 @@ const BusinessOnboarding = () => {
           </div>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+        <Card className="bg-matte-800 border border-border shadow-2xl">
           <CardContent className="p-8">
             {/* Step 1: Business Owner Information */}
             {currentStep === 1 && (
@@ -1791,7 +1795,7 @@ const BusinessOnboarding = () => {
                 </div>
 
                 {/* Document Upload Section */}
-                <Card className="bg-background">
+                <Card className="bg-matte-800 border border-border">
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <Package className="h-5 w-5 mr-2 text-gold-500" />
@@ -1960,7 +1964,7 @@ const BusinessOnboarding = () => {
                       </div>
                     </div>
 
-                    <div className="mt-6 p-4 bg-card rounded-lg border">
+                    <div className="mt-6 p-4 bg-matte-800 border border-gold-500/20 rounded-lg">
                       <div className="flex items-start space-x-3">
                         <Shield className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
                         <div>
@@ -2234,14 +2238,14 @@ const AISupport = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">AI Customer Support</h1>
           <p className="text-muted-foreground">Get instant help with your IslandHop questions</p>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl h-96">
+        <Card className="bg-matte-800 border border-border shadow-2xl h-96">
           <CardContent className="p-6 flex flex-col h-full">
             {/* Chat Messages */}
             <div className="flex-1 overflow-y-auto space-y-4 mb-4" data-testid="chat-messages">
@@ -2369,7 +2373,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Welcome back, {user.name}!</h1>
@@ -2501,7 +2505,7 @@ const RestaurantsPage = () => {
   const { toast } = useToast();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4">
         <div className="text-center mb-12">
           <h1 className="text-4xl lg:text-5xl font-bold text-foreground mb-6">
@@ -2632,7 +2636,7 @@ const DriverRegistration = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4 max-w-2xl">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">
@@ -2643,7 +2647,7 @@ const DriverRegistration = () => {
           </p>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+        <Card className="bg-matte-800 border border-border shadow-2xl">
           <CardContent className="p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2839,7 +2843,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-gradient-to-br bg-background">
+        <div className="min-h-screen bg-matte-900">
           <Header />
           <AuthHandler />
           
