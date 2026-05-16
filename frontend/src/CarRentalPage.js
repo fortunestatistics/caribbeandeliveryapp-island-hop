@@ -170,7 +170,7 @@ const CarRentalPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+      <div className="min-h-screen bg-matte-900 py-12">
         <div className="container mx-auto px-4">
           <div className="text-center">
             <h1 className="text-3xl font-bold text-foreground mb-8">Loading Car Rentals...</h1>
@@ -181,7 +181,7 @@ const CarRentalPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
+    <div className="min-h-screen bg-matte-900 py-12">
       <div className="container mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">
@@ -190,7 +190,7 @@ const CarRentalPage = () => {
         </div>
 
         {/* Booking Form */}
-        <Card className="mb-12 bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+        <Card className="mb-12 bg-matte-800 border border-border shadow-2xl">
           <CardHeader>
             <CardTitle className="flex items-center">
               <Calendar className="h-5 w-5 mr-2 text-gold-500" />
@@ -263,7 +263,7 @@ const CarRentalPage = () => {
               {rentalCompanies.map((company) => (
                 <Card 
                   key={company.id}
-                  className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border-0 bg-white/80 backdrop-blur-sm cursor-pointer"
+                  className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-matte-800 border border-border cursor-pointer"
                   onClick={() => {
                     setSelectedCompany(company);
                     fetchAvailableVehicles(company.id);
@@ -329,7 +329,7 @@ const CarRentalPage = () => {
                 {availableVehicles.map((vehicle) => (
                   <Card 
                     key={vehicle.id}
-                    className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border-0 bg-white/80 backdrop-blur-sm"
+                    className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-matte-800 border border-border"
                   >
                     <CardContent className="p-6">
                       <div className="text-center mb-4">
@@ -469,20 +469,20 @@ const CarRentalPage = () => {
                                 </Label>
                               </div>
 
-                              <div className="border-t pt-4">
-                                <div className="flex justify-between text-sm mb-2">
+                              <div className="border-t border-border pt-4">
+                                <div className="flex justify-between text-sm mb-2 text-muted-foreground">
                                   <span>Daily Rate:</span>
-                                  <span>${selectedVehicle?.daily_rate || 0}</span>
+                                  <span className="text-foreground">${selectedVehicle?.daily_rate || 0}</span>
                                 </div>
                                 {bookingForm.insuranceSelected && (
-                                  <div className="flex justify-between text-sm mb-2">
+                                  <div className="flex justify-between text-sm mb-2 text-muted-foreground">
                                     <span>Insurance:</span>
-                                    <span>$15/day</span>
+                                    <span className="text-foreground">$15/day</span>
                                   </div>
                                 )}
-                                <div className="flex justify-between font-bold">
-                                  <span>Total:</span>
-                                  <span>
+                                <div className="flex justify-between items-center pt-3 mt-2 border-t border-gold-500/30">
+                                  <span className="font-semibold text-white">Total</span>
+                                  <span className="text-2xl font-bold text-gold-gradient">
                                     ${((selectedVehicle?.daily_rate || 0) + (bookingForm.insuranceSelected ? 15 : 0)) *
                                       Math.max(1, bookingForm.pickupDate && bookingForm.dropoffDate ? 
                                         Math.ceil((new Date(bookingForm.dropoffDate) - new Date(bookingForm.pickupDate)) / (1000 * 60 * 60 * 24)) : 1

@@ -366,24 +366,27 @@ const GroceryOrderForm = () => {
                       <Separator className="my-4" />
 
                       {/* Total */}
-                      <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Subtotal</span>
-                          <span>${calculateSubtotal().toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Delivery Fee</span>
-                          <span>${getDeliveryFee().toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-lg font-bold text-foreground pt-2 border-t">
-                          <span>Total</span>
-                          <span className="text-green-600">${calculateTotal().toFixed(2)}</span>
+                      <div className="bg-matte-800 border border-gold-500/30 p-5 rounded-lg shadow-gold-glow mb-4">
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Subtotal</span>
+                            <span className="text-foreground">${calculateSubtotal().toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Delivery Fee</span>
+                            <span className="text-foreground">${getDeliveryFee().toFixed(2)}</span>
+                          </div>
+                          <Separator className="bg-gold-500/30" />
+                          <div className="flex justify-between items-center pt-1">
+                            <span className="text-lg font-semibold text-white">Total</span>
+                            <span className="text-3xl font-bold text-gold-gradient">${calculateTotal().toFixed(2)}</span>
+                          </div>
                         </div>
                       </div>
 
                       <Button
                         type="submit"
-                        className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white"
+                        className="w-full"
                       >
                         Checkout
                       </Button>

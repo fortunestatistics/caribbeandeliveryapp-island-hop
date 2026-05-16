@@ -410,20 +410,20 @@ const CourierOrderForm = () => {
               <Separator />
 
               {/* Fare Estimate */}
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg">
+              <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
+                    <h3 className="text-lg font-semibold text-white">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
-                  <div className="text-3xl font-bold text-purple-600">${calculateFare()}</div>
+                  <div className="text-4xl font-bold text-gold-gradient">${calculateFare()}</div>
                 </div>
               </div>
 
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-lg py-6"
+                className="w-full text-lg py-6"
               >
                 Continue to Checkout
               </Button>

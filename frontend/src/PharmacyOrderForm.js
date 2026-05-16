@@ -396,20 +396,20 @@ const PharmacyOrderForm = () => {
               <Separator />
 
               {/* Total */}
-              <div className="bg-gradient-to-r from-blue-50 to-cyan-50 p-6 rounded-lg">
+              <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
                 <div className="space-y-2">
-                  <div className="flex justify-between text-foreground/90">
+                  <div className="flex justify-between text-muted-foreground">
                     <span>Subtotal:</span>
-                    <span>${calculateSubtotal().toFixed(2)}</span>
+                    <span className="text-foreground">${calculateSubtotal().toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-foreground/90">
+                  <div className="flex justify-between text-muted-foreground">
                     <span>Delivery Fee:</span>
-                    <span>${calculateDeliveryFee().toFixed(2)}</span>
+                    <span className="text-foreground">${calculateDeliveryFee().toFixed(2)}</span>
                   </div>
-                  <Separator />
-                  <div className="flex justify-between text-xl font-bold text-foreground">
-                    <span>Total:</span>
-                    <span className="text-neon-cyan">${calculateTotal().toFixed(2)}</span>
+                  <Separator className="bg-gold-500/30" />
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-lg font-semibold text-white">Total</span>
+                    <span className="text-3xl font-bold text-gold-gradient">${calculateTotal().toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -417,7 +417,7 @@ const PharmacyOrderForm = () => {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-neon-cyan to-gold-500 text-white text-lg py-6"
+                className="w-full text-lg py-6"
                 disabled={orderType === 'otc' && orderData.items.length === 0}
               >
                 Continue to Checkout
