@@ -4038,18 +4038,22 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
             raise HTTPException(status_code=400, detail="Invalid refund amount")
         is_full = abs(refund_amount - order_total) < 0.01
         new_status = "refunded" if is_full else "partially_refunded"
-        await _credit_wallet_with_txn(
-            order["customer_id"], refund_amount, "USD",
-            txn_type="refund", order_id=order_id, note="Wallet refund",
-        )
-        await db.orders.update_one(
-            {"id": order_id},
+        # Acquire the order-level lock FIRST (compare-and-set on payment_status)
+        # so we never double-credit a wallet under concurrent refund calls.
+        lock = await db.orders.update_one(
+            {"id": order_id, "payment_status": "paid"},
             {"$set": {
                 "payment_status": new_status,
                 "refunded_amount": float(order.get("refunded_amount", 0)) + refund_amount,
                 "refunded_at": datetime.now(timezone.utc).isoformat(),
                 "vendor_payout_status": "reversed",
             }},
+        )
+        if lock.matched_count == 0:
+            raise HTTPException(status_code=400, detail="Order already refunded or not in a refundable state")
+        await _credit_wallet_with_txn(
+            order["customer_id"], refund_amount, "USD",
+            txn_type="refund", order_id=order_id, note="Wallet refund",
         )
         await db.refunds.insert_one({
             "id": str(uuid.uuid4()),
@@ -4425,6 +4429,8 @@ async def wallet_p2p_send(payload: WalletSendRequest, request: Request):
     )
     if not recipient:
         raise HTTPException(status_code=404, detail="Recipient not found on IslandHop")
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found on IslandHop")
     if recipient["id"] == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send to yourself")
 
@@ -4471,7 +4477,7 @@ class CreateMoneyRequest(BaseModel):
     payer_email: str
     amount: float
     currency: str = "USD"
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=200)
 
 
 @api_router.post("/wallet/requests")
