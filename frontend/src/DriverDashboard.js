@@ -227,20 +227,20 @@ const DriverDashboard = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Driver Dashboard</h1>
-              <p className="text-gray-600">Manage your deliveries and earnings</p>
+              <h1 className="text-3xl font-bold text-foreground">Driver Dashboard</h1>
+              <p className="text-muted-foreground">Manage your deliveries and earnings</p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -259,9 +259,9 @@ const DriverDashboard = () => {
 
           {/* Status Alert */}
           {!isOnline && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+            <div className="bg-gold-500/10 border-l-4 border-yellow-400 p-4 mb-6">
               <div className="flex">
-                <AlertCircle className="h-5 w-5 text-yellow-400" />
+                <AlertCircle className="h-5 w-5 text-gold-300" />
                 <div className="ml-3">
                   <p className="text-sm text-yellow-700">
                     You're currently offline. Go online to start receiving order requests.
@@ -277,13 +277,13 @@ const DriverDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Today's Earnings</p>
-                    <p className="text-3xl font-bold text-turquoise-600">
+                    <p className="text-sm text-muted-foreground">Today's Earnings</p>
+                    <p className="text-3xl font-bold text-gold-500">
                       ${earnings.today.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-turquoise-100 p-3 rounded-lg">
-                    <DollarSign className="h-6 w-6 text-turquoise-600" />
+                  <div className="bg-gold-500/15 p-3 rounded-lg">
+                    <DollarSign className="h-6 w-6 text-gold-500" />
                   </div>
                 </div>
               </CardContent>
@@ -293,7 +293,7 @@ const DriverDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">This Week</p>
+                    <p className="text-sm text-muted-foreground">This Week</p>
                     <p className="text-3xl font-bold text-green-600">
                       ${earnings.week.toFixed(2)}
                     </p>
@@ -309,13 +309,13 @@ const DriverDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Wallet Balance</p>
-                    <p className="text-3xl font-bold text-blue-600">
+                    <p className="text-sm text-muted-foreground">Wallet Balance</p>
+                    <p className="text-3xl font-bold text-neon-cyan">
                       ${earnings.balance.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-blue-100 p-3 rounded-lg">
-                    <Wallet className="h-6 w-6 text-blue-600" />
+                  <div className="bg-neon-cyan/15 p-3 rounded-lg">
+                    <Wallet className="h-6 w-6 text-neon-cyan" />
                   </div>
                 </div>
               </CardContent>
@@ -325,12 +325,12 @@ const DriverDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Pending</p>
+                    <p className="text-sm text-muted-foreground">Pending</p>
                     <p className="text-3xl font-bold text-yellow-600">
                       ${earnings.pending.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-yellow-100 p-3 rounded-lg">
+                  <div className="bg-gold-500/15 p-3 rounded-lg">
                     <Clock className="h-6 w-6 text-yellow-600" />
                   </div>
                 </div>
@@ -343,14 +343,14 @@ const DriverDashboard = () => {
         {orderRequests.length > 0 && (
           <Card className="mb-6 border-l-4 border-l-turquoise-500">
             <CardHeader>
-              <CardTitle className="text-turquoise-600">
+              <CardTitle className="text-gold-500">
                 New Order Requests ({orderRequests.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {orderRequests.map((order) => (
-                  <Card key={order.id} className="bg-turquoise-50">
+                  <Card key={order.id} className="bg-gold-500/15">
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
@@ -358,11 +358,11 @@ const DriverDashboard = () => {
                             <h3 className="font-semibold text-lg">
                               New Order #{order.id?.substring(0, 8)}
                             </h3>
-                            <Badge className="bg-turquoise-500 text-white">
+                            <Badge className="bg-gold-500/15 text-white">
                               ${order.driver_earnings?.toFixed(2)} Earnings
                             </Badge>
                           </div>
-                          <div className="text-sm text-gray-600 space-y-1">
+                          <div className="text-sm text-muted-foreground space-y-1">
                             <p>
                               <MapPin className="h-4 w-4 inline mr-1" />
                               {order.estimated_distance_km?.toFixed(1)} km away
@@ -374,22 +374,22 @@ const DriverDashboard = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-turquoise-600">
+                          <p className="text-2xl font-bold text-gold-500">
                             ${order.driver_earnings?.toFixed(2)}
                           </p>
-                          <p className="text-xs text-gray-500">You'll earn</p>
+                          <p className="text-xs text-muted-foreground">You'll earn</p>
                         </div>
                       </div>
 
                       {/* Pickup & Delivery */}
-                      <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-white rounded-lg">
+                      <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-card rounded-lg">
                         <div>
                           <p className="font-medium text-sm mb-1">Pickup:</p>
-                          <p className="text-sm text-gray-600">{order.pickup_address?.street_address}</p>
+                          <p className="text-sm text-muted-foreground">{order.pickup_address?.street_address}</p>
                         </div>
                         <div>
                           <p className="font-medium text-sm mb-1">Delivery:</p>
-                          <p className="text-sm text-gray-600">{order.delivery_address?.street_address}</p>
+                          <p className="text-sm text-muted-foreground">{order.delivery_address?.street_address}</p>
                         </div>
                       </div>
 
@@ -433,8 +433,8 @@ const DriverDashboard = () => {
             {activeOrders.length === 0 ? (
               <div className="text-center py-12">
                 <Navigation className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No active deliveries</h3>
-                <p className="text-gray-600">
+                <h3 className="text-xl font-semibold text-foreground mb-2">No active deliveries</h3>
+                <p className="text-muted-foreground">
                   {isOnline ? 'Waiting for order requests...' : 'Go online to start receiving orders'}
                 </p>
               </div>
@@ -457,26 +457,26 @@ const DriverDashboard = () => {
                               {order.status?.toUpperCase()}
                             </Badge>
                           </div>
-                          <div className="text-sm text-gray-600">
+                          <div className="text-sm text-muted-foreground">
                             <p>Customer: {order.customer_phone || 'N/A'}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-turquoise-600">
+                          <p className="text-2xl font-bold text-gold-500">
                             ${order.driver_earnings?.toFixed(2)}
                           </p>
                         </div>
                       </div>
 
                       {/* Addresses */}
-                      <div className="space-y-2 mb-4 p-4 bg-gray-50 rounded-lg">
+                      <div className="space-y-2 mb-4 p-4 bg-background rounded-lg">
                         {order.status === 'ready' && (
                           <div>
                             <p className="font-medium text-sm mb-1 flex items-center gap-2">
                               <MapPin className="h-4 w-4 text-red-500" />
                               Pickup from:
                             </p>
-                            <p className="text-sm text-gray-600 ml-6">{order.pickup_address?.street_address}</p>
+                            <p className="text-sm text-muted-foreground ml-6">{order.pickup_address?.street_address}</p>
                           </div>
                         )}
                         <div>
@@ -484,7 +484,7 @@ const DriverDashboard = () => {
                             <MapPin className="h-4 w-4 text-green-500" />
                             Deliver to:
                           </p>
-                          <p className="text-sm text-gray-600 ml-6">{order.delivery_address?.street_address}</p>
+                          <p className="text-sm text-muted-foreground ml-6">{order.delivery_address?.street_address}</p>
                         </div>
                       </div>
 

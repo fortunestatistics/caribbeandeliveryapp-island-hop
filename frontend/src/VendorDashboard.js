@@ -90,16 +90,16 @@ const VendorDashboard = () => {
 
   const getStatusColor = (status) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
+      pending: 'bg-gold-500/15 text-yellow-800',
+      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-blue-100 text-blue-800',
+      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-matte-800 text-foreground';
   };
 
   const filterOrders = (status) => {
@@ -117,20 +117,20 @@ const VendorDashboard = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Vendor Dashboard</h1>
-              <p className="text-gray-600">Manage your orders and business</p>
+              <h1 className="text-3xl font-bold text-foreground">Vendor Dashboard</h1>
+              <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
               <Button onClick={() => navigate('/menu-management')} variant="outline">
@@ -150,11 +150,11 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Today's Orders</p>
-                    <p className="text-3xl font-bold text-gray-900">{stats.today_orders}</p>
+                    <p className="text-sm text-muted-foreground">Today's Orders</p>
+                    <p className="text-3xl font-bold text-foreground">{stats.today_orders}</p>
                   </div>
-                  <div className="bg-blue-100 p-3 rounded-lg">
-                    <Package className="h-6 w-6 text-blue-600" />
+                  <div className="bg-neon-cyan/15 p-3 rounded-lg">
+                    <Package className="h-6 w-6 text-neon-cyan" />
                   </div>
                 </div>
               </CardContent>
@@ -164,13 +164,13 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Today's Revenue</p>
-                    <p className="text-3xl font-bold text-turquoise-600">
+                    <p className="text-sm text-muted-foreground">Today's Revenue</p>
+                    <p className="text-3xl font-bold text-gold-500">
                       ${stats.today_revenue?.toFixed(2)}
                     </p>
                   </div>
-                  <div className="bg-turquoise-100 p-3 rounded-lg">
-                    <DollarSign className="h-6 w-6 text-turquoise-600" />
+                  <div className="bg-gold-500/15 p-3 rounded-lg">
+                    <DollarSign className="h-6 w-6 text-gold-500" />
                   </div>
                 </div>
               </CardContent>
@@ -180,10 +180,10 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Pending Orders</p>
+                    <p className="text-sm text-muted-foreground">Pending Orders</p>
                     <p className="text-3xl font-bold text-yellow-600">{stats.pending_orders}</p>
                   </div>
-                  <div className="bg-yellow-100 p-3 rounded-lg">
+                  <div className="bg-gold-500/15 p-3 rounded-lg">
                     <Clock className="h-6 w-6 text-yellow-600" />
                   </div>
                 </div>
@@ -194,7 +194,7 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Earnings</p>
+                    <p className="text-sm text-muted-foreground">Total Earnings</p>
                     <p className="text-3xl font-bold text-green-600">
                       ${stats.total_earnings?.toFixed(2)}
                     </p>
@@ -243,8 +243,8 @@ const VendorDashboard = () => {
             {filteredOrders.length === 0 ? (
               <div className="text-center py-12">
                 <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No orders</h3>
-                <p className="text-gray-600">You don't have any {selectedTab} orders</p>
+                <h3 className="text-xl font-semibold text-foreground mb-2">No orders</h3>
+                <p className="text-muted-foreground">You don't have any {selectedTab} orders</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -261,7 +261,7 @@ const VendorDashboard = () => {
                               {order.status?.toUpperCase()}
                             </Badge>
                           </div>
-                          <div className="text-sm text-gray-600 space-y-1">
+                          <div className="text-sm text-muted-foreground space-y-1">
                             <p>
                               <Clock className="h-4 w-4 inline mr-1" />
                               {new Date(order.created_at).toLocaleString()}
@@ -273,16 +273,16 @@ const VendorDashboard = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-turquoise-600">
+                          <p className="text-2xl font-bold text-gold-500">
                             ${order.vendor_payout?.toFixed(2) || order.subtotal?.toFixed(2)}
                           </p>
-                          <p className="text-xs text-gray-500">Your payout</p>
+                          <p className="text-xs text-muted-foreground">Your payout</p>
                         </div>
                       </div>
 
                       {/* Order Items */}
                       {order.items && order.items.length > 0 && (
-                        <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <div className="mb-4 p-4 bg-background rounded-lg">
                           <p className="font-medium text-sm mb-2">Items:</p>
                           {order.items.map((item, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
@@ -295,7 +295,7 @@ const VendorDashboard = () => {
 
                       {/* Delivery Info */}
                       {order.delivery_address && (
-                        <div className="mb-4 text-sm text-gray-600">
+                        <div className="mb-4 text-sm text-muted-foreground">
                           <p className="font-medium">Delivery Address:</p>
                           <p>{order.delivery_address.street_address}</p>
                           <p>{order.delivery_address.city}, {order.delivery_address.postal_code}</p>

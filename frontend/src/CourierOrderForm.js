@@ -109,7 +109,7 @@ const CourierOrderForm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-4xl">
         <Button
           variant="ghost"
@@ -125,21 +125,21 @@ const CourierOrderForm = () => {
               <Package className="h-8 w-8 mr-3 text-purple-600" />
               Courier Service
             </CardTitle>
-            <p className="text-gray-600 mt-2">Fast and secure package delivery across the islands</p>
+            <p className="text-muted-foreground mt-2">Fast and secure package delivery across the islands</p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* Sender Information */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <MapPin className="h-5 w-5 mr-2 text-turquoise-600" />
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <MapPin className="h-5 w-5 mr-2 text-gold-500" />
                   Sender Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="senderName">Sender Name</Label>
                     <div className="relative mt-1">
-                      <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <User className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="senderName"
                         placeholder="Your name"
@@ -153,7 +153,7 @@ const CourierOrderForm = () => {
                   <div>
                     <Label htmlFor="senderPhone">Sender Phone</Label>
                     <div className="relative mt-1">
-                      <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <Phone className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="senderPhone"
                         type="tel"
@@ -191,15 +191,15 @@ const CourierOrderForm = () => {
 
               {/* Recipient Information */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <MapPin className="h-5 w-5 mr-2 text-orange-600" />
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <MapPin className="h-5 w-5 mr-2 text-gold-500" />
                   Recipient Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="recipientName">Recipient Name</Label>
                     <div className="relative mt-1">
-                      <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <User className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="recipientName"
                         placeholder="Recipient name"
@@ -213,7 +213,7 @@ const CourierOrderForm = () => {
                   <div>
                     <Label htmlFor="recipientPhone">Recipient Phone</Label>
                     <div className="relative mt-1">
-                      <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <Phone className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="recipientPhone"
                         type="tel"
@@ -251,7 +251,7 @@ const CourierOrderForm = () => {
 
               {/* Package Details */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
                   <Package className="h-5 w-5 mr-2 text-purple-600" />
                   Package Details
                 </h3>
@@ -266,14 +266,14 @@ const CourierOrderForm = () => {
                         className={`cursor-pointer transition-all hover:shadow-md ${
                           orderData.packageType === type.id
                             ? 'border-2 border-purple-500 bg-purple-50'
-                            : 'border border-gray-200'
+                            : 'border border-border'
                         }`}
                         onClick={() => handleInputChange('packageType', type.id)}
                       >
                         <CardContent className="p-3 text-center">
                           <div className="text-2xl mb-1">{type.icon}</div>
-                          <div className="text-xs font-semibold text-gray-900">{type.name}</div>
-                          <div className="text-xs text-gray-600">${type.baseFare}</div>
+                          <div className="text-xs font-semibold text-foreground">{type.name}</div>
+                          <div className="text-xs text-muted-foreground">${type.baseFare}</div>
                         </CardContent>
                       </Card>
                     ))}
@@ -284,7 +284,7 @@ const CourierOrderForm = () => {
                   <div>
                     <Label htmlFor="weight">Weight (kg)</Label>
                     <div className="relative mt-1">
-                      <Scale className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <Scale className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="weight"
                         type="number"
@@ -299,7 +299,7 @@ const CourierOrderForm = () => {
                   <div>
                     <Label htmlFor="dimensions">Dimensions (cm)</Label>
                     <div className="relative mt-1">
-                      <Ruler className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <Ruler className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="dimensions"
                         placeholder="L x W x H"
@@ -312,7 +312,7 @@ const CourierOrderForm = () => {
                   <div>
                     <Label htmlFor="value">Package Value ($)</Label>
                     <div className="relative mt-1">
-                      <DollarSign className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                      <DollarSign className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                       <Input
                         id="value"
                         type="number"
@@ -335,8 +335,8 @@ const CourierOrderForm = () => {
                       onChange={(e) => handleInputChange('fragile', e.target.checked)}
                       className="w-4 h-4 text-purple-600"
                     />
-                    <label htmlFor="fragile" className="text-sm text-gray-700 flex items-center">
-                      <AlertCircle className="h-4 w-4 mr-1 text-orange-500" />
+                    <label htmlFor="fragile" className="text-sm text-foreground/90 flex items-center">
+                      <AlertCircle className="h-4 w-4 mr-1 text-gold-500" />
                       Fragile - Handle with care
                     </label>
                   </div>
@@ -348,7 +348,7 @@ const CourierOrderForm = () => {
                       onChange={(e) => handleInputChange('requiresSignature', e.target.checked)}
                       className="w-4 h-4 text-purple-600"
                     />
-                    <label htmlFor="signature" className="text-sm text-gray-700">
+                    <label htmlFor="signature" className="text-sm text-foreground/90">
                       Require signature on delivery (+$2.00)
                     </label>
                   </div>
@@ -359,8 +359,8 @@ const CourierOrderForm = () => {
 
               {/* Delivery Options */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-turquoise-600" />
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <Clock className="h-5 w-5 mr-2 text-gold-500" />
                   Delivery Options
                 </h3>
                 
@@ -370,14 +370,14 @@ const CourierOrderForm = () => {
                       key={option.id}
                       className={`cursor-pointer transition-all hover:shadow-lg ${
                         orderData.deliverySpeed === option.id
-                          ? 'border-2 border-turquoise-500 bg-turquoise-50'
-                          : 'border border-gray-200'
+                          ? 'border-2 border-gold-500/30 bg-gold-500/15'
+                          : 'border border-border'
                       }`}
                       onClick={() => handleInputChange('deliverySpeed', option.id)}
                     >
                       <CardContent className="p-4">
-                        <h4 className="font-semibold text-gray-900">{option.name}</h4>
-                        <p className="text-sm text-gray-600">{option.time}</p>
+                        <h4 className="font-semibold text-foreground">{option.name}</h4>
+                        <p className="text-sm text-muted-foreground">{option.time}</p>
                       </CardContent>
                     </Card>
                   ))}
@@ -413,8 +413,8 @@ const CourierOrderForm = () => {
               <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Total Delivery Cost</h3>
-                    <p className="text-sm text-gray-600 mt-1">Includes pickup, delivery, and all fees</p>
+                    <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
                   <div className="text-3xl font-bold text-purple-600">${calculateFare()}</div>
                 </div>

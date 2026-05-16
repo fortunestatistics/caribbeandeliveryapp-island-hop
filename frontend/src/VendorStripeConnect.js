@@ -51,7 +51,7 @@ const VendorStripeConnect = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
       </div>
     );
   }
@@ -60,42 +60,42 @@ const VendorStripeConnect = () => {
   const onboardingComplete = status?.onboarding_complete;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <div className="min-h-screen bg-background py-12 px-4">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold mb-2">Banking & Payouts</h1>
-        <p className="text-gray-600 mb-8">Connect your Stripe account to receive deposits from IslandHop directly to your bank.</p>
+        <p className="text-muted-foreground mb-8">Connect your Stripe account to receive deposits from IslandHop directly to your bank.</p>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span className="flex items-center gap-2"><Banknote className="h-5 w-5 text-teal-600" /> Stripe Connect</span>
+              <span className="flex items-center gap-2"><Banknote className="h-5 w-5 text-gold-500" /> Stripe Connect</span>
               {status?.connected ? (
                 payoutsEnabled ? (
                   <Badge className="bg-green-100 text-green-800" data-testid="connect-status-active">Active</Badge>
                 ) : onboardingComplete ? (
-                  <Badge className="bg-amber-100 text-amber-800" data-testid="connect-status-pending">Pending review</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-300" data-testid="connect-status-pending">Pending review</Badge>
                 ) : (
-                  <Badge className="bg-amber-100 text-amber-800" data-testid="connect-status-incomplete">Incomplete</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-300" data-testid="connect-status-incomplete">Incomplete</Badge>
                 )
               ) : (
-                <Badge className="bg-gray-100 text-gray-800" data-testid="connect-status-disconnected">Not connected</Badge>
+                <Badge className="bg-matte-800 text-foreground" data-testid="connect-status-disconnected">Not connected</Badge>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid sm:grid-cols-2 gap-4 text-sm">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-gray-600">Charges enabled</p>
+              <div className="bg-background rounded-lg p-4">
+                <p className="text-muted-foreground">Charges enabled</p>
                 <p className="text-lg font-semibold">{status?.charges_enabled ? 'Yes' : 'No'}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-gray-600">Payouts enabled</p>
+              <div className="bg-background rounded-lg p-4">
+                <p className="text-muted-foreground">Payouts enabled</p>
                 <p className="text-lg font-semibold">{payoutsEnabled ? 'Yes' : 'No'}</p>
               </div>
             </div>
 
-            <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-900">
-              <ShieldCheck className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 bg-neon-cyan/10 border border-neon-cyan/30 rounded-lg p-4 text-sm text-neon-cyan">
+              <ShieldCheck className="h-5 w-5 text-neon-cyan flex-shrink-0 mt-0.5" />
               <p>
                 You enter your bank details on Stripe's secure hosted page — IslandHop never sees or stores them.
                 Stripe handles KYC, compliance, and the actual money movement.
@@ -117,7 +117,7 @@ const VendorStripeConnect = () => {
               <Button
                 onClick={startOnboarding}
                 disabled={submitting}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white"
                 data-testid="connect-start-btn"
               >
                 {submitting ? (

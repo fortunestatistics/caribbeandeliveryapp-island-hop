@@ -137,20 +137,20 @@ const AdminPanel = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
-              <p className="text-gray-600">Platform management & analytics</p>
+              <h1 className="text-3xl font-bold text-foreground">Admin Panel</h1>
+              <p className="text-muted-foreground">Platform management & analytics</p>
             </div>
             <Button variant="outline">
               <Settings className="h-5 w-5 mr-2" />
@@ -164,10 +164,10 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Users</p>
+                    <p className="text-sm text-muted-foreground">Total Users</p>
                     <p className="text-2xl font-bold">{stats.total_users}</p>
                   </div>
-                  <Users className="h-8 w-8 text-blue-600" />
+                  <Users className="h-8 w-8 text-neon-cyan" />
                 </div>
               </CardContent>
             </Card>
@@ -176,7 +176,7 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Orders</p>
+                    <p className="text-sm text-muted-foreground">Total Orders</p>
                     <p className="text-2xl font-bold">{stats.total_orders}</p>
                   </div>
                   <Package className="h-8 w-8 text-purple-600" />
@@ -188,7 +188,7 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Revenue</p>
+                    <p className="text-sm text-muted-foreground">Total Revenue</p>
                     <p className="text-2xl font-bold">${stats.total_revenue?.toFixed(0)}</p>
                   </div>
                   <DollarSign className="h-8 w-8 text-green-600" />
@@ -200,7 +200,7 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Active Drivers</p>
+                    <p className="text-sm text-muted-foreground">Active Drivers</p>
                     <p className="text-2xl font-bold">{stats.active_drivers}</p>
                   </div>
                   <Truck className="h-8 w-8 text-indigo-600" />
@@ -212,10 +212,10 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Active Vendors</p>
+                    <p className="text-sm text-muted-foreground">Active Vendors</p>
                     <p className="text-2xl font-bold">{stats.active_vendors}</p>
                   </div>
-                  <ShoppingCart className="h-8 w-8 text-orange-600" />
+                  <ShoppingCart className="h-8 w-8 text-gold-500" />
                 </div>
               </CardContent>
             </Card>
@@ -224,7 +224,7 @@ const AdminPanel = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Pending</p>
+                    <p className="text-sm text-muted-foreground">Pending</p>
                     <p className="text-2xl font-bold">{stats.pending_verifications}</p>
                   </div>
                   <AlertCircle className="h-8 w-8 text-yellow-600" />
@@ -253,7 +253,7 @@ const AdminPanel = () => {
             <CardContent className="p-4">
               <div className="flex gap-4">
                 <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground/70" />
                   <Input
                     placeholder={`Search ${selectedTab}...`}
                     value={searchQuery}
@@ -285,15 +285,15 @@ const AdminPanel = () => {
               <CardContent>
                 <div className="space-y-3">
                   {orders.slice(0, 5).map((order) => (
-                    <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div key={order.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
                       <div>
                         <p className="font-medium">#{order.id?.substring(0, 8)}</p>
-                        <p className="text-sm text-gray-600">{order.customer_phone}</p>
+                        <p className="text-sm text-muted-foreground">{order.customer_phone}</p>
                       </div>
                       <Badge className={
                         order.status === 'delivered' ? 'bg-green-100 text-green-800' :
                         order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                        'bg-blue-100 text-blue-800'
+                        'bg-neon-cyan/15 text-neon-cyan'
                       }>
                         {order.status}
                       </Badge>
@@ -313,19 +313,19 @@ const AdminPanel = () => {
               </CardHeader>
               <CardContent>
                 {disputes.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-8 text-muted-foreground">
                     <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
                     <p>No pending disputes</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {disputes.slice(0, 5).map((dispute) => (
-                      <div key={dispute.id} className="p-3 bg-yellow-50 rounded-lg">
+                      <div key={dispute.id} className="p-3 bg-gold-500/10 rounded-lg">
                         <div className="flex justify-between items-start mb-2">
                           <p className="font-medium">Order #{dispute.order_id?.substring(0, 8)}</p>
                           <Badge variant="outline">Pending</Badge>
                         </div>
-                        <p className="text-sm text-gray-600">{dispute.reason}</p>
+                        <p className="text-sm text-muted-foreground">{dispute.reason}</p>
                       </div>
                     ))}
                   </div>
@@ -354,11 +354,11 @@ const AdminPanel = () => {
                   </thead>
                   <tbody>
                     {filteredUsers.map((user) => (
-                      <tr key={user.id} className="border-b hover:bg-gray-50">
+                      <tr key={user.id} className="border-b hover:bg-background">
                         <td className="p-3">
                           <div>
                             <p className="font-medium">{user.name || 'N/A'}</p>
-                            <p className="text-sm text-gray-600">{user.email}</p>
+                            <p className="text-sm text-muted-foreground">{user.email}</p>
                           </div>
                         </td>
                         <td className="p-3">
@@ -369,7 +369,7 @@ const AdminPanel = () => {
                             {user.status || 'active'}
                           </Badge>
                         </td>
-                        <td className="p-3 text-sm text-gray-600">
+                        <td className="p-3 text-sm text-muted-foreground">
                           {new Date(user.created_at).toLocaleDateString()}
                         </td>
                         <td className="p-3">
@@ -422,19 +422,19 @@ const AdminPanel = () => {
                             <Badge className={
                               order.status === 'delivered' ? 'bg-green-100 text-green-800' :
                               order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                              'bg-blue-100 text-blue-800'
+                              'bg-neon-cyan/15 text-neon-cyan'
                             }>
                               {order.status?.toUpperCase()}
                             </Badge>
                           </div>
-                          <div className="text-sm text-gray-600 space-y-1">
+                          <div className="text-sm text-muted-foreground space-y-1">
                             <p>Customer: {order.customer_phone || 'N/A'}</p>
                             <p>Service: {order.service_type}</p>
                             <p>Date: {new Date(order.created_at).toLocaleString()}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-turquoise-600">
+                          <p className="text-2xl font-bold text-gold-500">
                             ${order.total?.toFixed(2)}
                           </p>
                           <div className="flex gap-2 mt-2">
@@ -470,7 +470,7 @@ const AdminPanel = () => {
               <CardContent>
                 <div className="text-center py-12">
                   <TrendingUp className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600">Revenue charts coming soon</p>
+                  <p className="text-muted-foreground">Revenue charts coming soon</p>
                 </div>
               </CardContent>
             </Card>
@@ -482,7 +482,7 @@ const AdminPanel = () => {
               <CardContent>
                 <div className="text-center py-12">
                   <Users className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600">User growth charts coming soon</p>
+                  <p className="text-muted-foreground">User growth charts coming soon</p>
                 </div>
               </CardContent>
             </Card>

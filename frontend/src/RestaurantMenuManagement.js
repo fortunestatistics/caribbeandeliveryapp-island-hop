@@ -177,22 +177,22 @@ const RestaurantMenuManagement = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Menu Management</h1>
-              <p className="text-gray-600">Manage your restaurant menu items</p>
+              <h1 className="text-3xl font-bold text-foreground">Menu Management</h1>
+              <p className="text-muted-foreground">Manage your restaurant menu items</p>
             </div>
-            <Button onClick={handleAddItem} className="bg-turquoise-600 hover:bg-turquoise-700">
+            <Button onClick={handleAddItem} className="bg-gold-500/15 hover:bg-gold-500/20">
               <Plus className="h-5 w-5 mr-2" />
               Add Item
             </Button>
@@ -228,8 +228,8 @@ const RestaurantMenuManagement = () => {
           <Card>
             <CardContent className="py-12 text-center">
               <ChefHat className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No menu items yet</h3>
-              <p className="text-gray-600 mb-4">Start by adding your first menu item</p>
+              <h3 className="text-xl font-semibold text-foreground mb-2">No menu items yet</h3>
+              <p className="text-muted-foreground mb-4">Start by adding your first menu item</p>
               <Button onClick={handleAddItem}>Add First Item</Button>
             </CardContent>
           </Card>
@@ -248,7 +248,7 @@ const RestaurantMenuManagement = () => {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <ImageIcon className="h-12 w-12 text-gray-400" />
+                        <ImageIcon className="h-12 w-12 text-muted-foreground/70" />
                       </div>
                     )}
                     
@@ -269,13 +269,13 @@ const RestaurantMenuManagement = () => {
                   <div className="space-y-2">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-lg text-gray-900">{item.name}</h3>
-                        <p className="text-sm text-gray-600 line-clamp-2">{item.description}</p>
+                        <h3 className="font-semibold text-lg text-foreground">{item.name}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-2xl font-bold text-turquoise-600">
+                      <span className="text-2xl font-bold text-gold-500">
                         ${item.price?.toFixed(2)}
                       </span>
                       <Badge variant="secondary">{item.category}</Badge>
@@ -342,7 +342,7 @@ const RestaurantMenuManagement = () => {
                   {/* Image Upload */}
                   <div>
                     <label className="block text-sm font-medium mb-2">Item Image</label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
                       {formData.image_url ? (
                         <div className="relative">
                           <img 
@@ -362,8 +362,8 @@ const RestaurantMenuManagement = () => {
                         </div>
                       ) : (
                         <label className="cursor-pointer">
-                          <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600">Click to upload image</p>
+                          <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">Click to upload image</p>
                           <input
                             type="file"
                             accept="image/*"
@@ -390,7 +390,7 @@ const RestaurantMenuManagement = () => {
                     <div>
                       <label className="block text-sm font-medium mb-2">Price *</label>
                       <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
                         <Input
                           type="number"
                           step="0.01"
@@ -492,7 +492,7 @@ const RestaurantMenuManagement = () => {
                     <Button type="button" variant="outline" onClick={() => setShowItemModal(false)} className="flex-1">
                       Cancel
                     </Button>
-                    <Button type="submit" className="flex-1 bg-turquoise-600 hover:bg-turquoise-700">
+                    <Button type="submit" className="flex-1 bg-gold-500/15 hover:bg-gold-500/20">
                       {editingItem ? 'Update Item' : 'Add Item'}
                     </Button>
                   </div>

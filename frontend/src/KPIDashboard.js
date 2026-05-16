@@ -104,7 +104,7 @@ const KPIDashboard = () => {
       case 'profit_margin':
         return value >= 25 ? 'text-green-600' : value >= 15 ? 'text-yellow-600' : 'text-red-600';
       default:
-        return 'text-gray-600';
+        return 'text-muted-foreground';
     }
   };
 
@@ -115,11 +115,11 @@ const KPIDashboard = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+      <div className="min-h-screen bg-gradient-to-br bg-background py-12">
         <div className="container mx-auto px-4">
           <div className="text-center">
-            <RefreshCw className="h-12 w-12 animate-spin mx-auto mb-4 text-turquoise-600" />
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Loading KPI Dashboard...</h1>
+            <RefreshCw className="h-12 w-12 animate-spin mx-auto mb-4 text-gold-500" />
+            <h1 className="text-3xl font-bold text-foreground mb-4">Loading KPI Dashboard...</h1>
           </div>
         </div>
       </div>
@@ -127,13 +127,13 @@ const KPIDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">IslandHop Analytics</h1>
-            <p className="text-gray-600">Comprehensive performance metrics and insights</p>
+            <h1 className="text-4xl font-bold text-foreground mb-2">IslandHop Analytics</h1>
+            <p className="text-muted-foreground">Comprehensive performance metrics and insights</p>
           </div>
           <div className="flex items-center space-x-4">
             <input
@@ -147,7 +147,7 @@ const KPIDashboard = () => {
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <Button className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+            <Button className="bg-gold-gradient text-white">
               <Download className="h-4 w-4 mr-2" />
               Export Report
             </Button>
@@ -170,8 +170,8 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-gray-600">Avg Delivery Time</CardTitle>
-                    <Clock className="h-4 w-4 text-turquoise-600" />
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Avg Delivery Time</CardTitle>
+                    <Clock className="h-4 w-4 text-gold-500" />
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -193,8 +193,8 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-gray-600">On-Time Rate</CardTitle>
-                    <Target className="h-4 w-4 text-orange-600" />
+                    <CardTitle className="text-sm font-medium text-muted-foreground">On-Time Rate</CardTitle>
+                    <Target className="h-4 w-4 text-gold-500" />
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -216,7 +216,7 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-gray-600">Customer Satisfaction</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Customer Satisfaction</CardTitle>
                     <Star className="h-4 w-4 text-yellow-600" />
                   </div>
                 </CardHeader>
@@ -239,13 +239,13 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-gray-600">Cost Per Order</CardTitle>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Cost Per Order</CardTitle>
                     <DollarSign className="h-4 w-4 text-green-600" />
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between">
-                    <div className="text-2xl font-bold text-gray-900">
+                    <div className="text-2xl font-bold text-foreground">
                       ${kpiData?.financial_metrics?.order_completion_cost || 0}
                     </div>
                     <div className="text-green-600">
@@ -265,28 +265,28 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center">
-                    <Truck className="h-5 w-5 mr-2 text-turquoise-600" />
+                    <Truck className="h-5 w-5 mr-2 text-gold-500" />
                     Driver Performance
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Active Drivers</span>
+                    <span className="text-sm text-muted-foreground">Active Drivers</span>
                     <span className="font-semibold">{kpiData?.driver_performance?.active_drivers || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Average Rating</span>
+                    <span className="text-sm text-muted-foreground">Average Rating</span>
                     <span className="font-semibold">{kpiData?.driver_performance?.avg_driver_rating || 0}/5</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Utilization Rate</span>
+                    <span className="text-sm text-muted-foreground">Utilization Rate</span>
                     <span className="font-semibold">{kpiData?.driver_performance?.driver_utilization_rate || 0}%</span>
                   </div>
                   <div className="pt-2 border-t">
                     <div className="flex items-center text-sm">
                       <div className={`w-2 h-2 rounded-full mr-2 ${
                         (kpiData?.driver_performance?.driver_utilization_rate || 0) >= 70 ? 'bg-green-500' : 
-                        (kpiData?.driver_performance?.driver_utilization_rate || 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                        (kpiData?.driver_performance?.driver_utilization_rate || 0) >= 50 ? 'bg-gold-500' : 'bg-red-500'
                       }`}></div>
                       Driver Performance Status
                     </div>
@@ -298,28 +298,28 @@ const KPIDashboard = () => {
               <Card className="bg-white/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center">
-                    <Package className="h-5 w-5 mr-2 text-orange-600" />
+                    <Package className="h-5 w-5 mr-2 text-gold-500" />
                     Order Summary
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Total Orders</span>
+                    <span className="text-sm text-muted-foreground">Total Orders</span>
                     <span className="font-semibold">{kpiData?.delivery_performance?.total_orders || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Completed</span>
+                    <span className="text-sm text-muted-foreground">Completed</span>
                     <span className="font-semibold">{kpiData?.delivery_performance?.completed_orders || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Completion Rate</span>
+                    <span className="text-sm text-muted-foreground">Completion Rate</span>
                     <span className="font-semibold">{kpiData?.delivery_performance?.order_completion_rate || 0}%</span>
                   </div>
                   <div className="pt-2 border-t">
                     <div className="flex items-center text-sm">
                       <div className={`w-2 h-2 rounded-full mr-2 ${
                         (kpiData?.delivery_performance?.order_completion_rate || 0) >= 95 ? 'bg-green-500' : 
-                        (kpiData?.delivery_performance?.order_completion_rate || 0) >= 85 ? 'bg-yellow-500' : 'bg-red-500'
+                        (kpiData?.delivery_performance?.order_completion_rate || 0) >= 85 ? 'bg-gold-500' : 'bg-red-500'
                       }`}></div>
                       Order Performance Status
                     </div>
@@ -337,15 +337,15 @@ const KPIDashboard = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Revenue Today</span>
+                    <span className="text-sm text-muted-foreground">Revenue Today</span>
                     <span className="font-semibold">${kpiData?.financial_metrics?.total_revenue || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Avg Order Value</span>
+                    <span className="text-sm text-muted-foreground">Avg Order Value</span>
                     <span className="font-semibold">${kpiData?.financial_metrics?.avg_order_value || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Profit Margin</span>
+                    <span className="text-sm text-muted-foreground">Profit Margin</span>
                     <span className={`font-semibold ${getPerformanceColor(kpiData?.financial_metrics?.profit_margin, 'profit_margin')}`}>
                       {kpiData?.financial_metrics?.profit_margin || 0}%
                     </span>
@@ -354,7 +354,7 @@ const KPIDashboard = () => {
                     <div className="flex items-center text-sm">
                       <div className={`w-2 h-2 rounded-full mr-2 ${
                         (kpiData?.financial_metrics?.profit_margin || 0) >= 25 ? 'bg-green-500' : 
-                        (kpiData?.financial_metrics?.profit_margin || 0) >= 15 ? 'bg-yellow-500' : 'bg-red-500'
+                        (kpiData?.financial_metrics?.profit_margin || 0) >= 15 ? 'bg-gold-500' : 'bg-red-500'
                       }`}></div>
                       Financial Performance Status
                     </div>
@@ -374,25 +374,25 @@ const KPIDashboard = () => {
                 {dailyOps ? (
                   <div className="space-y-6">
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                      <div className="text-center p-4 bg-turquoise-50 rounded-lg">
-                        <div className="text-2xl font-bold text-turquoise-600">{dailyOps.summary.total_orders}</div>
-                        <div className="text-sm text-gray-600">Total Orders</div>
+                      <div className="text-center p-4 bg-gold-500/15 rounded-lg">
+                        <div className="text-2xl font-bold text-gold-500">{dailyOps.summary.total_orders}</div>
+                        <div className="text-sm text-muted-foreground">Total Orders</div>
                       </div>
                       <div className="text-center p-4 bg-green-50 rounded-lg">
                         <div className="text-2xl font-bold text-green-600">{dailyOps.summary.completed_orders}</div>
-                        <div className="text-sm text-gray-600">Completed</div>
+                        <div className="text-sm text-muted-foreground">Completed</div>
                       </div>
                       <div className="text-center p-4 bg-red-50 rounded-lg">
                         <div className="text-2xl font-bold text-red-600">{dailyOps.summary.cancelled_orders}</div>
-                        <div className="text-sm text-gray-600">Cancelled</div>
+                        <div className="text-sm text-muted-foreground">Cancelled</div>
                       </div>
-                      <div className="text-center p-4 bg-orange-50 rounded-lg">
-                        <div className="text-2xl font-bold text-orange-600">${dailyOps.summary.total_revenue}</div>
-                        <div className="text-sm text-gray-600">Revenue</div>
+                      <div className="text-center p-4 bg-matte-800/40 rounded-lg">
+                        <div className="text-2xl font-bold text-gold-500">${dailyOps.summary.total_revenue}</div>
+                        <div className="text-sm text-muted-foreground">Revenue</div>
                       </div>
                       <div className="text-center p-4 bg-purple-50 rounded-lg">
                         <div className="text-2xl font-bold text-purple-600">{dailyOps.summary.unique_customers}</div>
-                        <div className="text-sm text-gray-600">Customers</div>
+                        <div className="text-sm text-muted-foreground">Customers</div>
                       </div>
                     </div>
 
@@ -400,11 +400,11 @@ const KPIDashboard = () => {
                       <h3 className="text-lg font-semibold mb-4">Peak Hours</h3>
                       <div className="space-y-2">
                         {dailyOps.peak_hours.map((hour, index) => (
-                          <div key={hour.hour} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div key={hour.hour} className="flex items-center justify-between p-3 bg-background rounded-lg">
                             <span className="font-medium">{hour.hour}:00 - {hour.hour + 1}:00</span>
                             <div className="flex items-center">
                               <span className="mr-2">{hour.orders} orders</span>
-                              <div className={`w-2 h-2 rounded-full ${index === 0 ? 'bg-red-500' : index === 1 ? 'bg-orange-500' : 'bg-yellow-500'}`}></div>
+                              <div className={`w-2 h-2 rounded-full ${index === 0 ? 'bg-red-500' : index === 1 ? 'bg-gold-gradient' : 'bg-gold-500'}`}></div>
                             </div>
                           </div>
                         ))}
@@ -413,8 +413,8 @@ const KPIDashboard = () => {
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <BarChart3 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">No operations data available for {selectedDate}</p>
+                    <BarChart3 className="h-16 w-16 text-muted-foreground/70 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No operations data available for {selectedDate}</p>
                   </div>
                 )}
               </CardContent>
@@ -429,23 +429,23 @@ const KPIDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="text-center p-6 bg-gradient-to-br from-turquoise-50 to-turquoise-100 rounded-xl">
-                    <Truck className="h-12 w-12 text-turquoise-600 mx-auto mb-4" />
-                    <div className="text-3xl font-bold text-turquoise-600 mb-2">
+                  <div className="text-center p-6 bg-gradient-to-br from-matte-800 to-turquoise-100 rounded-xl">
+                    <Truck className="h-12 w-12 text-gold-500 mx-auto mb-4" />
+                    <div className="text-3xl font-bold text-gold-500 mb-2">
                       {kpiData?.driver_performance?.active_drivers || 0}
                     </div>
-                    <div className="text-sm text-gray-600 mb-2">Active Drivers Today</div>
+                    <div className="text-sm text-muted-foreground mb-2">Active Drivers Today</div>
                     <Badge variant="secondary">
                       {kpiData?.driver_performance?.driver_utilization_rate || 0}% Utilization
                     </Badge>
                   </div>
 
-                  <div className="text-center p-6 bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl">
-                    <Star className="h-12 w-12 text-orange-600 mx-auto mb-4" />
-                    <div className="text-3xl font-bold text-orange-600 mb-2">
+                  <div className="text-center p-6 bg-matte-800 rounded-xl">
+                    <Star className="h-12 w-12 text-gold-500 mx-auto mb-4" />
+                    <div className="text-3xl font-bold text-gold-500 mb-2">
                       {kpiData?.driver_performance?.avg_driver_rating || 0}/5
                     </div>
-                    <div className="text-sm text-gray-600 mb-2">Average Driver Rating</div>
+                    <div className="text-sm text-muted-foreground mb-2">Average Driver Rating</div>
                     <Badge variant="secondary">Customer Feedback</Badge>
                   </div>
 
@@ -454,7 +454,7 @@ const KPIDashboard = () => {
                     <div className="text-3xl font-bold text-green-600 mb-2">
                       {Math.round((kpiData?.driver_performance?.active_drivers / kpiData?.driver_performance?.total_drivers * 100) || 0)}%
                     </div>
-                    <div className="text-sm text-gray-600 mb-2">Driver Retention Rate</div>
+                    <div className="text-sm text-muted-foreground mb-2">Driver Retention Rate</div>
                     <Badge variant="secondary">Monthly Average</Badge>
                   </div>
                 </div>
@@ -468,11 +468,11 @@ const KPIDashboard = () => {
                     </div>
                     <div className="flex items-center justify-between p-4 border rounded-lg">
                       <span className="font-medium">Driver Satisfaction Score</span>
-                      <span className="text-turquoise-600 font-bold">4.2/5</span>
+                      <span className="text-gold-500 font-bold">4.2/5</span>
                     </div>
                     <div className="flex items-center justify-between p-4 border rounded-lg">
                       <span className="font-medium">Monthly Retention Rate</span>
-                      <span className="text-orange-600 font-bold">89%</span>
+                      <span className="text-gold-500 font-bold">89%</span>
                     </div>
                   </div>
                 </div>
@@ -495,15 +495,15 @@ const KPIDashboard = () => {
                         <div className="text-3xl font-bold text-green-600 mb-2">
                           ${financialData.revenue_breakdown.total_revenue}
                         </div>
-                        <div className="text-sm text-gray-600">Total Revenue</div>
+                        <div className="text-sm text-muted-foreground">Total Revenue</div>
                       </div>
 
                       <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
-                        <PieChart className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-                        <div className="text-3xl font-bold text-blue-600 mb-2">
+                        <PieChart className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                        <div className="text-3xl font-bold text-neon-cyan mb-2">
                           ${financialData.profitability.net_profit}
                         </div>
-                        <div className="text-sm text-gray-600">Net Profit</div>
+                        <div className="text-sm text-muted-foreground">Net Profit</div>
                       </div>
 
                       <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl">
@@ -511,7 +511,7 @@ const KPIDashboard = () => {
                         <div className={`text-3xl font-bold mb-2 ${getPerformanceColor(financialData.profitability.profit_margin, 'profit_margin')}`}>
                           {financialData.profitability.profit_margin}%
                         </div>
-                        <div className="text-sm text-gray-600">Profit Margin</div>
+                        <div className="text-sm text-muted-foreground">Profit Margin</div>
                       </div>
                     </div>
 
@@ -519,15 +519,15 @@ const KPIDashboard = () => {
                       <div>
                         <h3 className="text-lg font-semibold mb-4">Revenue Breakdown</h3>
                         <div className="space-y-3">
-                          <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
                             <span>Food Sales</span>
                             <span className="font-semibold">${financialData.revenue_breakdown.subtotal_revenue}</span>
                           </div>
-                          <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
                             <span>Delivery Fees</span>
                             <span className="font-semibold">${financialData.revenue_breakdown.delivery_fees}</span>
                           </div>
-                          <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-center p-3 bg-background rounded-lg">
                             <span>Tax Collected</span>
                             <span className="font-semibold">${financialData.revenue_breakdown.tax_collected}</span>
                           </div>
@@ -556,37 +556,37 @@ const KPIDashboard = () => {
                     <div className="border-t pt-6">
                       <h3 className="text-lg font-semibold mb-4">Key Financial KPIs</h3>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="text-center p-4 bg-turquoise-50 rounded-lg">
-                          <div className="text-xl font-bold text-turquoise-600">
+                        <div className="text-center p-4 bg-gold-500/15 rounded-lg">
+                          <div className="text-xl font-bold text-gold-500">
                             ${financialData.profitability.avg_order_value}
                           </div>
-                          <div className="text-sm text-gray-600">Avg Order Value</div>
+                          <div className="text-sm text-muted-foreground">Avg Order Value</div>
                         </div>
-                        <div className="text-center p-4 bg-orange-50 rounded-lg">
-                          <div className="text-xl font-bold text-orange-600">
+                        <div className="text-center p-4 bg-matte-800/40 rounded-lg">
+                          <div className="text-xl font-bold text-gold-500">
                             ${financialData.kpis.avg_order_completion_cost}
                           </div>
-                          <div className="text-sm text-gray-600">Cost per Order</div>
+                          <div className="text-sm text-muted-foreground">Cost per Order</div>
                         </div>
                         <div className="text-center p-4 bg-green-50 rounded-lg">
                           <div className="text-xl font-bold text-green-600">
                             ${financialData.kpis.revenue_per_order}
                           </div>
-                          <div className="text-sm text-gray-600">Revenue per Order</div>
+                          <div className="text-sm text-muted-foreground">Revenue per Order</div>
                         </div>
                         <div className="text-center p-4 bg-purple-50 rounded-lg">
                           <div className="text-xl font-bold text-purple-600">
                             {financialData.kpis.total_orders}
                           </div>
-                          <div className="text-sm text-gray-600">Total Orders</div>
+                          <div className="text-sm text-muted-foreground">Total Orders</div>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <DollarSign className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">Loading financial data...</p>
+                    <DollarSign className="h-16 w-16 text-muted-foreground/70 mx-auto mb-4" />
+                    <p className="text-muted-foreground">Loading financial data...</p>
                   </div>
                 )}
               </CardContent>

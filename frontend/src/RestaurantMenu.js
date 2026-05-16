@@ -222,7 +222,7 @@ const RestaurantMenu = () => {
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Restaurant Header */}
         <Card className="mb-8">
@@ -236,10 +236,10 @@ const RestaurantMenu = () => {
             </Button>
             <div className="flex items-start justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">{restaurant.name}</h1>
-                <div className="flex items-center space-x-4 text-gray-600 mb-3">
+                <h1 className="text-3xl font-bold text-foreground mb-2">{restaurant.name}</h1>
+                <div className="flex items-center space-x-4 text-muted-foreground mb-3">
                   <div className="flex items-center">
-                    <Star className="h-5 w-5 text-yellow-500 fill-current mr-1" />
+                    <Star className="h-5 w-5 text-gold-500 fill-current mr-1" />
                     <span className="font-semibold">{restaurant.rating}</span>
                     <span className="ml-1">({restaurant.reviews} reviews)</span>
                   </div>
@@ -253,7 +253,7 @@ const RestaurantMenu = () => {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Badge className="bg-turquoise-100 text-turquoise-700">{restaurant.cuisine}</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-300">{restaurant.cuisine}</Badge>
                   <Badge variant="outline">Delivery ${restaurant.deliveryFee.toFixed(2)}</Badge>
                   <Badge variant="outline">Min ${restaurant.minOrder.toFixed(2)}</Badge>
                 </div>
@@ -269,7 +269,7 @@ const RestaurantMenu = () => {
             <Card>
               <CardContent className="p-4">
                 <div className="relative mb-4">
-                  <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                  <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                   <Input
                     placeholder="Search menu items..."
                     className="pl-10"
@@ -285,7 +285,7 @@ const RestaurantMenu = () => {
                       variant={selectedCategory === category.toLowerCase() ? 'default' : 'outline'}
                       onClick={() => setSelectedCategory(category.toLowerCase())}
                       className={selectedCategory === category.toLowerCase() 
-                        ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
+                        ? 'bg-gold-gradient text-white'
                         : ''
                       }
                     >
@@ -306,21 +306,21 @@ const RestaurantMenu = () => {
                       <div className="flex-1">
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                            <h3 className="text-lg font-semibold text-foreground flex items-center">
                               {item.name}
                               {item.popular && (
-                                <Badge className="ml-2 bg-yellow-100 text-yellow-700">Popular</Badge>
+                                <Badge className="ml-2 bg-gold-500/15 text-yellow-700">Popular</Badge>
                               )}
                               {item.spicy && (
                                 <span className="ml-2">🌶️</span>
                               )}
                             </h3>
-                            <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                            <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
                           </div>
-                          <p className="text-xl font-bold text-gray-900">${item.price.toFixed(2)}</p>
+                          <p className="text-xl font-bold text-foreground">${item.price.toFixed(2)}</p>
                         </div>
                         <Button
-                          className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                          className="bg-gold-gradient text-white"
                           onClick={() => addToCart(item)}
                         >
                           <Plus className="h-4 w-4 mr-2" />
@@ -336,7 +336,7 @@ const RestaurantMenu = () => {
             {filteredItems.length === 0 && (
               <Card>
                 <CardContent className="p-12 text-center">
-                  <p className="text-gray-600">No items found matching your search.</p>
+                  <p className="text-muted-foreground">No items found matching your search.</p>
                 </CardContent>
               </Card>
             )}
@@ -352,7 +352,7 @@ const RestaurantMenu = () => {
                     Your Cart
                   </span>
                   {cartItemCount > 0 && (
-                    <Badge className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+                    <Badge className="bg-gold-gradient text-white">
                       {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}
                     </Badge>
                   )}
@@ -362,8 +362,8 @@ const RestaurantMenu = () => {
                 {cart.length === 0 ? (
                   <div className="text-center py-8">
                     <ShoppingCart className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-                    <p className="text-gray-600">Your cart is empty</p>
-                    <p className="text-sm text-gray-500 mt-2">Add items from the menu to get started</p>
+                    <p className="text-muted-foreground">Your cart is empty</p>
+                    <p className="text-sm text-muted-foreground mt-2">Add items from the menu to get started</p>
                   </div>
                 ) : (
                   <>
@@ -372,8 +372,8 @@ const RestaurantMenu = () => {
                         <div key={item.id} className="flex items-start space-x-3 pb-4 border-b">
                           <div className="text-3xl">{item.image}</div>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-gray-900 truncate">{item.name}</h4>
-                            <p className="text-sm text-gray-600">${item.price.toFixed(2)}</p>
+                            <h4 className="font-semibold text-foreground truncate">{item.name}</h4>
+                            <p className="text-sm text-muted-foreground">${item.price.toFixed(2)}</p>
                             <div className="flex items-center space-x-2 mt-2">
                               <Button
                                 size="sm"
@@ -400,7 +400,7 @@ const RestaurantMenu = () => {
                               </Button>
                             </div>
                           </div>
-                          <div className="font-semibold text-gray-900">
+                          <div className="font-semibold text-foreground">
                             ${(item.price * item.quantity).toFixed(2)}
                           </div>
                         </div>
@@ -408,28 +408,28 @@ const RestaurantMenu = () => {
                     </div>
 
                     <div className="space-y-2 mb-6">
-                      <div className="flex justify-between text-gray-600">
+                      <div className="flex justify-between text-muted-foreground">
                         <span>Subtotal</span>
                         <span>${subtotal.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between text-gray-600">
+                      <div className="flex justify-between text-muted-foreground">
                         <span>Delivery Fee</span>
                         <span>${restaurant.deliveryFee.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
+                      <div className="flex justify-between text-xl font-bold text-foreground pt-2 border-t">
                         <span>Total</span>
                         <span>${total.toFixed(2)}</span>
                       </div>
                     </div>
 
                     {subtotal < restaurant.minOrder && (
-                      <div className="mb-4 p-3 bg-yellow-50 rounded-lg text-sm text-yellow-800">
+                      <div className="mb-4 p-3 bg-gold-500/10 rounded-lg text-sm text-yellow-800">
                         Add ${(restaurant.minOrder - subtotal).toFixed(2)} more to reach minimum order
                       </div>
                     )}
 
                     <Button
-                      className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                      className="w-full bg-gold-gradient text-white"
                       disabled={subtotal < restaurant.minOrder}
                       onClick={() => navigate('/checkout', { state: { cart, restaurant, total } })}
                     >

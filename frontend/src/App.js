@@ -256,46 +256,46 @@ const GlobalSearch = () => {
   return (
     <div ref={searchRef} className="relative flex-1 max-w-3xl mx-4">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground/70" />
         <Input
           type="text"
           placeholder="Search for restaurants, products, pharmacies..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
-          className="pl-10 pr-4 py-3 w-full text-base border-gray-300 focus:border-turquoise-500 focus:ring-turquoise-500"
+          className="pl-10 pr-4 py-3 w-full text-base border-border focus:border-gold-500/30 focus:ring-gold-500"
         />
         {isSearching && (
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-            <div className="animate-spin h-5 w-5 border-2 border-turquoise-500 border-t-transparent rounded-full"></div>
+            <div className="animate-spin h-5 w-5 border-2 border-gold-500/30 border-t-transparent rounded-full"></div>
           </div>
         )}
       </div>
 
       {/* Search Results Dropdown */}
       {showResults && searchResults.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 max-h-96 overflow-y-auto z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50">
           {/* Vendors */}
           {searchResults.filter(r => r.type === 'vendor').length > 0 && (
             <div className="p-2">
-              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Vendors</div>
+              <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Vendors</div>
               {searchResults.filter(r => r.type === 'vendor').map((result, index) => (
                 <button
                   key={`vendor-${index}`}
                   onClick={() => handleResultClick(result)}
-                  className="w-full text-left px-3 py-3 hover:bg-gray-50 rounded-lg transition-colors flex items-center space-x-3"
+                  className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors flex items-center space-x-3"
                 >
                   <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${
                     result.vendor_type === 'restaurant' ? 'from-red-500 to-orange-500' :
-                    result.vendor_type === 'pharmacy' ? 'from-blue-500 to-cyan-500' :
+                    result.vendor_type === 'pharmacy' ? 'from-neon-cyan to-gold-500' :
                     'from-green-500 to-emerald-500'
                   } flex items-center justify-center text-white text-xl`}>
                     {result.vendor_type === 'restaurant' ? '🍽️' :
                      result.vendor_type === 'pharmacy' ? '💊' : '🛒'}
                   </div>
                   <div className="flex-1">
-                    <div className="font-semibold text-gray-900">{result.name}</div>
-                    <div className="text-sm text-gray-500 capitalize">{result.vendor_type}</div>
+                    <div className="font-semibold text-foreground">{result.name}</div>
+                    <div className="text-sm text-muted-foreground capitalize">{result.vendor_type}</div>
                   </div>
                 </button>
               ))}
@@ -304,18 +304,18 @@ const GlobalSearch = () => {
 
           {/* Products */}
           {searchResults.filter(r => r.type === 'product').length > 0 && (
-            <div className="p-2 border-t border-gray-100">
-              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Products</div>
+            <div className="p-2 border-t border-border/50">
+              <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Products</div>
               {searchResults.filter(r => r.type === 'product').map((result, index) => (
                 <button
                   key={`product-${index}`}
                   onClick={() => handleResultClick(result)}
-                  className="w-full text-left px-3 py-3 hover:bg-gray-50 rounded-lg transition-colors"
+                  className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors"
                 >
-                  <div className="font-semibold text-gray-900">{result.name}</div>
-                  <div className="text-sm text-gray-500">{result.vendor_name}</div>
+                  <div className="font-semibold text-foreground">{result.name}</div>
+                  <div className="text-sm text-muted-foreground">{result.vendor_name}</div>
                   {result.price && (
-                    <div className="text-sm font-medium text-turquoise-600">${result.price}</div>
+                    <div className="text-sm font-medium text-gold-500">${result.price}</div>
                   )}
                 </button>
               ))}
@@ -326,9 +326,9 @@ const GlobalSearch = () => {
 
       {/* No Results */}
       {showResults && searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-4 z-50">
-          <div className="text-center text-gray-500">
-            <Search className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50">
+          <div className="text-center text-muted-foreground">
+            <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/70" />
             <p>No results found for "{searchQuery}"</p>
           </div>
         </div>
@@ -355,17 +355,17 @@ const Header = () => {
 
   return (
     <>
-      <header className="bg-white/95 backdrop-blur-md border-b border-orange-200 sticky top-0 z-50">
+      <header className="bg-matte-900/90 backdrop-blur-xl border-b border-gold-500/20 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             {/* Logo */}
             <Link to="/" className="flex items-center space-x-2 flex-shrink-0">
-              <div className="w-10 h-10 bg-gradient-to-br from-turquoise-500 to-orange-500 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-gold-gradient rounded-xl flex items-center justify-center">
                 <Package className="h-6 w-6 text-white" />
               </div>
               <div className="hidden sm:block">
-                <h1 className="text-xl font-bold text-gray-900">IslandHop</h1>
-                <p className="text-xs text-turquoise-600">Caribbean Delivery</p>
+                <h1 className="text-xl font-bold text-foreground">IslandHop</h1>
+                <p className="text-xs text-gold-500">Caribbean Delivery</p>
               </div>
             </Link>
 
@@ -380,7 +380,7 @@ const Header = () => {
                 <Link 
                   key={item.to}
                   to={item.to} 
-                  className="text-gray-700 hover:text-orange-600 transition-colors font-medium"
+                  className="text-foreground/90 hover:text-gold-500 transition-colors font-medium"
                 >
                   {item.label}
                 </Link>
@@ -391,7 +391,7 @@ const Header = () => {
             <div className="hidden md:flex items-center space-x-4">
               {user ? (
                 <div className="flex items-center space-x-3">
-                  <span className="text-sm text-gray-700 hidden lg:inline">Welcome, {user.name}</span>
+                  <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
                     Dashboard
                   </Button>
@@ -404,7 +404,7 @@ const Header = () => {
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
                   </Button>
-                  <Button onClick={() => window.location.href = '/signup'} className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white">
+                  <Button onClick={() => window.location.href = '/signup'} className="bg-gold-gradient text-white">
                     Sign Up
                   </Button>
                 </div>
@@ -413,21 +413,21 @@ const Header = () => {
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="md:hidden p-2 rounded-lg hover:bg-matte-800 transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               data-testid="mobile-menu-btn"
             >
               {mobileMenuOpen ? (
-                <X className="h-6 w-6 text-gray-700" />
+                <X className="h-6 w-6 text-foreground/90" />
               ) : (
-                <Menu className="h-6 w-6 text-gray-700" />
+                <Menu className="h-6 w-6 text-foreground/90" />
               )}
             </button>
           </div>
 
           {/* Mobile Navigation Menu */}
           {mobileMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 border-t border-gray-200 bg-white/95 backdrop-blur-md">
+            <div className="md:hidden mt-4 pb-4 border-t border-border bg-matte-900/95 backdrop-blur-md">
               {/* Mobile Search */}
               <div className="px-4 py-3">
                 <GlobalSearch />
@@ -440,7 +440,7 @@ const Header = () => {
                     <Link
                       key={item.to}
                       to={item.to}
-                      className="flex items-center space-x-3 px-4 py-3 text-gray-700 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                      className="flex items-center space-x-3 px-4 py-3 text-foreground/90 hover:text-gold-500 hover:bg-matte-800/40 rounded-lg transition-colors"
                       onClick={() => setMobileMenuOpen(false)}
                       data-testid={`mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                     >
@@ -451,10 +451,10 @@ const Header = () => {
                 })}
                 
                 {/* Mobile Auth Section */}
-                <div className="border-t border-gray-200 pt-4 px-4">
+                <div className="border-t border-border pt-4 px-4">
                   {user ? (
                     <div className="space-y-3">
-                      <div className="text-sm text-gray-600">
+                      <div className="text-sm text-muted-foreground">
                         Welcome, <span className="font-semibold">{user.name}</span>
                       </div>
                       <div className="flex flex-col space-y-2">
@@ -491,7 +491,7 @@ const Header = () => {
                         login('/dashboard');
                         setMobileMenuOpen(false);
                       }}
-                      className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                      className="w-full bg-gold-gradient text-white"
                       data-testid="mobile-signin-btn"
                     >
                       Sign In
@@ -546,7 +546,7 @@ const LandingPage = () => {
       icon: Pill,
       name: 'Pharmacy',
       description: 'Prescription & health products delivery',
-      color: 'from-blue-500 to-cyan-500',
+      color: 'from-neon-cyan to-gold-500',
       serviceType: 'pharmacy',
       route: '/pharmacy-order',
       image: '💊',
@@ -615,31 +615,33 @@ const LandingPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Hero Section - Modern & Clean */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-turquoise-500 via-cyan-500 to-orange-500 pt-20 pb-32">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00em0wLTIwYzAtMi4yMS0xLjc5LTQtNC00cy00IDEuNzktNCA0IDEuNzkgNCA0IDQgNC0xLjc5IDQtNHptLTIwIDBjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00eiIvPjwvZz48L2c+PC9zdmc+')] opacity-20"></div>
+    <div className="min-h-screen bg-background">
+      {/* Hero Section - Premium Matte Black + Gold */}
+      <section className="relative overflow-hidden bg-matte-900 pt-20 pb-32">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.18),transparent_60%)]"></div>
+        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-gold-500/10 blur-3xl"></div>
+        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-neon-cyan/5 blur-3xl"></div>
         
         <div className="relative container mx-auto px-4">
           <div className="max-w-4xl mx-auto text-center text-white">
-            <div className="inline-block mb-6 px-6 py-2 bg-white/20 backdrop-blur-sm rounded-full">
-              <span className="text-sm font-semibold">🏝️ Caribbean's #1 Delivery Platform</span>
+            <div className="inline-block mb-6 px-6 py-2 bg-gold-500/15 border border-gold-500/30 backdrop-blur-sm rounded-full">
+              <span className="text-sm font-semibold text-gold-300">🏝️ Caribbean's #1 Delivery Platform</span>
             </div>
             
-            <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight">
+            <h1 className="font-heading text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight">
               Everything you need,
               <br />
-              <span className="text-yellow-300">delivered instantly</span>
+              <span className="text-gold-gradient">delivered instantly</span>
             </h1>
             
-            <p className="text-xl md:text-2xl mb-10 text-white/90 font-light max-w-2xl mx-auto">
+            <p className="text-xl md:text-2xl mb-10 text-white/80 font-light max-w-2xl mx-auto">
               From fresh meals to everyday essentials. Fast, reliable delivery across the Caribbean islands.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Button 
                 size="lg" 
-                className="bg-white text-turquoise-600 hover:bg-gray-50 px-10 py-7 text-lg font-semibold shadow-2xl hover:shadow-xl transition-all hover:scale-105"
+                className="px-10 py-7 text-lg"
                 onClick={() => {
                   const servicesSection = document.getElementById('services');
                   servicesSection?.scrollIntoView({ behavior: 'smooth' });
@@ -651,7 +653,7 @@ const LandingPage = () => {
               <Button 
                 size="lg" 
                 variant="outline"
-                className="border-2 border-white text-white hover:bg-white hover:text-turquoise-600 px-10 py-7 text-lg font-semibold backdrop-blur-sm bg-white/10 transition-all hover:scale-105"
+                className="border-gold-500/40 text-white hover:border-gold-500 hover:bg-gold-500/10 px-10 py-7 text-lg backdrop-blur-sm transition-all"
                 onClick={() => navigate('/partner')}
               >
                 Become a Partner
@@ -672,13 +674,13 @@ const LandingPage = () => {
       </section>
 
       {/* Services Section - Card Grid */}
-      <section id="services" className="py-20 bg-gray-50">
+      <section id="services" className="py-20 bg-background">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
               What do you need?
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               Choose from our wide range of delivery services
             </p>
           </div>
@@ -690,7 +692,7 @@ const LandingPage = () => {
                 onClick={() => navigate(service.route)}
                 className="group cursor-pointer"
               >
-                <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 bg-white h-full">
+                <Card className="relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 bg-card h-full">
                   <div className={`absolute inset-0 bg-gradient-to-br ${service.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
                   
                   <CardContent className="p-8">
@@ -698,18 +700,18 @@ const LandingPage = () => {
                       <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${service.color} flex items-center justify-center text-3xl shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                         {service.image}
                       </div>
-                      <ChevronRight className="h-6 w-6 text-gray-400 group-hover:text-gray-900 group-hover:translate-x-1 transition-all" />
+                      <ChevronRight className="h-6 w-6 text-muted-foreground/70 group-hover:text-foreground group-hover:translate-x-1 transition-all" />
                     </div>
                     
-                    <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                    <h3 className="text-2xl font-bold text-foreground mb-2">
                       {service.name}
                     </h3>
                     
-                    <p className="text-sm font-medium text-gray-500 mb-3">
+                    <p className="text-sm font-medium text-muted-foreground mb-3">
                       {service.tagline}
                     </p>
                     
-                    <p className="text-gray-600 leading-relaxed">
+                    <p className="text-muted-foreground leading-relaxed">
                       {service.description}
                     </p>
                   </CardContent>
@@ -721,13 +723,13 @@ const LandingPage = () => {
       </section>
 
       {/* Features Section - Modern 4-column */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-card">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
               Why IslandHop?
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               The smartest way to get things delivered across the Caribbean
             </p>
           </div>
@@ -736,10 +738,10 @@ const LandingPage = () => {
             {features.map((feature, index) => (
               <div key={index} className="text-center p-6">
                 <div className="text-6xl mb-4">{feature.icon}</div>
-                <h3 className="text-xl font-bold text-gray-900 mb-3">
+                <h3 className="text-xl font-bold text-foreground mb-3">
                   {feature.title}
                 </h3>
-                <p className="text-gray-600 leading-relaxed">
+                <p className="text-muted-foreground leading-relaxed">
                   {feature.description}
                 </p>
               </div>
@@ -749,7 +751,7 @@ const LandingPage = () => {
       </section>
 
       {/* App Download Section */}
-      <section className="py-20 bg-gradient-to-r from-turquoise-500 to-orange-500">
+      <section className="py-20 bg-gold-gradient">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto text-center text-white">
             <h2 className="text-4xl md:text-5xl font-bold mb-6">
@@ -768,7 +770,7 @@ const LandingPage = () => {
               </Button>
               <Button 
                 size="lg" 
-                className="bg-white hover:bg-gray-50 text-gray-900 px-8 py-6 text-base font-semibold"
+                className="bg-card hover:bg-background text-foreground px-8 py-6 text-base font-semibold"
               >
                 <Smartphone className="mr-3 h-6 w-6" />
                 Get it on Google Play
@@ -790,7 +792,7 @@ const LandingPage = () => {
             </p>
             <Button 
               size="lg" 
-              className="bg-gradient-to-r from-turquoise-500 to-orange-500 hover:from-turquoise-600 hover:to-orange-600 text-white px-12 py-7 text-lg font-semibold shadow-xl hover:shadow-2xl transition-all hover:scale-105"
+              className="bg-gold-gradient hover:bg-gold-gradient-hover text-white px-12 py-7 text-lg font-semibold shadow-xl hover:shadow-2xl transition-all hover:scale-105"
               onClick={() => navigate('/partner')}
             >
               Become a Partner
@@ -823,7 +825,7 @@ const PartnerSelection = () => {
       name: 'Pharmacy',
       description: 'Deliver health products and prescriptions safely',
       icon: Pill,
-      color: 'from-blue-500 to-cyan-500',
+      color: 'from-neon-cyan to-gold-500',
       benefits: ['Secure delivery network', 'Prescription handling', 'Insurance compliance'],
       commission: '8%',
       route: '/partner/onboarding?type=pharmacy'
@@ -871,13 +873,13 @@ const PartnerSelection = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+          <h1 className="text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Become a Partner
           </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
             Join IslandHop's growing network of Caribbean businesses and reach more customers than ever before
           </p>
         </div>
@@ -896,20 +898,20 @@ const PartnerSelection = () => {
                     <partner.icon className="h-8 w-8 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold text-gray-900">{partner.name}</h3>
+                    <h3 className="text-2xl font-bold text-foreground">{partner.name}</h3>
                     <Badge variant="secondary" className="mt-1">{partner.commission} commission</Badge>
                   </div>
                 </div>
 
-                <p className="text-gray-600 mb-6 leading-relaxed">
+                <p className="text-muted-foreground mb-6 leading-relaxed">
                   {partner.description}
                 </p>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">Key Benefits:</h4>
+                  <h4 className="font-semibold text-foreground mb-3">Key Benefits:</h4>
                   <ul className="space-y-2">
                     {partner.benefits.map((benefit, idx) => (
-                      <li key={idx} className="flex items-center text-sm text-gray-600">
+                      <li key={idx} className="flex items-center text-sm text-muted-foreground">
                         <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0" />
                         {benefit}
                       </li>
@@ -930,7 +932,7 @@ const PartnerSelection = () => {
         </div>
 
         <div className="mt-16 text-center">
-          <Card className="max-w-4xl mx-auto bg-gradient-to-r from-turquoise-500 to-orange-500 border-0 text-white">
+          <Card className="max-w-4xl mx-auto bg-gold-gradient border-0 text-white">
             <CardContent className="p-8">
               <h3 className="text-2xl font-bold mb-4">Why Partner with IslandHop?</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1276,11 +1278,11 @@ const BusinessOnboarding = () => {
   */
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Business Onboarding</h1>
-          <p className="text-gray-600">Step {currentStep} of 6: {stepTitles[currentStep - 1]}</p>
+          <h1 className="text-3xl font-bold text-foreground mb-4">Business Onboarding</h1>
+          <p className="text-muted-foreground">Step {currentStep} of 6: {stepTitles[currentStep - 1]}</p>
         </div>
 
         {/* Progress Bar */}
@@ -1289,10 +1291,10 @@ const BusinessOnboarding = () => {
             {stepTitles.map((title, index) => (
               <div 
                 key={index}
-                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-turquoise-600' : 'text-gray-400'}`}
+                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                  index <= currentStep - 1 ? 'bg-turquoise-500 text-white' : 'bg-gray-300 text-gray-600'
+                  index <= currentStep - 1 ? 'bg-gold-500/15 text-white' : 'bg-gray-300 text-muted-foreground'
                 }`}>
                   {index + 1}
                 </div>
@@ -1302,7 +1304,7 @@ const BusinessOnboarding = () => {
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-turquoise-500 to-orange-500 h-2 rounded-full transition-all duration-300"
+              className="bg-gold-gradient h-2 rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / 6) * 100}%` }}
             ></div>
           </div>
@@ -1519,10 +1521,10 @@ const BusinessOnboarding = () => {
             {currentStep === 3 && (
               <div className="space-y-6" data-testid="business-specific-step">
                 <div className="text-center mb-6">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  <h3 className="text-2xl font-bold text-foreground mb-2">
                     {getBusinessSpecificFields().title}
                   </h3>
-                  <p className="text-gray-600">
+                  <p className="text-muted-foreground">
                     Please provide information specific to your business type
                   </p>
                 </div>
@@ -1607,7 +1609,7 @@ const BusinessOnboarding = () => {
                       
                       {field.type === 'multiselect' && (
                         <div className="space-y-2">
-                          <div className="text-sm text-gray-600">Select all that apply:</div>
+                          <div className="text-sm text-muted-foreground">Select all that apply:</div>
                           <div className="grid grid-cols-2 gap-2">
                             {field.options.map((option) => (
                               <div key={option} className="flex items-center space-x-2">
@@ -1638,7 +1640,7 @@ const BusinessOnboarding = () => {
                 </div>
 
                 {/* Business-specific help text */}
-                <div className="mt-8 p-4 bg-turquoise-50 rounded-lg">
+                <div className="mt-8 p-4 bg-gold-500/15 rounded-lg">
                   <h4 className="font-semibold text-turquoise-800 mb-2">
                     {businessType === 'restaurant' && 'Restaurant Guidelines'}
                     {businessType === 'pharmacy' && 'Pharmacy Requirements'}
@@ -1646,7 +1648,7 @@ const BusinessOnboarding = () => {
                     {businessType === 'car_rental' && 'Car Rental Guidelines'}
                     {!['restaurant', 'pharmacy', 'grocery', 'car_rental'].includes(businessType) && 'Business Information'}
                   </h4>
-                  <div className="text-sm text-turquoise-700">
+                  <div className="text-sm text-gold-300">
                     {businessType === 'restaurant' && (
                       <ul className="list-disc list-inside space-y-1">
                         <li>Ensure you have valid food handler's licenses for all staff</li>
@@ -1698,18 +1700,18 @@ const BusinessOnboarding = () => {
                         key={tier.id}
                         className={`cursor-pointer transition-all duration-200 ${
                           formData.selectedPricingTier === tier.id 
-                            ? 'border-turquoise-500 bg-turquoise-50' 
-                            : 'hover:border-gray-300'
+                            ? 'border-gold-500/30 bg-gold-500/15' 
+                            : 'hover:border-border'
                         }`}
                         onClick={() => handleInputChange('selectedPricingTier', tier.id)}
                         data-testid={`pricing-tier-${tier.name.toLowerCase()}`}
                       >
                         <CardContent className="p-6 text-center">
                           <h3 className="font-bold text-lg mb-2">{tier.name}</h3>
-                          <div className="text-2xl font-bold text-turquoise-600 mb-2">
+                          <div className="text-2xl font-bold text-gold-500 mb-2">
                             ${tier.monthly_fee}/mo
                           </div>
-                          <div className="text-sm text-gray-600 mb-4">
+                          <div className="text-sm text-muted-foreground mb-4">
                             {tier.commission_rate}% commission
                           </div>
                           <ul className="text-xs text-left space-y-1">
@@ -1780,19 +1782,19 @@ const BusinessOnboarding = () => {
             {currentStep === 5 && (
               <div className="space-y-6" data-testid="documents-banking-step">
                 <div className="text-center mb-6">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  <h3 className="text-2xl font-bold text-foreground mb-2">
                     Documents & Banking Information
                   </h3>
-                  <p className="text-gray-600">
+                  <p className="text-muted-foreground">
                     Upload required documents and provide banking details for secure payouts
                   </p>
                 </div>
 
                 {/* Document Upload Section */}
-                <Card className="bg-gray-50">
+                <Card className="bg-background">
                   <CardHeader>
                     <CardTitle className="flex items-center">
-                      <Package className="h-5 w-5 mr-2 text-turquoise-600" />
+                      <Package className="h-5 w-5 mr-2 text-gold-500" />
                       Required Documents
                     </CardTitle>
                   </CardHeader>
@@ -1800,9 +1802,9 @@ const BusinessOnboarding = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <Label htmlFor="businessLicense">Business License *</Label>
-                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Upload Business License</p>
+                        <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground mb-2">Upload Business License</p>
                           <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png"
@@ -1822,9 +1824,9 @@ const BusinessOnboarding = () => {
 
                       <div>
                         <Label htmlFor="taxId">Tax ID / EIN Document *</Label>
-                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Upload Tax ID Document</p>
+                        <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground mb-2">Upload Tax ID Document</p>
                           <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png"
@@ -1844,9 +1846,9 @@ const BusinessOnboarding = () => {
 
                       <div>
                         <Label htmlFor="proofOfAddress">Proof of Business Address</Label>
-                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Utility bill or lease agreement</p>
+                        <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground mb-2">Utility bill or lease agreement</p>
                           <input
                             type="file"
                             accept=".pdf,.jpg,.jpeg,.png"
@@ -1866,9 +1868,9 @@ const BusinessOnboarding = () => {
 
                       <div>
                         <Label htmlFor="businessPhotos">Business Photos</Label>
-                        <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Interior/exterior photos</p>
+                        <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
+                          <Package className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground mb-2">Interior/exterior photos</p>
                           <input
                             type="file"
                             accept=".jpg,.jpeg,.png"
@@ -1891,10 +1893,10 @@ const BusinessOnboarding = () => {
                 </Card>
 
                 {/* Banking Information Section */}
-                <Card className="bg-blue-50">
+                <Card className="bg-neon-cyan/10">
                   <CardHeader>
                     <CardTitle className="flex items-center">
-                      <CreditCard className="h-5 w-5 mr-2 text-blue-600" />
+                      <CreditCard className="h-5 w-5 mr-2 text-neon-cyan" />
                       Banking Information
                     </CardTitle>
                   </CardHeader>
@@ -1958,12 +1960,12 @@ const BusinessOnboarding = () => {
                       </div>
                     </div>
 
-                    <div className="mt-6 p-4 bg-white rounded-lg border">
+                    <div className="mt-6 p-4 bg-card rounded-lg border">
                       <div className="flex items-start space-x-3">
                         <Shield className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          <h4 className="font-semibold text-gray-900 mb-1">Secure Banking Information</h4>
-                          <p className="text-sm text-gray-600">
+                          <h4 className="font-semibold text-foreground mb-1">Secure Banking Information</h4>
+                          <p className="text-sm text-muted-foreground">
                             Your banking information is encrypted and securely stored. We use bank-level security to protect your financial data.
                             Payouts are processed weekly and typically arrive within 1-2 business days.
                           </p>
@@ -1979,8 +1981,8 @@ const BusinessOnboarding = () => {
             {currentStep === 6 && (
               <div className="space-y-6" data-testid="review-submit-step">
                 <div className="text-center mb-6">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Review Your Application</h3>
-                  <p className="text-gray-600">Please review all information before submitting</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Review Your Application</h3>
+                  <p className="text-muted-foreground">Please review all information before submitting</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -2148,7 +2150,7 @@ const BusinessOnboarding = () => {
               {currentStep < 6 ? (
                 <Button 
                   onClick={nextStep}
-                  className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                  className="bg-gold-gradient text-white"
                   data-testid="next-step-btn"
                 >
                   Next Step
@@ -2232,11 +2234,11 @@ const AISupport = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">AI Customer Support</h1>
-          <p className="text-gray-600">Get instant help with your IslandHop questions</p>
+          <h1 className="text-3xl font-bold text-foreground mb-4">AI Customer Support</h1>
+          <p className="text-muted-foreground">Get instant help with your IslandHop questions</p>
         </div>
 
         <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl h-96">
@@ -2251,8 +2253,8 @@ const AISupport = () => {
                   <div 
                     className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                       message.type === 'user' 
-                        ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white' 
-                        : 'bg-gray-100 text-gray-900'
+                        ? 'bg-gold-gradient text-white' 
+                        : 'bg-matte-800 text-foreground'
                     }`}
                     data-testid={`chat-message-${message.type}`}
                   >
@@ -2263,7 +2265,7 @@ const AISupport = () => {
               
               {isLoading && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-100 px-4 py-2 rounded-lg">
+                  <div className="bg-matte-800 px-4 py-2 rounded-lg">
                     <div className="flex space-x-1">
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -2287,7 +2289,7 @@ const AISupport = () => {
               <Button 
                 onClick={sendMessage}
                 disabled={isLoading || !currentMessage.trim()}
-                className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                className="bg-gold-gradient text-white"
                 data-testid="send-message-btn"
               >
                 <MessageCircle className="h-4 w-4" />
@@ -2298,33 +2300,33 @@ const AISupport = () => {
 
         {/* FAQ Section */}
         <div className="mt-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Common Questions</h2>
+          <h2 className="text-2xl font-bold text-foreground mb-6 text-center">Common Questions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentMessage("How do I track my order?")}>
               <CardContent className="p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">How do I track my order?</h3>
-                <p className="text-gray-600 text-sm">Learn about real-time order tracking</p>
+                <h3 className="font-semibold text-foreground mb-2">How do I track my order?</h3>
+                <p className="text-muted-foreground text-sm">Learn about real-time order tracking</p>
               </CardContent>
             </Card>
             
             <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentMessage("What are the delivery fees?")}>
               <CardContent className="p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">What are the delivery fees?</h3>
-                <p className="text-gray-600 text-sm">Information about pricing and fees</p>
+                <h3 className="font-semibold text-foreground mb-2">What are the delivery fees?</h3>
+                <p className="text-muted-foreground text-sm">Information about pricing and fees</p>
               </CardContent>
             </Card>
             
             <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentMessage("How do I become a partner?")}>
               <CardContent className="p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">How do I become a partner?</h3>
-                <p className="text-gray-600 text-sm">Learn about joining our partner network</p>
+                <h3 className="font-semibold text-foreground mb-2">How do I become a partner?</h3>
+                <p className="text-muted-foreground text-sm">Learn about joining our partner network</p>
               </CardContent>
             </Card>
             
             <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentMessage("What payment methods do you accept?")}>
               <CardContent className="p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">Payment Methods</h3>
-                <p className="text-gray-600 text-sm">Supported payment options</p>
+                <h3 className="font-semibold text-foreground mb-2">Payment Methods</h3>
+                <p className="text-muted-foreground text-sm">Supported payment options</p>
               </CardContent>
             </Card>
           </div>
@@ -2367,11 +2369,11 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {user.name}!</h1>
-          <p className="text-gray-600">Manage your IslandHop experience</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Welcome back, {user.name}!</h1>
+          <p className="text-muted-foreground">Manage your IslandHop experience</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2431,18 +2433,18 @@ const Dashboard = () => {
                 {user.picture ? (
                   <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full" />
                 ) : (
-                  <div className="w-12 h-12 bg-gradient-to-r from-turquoise-500 to-orange-500 rounded-full flex items-center justify-center text-white font-bold">
+                  <div className="w-12 h-12 bg-gold-gradient rounded-full flex items-center justify-center text-white font-bold">
                     {user.name.charAt(0)}
                   </div>
                 )}
                 <div>
                   <div className="font-semibold">{user.name}</div>
-                  <div className="text-sm text-gray-600">{user.email}</div>
+                  <div className="text-sm text-muted-foreground">{user.email}</div>
                 </div>
               </div>
               <div className="pt-4 border-t">
                 <Badge variant="secondary" className="mb-2">Active Member</Badge>
-                <p className="text-xs text-gray-600">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <p className="text-xs text-muted-foreground">Member since {new Date(user.created_at).toLocaleDateString()}</p>
               </div>
             </CardContent>
           </Card>
@@ -2461,8 +2463,8 @@ const Dashboard = () => {
                     <div key={app.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
                         <h3 className="font-semibold">{app.business_details.business_name}</h3>
-                        <p className="text-sm text-gray-600">{app.business_details.business_type}</p>
-                        <p className="text-xs text-gray-500">Applied: {new Date(app.application_date).toLocaleDateString()}</p>
+                        <p className="text-sm text-muted-foreground">{app.business_details.business_type}</p>
+                        <p className="text-xs text-muted-foreground">Applied: {new Date(app.application_date).toLocaleDateString()}</p>
                       </div>
                       <div className="text-right">
                         <Badge 
@@ -2479,7 +2481,7 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-gray-600 mb-4">No business applications yet</p>
+                  <p className="text-muted-foreground mb-4">No business applications yet</p>
                   <Button onClick={() => navigate('/partner')}>
                     Become a Partner
                   </Button>
@@ -2499,13 +2501,13 @@ const RestaurantsPage = () => {
   const { toast } = useToast();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+          <h1 className="text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Caribbean Restaurants
           </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
             Discover authentic Caribbean cuisine delivered fresh to your door
           </p>
         </div>
@@ -2517,11 +2519,11 @@ const RestaurantsPage = () => {
               <div className="w-full h-48 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg mb-4 flex items-center justify-center">
                 <Utensils className="h-12 w-12 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Island Spice Kitchen</h3>
-              <p className="text-gray-600 mb-4">Authentic Jamaican cuisine with a modern twist</p>
+              <h3 className="text-xl font-bold text-foreground mb-2">Island Spice Kitchen</h3>
+              <p className="text-muted-foreground mb-4">Authentic Jamaican cuisine with a modern twist</p>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <Star className="h-4 w-4 text-gold-500 mr-1" />
                   <span className="text-sm">4.8 (120 reviews)</span>
                 </div>
                 <Badge>30-45 min</Badge>
@@ -2534,11 +2536,11 @@ const RestaurantsPage = () => {
               <div className="w-full h-48 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg mb-4 flex items-center justify-center">
                 <ChefHat className="h-12 w-12 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Tropical Delights</h3>
-              <p className="text-gray-600 mb-4">Fresh seafood and tropical flavors</p>
+              <h3 className="text-xl font-bold text-foreground mb-2">Tropical Delights</h3>
+              <p className="text-muted-foreground mb-4">Fresh seafood and tropical flavors</p>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <Star className="h-4 w-4 text-gold-500 mr-1" />
                   <span className="text-sm">4.6 (89 reviews)</span>
                 </div>
                 <Badge>25-40 min</Badge>
@@ -2551,11 +2553,11 @@ const RestaurantsPage = () => {
               <div className="w-full h-48 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg mb-4 flex items-center justify-center">
                 <Utensils className="h-12 w-12 text-white" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Caribbean Fusion</h3>
-              <p className="text-gray-600 mb-4">International dishes with Caribbean flair</p>
+              <h3 className="text-xl font-bold text-foreground mb-2">Caribbean Fusion</h3>
+              <p className="text-muted-foreground mb-4">International dishes with Caribbean flair</p>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                  <Star className="h-4 w-4 text-gold-500 mr-1" />
                   <span className="text-sm">4.9 (156 reviews)</span>
                 </div>
                 <Badge>35-50 min</Badge>
@@ -2567,7 +2569,7 @@ const RestaurantsPage = () => {
         <div className="text-center mt-12">
           <Button 
             onClick={() => navigate('/partner')}
-            className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+            className="bg-gold-gradient text-white"
           >
             <Building2 className="h-5 w-5 mr-2" />
             Add Your Restaurant
@@ -2630,13 +2632,13 @@ const DriverRegistration = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4 max-w-2xl">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">
+          <h1 className="text-3xl font-bold text-foreground mb-4">
             Drive with IslandHop
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Join our network of professional drivers and start earning today
           </p>
         </div>
@@ -2798,7 +2800,7 @@ const DriverRegistration = () => {
                 </Button>
                 <Button 
                   type="submit"
-                  className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                  className="bg-gold-gradient text-white"
                 >
                   Submit Application
                 </Button>
@@ -2808,7 +2810,7 @@ const DriverRegistration = () => {
         </Card>
 
         <div className="mt-8 text-center">
-          <Card className="bg-gradient-to-r from-turquoise-500 to-orange-500 border-0 text-white">
+          <Card className="bg-gold-gradient border-0 text-white">
             <CardContent className="p-6">
               <h3 className="text-xl font-bold mb-2">Why Drive with IslandHop?</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -2837,7 +2839,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50">
+        <div className="min-h-screen bg-gradient-to-br bg-background">
           <Header />
           <AuthHandler />
           

@@ -108,7 +108,7 @@ const TaxiBookingForm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-4xl">
         <Button
           variant="ghost"
@@ -121,10 +121,10 @@ const TaxiBookingForm = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-3xl flex items-center">
-              <Car className="h-8 w-8 mr-3 text-turquoise-600" />
+              <Car className="h-8 w-8 mr-3 text-gold-500" />
               Book a Taxi Ride
             </CardTitle>
-            <p className="text-gray-600 mt-2">Safe and reliable rides across the Caribbean islands</p>
+            <p className="text-muted-foreground mt-2">Safe and reliable rides across the Caribbean islands</p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -133,7 +133,7 @@ const TaxiBookingForm = () => {
                 <div>
                   <Label htmlFor="pickupLocation">Pickup Location Name</Label>
                   <div className="relative mt-1">
-                    <MapPin className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <MapPin className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="pickupLocation"
                       placeholder="e.g., Airport, Hotel, Home"
@@ -161,7 +161,7 @@ const TaxiBookingForm = () => {
                 <div>
                   <Label htmlFor="dropoffLocation">Dropoff Location Name</Label>
                   <div className="relative mt-1">
-                    <Navigation className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Navigation className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="dropoffLocation"
                       placeholder="e.g., Beach, Restaurant, Office"
@@ -189,7 +189,7 @@ const TaxiBookingForm = () => {
                 <div>
                   <Label htmlFor="pickupDate">Pickup Date</Label>
                   <div className="relative mt-1">
-                    <Calendar className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Calendar className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="pickupDate"
                       type="date"
@@ -203,7 +203,7 @@ const TaxiBookingForm = () => {
                 <div>
                   <Label htmlFor="pickupTime">Pickup Time</Label>
                   <div className="relative mt-1">
-                    <Clock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Clock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="pickupTime"
                       type="time"
@@ -225,8 +225,8 @@ const TaxiBookingForm = () => {
                       key={vehicle.id}
                       className={`cursor-pointer transition-all hover:shadow-lg ${
                         bookingData.vehicleType === vehicle.id
-                          ? 'border-2 border-turquoise-500 bg-turquoise-50'
-                          : 'border border-gray-200'
+                          ? 'border-2 border-gold-500/30 bg-gold-500/15'
+                          : 'border border-border'
                       }`}
                       onClick={() => handleInputChange('vehicleType', vehicle.id)}
                     >
@@ -234,9 +234,9 @@ const TaxiBookingForm = () => {
                         <div className="flex items-center space-x-3">
                           <span className="text-3xl">{vehicle.icon}</span>
                           <div className="flex-1">
-                            <h4 className="font-semibold text-gray-900">{vehicle.name}</h4>
-                            <p className="text-sm text-gray-600">{vehicle.description}</p>
-                            <p className="text-xs text-turquoise-600 mt-1">
+                            <h4 className="font-semibold text-foreground">{vehicle.name}</h4>
+                            <p className="text-sm text-muted-foreground">{vehicle.description}</p>
+                            <p className="text-xs text-gold-500 mt-1">
                               ${vehicle.baseFare} base + ${vehicle.perKm}/km
                             </p>
                           </div>
@@ -252,7 +252,7 @@ const TaxiBookingForm = () => {
                 <div>
                   <Label htmlFor="passengers">Number of Passengers</Label>
                   <div className="relative mt-1">
-                    <Users className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Users className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="passengers"
                       type="number"
@@ -284,7 +284,7 @@ const TaxiBookingForm = () => {
                 <textarea
                   id="notes"
                   rows="3"
-                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-turquoise-500"
+                  className="w-full mt-1 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-gold-500"
                   placeholder="Any special requests or instructions..."
                   value={bookingData.notes}
                   onChange={(e) => handleInputChange('notes', e.target.value)}
@@ -294,18 +294,18 @@ const TaxiBookingForm = () => {
               <Separator />
 
               {/* Fare Estimate */}
-              <div className="bg-gradient-to-r from-turquoise-50 to-orange-50 p-6 rounded-lg">
+              <div className="bg-gold-gradient p-6 rounded-lg">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Estimated Fare</h3>
-                    <p className="text-sm text-gray-600">Final fare may vary based on actual distance and traffic</p>
+                    <h3 className="text-lg font-semibold text-foreground">Estimated Fare</h3>
+                    <p className="text-sm text-muted-foreground">Final fare may vary based on actual distance and traffic</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-3xl font-bold text-turquoise-600">${calculateFare()}</p>
-                    <p className="text-sm text-gray-600">~10 km estimated</p>
+                    <p className="text-3xl font-bold text-gold-500">${calculateFare()}</p>
+                    <p className="text-sm text-muted-foreground">~10 km estimated</p>
                   </div>
                 </div>
-                <div className="flex items-center text-sm text-gray-600">
+                <div className="flex items-center text-sm text-muted-foreground">
                   <DollarSign className="h-4 w-4 mr-2" />
                   <span>Includes base fare, distance charge, and service fee</span>
                 </div>
@@ -314,7 +314,7 @@ const TaxiBookingForm = () => {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white text-lg py-6"
+                className="w-full bg-gold-gradient text-white text-lg py-6"
               >
                 Continue to Booking Confirmation
               </Button>

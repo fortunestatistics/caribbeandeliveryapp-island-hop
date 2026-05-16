@@ -199,12 +199,12 @@ const RestaurantOnboarding = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Become a Partner Restaurant</h1>
-          <p className="text-gray-600">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
+          <h1 className="text-3xl font-bold text-foreground mb-4">Become a Partner Restaurant</h1>
+          <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
         </div>
 
         {/* Progress Bar */}
@@ -213,10 +213,10 @@ const RestaurantOnboarding = () => {
             {stepTitles.map((title, index) => (
               <div 
                 key={index}
-                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-turquoise-600' : 'text-gray-400'}`}
+                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                  index <= currentStep - 1 ? 'bg-turquoise-500 text-white' : 'bg-gray-300 text-gray-600'
+                  index <= currentStep - 1 ? 'bg-gold-500/15 text-white' : 'bg-gray-300 text-muted-foreground'
                 }`}>
                   {index + 1}
                 </div>
@@ -226,7 +226,7 @@ const RestaurantOnboarding = () => {
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-turquoise-500 to-orange-500 h-2 rounded-full transition-all duration-300"
+              className="bg-gold-gradient h-2 rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / 5) * 100}%` }}
             ></div>
           </div>
@@ -239,8 +239,8 @@ const RestaurantOnboarding = () => {
               <div className="space-y-6" data-testid="business-info-step">
                 <div className="text-center mb-6">
                   <Utensils className="h-12 w-12 text-red-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Business Information</h3>
-                  <p className="text-gray-600">Tell us about your restaurant</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Business Information</h3>
+                  <p className="text-muted-foreground">Tell us about your restaurant</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -354,7 +354,7 @@ const RestaurantOnboarding = () => {
                   </div>
                   {formData.cuisineTypes.length > 0 && (
                     <div className="mt-3">
-                      <span className="text-sm text-gray-600">Selected: </span>
+                      <span className="text-sm text-muted-foreground">Selected: </span>
                       {formData.cuisineTypes.map((cuisine, index) => (
                         <Badge key={index} variant="secondary" className="ml-1">
                           {cuisine}
@@ -382,9 +382,9 @@ const RestaurantOnboarding = () => {
             {currentStep === 2 && (
               <div className="space-y-6" data-testid="operating-hours-step">
                 <div className="text-center mb-6">
-                  <Clock className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Operating Hours</h3>
-                  <p className="text-gray-600">Set your restaurant's operating hours</p>
+                  <Clock className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Operating Hours</h3>
+                  <p className="text-muted-foreground">Set your restaurant's operating hours</p>
                 </div>
 
                 <div className="space-y-4">
@@ -436,9 +436,9 @@ const RestaurantOnboarding = () => {
                   ))}
                 </div>
 
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                  <h4 className="font-semibold text-blue-900 mb-2">Operating Hours Tips</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
+                <div className="mt-6 p-4 bg-neon-cyan/10 rounded-lg">
+                  <h4 className="font-semibold text-neon-cyan mb-2">Operating Hours Tips</h4>
+                  <ul className="text-sm text-neon-cyan space-y-1">
                     <li>• Set realistic hours that your kitchen can consistently handle</li>
                     <li>• Consider your peak ordering times (lunch and dinner rushes)</li>
                     <li>• You can update these hours later in your dashboard</li>
@@ -452,17 +452,17 @@ const RestaurantOnboarding = () => {
               <div className="space-y-6" data-testid="documents-step">
                 <div className="text-center mb-6">
                   <FileText className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Documents Upload</h3>
-                  <p className="text-gray-600">Upload required documents and photos</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Documents Upload</h3>
+                  <p className="text-muted-foreground">Upload required documents and photos</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Required Documents */}
                   <div>
                     <Label>Business License *</Label>
-                    <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                      <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">
+                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         {formData.businessLicense ? formData.businessLicense.name : 'Upload Business License'}
                       </p>
                       <input
@@ -486,9 +486,9 @@ const RestaurantOnboarding = () => {
 
                   <div>
                     <Label>Food Handler Certificate *</Label>
-                    <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                      <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">
+                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         {formData.foodHandlerCertificate ? formData.foodHandlerCertificate.name : 'Upload Food Handler Certificate'}
                       </p>
                       <input
@@ -512,9 +512,9 @@ const RestaurantOnboarding = () => {
 
                   <div>
                     <Label>Tax ID Document *</Label>
-                    <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                      <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">
+                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         {formData.taxId ? formData.taxId.name : 'Upload Tax ID/EIN'}
                       </p>
                       <input
@@ -538,9 +538,9 @@ const RestaurantOnboarding = () => {
 
                   <div>
                     <Label>Menu Photos</Label>
-                    <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                      <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">
+                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         {formData.menuPhotos.length > 0 ? `${formData.menuPhotos.length} files selected` : 'Upload Menu Photos'}
                       </p>
                       <input
@@ -565,9 +565,9 @@ const RestaurantOnboarding = () => {
 
                   <div className="md:col-span-2">
                     <Label>Restaurant Photos</Label>
-                    <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                      <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">
+                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         {formData.restaurantPhotos.length > 0 ? `${formData.restaurantPhotos.length} files selected` : 'Upload Restaurant Interior/Exterior Photos'}
                       </p>
                       <input
@@ -598,8 +598,8 @@ const RestaurantOnboarding = () => {
               <div className="space-y-6" data-testid="banking-step">
                 <div className="text-center mb-6">
                   <CreditCard className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Banking Information</h3>
-                  <p className="text-gray-600">Secure account details for receiving payments</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information</h3>
+                  <p className="text-muted-foreground">Secure account details for receiving payments</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -684,8 +684,8 @@ const RestaurantOnboarding = () => {
               <div className="space-y-6" data-testid="review-step">
                 <div className="text-center mb-6">
                   <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Review Your Application</h3>
-                  <p className="text-gray-600">Please review all information before submitting</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Review Your Application</h3>
+                  <p className="text-muted-foreground">Please review all information before submitting</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -774,7 +774,7 @@ const RestaurantOnboarding = () => {
               {currentStep < 5 ? (
                 <Button 
                   onClick={nextStep}
-                  className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                  className="bg-gold-gradient text-white"
                   data-testid="next-step-btn"
                 >
                   Next Step

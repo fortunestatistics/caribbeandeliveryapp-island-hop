@@ -40,10 +40,10 @@ const Modal = ({ open, onClose, title, children }) => {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-card rounded-lg w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h3 className="font-semibold">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700">
+          <button onClick={onClose} aria-label="Close" className="text-muted-foreground/70 hover:text-foreground/90">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -174,7 +174,7 @@ const WalletPage = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
       </div>
     );
   }
@@ -184,13 +184,13 @@ const WalletPage = () => {
   const currencies = Object.keys(balances).length ? Object.keys(balances) : ['USD', 'JMD'];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4">
+    <div className="min-h-screen bg-background py-10 px-4">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-3 mb-2">
-          <WalletIcon className="h-7 w-7 text-teal-600" />
+          <WalletIcon className="h-7 w-7 text-gold-500" />
           <h1 className="text-3xl font-bold">Wallet</h1>
         </div>
-        <p className="text-gray-600 mb-8">Hold balance, pay for orders, send money to other users, and move funds with CariPay.</p>
+        <p className="text-muted-foreground mb-8">Hold balance, pay for orders, send money to other users, and move funds with CariPay.</p>
 
         {success && (
           <div className="mb-4 flex items-center gap-2 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm" data-testid="wallet-success">
@@ -206,13 +206,13 @@ const WalletPage = () => {
         {/* Balances */}
         <div className="grid sm:grid-cols-2 gap-4 mb-6">
           {currencies.map((c) => (
-            <Card key={c} className={c === 'USD' ? 'bg-gradient-to-br from-teal-600 to-teal-700 text-white border-0' : ''}>
+            <Card key={c} className={c === 'USD' ? 'bg-gradient-to-br from-gold-300 to-gold-700 text-white border-0' : ''}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-medium ${c === 'USD' ? 'text-teal-100' : 'text-gray-500'}`}>{CURRENCY_LABELS[c] || c}</span>
-                  <span className={`text-xs font-mono ${c === 'USD' ? 'text-teal-100' : 'text-gray-400'}`}>{c}</span>
+                  <span className={`text-xs font-medium ${c === 'USD' ? 'text-gold-300' : 'text-muted-foreground'}`}>{CURRENCY_LABELS[c] || c}</span>
+                  <span className={`text-xs font-mono ${c === 'USD' ? 'text-gold-300' : 'text-muted-foreground/70'}`}>{c}</span>
                 </div>
-                <div className={`text-3xl font-bold ${c === 'USD' ? 'text-white' : 'text-gray-900'}`} data-testid={`wallet-balance-${c}`}>
+                <div className={`text-3xl font-bold ${c === 'USD' ? 'text-white' : 'text-foreground'}`} data-testid={`wallet-balance-${c}`}>
                   ${formatAmt(balances[c])}
                 </div>
               </CardContent>
@@ -225,13 +225,13 @@ const WalletPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2 text-base">
-                {linked ? <Link2 className="h-5 w-5 text-green-600" /> : <Link2Off className="h-5 w-5 text-gray-400" />}
+                {linked ? <Link2 className="h-5 w-5 text-green-600" /> : <Link2Off className="h-5 w-5 text-muted-foreground/70" />}
                 CariPay
               </span>
               {linked ? (
                 <Badge className="bg-green-100 text-green-800" data-testid="caripay-status-linked">Linked</Badge>
               ) : (
-                <Badge className="bg-gray-100 text-gray-700" data-testid="caripay-status-unlinked">Not linked</Badge>
+                <Badge className="bg-matte-800 text-foreground/90" data-testid="caripay-status-unlinked">Not linked</Badge>
               )}
             </CardTitle>
           </CardHeader>
@@ -239,16 +239,16 @@ const WalletPage = () => {
             {linked ? (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Linked account</p>
+                  <p className="text-sm text-muted-foreground">Linked account</p>
                   <p className="font-mono" data-testid="caripay-handle">{wallet.caripay_handle}</p>
-                  <p className="text-xs text-gray-500 mt-1">Country: {wallet.caripay_country || '—'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Country: {wallet.caripay_country || '—'}</p>
                 </div>
                 <Button variant="outline" onClick={unlink} data-testid="caripay-unlink-btn">Unlink</Button>
               </div>
             ) : (
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-600">Link your CariPay account to deposit and withdraw funds.</p>
-                <Button onClick={() => setActiveModal('link')} className="bg-teal-600 hover:bg-teal-700 text-white" data-testid="caripay-link-btn">
+                <p className="text-sm text-muted-foreground">Link your CariPay account to deposit and withdraw funds.</p>
+                <Button onClick={() => setActiveModal('link')} className="bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="caripay-link-btn">
                   Link CariPay
                 </Button>
               </div>
@@ -267,7 +267,7 @@ const WalletPage = () => {
           >
             <ArrowDownToLine className="h-6 w-6 text-green-600" />
             <span className="text-sm font-semibold">Deposit</span>
-            <span className="text-xs text-gray-500">From CariPay</span>
+            <span className="text-xs text-muted-foreground">From CariPay</span>
           </Button>
           <Button
             variant="outline"
@@ -276,9 +276,9 @@ const WalletPage = () => {
             className="h-auto py-4 flex-col gap-2"
             data-testid="wallet-withdraw-btn"
           >
-            <ArrowUpFromLine className="h-6 w-6 text-amber-600" />
+            <ArrowUpFromLine className="h-6 w-6 text-gold-500" />
             <span className="text-sm font-semibold">Withdraw</span>
-            <span className="text-xs text-gray-500">To CariPay</span>
+            <span className="text-xs text-muted-foreground">To CariPay</span>
           </Button>
           <Button
             variant="outline"
@@ -286,9 +286,9 @@ const WalletPage = () => {
             className="h-auto py-4 flex-col gap-2"
             data-testid="wallet-send-btn"
           >
-            <Send className="h-6 w-6 text-teal-600" />
+            <Send className="h-6 w-6 text-gold-500" />
             <span className="text-sm font-semibold">Send</span>
-            <span className="text-xs text-gray-500">To IslandHop user</span>
+            <span className="text-xs text-muted-foreground">To IslandHop user</span>
           </Button>
           <Button
             variant="outline"
@@ -296,9 +296,9 @@ const WalletPage = () => {
             className="h-auto py-4 flex-col gap-2"
             data-testid="wallet-request-btn"
           >
-            <HandCoins className="h-6 w-6 text-violet-600" />
+            <HandCoins className="h-6 w-6 text-neon-cyan" />
             <span className="text-sm font-semibold">Request</span>
-            <span className="text-xs text-gray-500">Ask for money</span>
+            <span className="text-xs text-muted-foreground">Ask for money</span>
           </Button>
         </div>
 
@@ -307,19 +307,19 @@ const WalletPage = () => {
           <Card className="mb-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <HandCoins className="h-5 w-5 text-violet-600" /> Money requests
+                <HandCoins className="h-5 w-5 text-neon-cyan" /> Money requests
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {requests.incoming.filter((r) => r.status === 'pending').length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Incoming · they want money from you</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Incoming · they want money from you</p>
                   <div className="divide-y" data-testid="wallet-incoming-requests">
                     {requests.incoming.filter((r) => r.status === 'pending').map((r) => (
                       <div key={r.id} className="py-3 flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{r.requester_email}</p>
-                          <p className="text-xs text-gray-500 truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
+                          <p className="text-xs text-muted-foreground truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
                           <p className="font-semibold">${formatAmt(r.amount)} {r.currency}</p>
@@ -339,13 +339,13 @@ const WalletPage = () => {
               )}
               {requests.outgoing.filter((r) => r.status === 'pending').length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Outgoing · you asked for money</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Outgoing · you asked for money</p>
                   <div className="divide-y" data-testid="wallet-outgoing-requests">
                     {requests.outgoing.filter((r) => r.status === 'pending').map((r) => (
                       <div key={r.id} className="py-3 flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">To: {r.payer_email}</p>
-                          <p className="text-xs text-gray-500 truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
+                          <p className="text-xs text-muted-foreground truncate">{r.note || 'No note'} · {new Date(r.created_at).toLocaleDateString()}</p>
                         </div>
                         <p className="font-semibold text-right">${formatAmt(r.amount)} {r.currency}</p>
                         <Button size="sm" variant="outline" onClick={() => resolveRequest(r.id, 'cancel')} disabled={busy} data-testid={`cancel-${r.id}`}>
@@ -369,24 +369,24 @@ const WalletPage = () => {
           </CardHeader>
           <CardContent>
             {txns.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-6">No transactions yet.</p>
+              <p className="text-sm text-muted-foreground text-center py-6">No transactions yet.</p>
             ) : (
               <div className="divide-y" data-testid="wallet-txn-list">
                 {txns.map((t) => (
                   <div key={t.id} className="py-3 flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium">{TXN_TYPE_LABEL[t.type] || t.type}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {t.counterparty_handle ? `via ${t.counterparty_handle} · ` : ''}
                         {new Date(t.created_at).toLocaleString()}
                         {t.note ? ` · ${t.note}` : ''}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className={`font-semibold ${TXN_COLOR[t.type] || 'text-gray-700'}`}>
+                      <p className={`font-semibold ${TXN_COLOR[t.type] || 'text-foreground/90'}`}>
                         {TXN_SIGN[t.type] || ''}${formatAmt(t.amount)} {t.currency}
                       </p>
-                      <Badge className={t.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
+                      <Badge className={t.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gold-500/15 text-gold-300'}>
                         {t.status}
                       </Badge>
                     </div>
@@ -401,13 +401,13 @@ const WalletPage = () => {
       {/* Link modal */}
       <Modal open={activeModal === 'link'} onClose={closeModal} title="Link your CariPay account">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">Enter your CariPay phone number, email, or account ID. We'll use it to deposit and withdraw funds.</p>
+          <p className="text-sm text-muted-foreground">Enter your CariPay phone number, email, or account ID. We'll use it to deposit and withdraw funds.</p>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">CariPay handle</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">CariPay handle</label>
             <Input value={linkHandle} onChange={(e) => setLinkHandle(e.target.value)} placeholder="+1 876 555 1234" data-testid="link-handle-input" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Country</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Country</label>
             <select value={linkCountry} onChange={(e) => setLinkCountry(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" data-testid="link-country-select">
               <option value="JM">🇯🇲 Jamaica</option>
               <option value="TT">🇹🇹 Trinidad & Tobago</option>
@@ -418,7 +418,7 @@ const WalletPage = () => {
             </select>
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
-          <Button onClick={submitLink} disabled={busy} className="w-full bg-teal-600 hover:bg-teal-700 text-white" data-testid="link-submit-btn">
+          <Button onClick={submitLink} disabled={busy} className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="link-submit-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Link account'}
           </Button>
         </div>
@@ -430,11 +430,11 @@ const WalletPage = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Amount</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Amount</label>
               <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" data-testid="transfer-amount-input" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Currency</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Currency</label>
               <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" data-testid="transfer-currency-select">
                 <option value="USD">USD</option><option value="JMD">JMD</option>
                 <option value="TTD">TTD</option><option value="BBD">BBD</option>
@@ -443,11 +443,11 @@ const WalletPage = () => {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Note (optional)</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Note (optional)</label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Grocery money" />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
-          <Button onClick={() => submitTransfer(activeModal)} disabled={busy} className="w-full bg-teal-600 hover:bg-teal-700 text-white" data-testid="transfer-submit-btn">
+          <Button onClick={() => submitTransfer(activeModal)} disabled={busy} className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="transfer-submit-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : (activeModal === 'deposit' ? 'Deposit' : 'Withdraw')}
           </Button>
         </div>
@@ -457,27 +457,27 @@ const WalletPage = () => {
       <Modal open={activeModal === 'send'} onClose={closeModal} title="Send to another IslandHop user">
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Recipient email</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Recipient email</label>
             <Input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="friend@example.com" data-testid="send-recipient-input" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Amount</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Amount</label>
               <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" data-testid="send-amount-input" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Currency</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Currency</label>
               <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
                 <option value="USD">USD</option><option value="JMD">JMD</option>
               </select>
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Note (optional)</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Note (optional)</label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Thanks for lunch!" />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
-          <Button onClick={() => submitTransfer('send')} disabled={busy} className="w-full bg-teal-600 hover:bg-teal-700 text-white" data-testid="send-submit-btn">
+          <Button onClick={() => submitTransfer('send')} disabled={busy} className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="send-submit-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send money'}
           </Button>
         </div>
@@ -487,27 +487,27 @@ const WalletPage = () => {
       <Modal open={activeModal === 'request'} onClose={closeModal} title="Request money from another user">
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Payer email</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Payer email</label>
             <Input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="friend@example.com" data-testid="request-payer-input" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Amount</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Amount</label>
               <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" data-testid="request-amount-input" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Currency</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Currency</label>
               <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
                 <option value="USD">USD</option><option value="JMD">JMD</option>
               </select>
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Note (optional)</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Note (optional)</label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Split the dinner bill" />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
-          <Button onClick={submitRequest} disabled={busy} className="w-full bg-violet-600 hover:bg-violet-700 text-white" data-testid="request-submit-btn">
+          <Button onClick={submitRequest} disabled={busy} className="w-full bg-neon-cyan hover:bg-neon-cyan/80 text-white" data-testid="request-submit-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send request'}
           </Button>
         </div>

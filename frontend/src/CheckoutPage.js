@@ -148,7 +148,7 @@ export const CheckoutPage = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
       </div>
     );
   }
@@ -171,11 +171,11 @@ export const CheckoutPage = () => {
   const tipChips = [0, 2, 3, 5];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <div className="min-h-screen bg-background py-12 px-4">
       <div className="max-w-2xl mx-auto">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-6"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
           data-testid="checkout-back-btn"
         >
           <ArrowLeft className="h-4 w-4" /> Back
@@ -185,7 +185,7 @@ export const CheckoutPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Complete payment</span>
-              <Badge className={isPaid ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
+              <Badge className={isPaid ? 'bg-green-100 text-green-800' : 'bg-gold-500/15 text-gold-300'}>
                 {isPaid ? 'Paid' : 'Pending'}
               </Badge>
             </CardTitle>
@@ -193,16 +193,16 @@ export const CheckoutPage = () => {
           <CardContent className="space-y-6">
             {/* Tip selector */}
             {!isPaid && (
-              <div className="border border-teal-100 bg-teal-50/40 rounded-lg p-4">
+              <div className="border border-gold-500/20 bg-matte-800/40/40 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <p className="font-semibold text-sm flex items-center gap-1.5">
                       <Heart className="h-4 w-4 text-rose-500 fill-rose-500" />
                       Tip your driver
                     </p>
-                    <p className="text-xs text-gray-500">100% of tips go directly to your driver</p>
+                    <p className="text-xs text-muted-foreground">100% of tips go directly to your driver</p>
                   </div>
-                  {tipSaving && <Loader2 className="h-4 w-4 animate-spin text-teal-600" />}
+                  {tipSaving && <Loader2 className="h-4 w-4 animate-spin text-gold-500" />}
                 </div>
                 <div className="grid grid-cols-5 gap-2">
                   {tipChips.map((t) => (
@@ -213,8 +213,8 @@ export const CheckoutPage = () => {
                       disabled={tipSaving}
                       className={`py-2 rounded-md text-sm font-medium transition-colors border ${
                         selectedTip === t
-                          ? 'bg-teal-600 text-white border-teal-600'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-teal-300'
+                          ? 'bg-gold-gradient text-white border-gold-500'
+                          : 'bg-card text-foreground/90 border-border hover:border-gold-500/50'
                       } disabled:opacity-50`}
                       data-testid={`tip-chip-${t}`}
                     >
@@ -226,8 +226,8 @@ export const CheckoutPage = () => {
                     onClick={() => setSelectedTip('custom')}
                     className={`py-2 rounded-md text-sm font-medium transition-colors border ${
                       selectedTip === 'custom'
-                        ? 'bg-teal-600 text-white border-teal-600'
-                        : 'bg-white text-gray-700 border-gray-200 hover:border-teal-300'
+                        ? 'bg-gold-gradient text-white border-gold-500'
+                        : 'bg-card text-foreground/90 border-border hover:border-gold-500/50'
                     }`}
                     data-testid="tip-chip-custom"
                   >
@@ -236,7 +236,7 @@ export const CheckoutPage = () => {
                 </div>
                 {selectedTip === 'custom' && (
                   <div className="mt-3 flex items-center gap-2">
-                    <span className="text-sm text-gray-500">$</span>
+                    <span className="text-sm text-muted-foreground">$</span>
                     <input
                       type="number"
                       step="0.01"
@@ -246,7 +246,7 @@ export const CheckoutPage = () => {
                       onChange={(e) => setCustomTip(e.target.value)}
                       onBlur={handleCustomTipBlur}
                       placeholder="0.00"
-                      className="flex-1 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      className="flex-1 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gold-500"
                       data-testid="tip-custom-input"
                     />
                   </div>
@@ -254,18 +254,18 @@ export const CheckoutPage = () => {
               </div>
             )}
 
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-600">Order ID</span><span className="font-mono text-xs" data-testid="checkout-order-id">{order.id}</span></div>
-              <div className="flex justify-between"><span className="text-gray-600">Service</span><span className="capitalize">{order.service_type}</span></div>
-              <div className="flex justify-between"><span className="text-gray-600">Subtotal</span><span>${(order.subtotal || 0).toFixed(2)}</span></div>
+            <div className="bg-background rounded-lg p-4 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Order ID</span><span className="font-mono text-xs" data-testid="checkout-order-id">{order.id}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Service</span><span className="capitalize">{order.service_type}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>${(order.subtotal || 0).toFixed(2)}</span></div>
               {order.delivery_fee != null && (
-                <div className="flex justify-between"><span className="text-gray-600">Delivery fee</span><span>${(order.delivery_fee || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Delivery fee</span><span>${(order.delivery_fee || 0).toFixed(2)}</span></div>
               )}
               {order.tax != null && order.tax > 0 && (
-                <div className="flex justify-between"><span className="text-gray-600">Tax</span><span>${(order.tax || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>${(order.tax || 0).toFixed(2)}</span></div>
               )}
               {(order.tip || 0) > 0 && (
-                <div className="flex justify-between text-teal-700"><span>Driver tip</span><span data-testid="checkout-tip">+${(order.tip || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-gold-300"><span>Driver tip</span><span data-testid="checkout-tip">+${(order.tip || 0).toFixed(2)}</span></div>
               )}
               {(order.discount || 0) > 0 && (
                 <div className="flex justify-between text-rose-600">
@@ -281,9 +281,9 @@ export const CheckoutPage = () => {
 
             {/* Promo code */}
             {!isPaid && (
-              <div className="border border-gray-200 rounded-lg p-4">
+              <div className="border border-border rounded-lg p-4">
                 <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold">
-                  <Tag className="h-4 w-4 text-teal-600" />
+                  <Tag className="h-4 w-4 text-gold-500" />
                   Promo code
                 </div>
                 {order.promo_code ? (
@@ -296,7 +296,7 @@ export const CheckoutPage = () => {
                       type="button"
                       onClick={removePromo}
                       disabled={promoSaving}
-                      className="text-gray-500 hover:text-rose-700 disabled:opacity-50"
+                      className="text-muted-foreground hover:text-rose-700 disabled:opacity-50"
                       data-testid="checkout-remove-promo"
                       aria-label="Remove promo code"
                     >
@@ -311,7 +311,7 @@ export const CheckoutPage = () => {
                       onChange={(e) => { setPromoInput(e.target.value); setPromoFeedback(null); }}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } }}
                       placeholder="Enter code"
-                      className="flex-1 px-3 py-2 border rounded-md text-sm uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      className="flex-1 px-3 py-2 border rounded-md text-sm uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-gold-500"
                       data-testid="checkout-promo-input"
                     />
                     <Button
@@ -337,36 +337,36 @@ export const CheckoutPage = () => {
             )}
 
             {/* Accepted payment methods */}
-            <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+            <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
                 Powered by Stripe
               </div>
               <div className="flex items-center gap-2" aria-label="Accepted payment methods" data-testid="checkout-accepted-methods">
                 {/* Visa */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Visa">
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border bg-card" aria-label="Visa">
                   <rect width="34" height="22" rx="3" fill="#fff"/>
                   <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="9" fill="#1A1F71" letterSpacing="0.5">VISA</text>
                 </svg>
                 {/* Mastercard */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Mastercard">
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border bg-card" aria-label="Mastercard">
                   <rect width="34" height="22" rx="3" fill="#fff"/>
                   <circle cx="14" cy="11" r="6" fill="#EB001B"/>
                   <circle cx="20" cy="11" r="6" fill="#F79E1B" fillOpacity="0.9"/>
                 </svg>
                 {/* Amex */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-gray-200" aria-label="American Express">
+                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border" aria-label="American Express">
                   <rect width="34" height="22" rx="3" fill="#2E77BC"/>
                   <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="7" fill="#fff" letterSpacing="0.3">AMEX</text>
                 </svg>
                 {/* Apple Pay */}
-                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-gray-200 bg-black" aria-label="Apple Pay" data-testid="apple-pay-badge">
+                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-border bg-black" aria-label="Apple Pay" data-testid="apple-pay-badge">
                   <rect width="42" height="22" rx="3" fill="#000"/>
                   <text x="6.5" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="600" fontSize="10" fill="#fff"></text>
                   <text x="14" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="500" fontSize="9" fill="#fff">Pay</text>
                 </svg>
                 {/* Google Pay */}
-                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-gray-200 bg-white" aria-label="Google Pay">
+                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-border bg-card" aria-label="Google Pay">
                   <rect width="42" height="22" rx="3" fill="#fff"/>
                   <text x="3" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#4285F4">G</text>
                   <text x="8" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#EA4335">o</text>
@@ -378,7 +378,7 @@ export const CheckoutPage = () => {
                 </svg>
               </div>
             </div>
-            <p className="text-xs text-gray-400 -mt-3">
+            <p className="text-xs text-muted-foreground/70 -mt-3">
               Apple Pay & Google Pay appear automatically on supported devices (Safari/iOS, Chrome/Android).
             </p>
 
@@ -387,7 +387,7 @@ export const CheckoutPage = () => {
             <Button
               onClick={handlePay}
               disabled={creating || isPaid || tipSaving}
-              className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+              className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white"
               data-testid="checkout-pay-btn"
             >
               {creating ? (
@@ -405,7 +405,7 @@ export const CheckoutPage = () => {
                   onClick={handlePayWithWallet}
                   disabled={creating || tipSaving || walletBalance < (order.total || 0)}
                   variant="outline"
-                  className="w-full border-teal-300 text-teal-700 hover:bg-teal-50"
+                  className="w-full border-gold-500/50 text-gold-300 hover:bg-matte-800/40"
                   data-testid="checkout-pay-wallet-btn"
                 >
                   <Wallet className="h-4 w-4 mr-2" />
@@ -417,7 +417,7 @@ export const CheckoutPage = () => {
                   <button
                     type="button"
                     onClick={() => navigate('/wallet')}
-                    className="w-full text-center text-xs text-teal-600 hover:text-teal-800 hover:underline"
+                    className="w-full text-center text-xs text-gold-500 hover:text-gold-300 hover:underline"
                     data-testid="checkout-topup-link"
                   >
                     Top up your wallet → goes to /wallet
@@ -483,18 +483,18 @@ export const PaymentSuccess = () => {
         <CardContent className="p-10 text-center">
           {status === 'checking' && (
             <>
-              <Loader2 className="h-14 w-14 text-teal-600 mx-auto mb-4 animate-spin" />
+              <Loader2 className="h-14 w-14 text-gold-500 mx-auto mb-4 animate-spin" />
               <h2 className="text-2xl font-semibold mb-2">Confirming your payment…</h2>
-              <p className="text-sm text-gray-600">Polling Stripe ({attempts + 1}/8)</p>
+              <p className="text-sm text-muted-foreground">Polling Stripe ({attempts + 1}/8)</p>
             </>
           )}
           {status === 'paid' && (
             <>
               <CheckCircle2 className="h-14 w-14 text-green-600 mx-auto mb-4" />
               <h2 className="text-2xl font-semibold mb-2" data-testid="payment-success-title">Payment successful!</h2>
-              <p className="text-sm text-gray-600 mb-6">Your order is confirmed and being prepared.</p>
+              <p className="text-sm text-muted-foreground mb-6">Your order is confirmed and being prepared.</p>
               <div className="flex gap-3">
-                <Button onClick={() => navigate(`/order/${orderId}`)} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white" data-testid="payment-success-track-btn">
+                <Button onClick={() => navigate(`/order/${orderId}`)} className="flex-1 bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="payment-success-track-btn">
                   Track order
                 </Button>
                 <Button variant="outline" onClick={() => navigate('/')} className="flex-1" data-testid="payment-success-home-btn">
@@ -507,7 +507,7 @@ export const PaymentSuccess = () => {
             <>
               <Loader2 className="h-14 w-14 text-amber-500 mx-auto mb-4" />
               <h2 className="text-2xl font-semibold mb-2">Still processing</h2>
-              <p className="text-sm text-gray-600 mb-6">We'll email you when payment is confirmed.</p>
+              <p className="text-sm text-muted-foreground mb-6">We'll email you when payment is confirmed.</p>
               <Button onClick={() => navigate('/')} data-testid="payment-pending-home-btn">Continue</Button>
             </>
           )}
@@ -515,7 +515,7 @@ export const PaymentSuccess = () => {
             <>
               <XCircle className="h-14 w-14 text-red-500 mx-auto mb-4" />
               <h2 className="text-2xl font-semibold mb-2">Payment not confirmed</h2>
-              <p className="text-sm text-gray-600 mb-6">Please try again or contact support.</p>
+              <p className="text-sm text-muted-foreground mb-6">Please try again or contact support.</p>
               <Button onClick={() => navigate(`/checkout/${orderId}`)} data-testid="payment-failed-retry-btn">Try again</Button>
             </>
           )}
@@ -530,14 +530,14 @@ export const PaymentCancel = () => {
   const [params] = useSearchParams();
   const orderId = params.get('order_id');
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center p-6 bg-background">
       <Card className="max-w-md w-full">
         <CardContent className="p-10 text-center">
           <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
           <h2 className="text-2xl font-semibold mb-2" data-testid="payment-cancel-title">Payment cancelled</h2>
-          <p className="text-sm text-gray-600 mb-6">No charge was made. You can resume checkout anytime.</p>
+          <p className="text-sm text-muted-foreground mb-6">No charge was made. You can resume checkout anytime.</p>
           <div className="flex gap-3">
-            <Button onClick={() => navigate(`/checkout/${orderId}`)} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white" data-testid="payment-cancel-resume-btn">
+            <Button onClick={() => navigate(`/checkout/${orderId}`)} className="flex-1 bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="payment-cancel-resume-btn">
               Resume checkout
             </Button>
             <Button variant="outline" onClick={() => navigate('/')} className="flex-1" data-testid="payment-cancel-home-btn">

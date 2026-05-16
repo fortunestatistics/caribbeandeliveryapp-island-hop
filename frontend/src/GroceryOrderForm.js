@@ -154,7 +154,7 @@ const GroceryOrderForm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         <Button
           variant="ghost"
@@ -173,7 +173,7 @@ const GroceryOrderForm = () => {
                   <ShoppingCart className="h-8 w-8 mr-3 text-green-600" />
                   Grocery Delivery
                 </CardTitle>
-                <p className="text-gray-600 mt-2">Fresh groceries delivered to your door</p>
+                <p className="text-muted-foreground mt-2">Fresh groceries delivered to your door</p>
               </CardHeader>
               <CardContent>
                 {/* Store Selection */}
@@ -189,14 +189,14 @@ const GroceryOrderForm = () => {
                         className={`cursor-pointer transition-all ${
                           selectedStore === store.id
                             ? 'border-2 border-green-500 bg-green-50'
-                            : 'border border-gray-200 hover:shadow-md'
+                            : 'border border-border hover:shadow-md'
                         }`}
                         onClick={() => setSelectedStore(store.id)}
                       >
                         <CardContent className="p-4 text-center">
-                          <h4 className="font-semibold text-gray-900 mb-1">{store.name}</h4>
-                          <p className="text-xs text-gray-600">Delivery: ${store.deliveryFee}</p>
-                          <p className="text-xs text-gray-600">Min: ${store.minOrder}</p>
+                          <h4 className="font-semibold text-foreground mb-1">{store.name}</h4>
+                          <p className="text-xs text-muted-foreground">Delivery: ${store.deliveryFee}</p>
+                          <p className="text-xs text-muted-foreground">Min: ${store.minOrder}</p>
                         </CardContent>
                       </Card>
                     ))}
@@ -208,7 +208,7 @@ const GroceryOrderForm = () => {
                     {/* Search & Filter */}
                     <div className="mb-4">
                       <div className="relative mb-3">
-                        <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                        <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                         <Input
                           placeholder="Search groceries..."
                           className="pl-10"
@@ -242,7 +242,7 @@ const GroceryOrderForm = () => {
                             <div className="text-center mb-2">
                               <div className="text-4xl mb-2">{item.image}</div>
                               <Badge className="mb-1 text-xs bg-green-100 text-green-700">{item.category}</Badge>
-                              <h4 className="text-sm font-semibold text-gray-900 mb-1">{item.name}</h4>
+                              <h4 className="text-sm font-semibold text-foreground mb-1">{item.name}</h4>
                               <p className="text-lg font-bold text-green-600">${item.price.toFixed(2)}</p>
                             </div>
                             <Button
@@ -285,8 +285,8 @@ const GroceryOrderForm = () => {
                   {cart.length === 0 ? (
                     <div className="text-center py-8">
                       <ShoppingCart className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-                      <p className="text-gray-600">Your cart is empty</p>
-                      <p className="text-sm text-gray-500 mt-2">Select a store and add items</p>
+                      <p className="text-muted-foreground">Your cart is empty</p>
+                      <p className="text-sm text-muted-foreground mt-2">Select a store and add items</p>
                     </div>
                   ) : (
                     <>
@@ -295,8 +295,8 @@ const GroceryOrderForm = () => {
                           <div key={item.id} className="flex items-start space-x-2 pb-3 border-b">
                             <span className="text-2xl">{item.image}</span>
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-sm font-semibold text-gray-900">{item.name}</h4>
-                              <p className="text-xs text-gray-600">${item.price} / {item.unit}</p>
+                              <h4 className="text-sm font-semibold text-foreground">{item.name}</h4>
+                              <p className="text-xs text-muted-foreground">${item.price} / {item.unit}</p>
                               <div className="flex items-center space-x-1 mt-1">
                                 <Button
                                   type="button"
@@ -328,7 +328,7 @@ const GroceryOrderForm = () => {
                                 </Button>
                               </div>
                             </div>
-                            <span className="text-sm font-bold text-gray-900">
+                            <span className="text-sm font-bold text-foreground">
                               ${(item.price * item.quantity).toFixed(2)}
                             </span>
                           </div>
@@ -340,7 +340,7 @@ const GroceryOrderForm = () => {
                         <div>
                           <Label htmlFor="deliveryAddress">Delivery Address</Label>
                           <div className="relative mt-1">
-                            <MapPin className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                            <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground/70" />
                             <Input
                               id="deliveryAddress"
                               placeholder="Your address"
@@ -367,15 +367,15 @@ const GroceryOrderForm = () => {
 
                       {/* Total */}
                       <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-sm text-gray-600">
+                        <div className="flex justify-between text-sm text-muted-foreground">
                           <span>Subtotal</span>
                           <span>${calculateSubtotal().toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-sm text-gray-600">
+                        <div className="flex justify-between text-sm text-muted-foreground">
                           <span>Delivery Fee</span>
                           <span>${getDeliveryFee().toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-lg font-bold text-gray-900 pt-2 border-t">
+                        <div className="flex justify-between text-lg font-bold text-foreground pt-2 border-t">
                           <span>Total</span>
                           <span className="text-green-600">${calculateTotal().toFixed(2)}</span>
                         </div>

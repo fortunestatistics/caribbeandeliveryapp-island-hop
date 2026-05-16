@@ -127,7 +127,7 @@ const PharmacyOrderForm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-6xl">
         <Button
           variant="ghost"
@@ -140,10 +140,10 @@ const PharmacyOrderForm = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-3xl flex items-center">
-              <Pill className="h-8 w-8 mr-3 text-blue-600" />
+              <Pill className="h-8 w-8 mr-3 text-neon-cyan" />
               Pharmacy Delivery
             </CardTitle>
-            <p className="text-gray-600 mt-2">Order medications and health products with prescription or over-the-counter</p>
+            <p className="text-muted-foreground mt-2">Order medications and health products with prescription or over-the-counter</p>
           </CardHeader>
           <CardContent>
             {/* Order Type Selection */}
@@ -151,30 +151,30 @@ const PharmacyOrderForm = () => {
               <Card
                 className={`cursor-pointer transition-all hover:shadow-lg ${
                   orderType === 'otc'
-                    ? 'border-2 border-blue-500 bg-blue-50'
-                    : 'border border-gray-200'
+                    ? 'border-2 border-blue-500 bg-neon-cyan/10'
+                    : 'border border-border'
                 }`}
                 onClick={() => setOrderType('otc')}
               >
                 <CardContent className="p-6 text-center">
                   <div className="text-4xl mb-2">💊</div>
-                  <h3 className="font-semibold text-lg text-gray-900 mb-2">Over-the-Counter</h3>
-                  <p className="text-sm text-gray-600">Shop vitamins, pain relief, and health products</p>
+                  <h3 className="font-semibold text-lg text-foreground mb-2">Over-the-Counter</h3>
+                  <p className="text-sm text-muted-foreground">Shop vitamins, pain relief, and health products</p>
                 </CardContent>
               </Card>
 
               <Card
                 className={`cursor-pointer transition-all hover:shadow-lg ${
                   orderType === 'prescription'
-                    ? 'border-2 border-blue-500 bg-blue-50'
-                    : 'border border-gray-200'
+                    ? 'border-2 border-blue-500 bg-neon-cyan/10'
+                    : 'border border-border'
                 }`}
                 onClick={() => setOrderType('prescription')}
               >
                 <CardContent className="p-6 text-center">
                   <div className="text-4xl mb-2">📋</div>
-                  <h3 className="font-semibold text-lg text-gray-900 mb-2">Prescription</h3>
-                  <p className="text-sm text-gray-600">Upload prescription for prescribed medications</p>
+                  <h3 className="font-semibold text-lg text-foreground mb-2">Prescription</h3>
+                  <p className="text-sm text-muted-foreground">Upload prescription for prescribed medications</p>
                 </CardContent>
               </Card>
             </div>
@@ -182,19 +182,19 @@ const PharmacyOrderForm = () => {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Prescription Upload (if prescription order) */}
               {orderType === 'prescription' && (
-                <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-blue-50">
+                <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-neon-cyan/10">
                   <div className="flex items-start space-x-3">
-                    <ShieldCheck className="h-6 w-6 text-blue-600 flex-shrink-0 mt-1" />
+                    <ShieldCheck className="h-6 w-6 text-neon-cyan flex-shrink-0 mt-1" />
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 mb-2">Upload Prescription</h3>
-                      <p className="text-sm text-gray-600 mb-4">
+                      <h3 className="font-semibold text-foreground mb-2">Upload Prescription</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
                         Upload a clear photo or scan of your prescription. Our licensed pharmacist will verify it before processing.
                       </p>
                       
                       <Label htmlFor="prescription-upload" className="cursor-pointer">
-                        <div className="flex items-center justify-center w-full py-4 px-4 border-2 border-blue-400 border-dashed rounded-lg hover:bg-blue-100 transition-colors">
-                          <Upload className="h-5 w-5 mr-2 text-blue-600" />
-                          <span className="text-blue-600 font-semibold">Choose Files</span>
+                        <div className="flex items-center justify-center w-full py-4 px-4 border-2 border-blue-400 border-dashed rounded-lg hover:bg-neon-cyan/15 transition-colors">
+                          <Upload className="h-5 w-5 mr-2 text-neon-cyan" />
+                          <span className="text-neon-cyan font-semibold">Choose Files</span>
                           <Input
                             id="prescription-upload"
                             type="file"
@@ -209,10 +209,10 @@ const PharmacyOrderForm = () => {
                       {orderData.prescriptionFiles.length > 0 && (
                         <div className="mt-4 space-y-2">
                           {orderData.prescriptionFiles.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between bg-white p-3 rounded-lg">
+                            <div key={index} className="flex items-center justify-between bg-card p-3 rounded-lg">
                               <div className="flex items-center space-x-2">
                                 <span className="text-2xl">📄</span>
-                                <span className="text-sm text-gray-700">{file.name}</span>
+                                <span className="text-sm text-foreground/90">{file.name}</span>
                               </div>
                               <Button
                                 type="button"
@@ -235,20 +235,20 @@ const PharmacyOrderForm = () => {
               {/* OTC Products (if over-the-counter order) */}
               {orderType === 'otc' && (
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Popular Medications & Products</h3>
+                  <h3 className="text-lg font-semibold text-foreground mb-4">Popular Medications & Products</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {popularMedications.map((med) => (
                       <Card key={med.id} className="hover:shadow-lg transition-shadow">
                         <CardContent className="p-4">
                           <div className="text-center mb-3">
                             <div className="text-4xl mb-2">{med.image}</div>
-                            <Badge className="mb-2 bg-blue-100 text-blue-700">{med.category}</Badge>
-                            <h4 className="font-semibold text-sm text-gray-900">{med.name}</h4>
-                            <p className="text-lg font-bold text-blue-600 mt-2">${med.price.toFixed(2)}</p>
+                            <Badge className="mb-2 bg-neon-cyan/15 text-neon-cyan">{med.category}</Badge>
+                            <h4 className="font-semibold text-sm text-foreground">{med.name}</h4>
+                            <p className="text-lg font-bold text-neon-cyan mt-2">${med.price.toFixed(2)}</p>
                           </div>
                           <Button
                             type="button"
-                            className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
+                            className="w-full bg-gradient-to-r from-neon-cyan to-gold-500 text-white"
                             onClick={() => addItem(med)}
                           >
                             <Plus className="h-4 w-4 mr-2" />
@@ -264,7 +264,7 @@ const PharmacyOrderForm = () => {
               {/* Cart Summary */}
               {orderData.items.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Order</h3>
+                  <h3 className="text-lg font-semibold text-foreground mb-4">Your Order</h3>
                   <div className="space-y-3">
                     {orderData.items.map((item) => (
                       <Card key={item.id}>
@@ -273,12 +273,12 @@ const PharmacyOrderForm = () => {
                             <div className="flex items-center space-x-3">
                               <span className="text-2xl">{item.image}</span>
                               <div>
-                                <h4 className="font-semibold text-gray-900">{item.name}</h4>
-                                <p className="text-sm text-gray-600">${item.price.toFixed(2)} each</p>
+                                <h4 className="font-semibold text-foreground">{item.name}</h4>
+                                <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
                               </div>
                             </div>
                             <div className="flex items-center space-x-3">
-                              <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
+                              <div className="flex items-center space-x-2 bg-matte-800 rounded-lg p-1">
                                 <Button
                                   type="button"
                                   size="sm"
@@ -297,7 +297,7 @@ const PharmacyOrderForm = () => {
                                   <Plus className="h-4 w-4" />
                                 </Button>
                               </div>
-                              <span className="font-bold text-gray-900 w-20 text-right">
+                              <span className="font-bold text-foreground w-20 text-right">
                                 ${(item.price * item.quantity).toFixed(2)}
                               </span>
                               <Button
@@ -322,8 +322,8 @@ const PharmacyOrderForm = () => {
 
               {/* Delivery Details */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <MapPin className="h-5 w-5 mr-2 text-blue-600" />
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <MapPin className="h-5 w-5 mr-2 text-neon-cyan" />
                   Delivery Information
                 </h3>
                 <div className="space-y-4">
@@ -363,15 +363,15 @@ const PharmacyOrderForm = () => {
                           key={option.id}
                           className={`cursor-pointer transition-all ${
                             orderData.urgency === option.id
-                              ? 'border-2 border-blue-500 bg-blue-50'
-                              : 'border border-gray-200 hover:shadow-md'
+                              ? 'border-2 border-blue-500 bg-neon-cyan/10'
+                              : 'border border-border hover:shadow-md'
                           }`}
                           onClick={() => setOrderData(prev => ({ ...prev, urgency: option.id }))}
                         >
                           <CardContent className="p-4 text-center">
-                            <h4 className="font-semibold text-gray-900">{option.name}</h4>
-                            <p className="text-sm text-gray-600 mt-1">{option.time}</p>
-                            <p className="text-sm font-semibold text-blue-600 mt-2">+${option.fee.toFixed(2)}</p>
+                            <h4 className="font-semibold text-foreground">{option.name}</h4>
+                            <p className="text-sm text-muted-foreground mt-1">{option.time}</p>
+                            <p className="text-sm font-semibold text-neon-cyan mt-2">+${option.fee.toFixed(2)}</p>
                           </CardContent>
                         </Card>
                       ))}
@@ -381,7 +381,7 @@ const PharmacyOrderForm = () => {
               </div>
 
               {/* Important Note */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="bg-gold-500/10 border border-yellow-200 rounded-lg p-4">
                 <div className="flex items-start space-x-2">
                   <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-yellow-800">
@@ -398,18 +398,18 @@ const PharmacyOrderForm = () => {
               {/* Total */}
               <div className="bg-gradient-to-r from-blue-50 to-cyan-50 p-6 rounded-lg">
                 <div className="space-y-2">
-                  <div className="flex justify-between text-gray-700">
+                  <div className="flex justify-between text-foreground/90">
                     <span>Subtotal:</span>
                     <span>${calculateSubtotal().toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-gray-700">
+                  <div className="flex justify-between text-foreground/90">
                     <span>Delivery Fee:</span>
                     <span>${calculateDeliveryFee().toFixed(2)}</span>
                   </div>
                   <Separator />
-                  <div className="flex justify-between text-xl font-bold text-gray-900">
+                  <div className="flex justify-between text-xl font-bold text-foreground">
                     <span>Total:</span>
-                    <span className="text-blue-600">${calculateTotal().toFixed(2)}</span>
+                    <span className="text-neon-cyan">${calculateTotal().toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -417,7 +417,7 @@ const PharmacyOrderForm = () => {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-lg py-6"
+                className="w-full bg-gradient-to-r from-neon-cyan to-gold-500 text-white text-lg py-6"
                 disabled={orderType === 'otc' && orderData.items.length === 0}
               >
                 Continue to Checkout

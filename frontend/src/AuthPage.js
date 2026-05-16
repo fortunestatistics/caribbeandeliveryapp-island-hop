@@ -89,16 +89,16 @@ const AuthPage = ({ mode = 'login' }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-2">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-turquoise-600 to-orange-600">
+            <span className="text-transparent bg-clip-text bg-gold-gradient">
               IslandHop
             </span>
           </h1>
-          <p className="text-gray-600">Caribbean Delivery</p>
+          <p className="text-muted-foreground">Caribbean Delivery</p>
         </div>
 
         {/* Auth Card */}
@@ -107,7 +107,7 @@ const AuthPage = ({ mode = 'login' }) => {
             <CardTitle className="text-center text-2xl">
               {authMode === 'login' ? 'Welcome Back!' : 'Create Account'}
             </CardTitle>
-            <p className="text-center text-gray-600 text-sm">
+            <p className="text-center text-muted-foreground text-sm">
               {authMode === 'login' 
                 ? 'Sign in to continue to IslandHop' 
                 : 'Join IslandHop for fast Caribbean delivery'}
@@ -138,7 +138,7 @@ const AuthPage = ({ mode = 'login' }) => {
 
             <div className="relative mb-6">
               <Separator />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2 text-sm text-gray-500">
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-sm text-muted-foreground">
                 or
               </span>
             </div>
@@ -149,7 +149,7 @@ const AuthPage = ({ mode = 'login' }) => {
                 <div>
                   <Label htmlFor="name">Full Name</Label>
                   <div className="relative mt-1">
-                    <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <User className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="name"
                       name="name"
@@ -167,7 +167,7 @@ const AuthPage = ({ mode = 'login' }) => {
               <div>
                 <Label htmlFor="email">Email Address</Label>
                 <div className="relative mt-1">
-                  <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                  <Mail className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                   <Input
                     id="email"
                     name="email"
@@ -185,7 +185,7 @@ const AuthPage = ({ mode = 'login' }) => {
                 <div>
                   <Label htmlFor="phone">Phone Number</Label>
                   <div className="relative mt-1">
-                    <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Phone className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="phone"
                       name="phone"
@@ -204,7 +204,7 @@ const AuthPage = ({ mode = 'login' }) => {
                 <div>
                   <Label htmlFor="address">Delivery Address</Label>
                   <div className="relative mt-1">
-                    <MapPin className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <MapPin className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="address"
                       name="address"
@@ -222,7 +222,7 @@ const AuthPage = ({ mode = 'login' }) => {
               <div>
                 <Label htmlFor="password">Password</Label>
                 <div className="relative mt-1">
-                  <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                  <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                   <Input
                     id="password"
                     name="password"
@@ -236,7 +236,7 @@ const AuthPage = ({ mode = 'login' }) => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-3 text-muted-foreground/70 hover:text-muted-foreground"
                   >
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
@@ -247,7 +247,7 @@ const AuthPage = ({ mode = 'login' }) => {
                 <div>
                   <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <div className="relative mt-1">
-                    <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                     <Input
                       id="confirmPassword"
                       name="confirmPassword"
@@ -267,7 +267,7 @@ const AuthPage = ({ mode = 'login' }) => {
                   <button
                     type="button"
                     onClick={() => navigate('/forgot-password')}
-                    className="text-sm text-turquoise-600 hover:text-turquoise-700"
+                    className="text-sm text-gold-500 hover:text-gold-300"
                   >
                     Forgot password?
                   </button>
@@ -276,7 +276,7 @@ const AuthPage = ({ mode = 'login' }) => {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                className="w-full bg-gold-gradient text-white"
               >
                 {authMode === 'login' ? 'Sign In' : 'Create Account'}
               </Button>
@@ -284,11 +284,11 @@ const AuthPage = ({ mode = 'login' }) => {
 
             {/* Toggle Auth Mode */}
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 {authMode === 'login' ? "Don't have an account? " : 'Already have an account? '}
                 <button
                   onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
-                  className="text-turquoise-600 hover:text-turquoise-700 font-semibold"
+                  className="text-gold-500 hover:text-gold-300 font-semibold"
                 >
                   {authMode === 'login' ? 'Sign Up' : 'Sign In'}
                 </button>
@@ -296,13 +296,13 @@ const AuthPage = ({ mode = 'login' }) => {
             </div>
 
             {authMode === 'signup' && (
-              <p className="mt-4 text-xs text-center text-gray-500">
+              <p className="mt-4 text-xs text-center text-muted-foreground">
                 By creating an account, you agree to our{' '}
-                <a href="/terms" className="text-turquoise-600 hover:underline">
+                <a href="/terms" className="text-gold-500 hover:underline">
                   Terms of Service
                 </a>{' '}
                 and{' '}
-                <a href="/privacy" className="text-turquoise-600 hover:underline">
+                <a href="/privacy" className="text-gold-500 hover:underline">
                   Privacy Policy
                 </a>
               </p>
@@ -314,7 +314,7 @@ const AuthPage = ({ mode = 'login' }) => {
           <Button
             variant="ghost"
             onClick={() => navigate('/')}
-            className="text-gray-600"
+            className="text-muted-foreground"
           >
             ← Back to Home
           </Button>

@@ -170,10 +170,10 @@ const CarRentalPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+      <div className="min-h-screen bg-gradient-to-br bg-background py-12">
         <div className="container mx-auto px-4">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-8">Loading Car Rentals...</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-8">Loading Car Rentals...</h1>
           </div>
         </div>
       </div>
@@ -181,19 +181,19 @@ const CarRentalPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Caribbean Car Rentals</h1>
-          <p className="text-xl text-gray-600">Explore the islands with reliable vehicle rentals</p>
+          <h1 className="text-4xl font-bold text-foreground mb-4">Caribbean Car Rentals</h1>
+          <p className="text-xl text-muted-foreground">Explore the islands with reliable vehicle rentals</p>
         </div>
 
         {/* Booking Form */}
         <Card className="mb-12 bg-white/80 backdrop-blur-sm border-0 shadow-xl">
           <CardHeader>
             <CardTitle className="flex items-center">
-              <Calendar className="h-5 w-5 mr-2 text-turquoise-600" />
+              <Calendar className="h-5 w-5 mr-2 text-gold-500" />
               Search Available Vehicles
             </CardTitle>
           </CardHeader>
@@ -238,7 +238,7 @@ const CarRentalPage = () => {
 
               <div className="flex items-end">
                 <Button 
-                  className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                  className="w-full bg-gold-gradient text-white"
                   onClick={() => {
                     if (rentalCompanies.length > 0) {
                       fetchAvailableVehicles(rentalCompanies[0].id);
@@ -258,7 +258,7 @@ const CarRentalPage = () => {
         {/* Rental Companies */}
         {!selectedCompany ? (
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Car Rental Companies</h2>
+            <h2 className="text-2xl font-bold text-foreground mb-6">Car Rental Companies</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {rentalCompanies.map((company) => (
                 <Card 
@@ -276,9 +276,9 @@ const CarRentalPage = () => {
                         <Car className="h-6 w-6 text-white" />
                       </div>
                       <div>
-                        <h3 className="text-xl font-bold text-gray-900">{company.company_name}</h3>
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                        <h3 className="text-xl font-bold text-foreground">{company.company_name}</h3>
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <Star className="h-4 w-4 text-gold-500 mr-1" />
                           {company.rating}
                           <span className="mx-2">•</span>
                           <span>{company.fleet?.length || 0} vehicles</span>
@@ -286,11 +286,11 @@ const CarRentalPage = () => {
                       </div>
                     </div>
 
-                    <p className="text-gray-600 mb-4">{company.description}</p>
+                    <p className="text-muted-foreground mb-4">{company.description}</p>
 
                     <div className="space-y-2 mb-4">
                       {company.locations?.map((location, index) => (
-                        <div key={index} className="flex items-center text-sm text-gray-600">
+                        <div key={index} className="flex items-center text-sm text-muted-foreground">
                           <MapPin className="h-4 w-4 mr-2" />
                           {location.name}
                         </div>
@@ -310,8 +310,8 @@ const CarRentalPage = () => {
           <div>
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">{selectedCompany.company_name}</h2>
-                <p className="text-gray-600">Available vehicles for your selected dates</p>
+                <h2 className="text-2xl font-bold text-foreground">{selectedCompany.company_name}</h2>
+                <p className="text-muted-foreground">Available vehicles for your selected dates</p>
               </div>
               <Button 
                 variant="outline"
@@ -334,15 +334,15 @@ const CarRentalPage = () => {
                     <CardContent className="p-6">
                       <div className="text-center mb-4">
                         <div className="text-4xl mb-2">{getVehicleIcon(vehicle.vehicle_type)}</div>
-                        <h3 className="text-xl font-bold text-gray-900">
+                        <h3 className="text-xl font-bold text-foreground">
                           {vehicle.make} {vehicle.model}
                         </h3>
-                        <p className="text-sm text-gray-600">{vehicle.year} • {vehicle.color}</p>
+                        <p className="text-sm text-muted-foreground">{vehicle.year} • {vehicle.color}</p>
                       </div>
 
                       <div className="space-y-3 mb-4">
                         <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center text-gray-600">
+                          <span className="flex items-center text-muted-foreground">
                             <Users className="h-4 w-4 mr-1" />
                             Passengers
                           </span>
@@ -350,7 +350,7 @@ const CarRentalPage = () => {
                         </div>
                         
                         <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center text-gray-600">
+                          <span className="flex items-center text-muted-foreground">
                             <Settings className="h-4 w-4 mr-1" />
                             Transmission
                           </span>
@@ -358,7 +358,7 @@ const CarRentalPage = () => {
                         </div>
                         
                         <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center text-gray-600">
+                          <span className="flex items-center text-muted-foreground">
                             <Fuel className="h-4 w-4 mr-1" />
                             Fuel Type
                           </span>
@@ -368,19 +368,19 @@ const CarRentalPage = () => {
 
                       <div className="border-t pt-4">
                         <div className="flex items-center justify-between mb-4">
-                          <span className="text-2xl font-bold text-turquoise-600">
+                          <span className="text-2xl font-bold text-gold-500">
                             ${vehicle.daily_rate}/day
                           </span>
                           <Badge 
                             variant="secondary"
-                            className={vehicle.status === 'available' ? 'bg-green-100 text-green-800' : 'bg-gray-100'}
+                            className={vehicle.status === 'available' ? 'bg-green-100 text-green-800' : 'bg-matte-800'}
                           >
                             {vehicle.status}
                           </Badge>
                         </div>
 
                         <div className="mb-4">
-                          <p className="text-xs text-gray-600 mb-2">Features:</p>
+                          <p className="text-xs text-muted-foreground mb-2">Features:</p>
                           <div className="flex flex-wrap gap-1">
                             {vehicle.features?.slice(0, 3).map((feature, index) => (
                               <Badge key={index} variant="outline" className="text-xs">
@@ -398,7 +398,7 @@ const CarRentalPage = () => {
                         <Dialog open={showBookingModal} onOpenChange={setShowBookingModal}>
                           <DialogTrigger asChild>
                             <Button 
-                              className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                              className="w-full bg-gold-gradient text-white"
                               onClick={() => {
                                 setSelectedVehicle(vehicle);
                                 setShowBookingModal(true);
@@ -494,7 +494,7 @@ const CarRentalPage = () => {
 
                               <Button 
                                 onClick={handleBooking}
-                                className="w-full bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                                className="w-full bg-gold-gradient text-white"
                                 disabled={!bookingForm.driverAge || !bookingForm.licenseNumber}
                                 data-testid="confirm-booking-btn"
                               >
@@ -510,9 +510,9 @@ const CarRentalPage = () => {
               </div>
             ) : (
               <div className="text-center py-12">
-                <Car className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No vehicles available</h3>
-                <p className="text-gray-600">Try different dates or contact the rental company directly.</p>
+                <Car className="h-16 w-16 text-muted-foreground/70 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-foreground mb-2">No vehicles available</h3>
+                <p className="text-muted-foreground">Try different dates or contact the rental company directly.</p>
               </div>
             )}
           </div>

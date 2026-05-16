@@ -174,12 +174,12 @@ const DriverOnboarding = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-12">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-12">
       <div className="container mx-auto px-4 max-w-4xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Become a Driver</h1>
-          <p className="text-gray-600">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
+          <h1 className="text-3xl font-bold text-foreground mb-4">Become a Driver</h1>
+          <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
         </div>
 
         {/* Progress Bar */}
@@ -188,10 +188,10 @@ const DriverOnboarding = () => {
             {stepTitles.map((title, index) => (
               <div 
                 key={index}
-                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-turquoise-600' : 'text-gray-400'}`}
+                className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
-                  index <= currentStep - 1 ? 'bg-turquoise-500 text-white' : 'bg-gray-300 text-gray-600'
+                  index <= currentStep - 1 ? 'bg-gold-500/15 text-white' : 'bg-gray-300 text-muted-foreground'
                 }`}>
                   {index + 1}
                 </div>
@@ -201,7 +201,7 @@ const DriverOnboarding = () => {
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-turquoise-500 to-orange-500 h-2 rounded-full transition-all duration-300"
+              className="bg-gold-gradient h-2 rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / 5) * 100}%` }}
             ></div>
           </div>
@@ -213,9 +213,9 @@ const DriverOnboarding = () => {
             {currentStep === 1 && (
               <div className="space-y-6" data-testid="personal-info-step">
                 <div className="text-center mb-6">
-                  <User className="h-12 w-12 text-turquoise-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Personal Information</h3>
-                  <p className="text-gray-600">Tell us about yourself</p>
+                  <User className="h-12 w-12 text-gold-500 mx-auto mb-4" />
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Personal Information</h3>
+                  <p className="text-muted-foreground">Tell us about yourself</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -331,9 +331,9 @@ const DriverOnboarding = () => {
             {currentStep === 2 && (
               <div className="space-y-6" data-testid="vehicle-info-step">
                 <div className="text-center mb-6">
-                  <Car className="h-12 w-12 text-orange-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Vehicle Information</h3>
-                  <p className="text-gray-600">Tell us about your delivery vehicle</p>
+                  <Car className="h-12 w-12 text-gold-500 mx-auto mb-4" />
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Vehicle Information</h3>
+                  <p className="text-muted-foreground">Tell us about your delivery vehicle</p>
                 </div>
 
                 <div>
@@ -346,16 +346,16 @@ const DriverOnboarding = () => {
                           key={type.value}
                           className={`cursor-pointer transition-all duration-200 ${
                             formData.vehicleType === type.value 
-                              ? 'border-turquoise-500 bg-turquoise-50' 
-                              : 'hover:border-gray-300'
+                              ? 'border-gold-500/30 bg-gold-500/15' 
+                              : 'hover:border-border'
                           }`}
                           onClick={() => handleInputChange('vehicleType', type.value)}
                           data-testid={`vehicle-type-${type.value}`}
                         >
                           <CardContent className="p-4 text-center">
-                            <IconComponent className="h-8 w-8 text-turquoise-600 mx-auto mb-2" />
+                            <IconComponent className="h-8 w-8 text-gold-500 mx-auto mb-2" />
                             <h4 className="font-bold">{type.label}</h4>
-                            <p className="text-sm text-gray-600 mt-1">{type.description}</p>
+                            <p className="text-sm text-muted-foreground mt-1">{type.description}</p>
                           </CardContent>
                         </Card>
                       );
@@ -441,9 +441,9 @@ const DriverOnboarding = () => {
             {currentStep === 3 && (
               <div className="space-y-6" data-testid="documents-step">
                 <div className="text-center mb-6">
-                  <FileText className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Documents Upload</h3>
-                  <p className="text-gray-600">Upload required documents for verification</p>
+                  <FileText className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Documents Upload</h3>
+                  <p className="text-muted-foreground">Upload required documents for verification</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -455,9 +455,9 @@ const DriverOnboarding = () => {
                   ].map((doc) => (
                     <div key={doc.key}>
                       <Label>{doc.label}</Label>
-                      <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
-                        <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600 mb-2">
+                      <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
+                        <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground mb-2">
                           {formData[doc.key] ? formData[doc.key].name : `Upload ${doc.label.replace(' *', '')}`}
                         </p>
                         <input
@@ -492,8 +492,8 @@ const DriverOnboarding = () => {
               <div className="space-y-6" data-testid="banking-step">
                 <div className="text-center mb-6">
                   <CreditCard className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Banking Information</h3>
-                  <p className="text-gray-600">Secure account details for receiving your earnings</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information</h3>
+                  <p className="text-muted-foreground">Secure account details for receiving your earnings</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -577,8 +577,8 @@ const DriverOnboarding = () => {
               <div className="space-y-6" data-testid="review-step">
                 <div className="text-center mb-6">
                   <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Review Your Application</h3>
-                  <p className="text-gray-600">Please review all information before submitting</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Review Your Application</h3>
+                  <p className="text-muted-foreground">Please review all information before submitting</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -661,7 +661,7 @@ const DriverOnboarding = () => {
               {currentStep < 5 ? (
                 <Button 
                   onClick={nextStep}
-                  className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                  className="bg-gold-gradient text-white"
                   data-testid="next-step-btn"
                 >
                   Next Step

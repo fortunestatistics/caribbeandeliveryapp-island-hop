@@ -215,17 +215,17 @@ const OrderTrackingPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-turquoise-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading order details...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-gold-500/30 mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading order details...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
@@ -238,10 +238,10 @@ const OrderTrackingPage = () => {
           </Button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Track Your Order</h1>
-              <p className="text-gray-600">Order ID: {order.id}</p>
+              <h1 className="text-3xl font-bold text-foreground mb-2">Track Your Order</h1>
+              <p className="text-muted-foreground">Order ID: {order.id}</p>
             </div>
-            <Badge className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white text-lg px-4 py-2">
+            <Badge className="bg-gold-gradient text-white text-lg px-4 py-2">
               {getServiceTitle()}
             </Badge>
           </div>
@@ -252,7 +252,7 @@ const OrderTrackingPage = () => {
           <div className="lg:col-span-2 space-y-6">
             {/* Map Placeholder */}
             <Card className="overflow-hidden">
-              <div className="bg-gradient-to-r from-turquoise-500 to-orange-500 h-64 flex items-center justify-center relative">
+              <div className="bg-gold-gradient h-64 flex items-center justify-center relative">
                 <div className="text-white text-center">
                   <Navigation className="h-16 w-16 mx-auto mb-4 animate-pulse" />
                   <p className="text-lg font-semibold">Live Tracking</p>
@@ -260,8 +260,8 @@ const OrderTrackingPage = () => {
                 </div>
                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg">
                   <div className="flex items-center space-x-2">
-                    <Clock className="h-4 w-4 text-turquoise-600" />
-                    <span className="font-semibold text-gray-900">{order.estimatedTime}</span>
+                    <Clock className="h-4 w-4 text-gold-500" />
+                    <span className="font-semibold text-foreground">{order.estimatedTime}</span>
                   </div>
                 </div>
               </div>
@@ -271,7 +271,7 @@ const OrderTrackingPage = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <Package className="h-5 w-5 mr-2 text-turquoise-600" />
+                  <Package className="h-5 w-5 mr-2 text-gold-500" />
                   Order Progress
                 </CardTitle>
               </CardHeader>
@@ -286,7 +286,7 @@ const OrderTrackingPage = () => {
                           {item.completed ? (
                             <CheckCircle className="h-5 w-5 text-white" />
                           ) : (
-                            <Clock className="h-5 w-5 text-gray-600" />
+                            <Clock className="h-5 w-5 text-muted-foreground" />
                           )}
                         </div>
                         {index < order.timeline.length - 1 && (
@@ -294,11 +294,11 @@ const OrderTrackingPage = () => {
                         )}
                       </div>
                       <div className="flex-1 pt-2">
-                        <p className={`font-semibold ${item.completed ? 'text-gray-900' : 'text-gray-500'}`}>
+                        <p className={`font-semibold ${item.completed ? 'text-foreground' : 'text-muted-foreground'}`}>
                           {item.status}
                         </p>
                         {item.time && (
-                          <p className="text-sm text-gray-500">{formatTime(item.time)}</p>
+                          <p className="text-sm text-muted-foreground">{formatTime(item.time)}</p>
                         )}
                       </div>
                     </div>
@@ -319,22 +319,22 @@ const OrderTrackingPage = () => {
                 {/* Pickup/Dropoff Locations */}
                 <div className="space-y-3">
                   <div className="flex items-start">
-                    <div className="w-10 h-10 bg-turquoise-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-                      <MapPin className="h-5 w-5 text-turquoise-600" />
+                    <div className="w-10 h-10 bg-gold-500/15 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+                      <MapPin className="h-5 w-5 text-gold-500" />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{order.pickupLocation.name}</p>
-                      <p className="text-sm text-gray-600">{order.pickupLocation.address}</p>
+                      <p className="font-semibold text-foreground">{order.pickupLocation.name}</p>
+                      <p className="text-sm text-muted-foreground">{order.pickupLocation.address}</p>
                     </div>
                   </div>
-                  <div className="ml-5 border-l-2 border-dashed border-gray-300 h-8"></div>
+                  <div className="ml-5 border-l-2 border-dashed border-border h-8"></div>
                   <div className="flex items-start">
-                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-                      <Navigation className="h-5 w-5 text-orange-600" />
+                    <div className="w-10 h-10 bg-gold-500/15 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+                      <Navigation className="h-5 w-5 text-gold-500" />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{order.dropoffLocation.name}</p>
-                      <p className="text-sm text-gray-600">{order.dropoffLocation.address}</p>
+                      <p className="font-semibold text-foreground">{order.dropoffLocation.name}</p>
+                      <p className="text-sm text-muted-foreground">{order.dropoffLocation.address}</p>
                     </div>
                   </div>
                 </div>
@@ -344,14 +344,14 @@ const OrderTrackingPage = () => {
                   <>
                     <Separator />
                     <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Items</h4>
+                      <h4 className="font-semibold text-foreground mb-3">Items</h4>
                       <div className="space-y-2">
                         {order.items.map((item, index) => (
                           <div key={index} className="flex justify-between text-sm">
-                            <span className="text-gray-600">
+                            <span className="text-muted-foreground">
                               {item.quantity}x {item.name}
                             </span>
-                            <span className="font-semibold text-gray-900">
+                            <span className="font-semibold text-foreground">
                               ${item.price.toFixed(2)}
                             </span>
                           </div>
@@ -361,7 +361,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total</span>
-                      <span className="text-turquoise-600">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
                     </div>
                   </>
                 )}
@@ -371,7 +371,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Fare</span>
-                      <span className="text-turquoise-600">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
                     </div>
                   </>
                 )}
@@ -385,35 +385,35 @@ const OrderTrackingPage = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <User className="h-5 w-5 mr-2 text-turquoise-600" />
+                  <User className="h-5 w-5 mr-2 text-gold-500" />
                   Your {serviceType === 'taxi' ? 'Driver' : 'Courier'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-center">
-                  <div className="w-20 h-20 bg-gradient-to-r from-turquoise-500 to-orange-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <div className="w-20 h-20 bg-gold-gradient rounded-full flex items-center justify-center mx-auto mb-3">
                     <User className="h-10 w-10 text-white" />
                   </div>
-                  <h3 className="font-bold text-lg text-gray-900">{order.courier.name}</h3>
+                  <h3 className="font-bold text-lg text-foreground">{order.courier.name}</h3>
                   <div className="flex items-center justify-center space-x-1 mt-2">
-                    <Star className="h-4 w-4 text-yellow-500 fill-current" />
+                    <Star className="h-4 w-4 text-gold-500 fill-current" />
                     <span className="font-semibold">{order.courier.rating}</span>
-                    <span className="text-gray-500 text-sm">
+                    <span className="text-muted-foreground text-sm">
                       ({order.courier.completedDeliveries} deliveries)
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-3">
+                <div className="bg-background rounded-lg p-3">
                   <div className="flex items-center justify-center space-x-2">
-                    <Truck className="h-4 w-4 text-gray-600" />
-                    <span className="text-sm text-gray-600">{order.courier.vehicle}</span>
+                    <Truck className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">{order.courier.vehicle}</span>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <Button 
-                    className="bg-gradient-to-r from-turquoise-500 to-turquoise-600 text-white"
+                    className="bg-gradient-to-r from-gold-300 to-gold-700 text-white"
                     onClick={() => window.location.href = `tel:${order.courier.phone}`}
                   >
                     <Phone className="h-4 w-4 mr-2" />
@@ -421,7 +421,7 @@ const OrderTrackingPage = () => {
                   </Button>
                   <Button 
                     variant="outline"
-                    className="border-turquoise-500 text-turquoise-600 hover:bg-turquoise-50"
+                    className="border-gold-500/30 text-gold-500 hover:bg-gold-500/15"
                   >
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Chat
@@ -434,7 +434,7 @@ const OrderTrackingPage = () => {
             <Card className="flex flex-col" style={{ height: '500px' }}>
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <MessageCircle className="h-5 w-5 mr-2 text-turquoise-600" />
+                  <MessageCircle className="h-5 w-5 mr-2 text-gold-500" />
                   Messages
                 </CardTitle>
               </CardHeader>
@@ -449,13 +449,13 @@ const OrderTrackingPage = () => {
                       <div
                         className={`max-w-[80%] rounded-lg p-3 ${
                           message.sender === 'customer'
-                            ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
-                            : 'bg-gray-100 text-gray-900'
+                            ? 'bg-gold-gradient text-white'
+                            : 'bg-matte-800 text-foreground'
                         }`}
                       >
                         <p className="text-sm">{message.text}</p>
                         <p className={`text-xs mt-1 ${
-                          message.sender === 'customer' ? 'text-white/80' : 'text-gray-500'
+                          message.sender === 'customer' ? 'text-white/80' : 'text-muted-foreground'
                         }`}>
                           {formatTime(message.time)}
                         </p>
@@ -476,7 +476,7 @@ const OrderTrackingPage = () => {
                   />
                   <Button
                     onClick={handleSendMessage}
-                    className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white"
+                    className="bg-gold-gradient text-white"
                   >
                     <Send className="h-4 w-4" />
                   </Button>

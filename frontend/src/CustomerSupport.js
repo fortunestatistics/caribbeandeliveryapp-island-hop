@@ -182,48 +182,48 @@ const CustomerSupport = () => {
 
   const getStatusColor = (status) => {
     const colors = {
-      open: 'bg-blue-100 text-blue-800',
-      in_progress: 'bg-yellow-100 text-yellow-800',
+      open: 'bg-neon-cyan/15 text-neon-cyan',
+      in_progress: 'bg-gold-500/15 text-yellow-800',
       resolved: 'bg-green-100 text-green-800',
-      closed: 'bg-gray-100 text-gray-800'
+      closed: 'bg-matte-800 text-foreground'
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-matte-800 text-foreground';
   };
 
   const getPriorityColor = (priority) => {
     const colors = {
-      low: 'bg-gray-100 text-gray-800',
-      normal: 'bg-blue-100 text-blue-800',
-      high: 'bg-orange-100 text-orange-800',
+      low: 'bg-matte-800 text-foreground',
+      normal: 'bg-neon-cyan/15 text-neon-cyan',
+      high: 'bg-gold-500/15 text-gold-300',
       urgent: 'bg-red-100 text-red-800'
     };
-    return colors[priority] || 'bg-gray-100 text-gray-800';
+    return colors[priority] || 'bg-matte-800 text-foreground';
   };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Customer Support</h1>
-              <p className="text-gray-600">Get help with your orders and account</p>
+              <h1 className="text-3xl font-bold text-foreground">Customer Support</h1>
+              <p className="text-muted-foreground">Get help with your orders and account</p>
             </div>
             <div className="flex gap-2">
               <Button onClick={() => setShowFAQ(!showFAQ)} variant="outline">
                 <HelpCircle className="h-5 w-5 mr-2" />
                 FAQ
               </Button>
-              <Button onClick={() => setShowNewTicketModal(true)} className="bg-turquoise-600 hover:bg-turquoise-700">
+              <Button onClick={() => setShowNewTicketModal(true)} className="bg-gold-500/15 hover:bg-gold-500/20">
                 <Plus className="h-5 w-5 mr-2" />
                 New Ticket
               </Button>
@@ -236,10 +236,10 @@ const CustomerSupport = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Tickets</p>
+                    <p className="text-sm text-muted-foreground">Total Tickets</p>
                     <p className="text-2xl font-bold">{tickets.length}</p>
                   </div>
-                  <FileText className="h-8 w-8 text-blue-600" />
+                  <FileText className="h-8 w-8 text-neon-cyan" />
                 </div>
               </CardContent>
             </Card>
@@ -248,12 +248,12 @@ const CustomerSupport = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Open</p>
-                    <p className="text-2xl font-bold text-blue-600">
+                    <p className="text-sm text-muted-foreground">Open</p>
+                    <p className="text-2xl font-bold text-neon-cyan">
                       {tickets.filter(t => t.status === 'open').length}
                     </p>
                   </div>
-                  <AlertCircle className="h-8 w-8 text-blue-600" />
+                  <AlertCircle className="h-8 w-8 text-neon-cyan" />
                 </div>
               </CardContent>
             </Card>
@@ -262,7 +262,7 @@ const CustomerSupport = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">In Progress</p>
+                    <p className="text-sm text-muted-foreground">In Progress</p>
                     <p className="text-2xl font-bold text-yellow-600">
                       {tickets.filter(t => t.status === 'in_progress').length}
                     </p>
@@ -276,7 +276,7 @@ const CustomerSupport = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Resolved</p>
+                    <p className="text-sm text-muted-foreground">Resolved</p>
                     <p className="text-2xl font-bold text-green-600">
                       {tickets.filter(t => t.status === 'resolved' || t.status === 'closed').length}
                     </p>
@@ -306,9 +306,9 @@ const CustomerSupport = () => {
                     <h3 className="font-semibold text-lg mb-3">{category.category}</h3>
                     <div className="space-y-4">
                       {category.questions.map((faq, qIdx) => (
-                        <div key={qIdx} className="p-4 bg-gray-50 rounded-lg">
-                          <h4 className="font-medium text-gray-900 mb-2">{faq.q}</h4>
-                          <p className="text-sm text-gray-600">{faq.a}</p>
+                        <div key={qIdx} className="p-4 bg-background rounded-lg">
+                          <h4 className="font-medium text-foreground mb-2">{faq.q}</h4>
+                          <p className="text-sm text-muted-foreground">{faq.a}</p>
                         </div>
                       ))}
                     </div>
@@ -331,7 +331,7 @@ const CustomerSupport = () => {
                 {tickets.length === 0 ? (
                   <div className="text-center py-8">
                     <MessageCircle className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-                    <p className="text-gray-600 text-sm">No support tickets yet</p>
+                    <p className="text-muted-foreground text-sm">No support tickets yet</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -341,8 +341,8 @@ const CustomerSupport = () => {
                         onClick={() => setSelectedTicket(ticket)}
                         className={`w-full text-left p-4 rounded-lg transition-colors ${
                           selectedTicket?.id === ticket.id
-                            ? 'bg-turquoise-50 border-2 border-turquoise-500'
-                            : 'bg-gray-50 hover:bg-gray-100'
+                            ? 'bg-gold-500/15 border-2 border-gold-500/30'
+                            : 'bg-background hover:bg-matte-800'
                         }`}
                       >
                         <div className="flex items-start justify-between mb-2">
@@ -351,14 +351,14 @@ const CustomerSupport = () => {
                             {ticket.status}
                           </Badge>
                         </div>
-                        <p className="text-xs text-gray-600 mb-2 line-clamp-2">
+                        <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
                           {ticket.description}
                         </p>
                         <div className="flex items-center gap-2">
                           <Badge className={getPriorityColor(ticket.priority)} size="sm">
                             {ticket.priority}
                           </Badge>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-muted-foreground">
                             {new Date(ticket.created_at).toLocaleDateString()}
                           </span>
                         </div>
@@ -385,7 +385,7 @@ const CustomerSupport = () => {
                         <Badge className={getPriorityColor(selectedTicket.priority)}>
                           {selectedTicket.priority} priority
                         </Badge>
-                        <span className="text-sm text-gray-500">
+                        <span className="text-sm text-muted-foreground">
                           Ticket #{selectedTicket.id?.substring(0, 8)}
                         </span>
                       </div>
@@ -403,11 +403,11 @@ const CustomerSupport = () => {
                 </CardHeader>
                 <CardContent>
                   {/* Initial Description */}
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <p className="text-sm font-medium text-gray-900 mb-2">Original Issue:</p>
-                    <p className="text-sm text-gray-600">{selectedTicket.description}</p>
+                  <div className="mb-6 p-4 bg-background rounded-lg">
+                    <p className="text-sm font-medium text-foreground mb-2">Original Issue:</p>
+                    <p className="text-sm text-muted-foreground">{selectedTicket.description}</p>
                     {selectedTicket.order_id && (
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-muted-foreground mt-2">
                         Related Order: #{selectedTicket.order_id?.substring(0, 8)}
                       </p>
                     )}
@@ -415,21 +415,21 @@ const CustomerSupport = () => {
 
                   {/* Messages */}
                   <div className="mb-4">
-                    <div className="h-96 overflow-y-auto space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="h-96 overflow-y-auto space-y-3 mb-4 p-4 bg-background rounded-lg">
                       {messages.map((msg, idx) => (
                         <div
                           key={idx}
                           className={`p-3 rounded-lg ${
                             msg.sender_type === 'customer'
-                              ? 'bg-turquoise-100 ml-auto max-w-[80%]'
-                              : 'bg-white mr-auto max-w-[80%]'
+                              ? 'bg-gold-500/15 ml-auto max-w-[80%]'
+                              : 'bg-card mr-auto max-w-[80%]'
                           }`}
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-medium">
                               {msg.sender_type === 'customer' ? 'You' : 'Support Agent'}
                             </span>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-muted-foreground">
                               {new Date(msg.created_at).toLocaleString()}
                             </span>
                           </div>
@@ -459,8 +459,8 @@ const CustomerSupport = () => {
               <Card>
                 <CardContent className="py-12 text-center">
                   <MessageCircle className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">No ticket selected</h3>
-                  <p className="text-gray-600">Select a ticket to view details and chat with support</p>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">No ticket selected</h3>
+                  <p className="text-muted-foreground">Select a ticket to view details and chat with support</p>
                 </CardContent>
               </Card>
             )}
@@ -549,7 +549,7 @@ const CustomerSupport = () => {
                     <Button type="button" variant="outline" onClick={() => setShowNewTicketModal(false)} className="flex-1">
                       Cancel
                     </Button>
-                    <Button type="submit" className="flex-1 bg-turquoise-600 hover:bg-turquoise-700">
+                    <Button type="submit" className="flex-1 bg-gold-500/15 hover:bg-gold-500/20">
                       Create Ticket
                     </Button>
                   </div>

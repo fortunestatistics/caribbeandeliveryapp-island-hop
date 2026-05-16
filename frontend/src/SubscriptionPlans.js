@@ -26,7 +26,7 @@ const SubscriptionPlans = () => {
       icon: Zap,
       price: billingCycle === 'monthly' ? 29 : 290,
       description: 'Perfect for small businesses starting out',
-      color: 'from-blue-500 to-cyan-500',
+      color: 'from-neon-cyan to-gold-500',
       features: [
         { name: 'Up to 50 orders/month', included: true },
         { name: '15% platform commission', included: true },
@@ -45,7 +45,7 @@ const SubscriptionPlans = () => {
       icon: Crown,
       price: billingCycle === 'monthly' ? 79 : 790,
       description: 'For growing businesses with higher volume',
-      color: 'from-turquoise-500 to-orange-500',
+      color: 'from-gold-300 to-orange-500',
       features: [
         { name: 'Up to 200 orders/month', included: true },
         { name: '12% platform commission', included: true },
@@ -105,7 +105,7 @@ const SubscriptionPlans = () => {
       icon: Star,
       price: billingCycle === 'monthly' ? 19 : 190,
       description: 'Enhanced features for serious drivers',
-      color: 'from-turquoise-500 to-orange-500',
+      color: 'from-gold-300 to-orange-500',
       features: [
         { name: 'Accept unlimited deliveries', included: true },
         { name: '12% platform commission (save 3%)', included: true },
@@ -142,25 +142,25 @@ const SubscriptionPlans = () => {
   const plans = userType === 'business' ? businessPlans : driverPlans;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-turquoise-50 via-white to-orange-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          <h1 className="text-4xl font-bold text-foreground mb-4">
             Choose Your Plan
           </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
             Select the perfect plan to grow your business on IslandHop
           </p>
 
           {/* User Type Toggle */}
-          <div className="inline-flex bg-white rounded-lg p-1 shadow-md mb-6">
+          <div className="inline-flex bg-card rounded-lg p-1 shadow-md mb-6">
             <button
               onClick={() => setUserType('business')}
               className={`px-6 py-2 rounded-md font-semibold transition-all ${
                 userType === 'business'
-                  ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-gold-gradient text-white'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Business Plans
@@ -169,8 +169,8 @@ const SubscriptionPlans = () => {
               onClick={() => setUserType('driver')}
               className={`px-6 py-2 rounded-md font-semibold transition-all ${
                 userType === 'driver'
-                  ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-gold-gradient text-white'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Driver Plans
@@ -178,13 +178,13 @@ const SubscriptionPlans = () => {
           </div>
 
           {/* Billing Cycle Toggle */}
-          <div className="inline-flex bg-white rounded-lg p-1 shadow-md">
+          <div className="inline-flex bg-card rounded-lg p-1 shadow-md">
             <button
               onClick={() => setBillingCycle('monthly')}
               className={`px-6 py-2 rounded-md font-semibold transition-all ${
                 billingCycle === 'monthly'
                   ? 'bg-gray-900 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Monthly
@@ -194,7 +194,7 @@ const SubscriptionPlans = () => {
               className={`px-6 py-2 rounded-md font-semibold transition-all ${
                 billingCycle === 'yearly'
                   ? 'bg-gray-900 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Yearly
@@ -210,13 +210,13 @@ const SubscriptionPlans = () => {
               key={plan.id}
               className={`relative ${
                 plan.recommended
-                  ? 'border-4 border-turquoise-500 shadow-2xl transform scale-105'
-                  : 'border border-gray-200'
+                  ? 'border-4 border-gold-500/30 shadow-2xl transform scale-105'
+                  : 'border border-border'
               }`}
             >
               {plan.recommended && (
                 <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-gradient-to-r from-turquoise-500 to-orange-500 text-white px-4 py-1 text-sm">
+                  <Badge className="bg-gold-gradient text-white px-4 py-1 text-sm">
                     Most Popular
                   </Badge>
                 </div>
@@ -227,13 +227,13 @@ const SubscriptionPlans = () => {
                   <plan.icon className="h-8 w-8 text-white" />
                 </div>
                 <CardTitle className="text-2xl mb-2">{plan.name}</CardTitle>
-                <p className="text-gray-600 text-sm mb-4">{plan.description}</p>
+                <p className="text-muted-foreground text-sm mb-4">{plan.description}</p>
                 <div className="mb-2">
-                  <span className="text-5xl font-bold text-gray-900">
+                  <span className="text-5xl font-bold text-foreground">
                     ${plan.price}
                   </span>
                   {plan.price > 0 && (
-                    <span className="text-gray-600">
+                    <span className="text-muted-foreground">
                       /{billingCycle === 'monthly' ? 'mo' : 'yr'}
                     </span>
                   )}
@@ -249,7 +249,7 @@ const SubscriptionPlans = () => {
                 <Button
                   className={`w-full mb-6 ${
                     plan.recommended
-                      ? 'bg-gradient-to-r from-turquoise-500 to-orange-500 text-white'
+                      ? 'bg-gold-gradient text-white'
                       : 'bg-gray-900 text-white'
                   }`}
                   onClick={() => {
@@ -276,7 +276,7 @@ const SubscriptionPlans = () => {
                         )}
                       </div>
                       <span className={`ml-3 text-sm ${
-                        feature.included ? 'text-gray-900' : 'text-gray-400'
+                        feature.included ? 'text-foreground' : 'text-muted-foreground/70'
                       }`}>
                         {feature.name}
                       </span>
@@ -296,39 +296,39 @@ const SubscriptionPlans = () => {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex items-start space-x-3">
-                <div className="w-10 h-10 bg-turquoise-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Check className="h-5 w-5 text-turquoise-600" />
+                <div className="w-10 h-10 bg-gold-500/15 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Check className="h-5 w-5 text-gold-500" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Secure Payments</h4>
-                  <p className="text-sm text-gray-600">All transactions secured with industry-standard encryption</p>
+                  <h4 className="font-semibold text-foreground mb-1">Secure Payments</h4>
+                  <p className="text-sm text-muted-foreground">All transactions secured with industry-standard encryption</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
-                <div className="w-10 h-10 bg-turquoise-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Check className="h-5 w-5 text-turquoise-600" />
+                <div className="w-10 h-10 bg-gold-500/15 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Check className="h-5 w-5 text-gold-500" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Real-time Tracking</h4>
-                  <p className="text-sm text-gray-600">Live order tracking and customer communication</p>
+                  <h4 className="font-semibold text-foreground mb-1">Real-time Tracking</h4>
+                  <p className="text-sm text-muted-foreground">Live order tracking and customer communication</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
-                <div className="w-10 h-10 bg-turquoise-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Check className="h-5 w-5 text-turquoise-600" />
+                <div className="w-10 h-10 bg-gold-500/15 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Check className="h-5 w-5 text-gold-500" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">No Setup Fees</h4>
-                  <p className="text-sm text-gray-600">Start earning immediately with no hidden costs</p>
+                  <h4 className="font-semibold text-foreground mb-1">No Setup Fees</h4>
+                  <p className="text-sm text-muted-foreground">Start earning immediately with no hidden costs</p>
                 </div>
               </div>
               <div className="flex items-start space-x-3">
-                <div className="w-10 h-10 bg-turquoise-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Check className="h-5 w-5 text-turquoise-600" />
+                <div className="w-10 h-10 bg-gold-500/15 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Check className="h-5 w-5 text-gold-500" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Cancel Anytime</h4>
-                  <p className="text-sm text-gray-600">No long-term contracts or cancellation fees</p>
+                  <h4 className="font-semibold text-foreground mb-1">Cancel Anytime</h4>
+                  <p className="text-sm text-muted-foreground">No long-term contracts or cancellation fees</p>
                 </div>
               </div>
             </div>
@@ -339,7 +339,7 @@ const SubscriptionPlans = () => {
           <Button
             variant="ghost"
             onClick={() => navigate('/')}
-            className="text-gray-600"
+            className="text-muted-foreground"
           >
             ← Back to Home
           </Button>

@@ -240,22 +240,22 @@ const OrderTrackingPageWithMaps = () => {
   // Status badge color
   const getStatusColor = (status) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
+      pending: 'bg-gold-500/15 text-yellow-800',
+      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-blue-100 text-blue-800',
+      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-matte-800 text-foreground';
   };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
@@ -264,7 +264,7 @@ const OrderTrackingPageWithMaps = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Order Not Found</h2>
+          <h2 className="text-2xl font-bold text-foreground">Order Not Found</h2>
           <Button onClick={() => navigate('/')} className="mt-4">
             Go Home
           </Button>
@@ -274,7 +274,7 @@ const OrderTrackingPageWithMaps = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-6xl">
         {/* Header */}
         <div className="mb-6">
@@ -283,8 +283,8 @@ const OrderTrackingPageWithMaps = () => {
           </Button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Track Your Order</h1>
-              <p className="text-gray-600">Order ID: {orderId.substring(0, 8)}</p>
+              <h1 className="text-3xl font-bold text-foreground">Track Your Order</h1>
+              <p className="text-muted-foreground">Order ID: {orderId.substring(0, 8)}</p>
             </div>
             <Badge className={getStatusColor(order.status)}>
               {order.status.replace('_', ' ').toUpperCase()}
@@ -369,11 +369,11 @@ const OrderTrackingPageWithMaps = () => {
 
                 {/* Driver Info Below Map */}
                 {driverLocation?.has_driver && (
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                  <div className="mt-4 p-4 bg-neon-cyan/10 rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-900">{driverLocation.driver_name}</p>
-                        <p className="text-sm text-gray-600">{driverLocation.vehicle_type} • {driverLocation.vehicle_plate}</p>
+                        <p className="font-semibold text-foreground">{driverLocation.driver_name}</p>
+                        <p className="text-sm text-muted-foreground">{driverLocation.vehicle_type} • {driverLocation.vehicle_plate}</p>
                       </div>
                       <Button size="sm" variant="outline">
                         <Phone className="h-4 w-4" />
@@ -407,11 +407,11 @@ const OrderTrackingPageWithMaps = () => {
                           )}
                         </div>
                         <div className="flex-1">
-                          <p className={`font-medium ${isCurrent ? 'text-turquoise-600' : 'text-gray-900'}`}>
+                          <p className={`font-medium ${isCurrent ? 'text-gold-500' : 'text-foreground'}`}>
                             {status.replace('_', ' ').toUpperCase()}
                           </p>
                           {isCurrent && (
-                            <p className="text-sm text-gray-600">In progress...</p>
+                            <p className="text-sm text-muted-foreground">In progress...</p>
                           )}
                         </div>
                       </div>
@@ -434,22 +434,22 @@ const OrderTrackingPageWithMaps = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <p className="text-sm text-gray-600">Subtotal</p>
+                  <p className="text-sm text-muted-foreground">Subtotal</p>
                   <p className="text-lg font-semibold">${order.subtotal?.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Delivery Fee</p>
+                  <p className="text-sm text-muted-foreground">Delivery Fee</p>
                   <p className="text-lg font-semibold">${order.delivery_fee?.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total</p>
-                  <p className="text-2xl font-bold text-turquoise-600">${order.total?.toFixed(2)}</p>
+                  <p className="text-sm text-muted-foreground">Total</p>
+                  <p className="text-2xl font-bold text-gold-500">${order.total?.toFixed(2)}</p>
                 </div>
                 
                 <div className="pt-4 border-t">
-                  <p className="text-sm text-gray-600 mb-2">Delivery Address</p>
+                  <p className="text-sm text-muted-foreground mb-2">Delivery Address</p>
                   <p className="font-medium">{order.delivery_address?.street_address}</p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {order.delivery_address?.city}, {order.delivery_address?.postal_code}
                   </p>
                 </div>
@@ -471,8 +471,8 @@ const OrderTrackingPageWithMaps = () => {
                       key={index}
                       className={`p-3 rounded-lg ${
                         msg.sender_type === 'customer'
-                          ? 'bg-turquoise-100 ml-auto max-w-[80%]'
-                          : 'bg-gray-100 mr-auto max-w-[80%]'
+                          ? 'bg-gold-500/15 ml-auto max-w-[80%]'
+                          : 'bg-matte-800 mr-auto max-w-[80%]'
                       }`}
                     >
                       <p className="text-sm">{msg.message}</p>
@@ -518,7 +518,7 @@ const OrderTrackingPageWithMaps = () => {
                         <Star
                           className={`h-8 w-8 ${
                             star <= ratings.vendor_rating
-                              ? 'fill-yellow-400 text-yellow-400'
+                              ? 'fill-yellow-400 text-gold-300'
                               : 'text-gray-300'
                           }`}
                         />
@@ -540,7 +540,7 @@ const OrderTrackingPageWithMaps = () => {
                         <Star
                           className={`h-8 w-8 ${
                             star <= ratings.driver_rating
-                              ? 'fill-yellow-400 text-yellow-400'
+                              ? 'fill-yellow-400 text-gold-300'
                               : 'text-gray-300'
                           }`}
                         />

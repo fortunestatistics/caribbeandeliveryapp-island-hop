@@ -145,22 +145,22 @@ const OrderScheduling = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Scheduled Orders</h1>
-              <p className="text-gray-600">Schedule orders for later or set up recurring deliveries</p>
+              <h1 className="text-3xl font-bold text-foreground">Scheduled Orders</h1>
+              <p className="text-muted-foreground">Schedule orders for later or set up recurring deliveries</p>
             </div>
-            <Button onClick={() => setShowScheduleModal(true)} className="bg-turquoise-600 hover:bg-turquoise-700">
+            <Button onClick={() => setShowScheduleModal(true)} className="bg-gold-500/15 hover:bg-gold-500/20">
               <Plus className="h-5 w-5 mr-2" />
               Schedule Order
             </Button>
@@ -172,10 +172,10 @@ const OrderScheduling = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Upcoming Orders</p>
+                    <p className="text-sm text-muted-foreground">Upcoming Orders</p>
                     <p className="text-2xl font-bold">{scheduledOrders.length}</p>
                   </div>
-                  <Calendar className="h-8 w-8 text-blue-600" />
+                  <Calendar className="h-8 w-8 text-neon-cyan" />
                 </div>
               </CardContent>
             </Card>
@@ -184,7 +184,7 @@ const OrderScheduling = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Recurring Orders</p>
+                    <p className="text-sm text-muted-foreground">Recurring Orders</p>
                     <p className="text-2xl font-bold text-purple-600">{recurringOrders.length}</p>
                   </div>
                   <RepeatIcon className="h-8 w-8 text-purple-600" />
@@ -196,8 +196,8 @@ const OrderScheduling = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">This Week</p>
-                    <p className="text-2xl font-bold text-turquoise-600">
+                    <p className="text-sm text-muted-foreground">This Week</p>
+                    <p className="text-2xl font-bold text-gold-500">
                       {scheduledOrders.filter(o => {
                         const orderDate = new Date(o.scheduled_datetime);
                         const weekFromNow = new Date();
@@ -206,7 +206,7 @@ const OrderScheduling = () => {
                       }).length}
                     </p>
                   </div>
-                  <Clock className="h-8 w-8 text-turquoise-600" />
+                  <Clock className="h-8 w-8 text-gold-500" />
                 </div>
               </CardContent>
             </Card>
@@ -222,8 +222,8 @@ const OrderScheduling = () => {
             {scheduledOrders.length === 0 ? (
               <div className="text-center py-12">
                 <Calendar className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No scheduled orders</h3>
-                <p className="text-gray-600 mb-4">Schedule an order to have it delivered at a specific time</p>
+                <h3 className="text-xl font-semibold text-foreground mb-2">No scheduled orders</h3>
+                <p className="text-muted-foreground mb-4">Schedule an order to have it delivered at a specific time</p>
                 <Button onClick={() => setShowScheduleModal(true)}>Schedule First Order</Button>
               </div>
             ) : (
@@ -234,12 +234,12 @@ const OrderScheduling = () => {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-3">
-                            <Calendar className="h-5 w-5 text-turquoise-600" />
+                            <Calendar className="h-5 w-5 text-gold-500" />
                             <div>
                               <h3 className="font-semibold text-lg">
                                 {new Date(order.scheduled_datetime).toLocaleDateString()}
                               </h3>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-muted-foreground">
                                 {new Date(order.scheduled_datetime).toLocaleTimeString()}
                               </p>
                             </div>
@@ -250,15 +250,15 @@ const OrderScheduling = () => {
                               </Badge>
                             )}
                             <Badge className={
-                              order.status === 'pending' ? 'bg-blue-100 text-blue-800' :
+                              order.status === 'pending' ? 'bg-neon-cyan/15 text-neon-cyan' :
                               order.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                              'bg-gray-100 text-gray-800'
+                              'bg-matte-800 text-foreground'
                             }>
                               {order.status}
                             </Badge>
                           </div>
 
-                          <div className="space-y-1 text-sm text-gray-600">
+                          <div className="space-y-1 text-sm text-muted-foreground">
                             <p className="capitalize">Service: {order.service_type}</p>
                             {order.items && order.items.length > 0 && (
                               <p>Items: {order.items.length} item(s)</p>
@@ -316,18 +316,18 @@ const OrderScheduling = () => {
                               <h3 className="font-semibold text-lg capitalize">
                                 {recurring.service_type} Delivery
                               </h3>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-muted-foreground">
                                 {getRecurrenceText(recurring.recurrence_pattern, recurring.recurrence_days)}
                               </p>
                             </div>
                             <Badge className={
-                              recurring.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              recurring.active ? 'bg-green-100 text-green-800' : 'bg-matte-800 text-foreground'
                             }>
                               {recurring.active ? 'Active' : 'Paused'}
                             </Badge>
                           </div>
 
-                          <div className="space-y-1 text-sm text-gray-600">
+                          <div className="space-y-1 text-sm text-muted-foreground">
                             <p>Next scheduled: {new Date(recurring.next_occurrence).toLocaleDateString()}</p>
                             {recurring.end_date && (
                               <p>Ends: {new Date(recurring.end_date).toLocaleDateString()}</p>
@@ -480,9 +480,9 @@ const OrderScheduling = () => {
                   )}
 
                   {/* Info */}
-                  <div className="bg-blue-50 p-4 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-blue-900">
+                  <div className="bg-neon-cyan/10 p-4 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="h-5 w-5 text-neon-cyan flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-neon-cyan">
                       <p className="font-medium mb-1">Note:</p>
                       <p>This is a simplified scheduling interface. In production, you would select specific items, quantities, and delivery address before scheduling.</p>
                     </div>
@@ -493,7 +493,7 @@ const OrderScheduling = () => {
                     <Button type="button" variant="outline" onClick={() => { setShowScheduleModal(false); resetForm(); }} className="flex-1">
                       Cancel
                     </Button>
-                    <Button type="submit" className="flex-1 bg-turquoise-600 hover:bg-turquoise-700">
+                    <Button type="submit" className="flex-1 bg-gold-500/15 hover:bg-gold-500/20">
                       Schedule Order
                     </Button>
                   </div>

@@ -22,7 +22,18 @@ Build **IslandHop**, a comprehensive Caribbean delivery app with multi-service c
 - **Backend tests**: 48 pytest cases, 100% passing (`/app/backend/tests/test_islandhop_backend.py` + `test_payments.py`).
 
 ## What's Implemented (CHANGELOG)
-### Feb 2026 — Wallet + CariPay (this session)
+### Feb 2026 — Brand overhaul: Matte Black + Metallic Gold + Neon Cyan (this session)
+- Dark-first theme using user's brand palette: matte black backgrounds (#0C0C0C / #141414 / #1E1E1E), metallic gold gradient CTAs (#E8C872 → #D4AF37 → #AA7C11), neon cyan functional accents (#00F2FE), white text.
+- Tailwind config: added `matte`/`gold`/`neon` color tokens, `bg-gold-gradient` utility, `shadow-gold-glow/-lg` + `shadow-cyan-pulse`, `animate-pulse-cyan` keyframe, `font-heading` (Outfit) + `font-sans` (Manrope) from Google Fonts.
+- Forced `dark` class on `<html>` so the whole app boots in matte black; light-mode HSL variables preserved for future toggle.
+- Shadcn `Button` default variant → gold gradient with gold-glow on hover.
+- `index.css`: gold selection color, gold scrollbar thumb, `.text-gold-gradient` utility for the hero headline.
+- Bulk recolor across 28 components (App.js + every onboarding wizard + every dashboard + Wallet/Checkout/etc.): teal/orange/turquoise/yellow → gold, blue → neon cyan, white surfaces → matte-800/card, gray text → muted-foreground.
+- Hero section: matte black with radial gold ambient glow + cyan corner accent; gold-gradient headline; gold-glow Get Started CTA.
+- Header: matte-900/90 + backdrop-blur-xl + gold hairline border.
+- 116/116 backend tests still passing — UI overhaul required no backend changes.
+
+### Feb 2026 — Wallet + CariPay (previous session)
 - **IslandHop in-app multi-currency wallet** (USD, JMD, TTD, BBD, GHS, NGN, ZAR).
 - Endpoints: `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/link` & `DELETE`, `POST /api/wallet/deposit` (from CariPay), `POST /api/wallet/withdraw` (to CariPay), `POST /api/wallet/send` (P2P between IslandHop users), `POST /api/wallet/pay-order` (wallet → order). All atomic via Mongo `$inc` with compare-and-set debits.
 - **CariPay client** (`/app/backend/caripay_client.py`) with `MOCK_CARIPAY=true` toggle — short-circuits to simulated success today; flip to false + fill `_real_deposit/_real_withdrawal` once CariPay's API is live.

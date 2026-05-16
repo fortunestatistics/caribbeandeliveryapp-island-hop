@@ -84,15 +84,15 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
               className={`
                 relative p-4 rounded-lg border-2 text-left transition-all
                 ${selectedMethod === method.id 
-                  ? 'border-turquoise-500 bg-turquoise-50' 
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-gold-500/30 bg-gold-500/15' 
+                  : 'border-border hover:border-border'
                 }
                 ${!method.enabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
               `}
             >
               {selectedMethod === method.id && (
                 <div className="absolute top-2 right-2">
-                  <div className="bg-turquoise-500 rounded-full p-1">
+                  <div className="bg-gold-500/15 rounded-full p-1">
                     <Check className="h-4 w-4 text-white" />
                   </div>
                 </div>
@@ -100,16 +100,16 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
               
               <div className="flex items-start gap-3">
                 <div className="mt-1">
-                  <Icon className="h-6 w-6 text-gray-700" />
+                  <Icon className="h-6 w-6 text-foreground/90" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <div className="font-semibold text-foreground flex items-center gap-2">
                     {method.name}
                     {method.comingSoon && (
                       <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
                     )}
                   </div>
-                  <p className="text-sm text-gray-600">{method.description}</p>
+                  <p className="text-sm text-muted-foreground">{method.description}</p>
                 </div>
               </div>
             </button>
@@ -141,8 +141,8 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
       )}
 
       {/* Security Notice */}
-      <div className="flex items-center gap-2 text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-        <AlertCircle className="h-5 w-5 text-blue-600" />
+      <div className="flex items-center gap-2 text-sm text-muted-foreground bg-neon-cyan/10 p-3 rounded-lg">
+        <AlertCircle className="h-5 w-5 text-neon-cyan" />
         <p>
           Your payment information is encrypted and secure. We never store your card details.
         </p>
@@ -198,8 +198,8 @@ const StripePaymentForm = ({ amount, selectedMethod, onSuccess }) => {
             <Check className="h-8 w-8 text-green-600" />
           </div>
         </div>
-        <h3 className="text-xl font-bold text-gray-900 mb-2">Payment Successful!</h3>
-        <p className="text-gray-600">Your order has been placed.</p>
+        <h3 className="text-xl font-bold text-foreground mb-2">Payment Successful!</h3>
+        <p className="text-muted-foreground">Your order has been placed.</p>
       </div>
     );
   }
@@ -207,10 +207,10 @@ const StripePaymentForm = ({ amount, selectedMethod, onSuccess }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Amount Display */}
-      <div className="bg-gray-50 p-4 rounded-lg mb-4">
+      <div className="bg-background p-4 rounded-lg mb-4">
         <div className="flex justify-between items-center">
-          <span className="text-gray-600">Total Amount</span>
-          <span className="text-2xl font-bold text-gray-900">${amount?.toFixed(2)}</span>
+          <span className="text-muted-foreground">Total Amount</span>
+          <span className="text-2xl font-bold text-foreground">${amount?.toFixed(2)}</span>
         </div>
       </div>
 
@@ -223,7 +223,7 @@ const StripePaymentForm = ({ amount, selectedMethod, onSuccess }) => {
       )}
 
       {selectedMethod === 'google_pay' && (
-        <div className="bg-white border-2 border-gray-300 p-4 rounded-lg flex items-center justify-center gap-3">
+        <div className="bg-card border-2 border-border p-4 rounded-lg flex items-center justify-center gap-3">
           <Smartphone className="h-5 w-5" />
           <span className="font-medium">Pay with Google Pay</span>
         </div>

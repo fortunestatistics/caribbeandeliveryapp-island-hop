@@ -158,22 +158,22 @@ const PromoCodeManagement = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Promo Codes</h1>
-              <p className="text-gray-600">Create and manage discount codes</p>
+              <h1 className="text-3xl font-bold text-foreground">Promo Codes</h1>
+              <p className="text-muted-foreground">Create and manage discount codes</p>
             </div>
-            <Button onClick={() => { resetForm(); setShowModal(true); }} className="bg-turquoise-600 hover:bg-turquoise-700">
+            <Button onClick={() => { resetForm(); setShowModal(true); }} className="bg-gold-500/15 hover:bg-gold-500/20">
               <Plus className="h-5 w-5 mr-2" />
               Create Promo Code
             </Button>
@@ -185,10 +185,10 @@ const PromoCodeManagement = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Codes</p>
+                    <p className="text-sm text-muted-foreground">Total Codes</p>
                     <p className="text-2xl font-bold">{promoCodes.length}</p>
                   </div>
-                  <Tag className="h-8 w-8 text-blue-600" />
+                  <Tag className="h-8 w-8 text-neon-cyan" />
                 </div>
               </CardContent>
             </Card>
@@ -197,7 +197,7 @@ const PromoCodeManagement = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Active</p>
+                    <p className="text-sm text-muted-foreground">Active</p>
                     <p className="text-2xl font-bold text-green-600">
                       {promoCodes.filter(p => p.active).length}
                     </p>
@@ -211,7 +211,7 @@ const PromoCodeManagement = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Total Used</p>
+                    <p className="text-sm text-muted-foreground">Total Used</p>
                     <p className="text-2xl font-bold">
                       {promoCodes.reduce((sum, p) => sum + (p.used_count || 0), 0)}
                     </p>
@@ -225,10 +225,10 @@ const PromoCodeManagement = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Savings Given</p>
-                    <p className="text-2xl font-bold text-turquoise-600">$2.5K</p>
+                    <p className="text-sm text-muted-foreground">Savings Given</p>
+                    <p className="text-2xl font-bold text-gold-500">$2.5K</p>
                   </div>
-                  <TrendingUp className="h-8 w-8 text-turquoise-600" />
+                  <TrendingUp className="h-8 w-8 text-gold-500" />
                 </div>
               </CardContent>
             </Card>
@@ -240,8 +240,8 @@ const PromoCodeManagement = () => {
           <Card>
             <CardContent className="py-12 text-center">
               <Tag className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No promo codes yet</h3>
-              <p className="text-gray-600 mb-4">Create your first promo code to start offering discounts</p>
+              <h3 className="text-xl font-semibold text-foreground mb-2">No promo codes yet</h3>
+              <p className="text-muted-foreground mb-4">Create your first promo code to start offering discounts</p>
               <Button onClick={() => setShowModal(true)}>Create Promo Code</Button>
             </CardContent>
           </Card>
@@ -254,41 +254,41 @@ const PromoCodeManagement = () => {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <code className="text-xl font-bold text-turquoise-600 bg-turquoise-50 px-3 py-1 rounded">
+                        <code className="text-xl font-bold text-gold-500 bg-gold-500/15 px-3 py-1 rounded">
                           {promo.code}
                         </code>
                         <button onClick={() => handleCopyCode(promo.code)}>
-                          <Copy className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                          <Copy className="h-4 w-4 text-muted-foreground/70 hover:text-muted-foreground" />
                         </button>
                       </div>
-                      <Badge className={promo.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                      <Badge className={promo.active ? 'bg-green-100 text-green-800' : 'bg-matte-800 text-foreground'}>
                         {promo.active ? 'Active' : 'Inactive'}
                       </Badge>
                     </div>
                   </div>
 
                   {/* Discount Info */}
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="mb-4 p-4 bg-background rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       {promo.type === 'percentage' ? (
-                        <Percent className="h-5 w-5 text-turquoise-600" />
+                        <Percent className="h-5 w-5 text-gold-500" />
                       ) : (
-                        <DollarSign className="h-5 w-5 text-turquoise-600" />
+                        <DollarSign className="h-5 w-5 text-gold-500" />
                       )}
-                      <span className="text-2xl font-bold text-turquoise-600">
+                      <span className="text-2xl font-bold text-gold-500">
                         {promo.type === 'percentage' ? `${promo.value}% OFF` : `$${promo.value} OFF`}
                       </span>
                     </div>
                     {promo.min_order_amount > 0 && (
-                      <p className="text-sm text-gray-600">Min order: ${promo.min_order_amount}</p>
+                      <p className="text-sm text-muted-foreground">Min order: ${promo.min_order_amount}</p>
                     )}
                     {promo.max_discount && (
-                      <p className="text-sm text-gray-600">Max discount: ${promo.max_discount}</p>
+                      <p className="text-sm text-muted-foreground">Max discount: ${promo.max_discount}</p>
                     )}
                   </div>
 
                   {/* Usage Stats */}
-                  <div className="mb-4 text-sm text-gray-600 space-y-1">
+                  <div className="mb-4 text-sm text-muted-foreground space-y-1">
                     <p className="flex items-center gap-2">
                       <Users className="h-4 w-4" />
                       Used: {promo.used_count || 0}
@@ -303,7 +303,7 @@ const PromoCodeManagement = () => {
                   {/* Service Types */}
                   {promo.service_types && promo.service_types.length > 0 && (
                     <div className="mb-4">
-                      <p className="text-xs text-gray-500 mb-1">Applies to:</p>
+                      <p className="text-xs text-muted-foreground mb-1">Applies to:</p>
                       <div className="flex flex-wrap gap-1">
                         {promo.service_types.map((service) => (
                           <Badge key={service} variant="outline" className="text-xs">
@@ -502,7 +502,7 @@ const PromoCodeManagement = () => {
                     <Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }} className="flex-1">
                       Cancel
                     </Button>
-                    <Button type="submit" className="flex-1 bg-turquoise-600 hover:bg-turquoise-700">
+                    <Button type="submit" className="flex-1 bg-gold-500/15 hover:bg-gold-500/20">
                       {editingPromo ? 'Update' : 'Create'} Promo Code
                     </Button>
                   </div>

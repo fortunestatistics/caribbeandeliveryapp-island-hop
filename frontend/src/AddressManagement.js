@@ -182,22 +182,22 @@ const AddressManagement = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-turquoise-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/30"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-4xl">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">My Addresses</h1>
-              <p className="text-gray-600">Manage your delivery addresses</p>
+              <h1 className="text-3xl font-bold text-foreground">My Addresses</h1>
+              <p className="text-muted-foreground">Manage your delivery addresses</p>
             </div>
-            <Button onClick={() => { resetForm(); setShowModal(true); }} className="bg-turquoise-600 hover:bg-turquoise-700">
+            <Button onClick={() => { resetForm(); setShowModal(true); }} className="bg-gold-500/15 hover:bg-gold-500/20">
               <Plus className="h-5 w-5 mr-2" />
               Add Address
             </Button>
@@ -209,8 +209,8 @@ const AddressManagement = () => {
           <Card>
             <CardContent className="py-12 text-center">
               <MapPin className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No saved addresses</h3>
-              <p className="text-gray-600 mb-4">Add your first address for faster checkout</p>
+              <h3 className="text-xl font-semibold text-foreground mb-2">No saved addresses</h3>
+              <p className="text-muted-foreground mb-4">Add your first address for faster checkout</p>
               <Button onClick={() => setShowModal(true)}>Add Address</Button>
             </CardContent>
           </Card>
@@ -222,14 +222,14 @@ const AddressManagement = () => {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="bg-turquoise-100 p-2 rounded-lg text-turquoise-600">
+                        <div className="bg-gold-500/15 p-2 rounded-lg text-gold-500">
                           {getLabelIcon(address.label)}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-lg capitalize">{address.label}</h3>
                             {address.is_default && (
-                              <Badge className="bg-turquoise-500">
+                              <Badge className="bg-gold-500/15">
                                 <Star className="h-3 w-3 mr-1" />
                                 Default
                               </Badge>
@@ -238,12 +238,12 @@ const AddressManagement = () => {
                         </div>
                       </div>
 
-                      <div className="space-y-1 text-gray-600">
-                        <p className="font-medium text-gray-900">{address.street_address}</p>
+                      <div className="space-y-1 text-muted-foreground">
+                        <p className="font-medium text-foreground">{address.street_address}</p>
                         <p>{address.city}, {address.state} {address.postal_code}</p>
                         <p>{address.country}</p>
                         {address.delivery_instructions && (
-                          <p className="text-sm italic mt-2 text-gray-500">
+                          <p className="text-sm italic mt-2 text-muted-foreground">
                             Note: {address.delivery_instructions}
                           </p>
                         )}
@@ -314,8 +314,8 @@ const AddressManagement = () => {
                           onClick={() => setFormData(prev => ({ ...prev, label }))}
                           className={`p-3 border-2 rounded-lg capitalize ${
                             formData.label === label
-                              ? 'border-turquoise-500 bg-turquoise-50'
-                              : 'border-gray-200'
+                              ? 'border-gold-500/30 bg-gold-500/15'
+                              : 'border-border'
                           }`}
                         >
                           {label}
@@ -394,7 +394,7 @@ const AddressManagement = () => {
                     <Button type="button" variant="outline" onClick={() => { setShowModal(false); resetForm(); }} className="flex-1">
                       Cancel
                     </Button>
-                    <Button type="submit" className="flex-1 bg-turquoise-600 hover:bg-turquoise-700">
+                    <Button type="submit" className="flex-1 bg-gold-500/15 hover:bg-gold-500/20">
                       {editingAddress ? 'Update' : 'Save'} Address
                     </Button>
                   </div>
