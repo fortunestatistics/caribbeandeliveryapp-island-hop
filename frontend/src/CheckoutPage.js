@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import CurrencyConverter from './CurrencyConverter';
 import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Wallet } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -273,9 +274,9 @@ export const CheckoutPage = () => {
                   <span data-testid="checkout-discount">−${(order.discount || 0).toFixed(2)}</span>
                 </div>
               )}
-              <div className="flex justify-between border-t pt-2 mt-2 font-semibold">
+              <div className="flex justify-between border-t pt-2 mt-2 font-semibold items-center gap-3 flex-wrap">
                 <span>Total</span>
-                <span data-testid="checkout-total">${(order.total || 0).toFixed(2)}</span>
+                <CurrencyConverter amountUSD={Number(order.total || 0)} size="md" />
               </div>
             </div>
 

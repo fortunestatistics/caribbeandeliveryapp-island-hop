@@ -5,6 +5,7 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
+import CurrencyConverter from './CurrencyConverter';
 import { 
   Package, 
   MapPin, 
@@ -411,12 +412,12 @@ const CourierOrderForm = () => {
 
               {/* Fare Estimate */}
               <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
                     <h3 className="text-lg font-semibold text-white">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
-                  <div className="text-4xl font-bold text-gold-gradient">${calculateFare()}</div>
+                  <CurrencyConverter amountUSD={parseFloat(calculateFare()) || 0} size="lg" />
                 </div>
               </div>
 

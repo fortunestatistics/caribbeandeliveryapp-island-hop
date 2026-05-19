@@ -181,7 +181,10 @@ const WalletPage = () => {
 
   const linked = Boolean(wallet?.caripay_handle);
   const balances = wallet?.balances || {};
-  const currencies = Object.keys(balances).length ? Object.keys(balances) : ['USD', 'JMD'];
+  // Trinidad launch market — TTD shown first, then USD, then any other currencies
+  const baseCurrencies = ['TTD', 'USD'];
+  const extras = Object.keys(balances).filter((c) => !baseCurrencies.includes(c));
+  const currencies = [...baseCurrencies, ...extras];
 
   return (
     <div className="min-h-screen bg-background py-10 px-4">
@@ -205,14 +208,14 @@ const WalletPage = () => {
 
         {/* Balances */}
         <div className="grid sm:grid-cols-2 gap-4 mb-6">
-          {currencies.map((c) => (
-            <Card key={c} className={c === 'USD' ? 'bg-gradient-to-br from-gold-300 to-gold-700 text-white border-0' : ''}>
+          {currencies.map((c, i) => (
+            <Card key={c} className={i === 0 ? 'bg-gold-gradient text-matte-900 border-0 shadow-gold-glow' : ''}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-medium ${c === 'USD' ? 'text-gold-300' : 'text-muted-foreground'}`}>{CURRENCY_LABELS[c] || c}</span>
-                  <span className={`text-xs font-mono ${c === 'USD' ? 'text-gold-300' : 'text-muted-foreground/70'}`}>{c}</span>
+                  <span className={`text-xs font-medium ${i === 0 ? 'text-matte-900/80' : 'text-muted-foreground'}`}>{CURRENCY_LABELS[c] || c}</span>
+                  <span className={`text-xs font-mono ${i === 0 ? 'text-matte-900/80' : 'text-muted-foreground/70'}`}>{c}</span>
                 </div>
-                <div className={`text-3xl font-bold ${c === 'USD' ? 'text-white' : 'text-foreground'}`} data-testid={`wallet-balance-${c}`}>
+                <div className={`text-3xl font-bold ${i === 0 ? 'text-matte-900' : 'text-foreground'}`} data-testid={`wallet-balance-${c}`}>
                   ${formatAmt(balances[c])}
                 </div>
               </CardContent>
@@ -409,8 +412,8 @@ const WalletPage = () => {
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">Country</label>
             <select value={linkCountry} onChange={(e) => setLinkCountry(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" data-testid="link-country-select">
-              <option value="JM">🇯🇲 Jamaica</option>
               <option value="TT">🇹🇹 Trinidad & Tobago</option>
+              <option value="JM">🇯🇲 Jamaica</option>
               <option value="BB">🇧🇧 Barbados</option>
               <option value="GH">🇬🇭 Ghana</option>
               <option value="NG">🇳🇬 Nigeria</option>

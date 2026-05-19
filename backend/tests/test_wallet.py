@@ -67,9 +67,9 @@ class TestGetWallet:
         assert r.status_code == 200, r.text
         w = r.json()
         assert w["user_id"] == user_a["user_id"]
-        # default balances
+        # default balances (TTD as Trinidad launch market)
         assert w["balances"].get("USD") == 0
-        assert w["balances"].get("JMD") == 0
+        assert w["balances"].get("TTD") == 0
         assert w["default_currency"] == "USD"
         assert w.get("caripay_handle") in (None, "")
         assert "id" in w

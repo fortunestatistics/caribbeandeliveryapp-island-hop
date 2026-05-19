@@ -626,7 +626,7 @@ SUPPORTED_WALLET_CURRENCIES = {"USD", "JMD", "TTD", "BBD", "GHS", "NGN", "ZAR"}
 class Wallet(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
-    balances: Dict[str, float] = Field(default_factory=lambda: {"USD": 0.0, "JMD": 0.0})
+    balances: Dict[str, float] = Field(default_factory=lambda: {"USD": 0.0, "TTD": 0.0})
     default_currency: str = "USD"
     caripay_handle: Optional[str] = None  # phone / email / account#
     caripay_country: Optional[str] = None
@@ -2896,6 +2896,30 @@ async def create_rating(rating_data: RatingCreate, request: Request):
     )
     
     await db.ratings.insert_one(rating.dict())
+
+    # Driver incentive: a 5-star review credits a $1.00 bonus to the driver's
+    # IslandHop wallet. Awarded once per rating, idempotent because Ratings
+    # are unique per order_id.
+    if rating.driver_id and rating.driver_rating == 5:
+        driver_row = await db.drivers.find_one({"id": rating.driver_id}, {"_id": 0})
+        driver_user_id = (driver_row or {}).get("user_id")
+        if driver_user_id:
+            await _credit_wallet_with_txn(
+                driver_user_id, 1.00, "USD",
+                txn_type="tip_in",
+                order_id=rating.order_id,
+                note="5-star review bonus",
+            )
+            await db.driver_incentives.insert_one({
+                "id": str(uuid.uuid4()),
+                "driver_id": rating.driver_id,
+                "type": "five_star_bonus",
+                "amount": 1.00,
+                "currency": "USD",
+                "rating_id": rating.id,
+                "order_id": rating.order_id,
+                "awarded_at": datetime.now(timezone.utc).isoformat(),
+            })
     
     # Update vendor average rating
     if rating.vendor_id and rating.vendor_rating:
@@ -2928,6 +2952,100 @@ async def create_rating(rating_data: RatingCreate, request: Request):
         )
     
     return rating
+
+@api_router.get("/orders/{order_id}/rating")
+async def get_order_rating(order_id: str, request: Request):
+    """Has the current customer already rated this order? Returns rating or null."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("customer_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your order")
+    rating = await db.ratings.find_one({"order_id": order_id}, {"_id": 0})
+    return {"order_id": order_id, "rated": bool(rating), "rating": rating}
+
+
+@api_router.get("/drivers/{driver_id}/incentives")
+async def list_driver_incentives(driver_id: str, request: Request, limit: int = 50):
+    """List a driver's earned review-driven bonuses."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    if current_user.user_type != "admin" and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    cursor = db.driver_incentives.find({"driver_id": driver_id}, {"_id": 0}).sort("awarded_at", -1).limit(min(max(limit, 1), 200))
+    items = await cursor.to_list(length=limit)
+    total = sum(float(i.get("amount", 0) or 0) for i in items)
+    return {"driver_id": driver_id, "incentives": items, "total_earned": round(total, 2)}
+
+
+async def award_weekly_top_driver_bonus():
+    """
+    Weekly bonus for drivers with avg rating ≥ 4.8 over the past 7 days AND
+    at least 10 ratings. Idempotent within a calendar week via a marker doc.
+    """
+    now = datetime.now(timezone.utc)
+    week_key = now.strftime("%G-W%V")  # ISO week
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
+
+    pipeline = [
+        {"$match": {"driver_rating": {"$ne": None}, "created_at": {"$gte": seven_days_ago}}},
+        {"$group": {
+            "_id": "$driver_id",
+            "avg": {"$avg": "$driver_rating"},
+            "count": {"$sum": 1},
+        }},
+        {"$match": {"avg": {"$gte": 4.8}, "count": {"$gte": 10}}},
+    ]
+    cursor = db.ratings.aggregate(pipeline)
+    awarded = 0
+    async for row in cursor:
+        driver_id = row["_id"]
+        if not driver_id:
+            continue
+        # Idempotency: skip if we've already awarded this driver this week
+        existing = await db.driver_incentives.find_one(
+            {"driver_id": driver_id, "type": "weekly_top_driver", "week": week_key},
+            {"_id": 0},
+        )
+        if existing:
+            continue
+        driver_row = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+        driver_user_id = (driver_row or {}).get("user_id")
+        if not driver_user_id:
+            continue
+        bonus = 25.00
+        await _credit_wallet_with_txn(
+            driver_user_id, bonus, "USD",
+            txn_type="payout_in",
+            note=f"Top-rated driver weekly bonus ({week_key}) — avg {row['avg']:.2f}",
+        )
+        await db.driver_incentives.insert_one({
+            "id": str(uuid.uuid4()),
+            "driver_id": driver_id,
+            "type": "weekly_top_driver",
+            "week": week_key,
+            "amount": bonus,
+            "currency": "USD",
+            "avg_rating": round(row["avg"], 2),
+            "ratings_count": row["count"],
+            "awarded_at": now.isoformat(),
+        })
+        awarded += 1
+    return awarded
+
+
+@api_router.post("/admin/run-weekly-driver-bonus")
+async def admin_run_weekly_driver_bonus(request: Request):
+    """Manual trigger for the weekly top-driver bonus job."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    n = await award_weekly_top_driver_bonus()
+    return {"success": True, "drivers_awarded": n}
+
 
 @api_router.get("/vendors/{vendor_id}/ratings")
 async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
@@ -4228,6 +4346,43 @@ async def _record_txn(**fields) -> WalletTransaction:
     return txn
 
 
+# Currency rates (USD as base). Trinidad TTD listed first since IslandHop
+# launches in Trinidad. Real FX feed can replace these later.
+DEFAULT_FX_RATES_VS_USD = {
+    "USD": 1.0,
+    "TTD": 6.78,   # 1 USD ≈ 6.78 TTD (approx)
+    "JMD": 158.40,
+    "BBD": 2.00,
+    "GHS": 14.50,
+    "NGN": 1530.0,
+    "ZAR": 18.20,
+}
+
+
+@api_router.get("/currency/rates")
+async def get_currency_rates(base: str = "USD"):
+    """Return FX rates with `base` (default USD) as 1. Trinidad TTD listed first."""
+    base = (base or "USD").upper()
+    if base not in DEFAULT_FX_RATES_VS_USD:
+        raise HTTPException(status_code=400, detail=f"Unsupported base currency. Supported: {sorted(DEFAULT_FX_RATES_VS_USD)}")
+    base_to_usd = 1.0 / DEFAULT_FX_RATES_VS_USD[base]  # how many USD per 1 base
+    rates = {}
+    # Trinidad first, then USD, then everyone else
+    order = ["TTD", "USD", "JMD", "BBD", "GHS", "NGN", "ZAR"]
+    for code in order:
+        if code == base:
+            rates[code] = 1.0
+        else:
+            # rate = (USD per 1 base) * (target per 1 USD)
+            rates[code] = round(base_to_usd * DEFAULT_FX_RATES_VS_USD[code], 4)
+    return {
+        "base": base,
+        "rates": rates,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "static",  # flip to "live" once a real feed is wired
+    }
+
+
 def _round_money(amount: float) -> float:
     """Round to 2 decimal places (cents) — call on every external amount."""
     return round(float(amount or 0), 2)
@@ -4952,6 +5107,15 @@ async def initialize_data():
                     logger.error(f"❌ Nightly vendor payout failed: {e}")
 
             scheduler.add_job(_nightly_payouts, CronTrigger(hour=2, minute=0), id="nightly_vendor_payouts", replace_existing=True)
+
+            async def _weekly_top_drivers():
+                try:
+                    n = await award_weekly_top_driver_bonus()
+                    logger.info(f"✅ Weekly top-driver bonus job awarded {n} drivers")
+                except Exception as e:
+                    logger.error(f"❌ Weekly top-driver bonus failed: {e}")
+
+            scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
             scheduler.start()
             app.state.scheduler = scheduler
             print("✅ APScheduler started — nightly vendor payouts scheduled at 02:00 UTC")

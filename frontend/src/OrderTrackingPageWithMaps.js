@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import ReviewForm from './ReviewForm';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -499,79 +500,13 @@ const OrderTrackingPageWithMaps = () => {
 
         {/* Rating Modal */}
         {showRatingModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <Card className="max-w-md w-full">
-              <CardHeader>
-                <CardTitle>Rate Your Experience</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Vendor Rating */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Restaurant Rating</label>
-                  <div className="flex gap-2">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        onClick={() => setRatings(prev => ({ ...prev, vendor_rating: star }))}
-                        className="focus:outline-none"
-                      >
-                        <Star
-                          className={`h-8 w-8 ${
-                            star <= ratings.vendor_rating
-                              ? 'fill-yellow-400 text-gold-300'
-                              : 'text-gray-300'
-                          }`}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Driver Rating */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Driver Rating</label>
-                  <div className="flex gap-2">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        onClick={() => setRatings(prev => ({ ...prev, driver_rating: star }))}
-                        className="focus:outline-none"
-                      >
-                        <Star
-                          className={`h-8 w-8 ${
-                            star <= ratings.driver_rating
-                              ? 'fill-yellow-400 text-gold-300'
-                              : 'text-gray-300'
-                          }`}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Written Review */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Additional Comments (Optional)</label>
-                  <textarea
-                    className="w-full p-2 border rounded-md"
-                    rows={3}
-                    value={ratings.vendor_review}
-                    onChange={(e) => setRatings(prev => ({ ...prev, vendor_review: e.target.value }))}
-                    placeholder="Tell us about your experience..."
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button onClick={() => setShowRatingModal(false)} variant="outline" className="flex-1">
-                    Skip
-                  </Button>
-                  <Button onClick={submitRating} className="flex-1">
-                    Submit Rating
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <ReviewForm
+            orderId={orderId}
+            showDriver={Boolean(order?.driver_id)}
+            showVendor={true}
+            onClose={() => setShowRatingModal(false)}
+            onSubmitted={() => setShowRatingModal(false)}
+          />
         )}
       </div>
     </div>

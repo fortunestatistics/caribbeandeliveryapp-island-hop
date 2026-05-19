@@ -5,6 +5,7 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
+import CurrencyConverter from './CurrencyConverter';
 import { Badge } from './components/ui/badge';
 import { 
   ShoppingCart, 
@@ -377,9 +378,9 @@ const GroceryOrderForm = () => {
                             <span className="text-foreground">${getDeliveryFee().toFixed(2)}</span>
                           </div>
                           <Separator className="bg-gold-500/30" />
-                          <div className="flex justify-between items-center pt-1">
+                          <div className="flex justify-between items-center pt-1 gap-3 flex-wrap">
                             <span className="text-lg font-semibold text-white">Total</span>
-                            <span className="text-3xl font-bold text-gold-gradient">${calculateTotal().toFixed(2)}</span>
+                            <CurrencyConverter amountUSD={calculateTotal()} size="lg" />
                           </div>
                         </div>
                       </div>

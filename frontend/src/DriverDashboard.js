@@ -17,7 +17,8 @@ import {
   Power,
   AlertCircle,
   Phone,
-  MessageCircle
+  MessageCircle,
+  Star
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -38,6 +39,7 @@ const DriverDashboard = () => {
   const [isOnline, setIsOnline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [locationTracking, setLocationTracking] = useState(null);
+  const [incentives, setIncentives] = useState({ total_earned: 0, incentives: [] });
 
   useEffect(() => {
     fetchDriverData();
@@ -111,6 +113,11 @@ const DriverDashboard = () => {
         balance: response.data.available_balance || 0,
         pending: response.data.pending_earnings || 0
       });
+      // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
+      try {
+        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
+        setIncentives(inc.data || { total_earned: 0, incentives: [] });
+      } catch { /* drivers without incentives just see $0 */ }
     } catch (error) {
       console.error('Error fetching earnings:', error);
     }
@@ -338,6 +345,25 @@ const DriverDashboard = () => {
             </Card>
           </div>
         </div>
+
+        {/* Review-driven driver incentives */}
+        {incentives.total_earned > 0 && (
+          <Card className="mb-6 bg-gold-gradient text-matte-900 border-0 shadow-gold-glow" data-testid="driver-incentives-card">
+            <CardContent className="p-6 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <Star className="h-7 w-7 fill-matte-900" />
+                <div>
+                  <p className="text-xs uppercase tracking-wider font-bold opacity-80">Review bonuses earned</p>
+                  <p className="text-3xl font-black">${incentives.total_earned.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="text-right text-xs leading-snug max-w-xs">
+                <p className="font-semibold">{incentives.incentives.length} bonus{incentives.incentives.length === 1 ? '' : 'es'} so far.</p>
+                <p className="opacity-80">$1 per 5★ review + $25 weekly bonus for avg ≥ 4.8★ over 10+ ratings.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Order Requests */}
         {orderRequests.length > 0 && (

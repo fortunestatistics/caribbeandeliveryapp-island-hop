@@ -6,6 +6,7 @@ import { Label } from './components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Badge } from './components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
+import CurrencyConverter from './CurrencyConverter';
 import { useToast } from './hooks/use-toast';
 import { 
   Car, 
@@ -480,15 +481,15 @@ const CarRentalPage = () => {
                                     <span className="text-foreground">$15/day</span>
                                   </div>
                                 )}
-                                <div className="flex justify-between items-center pt-3 mt-2 border-t border-gold-500/30">
+                                <div className="flex justify-between items-center pt-3 mt-2 border-t border-gold-500/30 gap-3 flex-wrap">
                                   <span className="font-semibold text-white">Total</span>
-                                  <span className="text-2xl font-bold text-gold-gradient">
-                                    ${((selectedVehicle?.daily_rate || 0) + (bookingForm.insuranceSelected ? 15 : 0)) *
-                                      Math.max(1, bookingForm.pickupDate && bookingForm.dropoffDate ? 
+                                  <CurrencyConverter
+                                    amountUSD={((selectedVehicle?.daily_rate || 0) + (bookingForm.insuranceSelected ? 15 : 0)) *
+                                      Math.max(1, bookingForm.pickupDate && bookingForm.dropoffDate ?
                                         Math.ceil((new Date(bookingForm.dropoffDate) - new Date(bookingForm.pickupDate)) / (1000 * 60 * 60 * 24)) : 1
-                                      )
-                                    }
-                                  </span>
+                                      )}
+                                    size="lg"
+                                  />
                                 </div>
                               </div>
 
