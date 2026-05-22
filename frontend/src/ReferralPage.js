@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -9,12 +10,19 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const ReferralPage = () => {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
     fetchReferrals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchReferrals = async () => {
@@ -25,6 +33,10 @@ const ReferralPage = () => {
       });
       setData(res.data);
     } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        navigate('/login');
+        return;
+      }
       console.error(err);
     }
     setLoading(false);
@@ -121,7 +133,7 @@ const ReferralPage = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Earned ({data?.reward_currency})</p>
+                  <p className="text-sm text-muted-foreground">Earned{data?.reward_currency ? ` (${data.reward_currency})` : ''}</p>
                   <p className="text-2xl font-bold text-gold-500" data-testid="referrals-earned">
                     {(data?.total_earned || 0).toFixed(2)}
                   </p>

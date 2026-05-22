@@ -30,7 +30,10 @@ const OTPVerification = ({ phone, purpose = 'signup', onVerified, onCancel }) =>
     try {
       const res = await axios.post(`${API}/otp/send`, { phone, purpose });
       setSent(true);
-      if (res.data.dev_code) setDevCode(res.data.dev_code);
+      if (res.data.dev_code) {
+        setDevCode(res.data.dev_code);
+        setCode(res.data.dev_code); // auto-fill the controlled input
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to send OTP');
     } finally {
@@ -89,7 +92,7 @@ const OTPVerification = ({ phone, purpose = 'signup', onVerified, onCancel }) =>
               <Input
                 id="otp-input"
                 data-testid="otp-input"
-                value={code || devCode}
+                value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="123456"
                 maxLength={6}

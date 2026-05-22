@@ -244,7 +244,6 @@ const AuthPage = ({ mode = 'login' }) => {
                       className="pl-10"
                       value={formData.address}
                       onChange={handleInputChange}
-                      required
                     />
                   </div>
                 </div>
