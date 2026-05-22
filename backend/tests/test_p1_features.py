@@ -180,33 +180,36 @@ class TestServiceZones:
 
     def test_point_in_polygon_check(self):
         token = self._admin_token()
+        # Use coordinates far from any existing test zones to avoid cross-test contamination
+        lat0, lng0 = 5.111, 5.222
         z = requests.post(
             f"{API}/service-zones",
             json={
                 "name": f"Zone {_ts()}",
-                "polygon": [[10.6, -61.6], [10.7, -61.6], [10.7, -61.45], [10.6, -61.45]],
+                "polygon": [[lat0, lng0], [lat0 + 0.1, lng0], [lat0 + 0.1, lng0 + 0.1], [lat0, lng0 + 0.1]],
                 "allowed_services": ["food"],
                 "active": True,
             },
             headers=_auth(token),
         ).json()
 
+        inside_lat, inside_lng = lat0 + 0.05, lng0 + 0.05
         inside = requests.post(
             f"{API}/service-zones/check",
-            json={"latitude": 10.65, "longitude": -61.5, "service": "food"},
+            json={"latitude": inside_lat, "longitude": inside_lng, "service": "food"},
         ).json()
         assert inside["in_service_area"] is True
 
         outside = requests.post(
             f"{API}/service-zones/check",
-            json={"latitude": 0.0, "longitude": 0.0},
+            json={"latitude": -89.9, "longitude": -179.9},
         ).json()
         assert outside["in_service_area"] is False
 
-        # filtered by unsupported service
+        # filtered by unsupported service — only our zone covers this point, and it doesn't allow courier
         wrong_service = requests.post(
             f"{API}/service-zones/check",
-            json={"latitude": 10.65, "longitude": -61.5, "service": "courier"},
+            json={"latitude": inside_lat, "longitude": inside_lng, "service": "courier"},
         ).json()
         assert wrong_service["in_service_area"] is False
 

@@ -264,8 +264,8 @@ const SubscriptionPlans = () => {
                 </Button>
 
                 <div className="space-y-3">
-                  {plan.features.map((feature, index) => (
-                    <div key={index} className="flex items-start">
+                  {plan.features.map((feature) => (
+                    <div key={feature.name || feature.title || feature.description} className="flex items-start">
                       <div className={`flex-shrink-0 mt-0.5 ${
                         feature.included ? 'text-green-600' : 'text-gray-300'
                       }`}>

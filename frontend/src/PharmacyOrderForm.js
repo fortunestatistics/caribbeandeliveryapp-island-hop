@@ -210,7 +210,7 @@ const PharmacyOrderForm = () => {
                       {orderData.prescriptionFiles.length > 0 && (
                         <div className="mt-4 space-y-2">
                           {orderData.prescriptionFiles.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between bg-card p-3 rounded-lg">
+                            <div key={`${file.name}-${index}`} className="flex items-center justify-between bg-card p-3 rounded-lg">
                               <div className="flex items-center space-x-2">
                                 <span className="text-2xl">📄</span>
                                 <span className="text-sm text-foreground/90">{file.name}</span>

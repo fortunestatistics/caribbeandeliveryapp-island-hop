@@ -82,7 +82,7 @@ export const createWebSocket = (userId, onMessage) => {
   const ws = new WebSocket(wsUrl);
   
   ws.onopen = () => {
-    console.log('WebSocket connected');
+    // WebSocket connected
   };
   
   ws.onmessage = (event) => {
@@ -99,7 +99,6 @@ export const createWebSocket = (userId, onMessage) => {
   };
   
   ws.onclose = () => {
-    console.log('WebSocket disconnected');
     // Attempt to reconnect after 5 seconds
     setTimeout(() => {
       if (userId) {

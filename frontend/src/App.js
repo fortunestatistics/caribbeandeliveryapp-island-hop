@@ -280,26 +280,30 @@ const GlobalSearch = () => {
           {searchResults.filter(r => r.type === 'vendor').length > 0 && (
             <div className="p-2">
               <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Vendors</div>
-              {searchResults.filter(r => r.type === 'vendor').map((result, index) => (
+              {searchResults.filter(r => r.type === 'vendor').map((result, index) => {
+                const vendorColorMap = {
+                  restaurant: 'from-red-500 to-orange-500',
+                  pharmacy: 'from-neon-cyan to-gold-500',
+                };
+                const vendorIconMap = { restaurant: '🍽️', pharmacy: '💊' };
+                const gradientCls = vendorColorMap[result.vendor_type] || 'from-green-500 to-emerald-500';
+                const iconChar = vendorIconMap[result.vendor_type] || '🛒';
+                return (
                 <button
                   key={`vendor-${index}`}
                   onClick={() => handleResultClick(result)}
                   className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors flex items-center space-x-3"
                 >
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${
-                    result.vendor_type === 'restaurant' ? 'from-red-500 to-orange-500' :
-                    result.vendor_type === 'pharmacy' ? 'from-neon-cyan to-gold-500' :
-                    'from-green-500 to-emerald-500'
-                  } flex items-center justify-center text-white text-xl`}>
-                    {result.vendor_type === 'restaurant' ? '🍽️' :
-                     result.vendor_type === 'pharmacy' ? '💊' : '🛒'}
+                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${gradientCls} flex items-center justify-center text-white text-xl`}>
+                    {iconChar}
                   </div>
                   <div className="flex-1">
                     <div className="font-semibold text-foreground">{result.name}</div>
                     <div className="text-sm text-muted-foreground capitalize">{result.vendor_type}</div>
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -663,8 +667,8 @@ const LandingPage = () => {
 
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
-              {stats.map((stat, index) => (
-                <div key={index} className="text-center">
+              {stats.map((stat) => (
+                <div key={stat.label} className="text-center">
                   <div className="text-4xl md:text-5xl font-bold mb-2">{stat.number}</div>
                   <div className="text-sm md:text-base text-white/80">{stat.label}</div>
                 </div>
@@ -687,9 +691,9 @@ const LandingPage = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
-            {services.map((service, index) => (
+            {services.map((service) => (
               <div 
-                key={index}
+                key={service.serviceType}
                 onClick={() => navigate(service.route)}
                 className="group cursor-pointer"
               >
@@ -736,8 +740,8 @@ const LandingPage = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-            {features.map((feature, index) => (
-              <div key={index} className="text-center p-6">
+            {features.map((feature) => (
+              <div key={feature.title} className="text-center p-6">
                 <div className="text-6xl mb-4">{feature.icon}</div>
                 <h3 className="text-xl font-bold text-foreground mb-3">
                   {feature.title}
@@ -890,9 +894,9 @@ const PartnerSelection = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
-          {partnerTypes.map((partner, index) => (
+          {partnerTypes.map((partner) => (
             <Card 
-              key={index} 
+              key={partner.type} 
               className="group bg-matte-800 border border-border hover:border-gold-500/40 hover:shadow-card-hover hover:-translate-y-1 transition-all duration-300 overflow-hidden"
               data-testid={`partner-type-${partner.type}`}
             >
@@ -915,8 +919,8 @@ const PartnerSelection = () => {
                 <div className="mb-6">
                   <h4 className="font-semibold text-white mb-3">Key Benefits:</h4>
                   <ul className="space-y-2">
-                    {partner.benefits.map((benefit, idx) => (
-                      <li key={idx} className="flex items-center text-sm text-muted-foreground">
+                    {partner.benefits.map((benefit) => (
+                      <li key={benefit} className="flex items-center text-sm text-muted-foreground">
                         <CheckCircle className="h-4 w-4 text-gold-300 mr-2 flex-shrink-0" />
                         {benefit}
                       </li>
@@ -1295,7 +1299,7 @@ const BusinessOnboarding = () => {
           <div className="flex items-center justify-between mb-2">
             {stepTitles.map((title, index) => (
               <div 
-                key={index}
+                key={title}
                 className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
@@ -1720,8 +1724,8 @@ const BusinessOnboarding = () => {
                             {tier.commission_rate}% commission
                           </div>
                           <ul className="text-xs text-left space-y-1">
-                            {tier.features.map((feature, idx) => (
-                              <li key={idx} className="flex items-center">
+                            {tier.features.map((feature) => (
+                              <li key={feature} className="flex items-center">
                                 <CheckCircle className="h-3 w-3 text-green-500 mr-1" />
                                 {feature}
                               </li>
@@ -2133,7 +2137,7 @@ const BusinessOnboarding = () => {
                       <div>✓ Application review (24-48 hours)</div>
                       <div>✓ Background & license verification</div>
                       <div>✓ Account setup & training</div>
-                      <div>✓ {businessType === 'car_rental' ? 'Fleet inspection' : businessType === 'pharmacy' ? 'Pharmacy audit' : businessType === 'restaurant' ? 'Kitchen inspection' : 'Business verification'}</div>
+                      <div>✓ {({ car_rental: 'Fleet inspection', pharmacy: 'Pharmacy audit', restaurant: 'Kitchen inspection' }[businessType]) || 'Business verification'}</div>
                       <div>✓ Go live and start earning!</div>
                     </CardContent>
                   </Card>
@@ -2464,7 +2468,10 @@ const Dashboard = () => {
                 <div className="text-center py-8">Loading applications...</div>
               ) : applications.length > 0 ? (
                 <div className="space-y-4">
-                  {applications.map((app) => (
+                  {applications.map((app) => {
+                    const statusVariantMap = { verified: 'default', rejected: 'destructive' };
+                    const variant = statusVariantMap[app.verification_status] || 'secondary';
+                    return (
                     <div key={app.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
                         <h3 className="font-semibold">{app.business_details.business_name}</h3>
@@ -2472,17 +2479,13 @@ const Dashboard = () => {
                         <p className="text-xs text-muted-foreground">Applied: {new Date(app.application_date).toLocaleDateString()}</p>
                       </div>
                       <div className="text-right">
-                        <Badge 
-                          variant={
-                            app.verification_status === 'verified' ? 'default' : 
-                            app.verification_status === 'rejected' ? 'destructive' : 'secondary'
-                          }
-                        >
+                        <Badge variant={variant}>
                           {app.verification_status}
                         </Badge>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8">

@@ -301,12 +301,12 @@ const CustomerSupport = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                {faqs.map((category, idx) => (
-                  <div key={idx}>
+                {faqs.map((category) => (
+                  <div key={category.category}>
                     <h3 className="font-semibold text-lg mb-3">{category.category}</h3>
                     <div className="space-y-4">
-                      {category.questions.map((faq, qIdx) => (
-                        <div key={qIdx} className="p-4 bg-background rounded-lg">
+                      {category.questions.map((faq) => (
+                        <div key={faq.q} className="p-4 bg-background rounded-lg">
                           <h4 className="font-medium text-foreground mb-2">{faq.q}</h4>
                           <p className="text-sm text-muted-foreground">{faq.a}</p>
                         </div>
@@ -418,7 +418,7 @@ const CustomerSupport = () => {
                     <div className="h-96 overflow-y-auto space-y-3 mb-4 p-4 bg-background rounded-lg">
                       {messages.map((msg, idx) => (
                         <div
-                          key={idx}
+                          key={msg.id || `msg-${msg.created_at || msg.timestamp}-${idx}`}
                           className={`p-3 rounded-lg ${
                             msg.sender_type === 'customer'
                               ? 'bg-gold-500/15 ml-auto max-w-[80%]'

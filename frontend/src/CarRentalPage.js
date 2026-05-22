@@ -291,7 +291,7 @@ const CarRentalPage = () => {
 
                     <div className="space-y-2 mb-4">
                       {company.locations?.map((location, index) => (
-                        <div key={index} className="flex items-center text-sm text-muted-foreground">
+                        <div key={location.name || `loc-${index}`} className="flex items-center text-sm text-muted-foreground">
                           <MapPin className="h-4 w-4 mr-2" />
                           {location.name}
                         </div>
@@ -383,8 +383,8 @@ const CarRentalPage = () => {
                         <div className="mb-4">
                           <p className="text-xs text-muted-foreground mb-2">Features:</p>
                           <div className="flex flex-wrap gap-1">
-                            {vehicle.features?.slice(0, 3).map((feature, index) => (
-                              <Badge key={index} variant="outline" className="text-xs">
+                            {vehicle.features?.slice(0, 3).map((feature) => (
+                              <Badge key={feature} variant="outline" className="text-xs">
                                 {feature}
                               </Badge>
                             ))}

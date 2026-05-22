@@ -347,7 +347,7 @@ const BusinessEarningsDashboard = () => {
                         <p className="text-sm font-semibold text-foreground/90 mb-1">Items:</p>
                         <div className="flex flex-wrap gap-1">
                           {order.items.map((item, idx) => (
-                            <Badge key={idx} variant="outline" className="text-xs">
+                            <Badge key={`item-${item}-${idx}`} variant="outline" className="text-xs">
                               {item}
                             </Badge>
                           ))}

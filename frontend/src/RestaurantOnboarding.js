@@ -212,7 +212,7 @@ const RestaurantOnboarding = () => {
           <div className="flex items-center justify-between mb-2">
             {stepTitles.map((title, index) => (
               <div 
-                key={index}
+                key={title}
                 className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${
@@ -355,8 +355,8 @@ const RestaurantOnboarding = () => {
                   {formData.cuisineTypes.length > 0 && (
                     <div className="mt-3">
                       <span className="text-sm text-muted-foreground">Selected: </span>
-                      {formData.cuisineTypes.map((cuisine, index) => (
-                        <Badge key={index} variant="secondary" className="ml-1">
+                      {formData.cuisineTypes.map((cuisine) => (
+                        <Badge key={cuisine} variant="secondary" className="ml-1">
                           {cuisine}
                         </Badge>
                       ))}

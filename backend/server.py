@@ -844,7 +844,7 @@ def parse_from_mongo(item):
             if isinstance(value, str) and key.endswith(('_at', 'date')):
                 try:
                     item[key] = datetime.fromisoformat(value)
-                except:
+                except (ValueError, TypeError):
                     pass
             elif isinstance(value, dict):
                 item[key] = parse_from_mongo(value)
@@ -1761,7 +1761,7 @@ async def admin_cancel_order(order_id: str, request: Request):
 @api_router.post("/promo-codes", response_model=PromoCode)
 async def create_promo_code(promo: PromoCode, request: Request):
     """Create new promo code (admin only)"""
-    current_user = await get_current_user_from_request(request)
+    _ = await get_current_user_from_request(request)
     
     # Check if code already exists
     existing = await db.promo_codes.find_one({"code": promo.code})
@@ -1864,7 +1864,7 @@ async def apply_promo_code(code: str, user_id: str):
 @api_router.put("/promo-codes/{promo_id}", response_model=PromoCode)
 async def update_promo_code(promo_id: str, promo: PromoCode, request: Request):
     """Update promo code"""
-    current_user = await get_current_user_from_request(request)
+    _ = await get_current_user_from_request(request)
     
     promo_dict = prepare_for_mongo(promo.dict())
     await db.promo_codes.update_one(
@@ -1877,7 +1877,7 @@ async def update_promo_code(promo_id: str, promo: PromoCode, request: Request):
 @api_router.delete("/promo-codes/{promo_id}")
 async def delete_promo_code(promo_id: str, request: Request):
     """Delete promo code"""
-    current_user = await get_current_user_from_request(request)
+    _ = await get_current_user_from_request(request)
     
     await db.promo_codes.delete_one({"id": promo_id})
     
@@ -3779,8 +3779,10 @@ async def apply_promo_to_order(order_id: str, payload: ApplyPromoToOrderRequest,
     try:
         vf = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
         vu = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
-        if vf.tzinfo is None: vf = vf.replace(tzinfo=timezone.utc)
-        if vu.tzinfo is None: vu = vu.replace(tzinfo=timezone.utc)
+        if vf.tzinfo is None:
+            vf = vf.replace(tzinfo=timezone.utc)
+        if vu.tzinfo is None:
+            vu = vu.replace(tzinfo=timezone.utc)
         if now < vf:
             raise HTTPException(status_code=400, detail="Promo code not yet valid")
         if now > vu:
@@ -4585,7 +4587,7 @@ async def wallet_withdraw(payload: WalletAmountRequest, request: Request):
         raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
     currency = (payload.currency or "USD").upper()
     if currency not in SUPPORTED_WALLET_CURRENCIES:
-        raise HTTPException(status_code=400, detail=f"Unsupported currency")
+        raise HTTPException(status_code=400, detail="Unsupported currency")
 
     wallet = await _get_or_create_wallet(current_user.id)
     if not wallet.get("caripay_handle"):

@@ -285,7 +285,7 @@ const VendorDashboard = () => {
                         <div className="mb-4 p-4 bg-background rounded-lg">
                           <p className="font-medium text-sm mb-2">Items:</p>
                           {order.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-sm">
+                            <div key={`${item.menu_item_id || item.name}-${idx}`} className="flex justify-between text-sm">
                               <span>{item.quantity}x {item.name}</span>
                               <span>${(item.price * item.quantity).toFixed(2)}</span>
                             </div>

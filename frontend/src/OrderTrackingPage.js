@@ -81,8 +81,6 @@ const OrderTrackingPage = () => {
   }, [orderId]);
 
   const handleWebSocketMessage = (data) => {
-    console.log('WebSocket message:', data);
-    
     if (data.type === 'order_update' && data.order?.id === orderId) {
       setOrder(data.order);
     } else if (data.type === 'new_message' && data.message?.order_id === orderId) {
@@ -278,7 +276,7 @@ const OrderTrackingPage = () => {
               <CardContent>
                 <div className="space-y-4">
                   {order.timeline.map((item, index) => (
-                    <div key={index} className="flex items-start">
+                    <div key={`tl-${item.status}-${index}`} className="flex items-start">
                       <div className="flex flex-col items-center mr-4">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                           item.completed ? 'bg-green-500' : 'bg-gray-300'
@@ -347,7 +345,7 @@ const OrderTrackingPage = () => {
                       <h4 className="font-semibold text-foreground mb-3">Items</h4>
                       <div className="space-y-2">
                         {order.items.map((item, index) => (
-                          <div key={index} className="flex justify-between text-sm">
+                          <div key={`item-${item.name}-${index}`} className="flex justify-between text-sm">
                             <span className="text-muted-foreground">
                               {item.quantity}x {item.name}
                             </span>

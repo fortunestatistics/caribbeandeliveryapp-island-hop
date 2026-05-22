@@ -187,7 +187,7 @@ const DriverOnboarding = () => {
           <div className="flex items-center justify-between mb-2">
             {stepTitles.map((title, index) => (
               <div 
-                key={index}
+                key={title}
                 className={`flex-1 text-center ${index <= currentStep - 1 ? 'text-gold-500' : 'text-muted-foreground/70'}`}
               >
                 <div className={`w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center ${

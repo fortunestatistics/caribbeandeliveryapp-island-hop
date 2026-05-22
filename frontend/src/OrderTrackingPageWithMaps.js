@@ -469,7 +469,7 @@ const OrderTrackingPageWithMaps = () => {
                 <div className="h-64 overflow-y-auto mb-4 space-y-2">
                   {messages.map((msg, index) => (
                     <div
-                      key={index}
+                      key={msg.id || `msg-${msg.timestamp}-${index}`}
                       className={`p-3 rounded-lg ${
                         msg.sender_type === 'customer'
                           ? 'bg-gold-500/15 ml-auto max-w-[80%]'

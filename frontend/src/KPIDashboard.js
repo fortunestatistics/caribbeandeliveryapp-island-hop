@@ -93,19 +93,43 @@ const KPIDashboard = () => {
     fetchFinancialSummary();
   };
 
+  const _tier = (value, goodAtOrAbove, warnAtOrAbove, descending = false) => {
+    // For metrics where higher is better (default): >= good is green; >= warn is yellow; else red
+    // For metrics where lower is better (descending=true): <= good is green; <= warn is yellow; else red
+    const isGood = descending ? value <= goodAtOrAbove : value >= goodAtOrAbove;
+    const isWarn = descending ? value <= warnAtOrAbove : value >= warnAtOrAbove;
+    if (isGood) return 'text-green-600';
+    if (isWarn) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
   const getPerformanceColor = (value, type) => {
     switch (type) {
-      case 'delivery_time':
-        return value <= 25 ? 'text-green-600' : value <= 35 ? 'text-yellow-600' : 'text-red-600';
-      case 'on_time_rate':
-        return value >= 95 ? 'text-green-600' : value >= 85 ? 'text-yellow-600' : 'text-red-600';
-      case 'satisfaction':
-        return value >= 4.5 ? 'text-green-600' : value >= 3.5 ? 'text-yellow-600' : 'text-red-600';
-      case 'profit_margin':
-        return value >= 25 ? 'text-green-600' : value >= 15 ? 'text-yellow-600' : 'text-red-600';
+      case 'delivery_time':  // minutes — lower is better
+        return _tier(value, 25, 35, true);
+      case 'on_time_rate':   // % — higher is better
+        return _tier(value, 95, 85);
+      case 'satisfaction':   // 1-5 stars — higher is better
+        return _tier(value, 4.5, 3.5);
+      case 'profit_margin':  // % — higher is better
+        return _tier(value, 25, 15);
       default:
         return 'text-muted-foreground';
     }
+  };
+
+  // Bg dot color for status indicators (green/gold/red)
+  const _dotColor = (value, goodAtOrAbove, warnAtOrAbove) => {
+    if (value >= goodAtOrAbove) return 'bg-green-500';
+    if (value >= warnAtOrAbove) return 'bg-gold-500';
+    return 'bg-red-500';
+  };
+
+  // Peak-hour rank colour (0 = highest peak, then descending)
+  const _peakRankColor = (rank) => {
+    if (rank === 0) return 'bg-red-500';
+    if (rank === 1) return 'bg-gold-gradient';
+    return 'bg-gold-500';
   };
 
   const getPerformanceIcon = (value, type) => {
@@ -284,10 +308,7 @@ const KPIDashboard = () => {
                   </div>
                   <div className="pt-2 border-t">
                     <div className="flex items-center text-sm">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        (kpiData?.driver_performance?.driver_utilization_rate || 0) >= 70 ? 'bg-green-500' : 
-                        (kpiData?.driver_performance?.driver_utilization_rate || 0) >= 50 ? 'bg-gold-500' : 'bg-red-500'
-                      }`}></div>
+                      <div className={`w-2 h-2 rounded-full mr-2 ${_dotColor(kpiData?.driver_performance?.driver_utilization_rate || 0, 70, 50)}`}></div>
                       Driver Performance Status
                     </div>
                   </div>
@@ -317,10 +338,7 @@ const KPIDashboard = () => {
                   </div>
                   <div className="pt-2 border-t">
                     <div className="flex items-center text-sm">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        (kpiData?.delivery_performance?.order_completion_rate || 0) >= 95 ? 'bg-green-500' : 
-                        (kpiData?.delivery_performance?.order_completion_rate || 0) >= 85 ? 'bg-gold-500' : 'bg-red-500'
-                      }`}></div>
+                      <div className={`w-2 h-2 rounded-full mr-2 ${_dotColor(kpiData?.delivery_performance?.order_completion_rate || 0, 95, 85)}`}></div>
                       Order Performance Status
                     </div>
                   </div>
@@ -352,10 +370,7 @@ const KPIDashboard = () => {
                   </div>
                   <div className="pt-2 border-t">
                     <div className="flex items-center text-sm">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        (kpiData?.financial_metrics?.profit_margin || 0) >= 25 ? 'bg-green-500' : 
-                        (kpiData?.financial_metrics?.profit_margin || 0) >= 15 ? 'bg-gold-500' : 'bg-red-500'
-                      }`}></div>
+                      <div className={`w-2 h-2 rounded-full mr-2 ${_dotColor(kpiData?.financial_metrics?.profit_margin || 0, 25, 15)}`}></div>
                       Financial Performance Status
                     </div>
                   </div>
