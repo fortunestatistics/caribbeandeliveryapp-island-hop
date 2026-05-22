@@ -1,0 +1,62 @@
+{
+  "summary": "Iter-6: full backend regression PASS (158/158) including 22 new P1 tests (OTP, Referrals, POD, Service Zones, WhatsApp, Admin Approvals). Frontend: signup page renders referral input + OTP step correctly, /referrals page structure correct. CRITICAL FRONTEND BUG: OTP auto-fill is cosmetic only - the Input uses `value={code || devCode}` but `code` state is never set when devCode arrives, so clicking Verify Code yields 'Enter the 6-digit code' error and the entire phone-signup flow is blocked end-to-end through the UI.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OTPVerification.js (line 92)",
+        "issue": "CRITICAL: Input renders devCode visually via `value={code || devCode}` but the `code` React state is never synced from devCode. handleVerify checks `code.trim()` which is '' → shows 'Enter the 6-digit code' error even though the visible input shows the 6 digits. Phone-signup flow is fully blocked in the UI. Fix: add `useEffect(() => { if (devCode && !code) setCode(devCode); }, [devCode])` OR simply call `setCode(res.data.dev_code)` inside sendCode() alongside setDevCode().",
+        "selector": "[data-testid=\"otp-verify-btn\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Signup with phone + OTP → register",
+        "issue": "Cannot complete signup via UI because OTP verify always fails client-side (see ui_bugs). Backend endpoints work fine (verified via pytest).",
+        "affected_selectors": ["[data-testid=\"otp-input\"]", "[data-testid=\"otp-verify-btn\"]", "[data-testid=\"auth-form-submit-btn\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/referrals (unauthenticated state)",
+        "issues": ["Page renders but referral code shows '—' and stats are 0 when API returns 401/403; no friendly 'please sign in' redirect. Loops 401/403 requests in console. Consider redirecting to /login when token is missing."]
+      },
+      {
+        "screen": "/referrals 'Earned' card",
+        "issues": ["Label reads 'Earned ()' with empty parens - looks like a missing currency code interpolation (probably `Earned (${currency})` where currency is undefined)."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_p1_features.py",
+    "/app/test_reports/pytest/pytest_p1_iter6.xml",
+    "/app/test_reports/pytest/pytest_full_iter7.xml"
+  ],
+  "action_items": [
+    "HIGH/BLOCKER: Fix OTPVerification.js — sync devCode → code state OR change Input to controlled-only with setCode in sendCode(): `setCode(res.data.dev_code)`. This unblocks the entire phone-signup happy path.",
+    "MED: /referrals — redirect to /login when unauthenticated instead of rendering empty dashboard with 401/403 spam.",
+    "LOW: /referrals — fix 'Earned ()' empty-parens label; render currency code or remove the parens when empty.",
+    "INFO: Admin UI tabs (approvals/zones/whatsapp) were NOT exercised end-to-end via Playwright in this iteration because the OTP bug blocked creating any user (including admin) through the UI; backend approval/zone/whatsapp endpoints are fully covered by test_p1_features.py and all pass."
+  ],
+  "critical_code_review_comments": [
+    "OTPVerification.js:92 - antipattern `value={code || devCode}` for a controlled input means the state and display can diverge. Always sync via useState/useEffect so the source of truth matches what the user sees.",
+    "AuthPage.js - submit() short-circuits to OTP step when `formData.phone && !verifiedOtp`, but HTML5 `required` attributes on later fields (Delivery Address) still fire first, which is confusing. Consider moving the OTP gate before browser validation or removing `required` from address.",
+    "ReferralPage 'Earned ()' suggests currency variable is undefined - guard with `{currency ? \\`(${currency})\\` : ''}`.",
+    "P1 backend code (server.py ~5090-5500) is well-structured but server.py is now well over 5000 lines - the new sections (otp, referrals, service-zones, whatsapp, admin approvals) are good candidates for extraction into /routers/."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (158/158, includes 22 new P1)",
+    "frontend": "~40% - signup page structure OK, OTP card renders & dev-code visible, /referrals structure OK, but OTP verify is broken end-to-end so phone-signup → /referrals authenticated flow cannot be completed via UI. Admin tabs not exercised."
+  },
+  "test_credentials": "Fresh registrations per run via /api/auth/register; MOCK_TWILIO=true so OTP send returns dev_code in response.",
+  "seed_data_creation": "None persisted; tests register fresh users with unique timestamp-suffixed emails.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is rock solid (158/158). The one blocker is OTPVerification.js line 92 - once main agent syncs devCode into code state (one-line fix), the full UI signup → OTP → /referrals → /admin (with admin user_type) flow should be re-verified. test_p1_features.py is a clean regression suite for the new P1 backend endpoints. To exercise /admin UI without the OTP bug, register an admin via API and inject the JWT into localStorage (key likely 'access_token' or 'token' — check api.js).",
+  "rca of the issue": "Bug: OTP verify always fails client-side. RCA: In /app/frontend/src/OTPVerification.js the InputOTP component is rendered with `value={code || devCode}` (line 92). React shows the devCode in the field, but the underlying `code` useState remains ''. handleVerify() guards on `if (!code.trim())` and returns the 'Enter the 6-digit code' error. Reproduction: open /signup, fill all required fields incl. phone, click Continue → OTP card appears, click Send Code → dev-code banner shows code auto-filled, click Verify Code → error 'Enter the 6-digit code'. Mitigation (one-line fix): in sendCode() after `setDevCode(res.data.dev_code)` also call `setCode(res.data.dev_code)`, then change the Input to `value={code}`. Alternatively add `useEffect(() => { if (devCode && !code) setCode(devCode); }, [devCode]);`."
+}

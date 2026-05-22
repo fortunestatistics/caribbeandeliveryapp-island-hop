@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
+import { Textarea } from './components/ui/textarea';
+import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
 import { 
   Users, 
@@ -19,12 +21,18 @@ import {
   Settings,
   Ban,
   UserCheck,
-  Eye
+  Eye,
+  MapPin,
+  MessageSquare,
+  Send,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
 const AdminPanel = () => {
   const [stats, setStats] = useState({
@@ -38,6 +46,13 @@ const AdminPanel = () => {
   const [users, setUsers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [disputes, setDisputes] = useState([]);
+  const [approvals, setApprovals] = useState({ drivers: [], restaurants: [], car_rentals: [], businesses: [], total: 0 });
+  const [zones, setZones] = useState([]);
+  const [zoneForm, setZoneForm] = useState({ name: '', polygon: '', allowed_services: '', description: '' });
+  const [whConvos, setWhConvos] = useState([]);
+  const [whSelectedPhone, setWhSelectedPhone] = useState('');
+  const [whMessages, setWhMessages] = useState([]);
+  const [whReplyBody, setWhReplyBody] = useState('');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -49,10 +64,103 @@ const AdminPanel = () => {
     fetchDisputes();
   }, []);
 
+  useEffect(() => {
+    if (selectedTab === 'approvals') fetchApprovals();
+    if (selectedTab === 'zones') fetchZones();
+    if (selectedTab === 'whatsapp') fetchWhConvos();
+  }, [selectedTab]);
+
+  const fetchApprovals = async () => {
+    try {
+      const res = await axios.get(`${API}/admin/pending-approvals`, { headers: authHeaders() });
+      setApprovals(res.data);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleApproval = async (kind, id, action) => {
+    const ep = {
+      driver: 'drivers',
+      restaurant: 'restaurants',
+      car_rental: 'car-rentals',
+      business: 'businesses',
+    }[kind];
+    try {
+      await axios.post(`${API}/admin/${ep}/${id}/${action}`, { notes: '' }, { headers: authHeaders() });
+      fetchApprovals();
+    } catch (e) {
+      alert(e.response?.data?.detail || `Failed to ${action} ${kind}`);
+    }
+  };
+
+  const fetchZones = async () => {
+    try {
+      const res = await axios.get(`${API}/service-zones`, { headers: authHeaders() });
+      setZones(res.data);
+    } catch (e) { console.error(e); }
+  };
+
+  const createZone = async () => {
+    let polygonParsed;
+    try {
+      polygonParsed = JSON.parse(zoneForm.polygon);
+      if (!Array.isArray(polygonParsed) || polygonParsed.length < 3) throw new Error();
+    } catch {
+      alert('Polygon must be valid JSON like [[lat,lng],[lat,lng],[lat,lng],...] with 3+ points');
+      return;
+    }
+    const services = zoneForm.allowed_services.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      await axios.post(`${API}/service-zones`, {
+        name: zoneForm.name,
+        polygon: polygonParsed,
+        allowed_services: services,
+        active: true,
+        description: zoneForm.description || undefined,
+      }, { headers: authHeaders() });
+      setZoneForm({ name: '', polygon: '', allowed_services: '', description: '' });
+      fetchZones();
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to create zone');
+    }
+  };
+
+  const deleteZone = async (id) => {
+    if (!window.confirm('Delete this zone?')) return;
+    try {
+      await axios.delete(`${API}/service-zones/${id}`, { headers: authHeaders() });
+      fetchZones();
+    } catch (e) { alert(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const fetchWhConvos = async () => {
+    try {
+      const res = await axios.get(`${API}/whatsapp/conversations`, { headers: authHeaders() });
+      setWhConvos(res.data);
+    } catch (e) { console.error(e); }
+  };
+
+  const openWhConvo = async (phone) => {
+    setWhSelectedPhone(phone);
+    try {
+      const res = await axios.get(`${API}/whatsapp/messages?phone=${encodeURIComponent(phone)}`, { headers: authHeaders() });
+      setWhMessages(res.data.reverse());
+    } catch (e) { console.error(e); }
+  };
+
+  const sendWhReply = async () => {
+    if (!whSelectedPhone || !whReplyBody.trim()) return;
+    try {
+      await axios.post(`${API}/whatsapp/send`, { to: whSelectedPhone, body: whReplyBody }, { headers: authHeaders() });
+      setWhReplyBody('');
+      openWhConvo(whSelectedPhone);
+      fetchWhConvos();
+    } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
+  };
+
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       setStats(response.data);
       setLoading(false);
@@ -65,7 +173,7 @@ const AdminPanel = () => {
   const fetchUsers = async () => {
     try {
       const response = await axios.get(`${API}/admin/users`, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       setUsers(response.data);
     } catch (error) {
@@ -76,7 +184,7 @@ const AdminPanel = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/admin/orders`, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       setOrders(response.data);
     } catch (error) {
@@ -87,7 +195,7 @@ const AdminPanel = () => {
   const fetchDisputes = async () => {
     try {
       const response = await axios.get(`${API}/admin/disputes`, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       setDisputes(response.data);
     } catch (error) {
@@ -98,7 +206,7 @@ const AdminPanel = () => {
   const handleUserAction = async (userId, action) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/${action}`, {}, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       fetchUsers();
     } catch (error) {
@@ -110,7 +218,7 @@ const AdminPanel = () => {
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
-        withCredentials: true
+        headers: authHeaders(), withCredentials: true
       });
       fetchOrders();
     } catch (error) {
@@ -236,11 +344,12 @@ const AdminPanel = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'disputes', 'analytics'].map((tab) => (
+          {['overview', 'users', 'orders', 'approvals', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
               onClick={() => setSelectedTab(tab)}
+              data-testid={`admin-tab-${tab}`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </Button>
@@ -459,6 +568,165 @@ const AdminPanel = () => {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {selectedTab === 'approvals' && (
+          <Card data-testid="admin-approvals-content">
+            <CardHeader>
+              <CardTitle>Pending Approvals ({approvals.total})</CardTitle>
+              <p className="text-sm text-muted-foreground">Review and approve new drivers, restaurants, car rentals, and business onboarding applications.</p>
+            </CardHeader>
+            <CardContent>
+              {approvals.total === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="approvals-empty">
+                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
+                  <p>No pending approvals at the moment.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {[['drivers','driver','Drivers'], ['restaurants','restaurant','Restaurants'], ['car_rentals','car_rental','Car Rentals'], ['businesses','business','Businesses']].map(([key, kind, label]) => (
+                    approvals[key] && approvals[key].length > 0 && (
+                      <div key={key} data-testid={`approval-section-${key}`}>
+                        <h3 className="font-semibold mb-3 text-gold-500">{label} ({approvals[key].length})</h3>
+                        <div className="space-y-2">
+                          {approvals[key].map((row) => (
+                            <div key={row.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
+                              <div>
+                                <p className="font-medium">{row.name || row.id}</p>
+                                <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
+                                {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
+                              </div>
+                              <div className="flex gap-2">
+                                <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
+                                  <CheckCircle className="h-4 w-4 mr-1" />Approve
+                                </Button>
+                                <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
+                                  <X className="h-4 w-4 mr-1" />Reject
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedTab === 'zones' && (
+          <div className="space-y-6" data-testid="admin-zones-content">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5 text-gold-500" />Create Service Zone</CardTitle>
+                <p className="text-sm text-muted-foreground">Define a polygon (3+ [lat,lng] points) to restrict operations to a specific geo region.</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <Label>Zone Name</Label>
+                  <Input data-testid="zone-name-input" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Port of Spain Central" />
+                </div>
+                <div>
+                  <Label>Polygon (JSON: [[lat,lng],[lat,lng],…])</Label>
+                  <Textarea data-testid="zone-polygon-input" value={zoneForm.polygon} onChange={(e) => setZoneForm({ ...zoneForm, polygon: e.target.value })} placeholder='[[10.6,-61.6],[10.7,-61.6],[10.7,-61.45],[10.6,-61.45]]' />
+                </div>
+                <div>
+                  <Label>Allowed Services (comma-separated)</Label>
+                  <Input data-testid="zone-services-input" value={zoneForm.allowed_services} onChange={(e) => setZoneForm({ ...zoneForm, allowed_services: e.target.value })} placeholder="food,taxi,grocery,pharmacy" />
+                </div>
+                <div>
+                  <Label>Description (optional)</Label>
+                  <Input data-testid="zone-description-input" value={zoneForm.description} onChange={(e) => setZoneForm({ ...zoneForm, description: e.target.value })} />
+                </div>
+                <Button data-testid="create-zone-btn" onClick={createZone} className="bg-gold-gradient text-white" disabled={!zoneForm.name || !zoneForm.polygon}>
+                  <Plus className="h-4 w-4 mr-2" />Create Zone
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-neon-cyan" />Active Zones ({zones.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {zones.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8" data-testid="zones-empty">No service zones defined yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {zones.map((z) => (
+                      <div key={z.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`zone-row-${z.id}`}>
+                        <div>
+                          <p className="font-medium">{z.name}</p>
+                          <p className="text-sm text-muted-foreground">{z.country} • {z.polygon?.length || 0} vertices</p>
+                          {z.allowed_services && z.allowed_services.length > 0 && (
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {z.allowed_services.map((s) => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
+                            </div>
+                          )}
+                        </div>
+                        <Button data-testid={`delete-zone-btn-${z.id}`} size="sm" variant="destructive" onClick={() => deleteZone(z.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {selectedTab === 'whatsapp' && (
+          <div className="grid md:grid-cols-3 gap-4" data-testid="admin-whatsapp-content">
+            <Card className="md:col-span-1">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-gold-500" />Conversations</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 max-h-[500px] overflow-y-auto">
+                {whConvos.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8" data-testid="whatsapp-no-convos">No WhatsApp messages yet.</p>
+                ) : (
+                  whConvos.map((c) => (
+                    <div key={c.phone} onClick={() => openWhConvo(c.phone)} className={`p-3 rounded-lg cursor-pointer ${whSelectedPhone === c.phone ? 'bg-gold-500/10 border border-gold-500/30' : 'bg-matte-900/40 hover:bg-matte-900/60'}`} data-testid={`wa-convo-${c.phone}`}>
+                      <p className="font-medium font-mono text-sm">{c.phone}</p>
+                      <p className="text-xs text-muted-foreground truncate">{c.last_message}</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">{c.count} msg • {new Date(c.last_at).toLocaleString()}</p>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle>{whSelectedPhone ? `Chat with ${whSelectedPhone}` : 'Select a conversation'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!whSelectedPhone ? (
+                  <p className="text-center text-muted-foreground py-12">Pick a conversation from the left.</p>
+                ) : (
+                  <>
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4" data-testid="wa-thread">
+                      {whMessages.map((m) => (
+                        <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.direction === 'inbound' ? 'bg-matte-900/40 mr-auto' : 'bg-gold-500/15 ml-auto text-right'}`} data-testid={`wa-msg-${m.id}`}>
+                          <p className="text-sm">{m.body}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{new Date(m.created_at).toLocaleTimeString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input data-testid="wa-reply-input" value={whReplyBody} onChange={(e) => setWhReplyBody(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendWhReply()} />
+                      <Button data-testid="wa-send-btn" onClick={sendWhReply} className="bg-gold-gradient text-white">
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {selectedTab === 'analytics' && (

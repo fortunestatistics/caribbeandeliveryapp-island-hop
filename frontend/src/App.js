@@ -19,6 +19,7 @@ import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
 import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
+import ReferralPage from './ReferralPage';
 import SubscriptionPlans from './SubscriptionPlans';
 import RestaurantMenu from './RestaurantMenu';
 import TaxiBookingForm from './TaxiBookingForm';
@@ -2878,6 +2879,7 @@ function App() {
             <Route path="/vendor/stripe-return" element={<VendorStripeConnect />} />
             <Route path="/vendor/stripe-refresh" element={<VendorStripeConnect />} />
             <Route path="/wallet" element={<WalletPage />} />
+            <Route path="/referrals" element={<ReferralPage />} />
             <Route path="/driver" element={<DriverRegistration />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
             <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />

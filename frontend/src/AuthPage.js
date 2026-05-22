@@ -14,21 +14,26 @@ import {
   Eye,
   EyeOff,
   Chrome,
-  Apple
+  Apple,
+  Gift
 } from 'lucide-react';
 import { authAPI } from './services/api';
+import OTPVerification from './OTPVerification';
 
 const AuthPage = ({ mode = 'login' }) => {
   const navigate = useNavigate();
   const [authMode, setAuthMode] = useState(mode); // 'login' or 'signup'
   const [showPassword, setShowPassword] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [verifiedOtp, setVerifiedOtp] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
     confirmPassword: '',
-    address: ''
+    address: '',
+    referralCode: ''
   });
 
   const handleInputChange = (e) => {
@@ -44,6 +49,11 @@ const AuthPage = ({ mode = 'login' }) => {
     if (authMode === 'signup') {
       if (formData.password !== formData.confirmPassword) {
         alert('Passwords do not match!');
+        return;
+      }
+      // Phone verification first
+      if (formData.phone && !verifiedOtp) {
+        setOtpStep(true);
         return;
       }
     }
@@ -68,7 +78,9 @@ const AuthPage = ({ mode = 'login' }) => {
           name: formData.name,
           phone: formData.phone,
           address: formData.address,
-          user_type: 'customer'
+          user_type: 'customer',
+          referral_code: formData.referralCode || undefined,
+          otp_code: verifiedOtp || undefined
         });
         
         // Save token and user
@@ -82,6 +94,15 @@ const AuthPage = ({ mode = 'login' }) => {
       alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
       console.error('Auth error:', error);
     }
+  };
+
+  const handleOtpVerified = (code) => {
+    setVerifiedOtp(code);
+    setOtpStep(false);
+    // Trigger the actual registration now that phone is verified
+    setTimeout(() => {
+      document.getElementById('auth-form-submit-btn')?.click();
+    }, 50);
   };
 
   const handleSocialLogin = (provider) => {
@@ -114,6 +135,16 @@ const AuthPage = ({ mode = 'login' }) => {
             </p>
           </CardHeader>
           <CardContent>
+            {/* OTP Step */}
+            {authMode === 'signup' && otpStep ? (
+              <OTPVerification
+                phone={formData.phone}
+                purpose="signup"
+                onVerified={handleOtpVerified}
+                onCancel={() => setOtpStep(false)}
+              />
+            ) : (
+            <>
             {/* Social Login Buttons */}
             <div className="space-y-3 mb-6">
               <Button
@@ -262,6 +293,25 @@ const AuthPage = ({ mode = 'login' }) => {
                 </div>
               )}
 
+              {authMode === 'signup' && (
+                <div>
+                  <Label htmlFor="referralCode">Referral Code (optional)</Label>
+                  <div className="relative mt-1">
+                    <Gift className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
+                    <Input
+                      id="referralCode"
+                      name="referralCode"
+                      type="text"
+                      placeholder="ABCD1234"
+                      className="pl-10 uppercase tracking-wider font-mono"
+                      value={formData.referralCode}
+                      onChange={handleInputChange}
+                      data-testid="signup-referral-code-input"
+                    />
+                  </div>
+                </div>
+              )}
+
               {authMode === 'login' && (
                 <div className="flex justify-end">
                   <button
@@ -275,10 +325,12 @@ const AuthPage = ({ mode = 'login' }) => {
               )}
 
               <Button
+                id="auth-form-submit-btn"
+                data-testid="auth-form-submit-btn"
                 type="submit"
                 className="w-full bg-gold-gradient text-white"
               >
-                {authMode === 'login' ? 'Sign In' : 'Create Account'}
+                {authMode === 'login' ? 'Sign In' : (verifiedOtp ? 'Create Account' : 'Continue')}
               </Button>
             </form>
 
@@ -306,6 +358,8 @@ const AuthPage = ({ mode = 'login' }) => {
                   Privacy Policy
                 </a>
               </p>
+            )}
+            </>
             )}
           </CardContent>
         </Card>

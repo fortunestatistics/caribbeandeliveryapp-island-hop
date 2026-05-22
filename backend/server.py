@@ -114,6 +114,8 @@ class UserRegister(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     user_type: str = "customer"  # customer, restaurant, driver
+    referral_code: Optional[str] = None
+    otp_code: Optional[str] = None  # if provided, will be verified against pending OTP for phone
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -260,9 +262,12 @@ class User(BaseModel):
     name: str
     picture: Optional[str] = None
     session_token: Optional[str] = None
-    user_type: str = "customer"  # customer, restaurant, driver, admin
+    user_type: str = "customer"  # customer, restaurant, driver, admin, agent
     phone: Optional[str] = None
+    phone_verified: bool = False
     address: Optional[Dict[str, str]] = None
+    referred_by: Optional[str] = None
+    referral_code_used: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SessionCreate(BaseModel):
@@ -1094,33 +1099,83 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 # JWT Authentication Routes
 @api_router.post("/auth/register", response_model=Token)
 async def register(user_data: UserRegister):
-    """Register a new user"""
+    """Register a new user. Optionally verifies a pending OTP for the phone and applies a referral code."""
     # Check if user already exists
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
+    # Normalize phone + optionally verify OTP if user supplied one
+    phone_clean = None
+    phone_verified = False
+    if user_data.phone:
+        phone_clean = re.sub(r"[\s\-\(\)]", "", user_data.phone.strip())
+    if user_data.otp_code and phone_clean:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        # Accept either: (a) a pending OTP that matches, or (b) a recently-verified OTP that matches
+        otp = await db.otp_codes.find_one(
+            {"phone": phone_clean, "purpose": "signup", "code": str(user_data.otp_code).strip(),
+             "expires_at": {"$gt": now_iso}},
+            sort=[("created_at", -1)],
+        )
+        if not otp:
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        if not otp.get("verified"):
+            await db.otp_codes.update_one({"id": otp["id"]}, {"$set": {"verified": True, "verified_at": now_iso}})
+        phone_verified = True
+    else:
+        # If a verified OTP exists for this phone (just verified separately), accept it
+        if phone_clean:
+            recent_verified = await db.otp_codes.find_one(
+                {"phone": phone_clean, "purpose": "signup", "verified": True},
+                sort=[("created_at", -1)],
+            )
+            phone_verified = bool(recent_verified)
+
     # Hash password
     hashed_password = get_password_hash(user_data.password)
-    
+
     # Create user
     user = User(
         email=user_data.email,
         name=user_data.name,
-        phone=user_data.phone,
+        phone=phone_clean,
+        phone_verified=phone_verified,
         address={"street": user_data.address} if user_data.address else None,
-        user_type=user_data.user_type
+        user_type=user_data.user_type,
     )
-    
+
+    # Apply referral if code provided
+    if user_data.referral_code:
+        code = user_data.referral_code.strip().upper()
+        code_doc = await db.referral_codes.find_one({"code": code})
+        if code_doc and code_doc["user_id"] != user.id:
+            user.referred_by = code_doc["user_id"]
+            user.referral_code_used = code
+
     # Store user with hashed password
     user_dict = user.dict()
     user_dict['hashed_password'] = hashed_password
     user_dict = prepare_for_mongo(user_dict)
     await db.users.insert_one(user_dict)
-    
+
+    # If referral applied, create pending referral row
+    if user.referred_by and user.referral_code_used:
+        await db.referrals.insert_one({
+            "id": str(uuid.uuid4()),
+            "referrer_id": user.referred_by,
+            "referee_id": user.id,
+            "code_used": user.referral_code_used,
+            "status": "pending",
+            "reward_amount": REFERRAL_REWARD_AMOUNT,
+            "reward_currency": REFERRAL_REWARD_CURRENCY,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+        })
+
     # Create access token
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -3944,6 +3999,13 @@ async def get_checkout_status(session_id: str):
                     "paid_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
+            # Referral completion: credit referrer + referee on first paid order
+            try:
+                customer_id = txn.get("user_id")
+                if customer_id:
+                    await _maybe_complete_referral(customer_id)
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed for txn {session_id}: {ref_exc}")
 
     return {
         "status": status.status,
@@ -3986,6 +4048,12 @@ async def stripe_webhook(request: Request):
                         "paid_at": datetime.now(timezone.utc).isoformat(),
                     }},
                 )
+            try:
+                customer_id = txn.get("user_id")
+                if customer_id:
+                    await _maybe_complete_referral(customer_id)
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed (webhook) for sess {webhook_response.session_id}: {ref_exc}")
     return {"status": "ok"}
 
 
@@ -5086,6 +5154,689 @@ async def create_status_check(input: StatusCheckCreate):
 async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
+
+# ============================================================
+# P1 FEATURE: OTP VERIFICATION (Phone Signup) — Twilio (mocked)
+# ============================================================
+import twilio_client
+
+
+class OTPSendRequest(BaseModel):
+    phone: str
+    purpose: str = "signup"  # signup | login | verify | password_reset
+
+
+class OTPVerifyRequest(BaseModel):
+    phone: str
+    code: str
+    purpose: str = "signup"
+
+
+def _normalize_phone(p: str) -> str:
+    """Strip spaces/dashes/parens; keep leading +."""
+    if not p:
+        return ""
+    return re.sub(r"[\s\-\(\)]", "", p.strip())
+
+
+@api_router.post("/otp/send")
+async def otp_send(payload: OTPSendRequest):
+    """Send a one-time code via SMS (mocked in MOCK_TWILIO mode).
+
+    Throttling: max 5 sends per phone per hour.
+    """
+    phone = _normalize_phone(payload.phone)
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number required")
+
+    hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    recent = await db.otp_codes.count_documents({"phone": phone, "created_at": {"$gte": hour_ago}})
+    if recent >= 5:
+        raise HTTPException(status_code=429, detail="Too many OTP requests — try again later")
+
+    code = twilio_client.generate_otp(6)
+    expires_in = int(os.environ.get("OTP_EXPIRE_MINUTES", "10"))
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=expires_in))
+
+    otp_doc = {
+        "id": str(uuid.uuid4()),
+        "phone": phone,
+        "code": code,
+        "purpose": payload.purpose,
+        "attempts": 0,
+        "verified": False,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.otp_codes.insert_one(otp_doc)
+
+    body = f"Your IslandHop verification code is {code}. It expires in {expires_in} minutes."
+    send_result = twilio_client.send_sms(phone, body)
+
+    response = {
+        "success": True,
+        "expires_at": expires_at.isoformat(),
+        "channel": "sms",
+        "mock": send_result.get("mock", False),
+    }
+    # In dev/mock mode return the code so test flows + the UI can show it.
+    if os.environ.get("OTP_DEV_RETURN_CODE", "true").lower() in {"1", "true", "yes"}:
+        response["dev_code"] = code
+    return response
+
+
+@api_router.post("/otp/verify")
+async def otp_verify(payload: OTPVerifyRequest):
+    """Verify a previously-sent OTP code. Marks phone as verified for that purpose."""
+    phone = _normalize_phone(payload.phone)
+    if not phone or not payload.code:
+        raise HTTPException(status_code=400, detail="Phone and code required")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    otp = await db.otp_codes.find_one(
+        {"phone": phone, "purpose": payload.purpose, "verified": False, "expires_at": {"$gt": now_iso}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    if not otp:
+        raise HTTPException(status_code=400, detail="No active OTP — request a new one")
+
+    if otp.get("attempts", 0) >= 5:
+        raise HTTPException(status_code=429, detail="Too many wrong attempts — request a new code")
+
+    if str(otp["code"]) != str(payload.code).strip():
+        await db.otp_codes.update_one({"id": otp["id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    await db.otp_codes.update_one(
+        {"id": otp["id"]},
+        {"$set": {"verified": True, "verified_at": now_iso}},
+    )
+    # If a user exists with this phone, mark phone_verified
+    await db.users.update_one({"phone": phone}, {"$set": {"phone_verified": True}})
+    return {"success": True, "phone": phone, "verified": True}
+
+
+# ============================================================
+# P1 FEATURE: REFERRAL ENGINE
+# ============================================================
+def _gen_referral_code(name: str) -> str:
+    base = re.sub(r"[^A-Z0-9]", "", (name or "ISLE").upper())[:4] or "ISLE"
+    return f"{base}{uuid.uuid4().hex[:4].upper()}"
+
+
+REFERRAL_REWARD_AMOUNT = float(os.environ.get("REFERRAL_REWARD_AMOUNT", "10"))
+REFERRAL_REWARD_CURRENCY = os.environ.get("REFERRAL_REWARD_CURRENCY", "TTD")
+
+
+class ApplyReferralRequest(BaseModel):
+    code: str
+
+
+async def _get_or_create_referral_code(user: User) -> dict:
+    existing = await db.referral_codes.find_one({"user_id": user.id}, {"_id": 0})
+    if existing:
+        return existing
+    # Build a unique code (collisions are extremely unlikely with hex suffix)
+    for _ in range(5):
+        code = _gen_referral_code(user.name)
+        if not await db.referral_codes.find_one({"code": code}):
+            break
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user.id,
+        "code": code,
+        "total_referrals": 0,
+        "total_rewards": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.referral_codes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/referrals/my-code")
+async def get_my_referral_code(request: Request):
+    """Return (or create) the current user's referral code."""
+    current_user = await get_current_user_from_request(request)
+    code = await _get_or_create_referral_code(current_user)
+    code.pop("_id", None)
+    return code
+
+
+@api_router.post("/referrals/apply")
+async def apply_referral(payload: ApplyReferralRequest, request: Request):
+    """Apply a referral code to the current user (one-time, at signup)."""
+    current_user = await get_current_user_from_request(request)
+    code = (payload.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code required")
+
+    # Already referred?
+    existing_ref = await db.referrals.find_one({"referee_id": current_user.id})
+    if existing_ref:
+        raise HTTPException(status_code=400, detail="A referral has already been applied to this account")
+
+    code_doc = await db.referral_codes.find_one({"code": code})
+    if not code_doc:
+        raise HTTPException(status_code=404, detail="Invalid referral code")
+    if code_doc["user_id"] == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot use your own referral code")
+
+    referral_doc = {
+        "id": str(uuid.uuid4()),
+        "referrer_id": code_doc["user_id"],
+        "referee_id": current_user.id,
+        "code_used": code,
+        "status": "pending",  # pending until first paid order
+        "reward_amount": REFERRAL_REWARD_AMOUNT,
+        "reward_currency": REFERRAL_REWARD_CURRENCY,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+    }
+    await db.referrals.insert_one(referral_doc)
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$set": {"referred_by": code_doc["user_id"], "referral_code_used": code}},
+    )
+    referral_doc.pop("_id", None)
+    return {"success": True, "referral": referral_doc}
+
+
+@api_router.get("/referrals/my-referrals")
+async def list_my_referrals(request: Request):
+    """List referrals made by the current user."""
+    current_user = await get_current_user_from_request(request)
+    refs = await db.referrals.find({"referrer_id": current_user.id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
+    code = await _get_or_create_referral_code(current_user)
+    code.pop("_id", None)
+    pending = sum(1 for r in refs if r.get("status") == "pending")
+    completed = sum(1 for r in refs if r.get("status") == "completed")
+    total_earned = sum(r.get("reward_amount", 0) for r in refs if r.get("status") == "completed")
+    return {
+        "code": code["code"],
+        "total_referrals": len(refs),
+        "pending": pending,
+        "completed": completed,
+        "total_earned": total_earned,
+        "reward_currency": REFERRAL_REWARD_CURRENCY,
+        "reward_amount": REFERRAL_REWARD_AMOUNT,
+        "referrals": refs,
+    }
+
+
+async def _maybe_complete_referral(referee_id: str):
+    """Called when a referee pays for an order — completes pending referral and credits both wallets."""
+    ref = await db.referrals.find_one({"referee_id": referee_id, "status": "pending"})
+    if not ref:
+        return
+    amount = float(ref.get("reward_amount", 0) or 0)
+    currency = ref.get("reward_currency", REFERRAL_REWARD_CURRENCY)
+    referrer_id = ref["referrer_id"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Credit referrer's wallet
+    for uid, role in [(referrer_id, "referrer"), (referee_id, "referee")]:
+        wallet = await db.wallets.find_one({"user_id": uid})
+        if not wallet:
+            wallet_doc = {
+                "id": str(uuid.uuid4()),
+                "user_id": uid,
+                "balances": {"USD": 0.0, "TTD": 0.0},
+                "default_currency": "TTD",
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            }
+            await db.wallets.insert_one(wallet_doc)
+            wallet = wallet_doc
+        await db.wallets.update_one(
+            {"id": wallet["id"]},
+            {"$inc": {f"balances.{currency}": amount}, "$set": {"updated_at": now_iso}},
+        )
+        await db.wallet_transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": uid,
+            "wallet_id": wallet["id"],
+            "type": "referral_reward",
+            "amount": amount,
+            "currency": currency,
+            "status": "completed",
+            "note": f"Referral reward ({role})",
+            "created_at": now_iso,
+        })
+
+    await db.referrals.update_one(
+        {"id": ref["id"]},
+        {"$set": {"status": "completed", "completed_at": now_iso}},
+    )
+    await db.referral_codes.update_one(
+        {"user_id": referrer_id},
+        {"$inc": {"total_referrals": 1, "total_rewards": amount}},
+    )
+
+
+# ============================================================
+# P1 FEATURE: PROOF OF DELIVERY (Driver photo at drop-off)
+# ============================================================
+class DeliveryProofUpload(BaseModel):
+    photo_base64: str  # data URI or raw base64 string
+    notes: Optional[str] = None
+    recipient_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+@api_router.post("/orders/{order_id}/proof")
+async def upload_delivery_proof(order_id: str, payload: DeliveryProofUpload, request: Request):
+    """Driver uploads proof-of-delivery photo/notes at drop-off."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "driver":
+        raise HTTPException(status_code=403, detail="Only drivers can upload delivery proof")
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Optional: ensure this driver is the assigned driver
+    driver_doc = await db.drivers.find_one({"user_id": current_user.id})
+    driver_id = driver_doc["id"] if driver_doc else current_user.id
+    if order.get("driver_id") and order.get("driver_id") not in (driver_id, current_user.id):
+        raise HTTPException(status_code=403, detail="You are not the assigned driver for this order")
+
+    photo = payload.photo_base64.strip()
+    # Light sanity check on size (~ 5 MB base64 cap)
+    if len(photo) > 7_000_000:
+        raise HTTPException(status_code=413, detail="Proof photo too large (max ~5 MB)")
+    if not photo:
+        raise HTTPException(status_code=400, detail="Photo required")
+
+    proof = {
+        "photo_base64": photo,
+        "notes": payload.notes,
+        "recipient_name": payload.recipient_name,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "uploaded_by": current_user.id,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"delivery_proof": proof, "status": "delivered", "actual_delivery_time": proof["uploaded_at"]}},
+    )
+    return {"success": True, "order_id": order_id, "proof_uploaded_at": proof["uploaded_at"]}
+
+
+@api_router.get("/orders/{order_id}/proof")
+async def get_delivery_proof(order_id: str, request: Request):
+    """Customer/driver/admin can view delivery proof for an order."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    proof = order.get("delivery_proof")
+    if not proof:
+        raise HTTPException(status_code=404, detail="No proof of delivery yet")
+
+    # Authorization
+    is_customer = order.get("customer_id") == current_user.id
+    driver_doc = await db.drivers.find_one({"user_id": current_user.id})
+    driver_id = driver_doc["id"] if driver_doc else None
+    is_driver = order.get("driver_id") in (current_user.id, driver_id) if driver_id else False
+    is_admin = current_user.user_type == "admin"
+    if not (is_customer or is_driver or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to view this proof")
+    return {"order_id": order_id, "proof": proof}
+
+
+# ============================================================
+# P1 FEATURE: SERVICE-ZONE MANAGEMENT
+# ============================================================
+class ServiceZone(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    country: str = "Trinidad and Tobago"
+    polygon: List[List[float]] = []  # list of [lat, lng] vertices
+    allowed_services: List[str] = []  # food, taxi, grocery, pharmacy, courier, car_rental
+    active: bool = True
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ServiceZoneCreate(BaseModel):
+    name: str
+    country: str = "Trinidad and Tobago"
+    polygon: List[List[float]]
+    allowed_services: List[str] = []
+    active: bool = True
+    description: Optional[str] = None
+
+
+class ServiceZoneCheck(BaseModel):
+    latitude: float
+    longitude: float
+    service: Optional[str] = None
+
+
+def _point_in_polygon(lat: float, lng: float, polygon: List[List[float]]) -> bool:
+    """Ray-casting point-in-polygon. Polygon is list of [lat, lng]."""
+    n = len(polygon)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = polygon[i][0], polygon[i][1]
+        yj, xj = polygon[j][0], polygon[j][1]
+        intersect = ((yi > lat) != (yj > lat)) and (
+            lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+        )
+        if intersect:
+            inside = not inside
+        j = i
+    return inside
+
+
+@api_router.post("/service-zones", response_model=ServiceZone)
+async def create_service_zone(payload: ServiceZoneCreate, request: Request):
+    """Admin: create a service zone (polygon of [lat,lng] coordinates)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if len(payload.polygon) < 3:
+        raise HTTPException(status_code=400, detail="Polygon needs at least 3 points")
+    zone = ServiceZone(**payload.dict())
+    await db.service_zones.insert_one(prepare_for_mongo(zone.dict()))
+    return zone
+
+
+@api_router.get("/service-zones", response_model=List[ServiceZone])
+async def list_service_zones(active_only: bool = False):
+    """List all service zones (public — needed by client to soft-block unsupported regions)."""
+    query = {"active": True} if active_only else {}
+    docs = await db.service_zones.find(query, {"_id": 0}).to_list(length=None)
+    return [ServiceZone(**d) for d in docs]
+
+
+@api_router.put("/service-zones/{zone_id}", response_model=ServiceZone)
+async def update_service_zone(zone_id: str, payload: ServiceZoneCreate, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    existing = await db.service_zones.find_one({"id": zone_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Service zone not found")
+    updates = payload.dict()
+    await db.service_zones.update_one({"id": zone_id}, {"$set": prepare_for_mongo(updates)})
+    merged = {**existing, **updates}
+    return ServiceZone(**merged)
+
+
+@api_router.delete("/service-zones/{zone_id}")
+async def delete_service_zone(zone_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    result = await db.service_zones.delete_one({"id": zone_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Service zone not found")
+    return {"success": True}
+
+
+@api_router.post("/service-zones/check")
+async def check_service_zone(payload: ServiceZoneCheck):
+    """Check if a coordinate is inside any active service zone (optionally filtered by service)."""
+    zones = await db.service_zones.find({"active": True}, {"_id": 0}).to_list(length=None)
+    matches = []
+    for z in zones:
+        polygon = z.get("polygon") or []
+        if not _point_in_polygon(payload.latitude, payload.longitude, polygon):
+            continue
+        if payload.service and z.get("allowed_services") and payload.service not in z["allowed_services"]:
+            continue
+        matches.append({"id": z["id"], "name": z["name"], "allowed_services": z.get("allowed_services", [])})
+    return {
+        "in_service_area": len(matches) > 0,
+        "zones": matches,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "service": payload.service,
+    }
+
+
+# ============================================================
+# P1 FEATURE: WHATSAPP SUPPORT BRIDGE (Twilio — mocked)
+# ============================================================
+class WhatsAppSendRequest(BaseModel):
+    to: str
+    body: str
+    user_id: Optional[str] = None
+    ticket_id: Optional[str] = None
+
+
+@api_router.post("/whatsapp/send")
+async def whatsapp_send(payload: WhatsAppSendRequest, request: Request):
+    """Send an outbound WhatsApp message (admin/agent only)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in {"admin", "agent"}:
+        raise HTTPException(status_code=403, detail="Only support agents can send WhatsApp messages")
+
+    to = _normalize_phone(payload.to)
+    if not to or not payload.body.strip():
+        raise HTTPException(status_code=400, detail="to and body are required")
+
+    send_result = twilio_client.send_whatsapp(to, payload.body)
+    msg_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": payload.user_id,
+        "ticket_id": payload.ticket_id,
+        "phone": to,
+        "direction": "outbound",
+        "body": payload.body,
+        "status": send_result.get("status", "queued"),
+        "twilio_sid": send_result.get("sid"),
+        "sent_by": current_user.id,
+        "mock": send_result.get("mock", False),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.whatsapp_messages.insert_one(msg_doc)
+    msg_doc.pop("_id", None)
+    return {"success": True, "message": msg_doc}
+
+
+@api_router.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request):
+    """Inbound WhatsApp webhook (Twilio posts form-encoded fields like From, Body, MessageSid)."""
+    form = {}
+    try:
+        body = await request.form()
+        form = dict(body)
+    except Exception:
+        try:
+            form = await request.json()
+        except Exception:
+            form = {}
+
+    from_raw = form.get("From") or form.get("from") or ""
+    body_text = form.get("Body") or form.get("body") or ""
+    twilio_sid = form.get("MessageSid") or form.get("sid")
+    phone = _normalize_phone(str(from_raw).replace("whatsapp:", ""))
+    if not phone:
+        raise HTTPException(status_code=400, detail="Missing From")
+
+    user = await db.users.find_one({"phone": phone}, {"_id": 0})
+    msg_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"] if user else None,
+        "phone": phone,
+        "direction": "inbound",
+        "body": body_text,
+        "status": "received",
+        "twilio_sid": twilio_sid,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.whatsapp_messages.insert_one(msg_doc)
+    msg_doc.pop("_id", None)
+    return {"success": True, "received": True, "message": msg_doc}
+
+
+@api_router.get("/whatsapp/messages")
+async def list_whatsapp_messages(request: Request, phone: Optional[str] = None, limit: int = 100):
+    """Admin/agent: list WhatsApp messages, optionally filtered by phone."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in {"admin", "agent"}:
+        raise HTTPException(status_code=403, detail="Admin/agent only")
+    query = {}
+    if phone:
+        query["phone"] = _normalize_phone(phone)
+    msgs = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
+    return msgs
+
+
+@api_router.get("/whatsapp/conversations")
+async def list_whatsapp_conversations(request: Request):
+    """Group messages by phone; show last message + count per conversation."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in {"admin", "agent"}:
+        raise HTTPException(status_code=403, detail="Admin/agent only")
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {"$group": {
+            "_id": "$phone",
+            "last_message": {"$first": "$body"},
+            "last_direction": {"$first": "$direction"},
+            "last_at": {"$first": "$created_at"},
+            "user_id": {"$first": "$user_id"},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"last_at": -1}},
+        {"$project": {"_id": 0, "phone": "$_id", "last_message": 1, "last_direction": 1, "last_at": 1, "user_id": 1, "count": 1}},
+    ]
+    convos = await db.whatsapp_messages.aggregate(pipeline).to_list(length=None)
+    return convos
+
+
+# ============================================================
+# P1 FEATURE: DRIVER / MERCHANT APPROVAL UI (Admin Panel)
+# ============================================================
+class ApprovalAction(BaseModel):
+    notes: Optional[str] = None
+
+
+def _flatten_pending(items: List[dict], kind: str) -> List[dict]:
+    rows = []
+    for item in items:
+        item.pop("_id", None)
+        rows.append({
+            "id": item.get("id"),
+            "kind": kind,
+            "name": item.get("name") or item.get("company_name") or item.get("business_name") or item.get("business_details", {}).get("business_name"),
+            "email": item.get("email") or item.get("contact_info", {}).get("email") or item.get("business_owner", {}).get("email"),
+            "phone": item.get("phone") or item.get("contact_info", {}).get("phone") or item.get("business_owner", {}).get("phone"),
+            "status": item.get("status") or item.get("verification_status"),
+            "user_id": item.get("user_id"),
+            "created_at": item.get("created_at") or item.get("application_date"),
+            "raw": item,
+        })
+    return rows
+
+
+@api_router.get("/admin/pending-approvals")
+async def admin_pending_approvals(request: Request):
+    """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    drivers = await db.drivers.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
+    restaurants = await db.restaurants.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
+    rentals = await db.car_rental_companies.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
+    businesses = await db.business_applications.find({"verification_status": "pending"}).to_list(length=None)
+
+    return {
+        "drivers": _flatten_pending(drivers, "driver"),
+        "restaurants": _flatten_pending(restaurants, "restaurant"),
+        "car_rentals": _flatten_pending(rentals, "car_rental"),
+        "businesses": _flatten_pending(businesses, "business"),
+        "total": len(drivers) + len(restaurants) + len(rentals) + len(businesses),
+    }
+
+
+async def _set_partner_status(collection_name: str, entity_id: str, new_status: str, current_user_id: str, notes: Optional[str], status_field: str = "status"):
+    coll = db[collection_name]
+    existing = await coll.find_one({"id": entity_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"{collection_name[:-1]} not found")
+    update = {status_field: new_status, "reviewed_by": current_user_id, "reviewed_at": datetime.now(timezone.utc).isoformat()}
+    if notes is not None:
+        update["review_notes"] = notes
+    await coll.update_one({"id": entity_id}, {"$set": update})
+    return {"success": True, "id": entity_id, status_field: new_status}
+
+
+@api_router.post("/admin/drivers/{driver_id}/approve")
+async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("drivers", driver_id, "active", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/drivers/{driver_id}/reject")
+async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("drivers", driver_id, "rejected", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/restaurants/{restaurant_id}/approve")
+async def admin_approve_restaurant(restaurant_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("restaurants", restaurant_id, "active", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/restaurants/{restaurant_id}/reject")
+async def admin_reject_restaurant(restaurant_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("restaurants", restaurant_id, "rejected", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/car-rentals/{company_id}/approve")
+async def admin_approve_rental(company_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("car_rental_companies", company_id, "active", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/car-rentals/{company_id}/reject")
+async def admin_reject_rental(company_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("car_rental_companies", company_id, "rejected", current_user.id, payload.notes)
+
+
+@api_router.post("/admin/businesses/{application_id}/approve")
+async def admin_approve_business(application_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
+
+
+@api_router.post("/admin/businesses/{application_id}/reject")
+async def admin_reject_business(application_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+
+
 
 # Initialize data on startup
 @app.on_event("startup")
