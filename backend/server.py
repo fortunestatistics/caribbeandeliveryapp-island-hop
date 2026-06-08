@@ -2135,98 +2135,101 @@ async def get_user_orders(request: Request):
     return [Order(**order) for order in orders]
 
 @api_router.put("/orders/{order_id}/status")
-async def update_order_status(order_id: str, status: str, request: Request):
-    """Update order status"""
-    current_user = await get_current_user_from_request(request)
-    
-    order = await db.orders.find_one({"id": order_id})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    # Validate user can update this order
-    can_update = False
+def _status_timestamp_field(status: str) -> Optional[str]:
+    """Map order status → the field to set with the current UTC timestamp."""
+    return {
+        "confirmed": "confirmed_at",
+        "ready": "prepared_at",
+        "picked_up": "picked_up_at",
+        "delivered": "delivered_at",
+    }.get(status)
+
+
+async def _authorize_order_status_change(current_user: User, order: dict) -> None:
+    """Raise 403 if current_user cannot update this order's status."""
     if current_user.user_type == "restaurant":
         restaurant = await db.restaurants.find_one({"user_id": current_user.id})
         if restaurant and restaurant["id"] == order["restaurant_id"]:
-            can_update = True
-    elif current_user.user_type == "driver":
+            return
+    if current_user.user_type == "driver":
         driver = await db.drivers.find_one({"user_id": current_user.id})
         if driver and driver["id"] == order.get("driver_id"):
-            can_update = True
-    
-    if not can_update:
-        raise HTTPException(status_code=403, detail="Not authorized to update this order")
-    
-    # Update order status with timestamp
-    update_data = {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}
-    if status == "confirmed":
-        update_data["confirmed_at"] = datetime.now(timezone.utc).isoformat()
-    elif status == "ready":
-        update_data["prepared_at"] = datetime.now(timezone.utc).isoformat()
-    elif status == "picked_up":
-        update_data["picked_up_at"] = datetime.now(timezone.utc).isoformat()
-    elif status == "delivered":
-        update_data["delivered_at"] = datetime.now(timezone.utc).isoformat()
-        update_data["actual_delivery_time"] = datetime.now(timezone.utc).isoformat()
-        
-        # Automatically add driver earnings to wallet
-        if order.get("driver_id"):
-            driver_earnings = order.get("driver_earnings", 0)
-            await db.driver_wallets.update_one(
-                {"driver_id": order["driver_id"]},
-                {
-                    "$inc": {
-                        "balance": driver_earnings,
-                        "total_earned": driver_earnings
-                    },
-                    "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
-                },
-                upsert=True
-            )
-            update_data["driver_payout_status"] = "accumulated"
+            return
+    raise HTTPException(status_code=403, detail="Not authorized to update this order")
 
-            # Also credit the driver's IslandHop in-app wallet (separate from
-            # the legacy driver_wallets bucket) so the earnings appear in their
-            # /wallet page transaction history.
-            driver_row = await db.drivers.find_one({"id": order["driver_id"]}, {"_id": 0})
-            driver_user_id = (driver_row or {}).get("user_id")
-            if driver_user_id and driver_earnings:
-                tip_part = float(order.get("tip", 0) or 0)
-                delivery_part = max(float(driver_earnings) - tip_part, 0.0)
-                if delivery_part > 0:
-                    await _credit_wallet_with_txn(
-                        driver_user_id, delivery_part, "USD",
-                        txn_type="payout_in", order_id=order_id,
-                        note="Delivery earnings",
-                    )
-                if tip_part > 0:
-                    await _credit_wallet_with_txn(
-                        driver_user_id, tip_part, "USD",
-                        txn_type="tip_in", order_id=order_id,
-                        counterparty_user_id=order.get("customer_id"),
-                        note="Customer tip",
-                    )
-    
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": update_data}
+
+async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
+    """When an order is delivered, top up the driver's legacy wallet AND in-app wallet.
+
+    Returns the partial update dict to merge into update_data.
+    """
+    driver_id = order.get("driver_id")
+    if not driver_id:
+        return {}
+    driver_earnings = order.get("driver_earnings", 0)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    await db.driver_wallets.update_one(
+        {"driver_id": driver_id},
+        {
+            "$inc": {"balance": driver_earnings, "total_earned": driver_earnings},
+            "$set": {"updated_at": now_iso},
+        },
+        upsert=True,
     )
-    
-    # Notify relevant parties
-    notification = {
+
+    driver_row = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    driver_user_id = (driver_row or {}).get("user_id")
+    if driver_user_id and driver_earnings:
+        tip_part = float(order.get("tip", 0) or 0)
+        delivery_part = max(float(driver_earnings) - tip_part, 0.0)
+        if delivery_part > 0:
+            await _credit_wallet_with_txn(
+                driver_user_id, delivery_part, "USD",
+                txn_type="payout_in", order_id=order_id, note="Delivery earnings",
+            )
+        if tip_part > 0:
+            await _credit_wallet_with_txn(
+                driver_user_id, tip_part, "USD",
+                txn_type="tip_in", order_id=order_id,
+                counterparty_user_id=order.get("customer_id"), note="Customer tip",
+            )
+    return {"driver_payout_status": "accumulated"}
+
+
+async def update_order_status(order_id: str, status: str, request: Request):
+    """Update order status — broken into small steps: auth → timestamps → side-effects → notify."""
+    current_user = await get_current_user_from_request(request)
+
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    await _authorize_order_status_change(current_user, order)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update_data: Dict[str, Any] = {"status": status, "updated_at": now_iso}
+
+    ts_field = _status_timestamp_field(status)
+    if ts_field:
+        update_data[ts_field] = now_iso
+
+    if status == "delivered":
+        update_data["actual_delivery_time"] = now_iso
+        update_data.update(await _credit_driver_on_delivery(order, order_id))
+
+    await db.orders.update_one({"id": order_id}, {"$set": update_data})
+
+    notification = json.dumps({
         "type": "order_status_update",
         "order_id": order_id,
         "status": status,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-    
-    # Notify customer
-    await manager.send_personal_message(json.dumps(notification), order["customer_id"])
-    
-    # Notify driver if assigned
+        "timestamp": now_iso,
+    })
+    await manager.send_personal_message(notification, order["customer_id"])
     if order.get("driver_id"):
-        await manager.send_personal_message(json.dumps(notification), order["driver_id"])
-    
+        await manager.send_personal_message(notification, order["driver_id"])
+
     return {"message": f"Order status updated to {status}"}
 
 # Enhanced Order Management Routes
@@ -3354,126 +3357,109 @@ async def submit_customer_rating(rating: CustomerRating, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _kpi_day_window(date: Optional[str]) -> tuple:
+    target_date = datetime.fromisoformat(date) if date else datetime.now(timezone.utc)
+    start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return target_date, start.isoformat(), end.isoformat()
+
+
+def _kpi_delivery_performance(orders: List[dict]) -> tuple:
+    """Returns (delivery_performance_dict, completed_orders, completed_count)."""
+    completed_orders = [o for o in orders if o.get('status') == 'delivered']
+    total_orders = len(orders)
+    completed_count = len(completed_orders)
+
+    delivery_times = []
+    on_time_count = 0
+    for order in completed_orders:
+        if order.get('delivered_at') and order.get('created_at'):
+            created = datetime.fromisoformat(order['created_at'])
+            delivered = datetime.fromisoformat(order['delivered_at'])
+            mins = (delivered - created).total_seconds() / 60
+            delivery_times.append(mins)
+            if mins <= 30:
+                on_time_count += 1
+
+    avg_delivery_time = sum(delivery_times) / len(delivery_times) if delivery_times else 0
+    on_time_rate = (on_time_count / completed_count * 100) if completed_count > 0 else 0
+    completion_rate = (completed_count / total_orders * 100) if total_orders > 0 else 0
+    return ({
+        "avg_delivery_time": round(avg_delivery_time, 2),
+        "on_time_delivery_rate": round(on_time_rate, 2),
+        "total_orders": total_orders,
+        "completed_orders": completed_count,
+        "order_completion_rate": round(completion_rate, 2),
+    }, completed_orders, completed_count)
+
+
+def _kpi_customer_satisfaction(ratings: List[dict]) -> dict:
+    if not ratings:
+        return {"avg_rating": 0, "total_ratings": 0, "delivery_satisfaction": 0}
+    avg_rating = sum(r.get('overall_rating', 0) for r in ratings) / len(ratings)
+    delivery_sat = sum(r.get('delivery_time_satisfaction', 0) for r in ratings) / len(ratings)
+    return {
+        "avg_rating": round(avg_rating, 2),
+        "total_ratings": len(ratings),
+        "delivery_satisfaction": round(delivery_sat, 2),
+    }
+
+
+async def _kpi_driver_performance(driver_ratings: List[dict]) -> dict:
+    active = await db.drivers.count_documents({"status": {"$in": ["online", "busy"]}})
+    total = await db.drivers.count_documents({})
+    avg_rating = (sum(r.get('delivery_rating', 0) for r in driver_ratings) / len(driver_ratings)) if driver_ratings else 0
+    utilization = (active / total * 100) if total > 0 else 0
+    return {
+        "active_drivers": active,
+        "total_drivers": total,
+        "avg_driver_rating": round(avg_rating, 2),
+        "driver_utilization_rate": round(utilization, 2),
+    }
+
+
+def _kpi_financial(completed_orders: List[dict], rental_bookings: List[dict], completed_count: int) -> dict:
+    ESTIMATED_COST_PER_ORDER = 8.50
+    total_revenue = sum(o.get('total', 0) for o in completed_orders)
+    completed_rentals = [r for r in rental_bookings if r.get('status') == 'completed']
+    total_revenue += sum(r.get('total_cost', 0) for r in completed_rentals)
+
+    total_transactions = completed_count + len(completed_rentals)
+    avg_order_value = total_revenue / total_transactions if total_transactions > 0 else 0
+    total_costs = completed_count * ESTIMATED_COST_PER_ORDER
+    profit = total_revenue - total_costs
+    margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
+    return {
+        "total_revenue": round(total_revenue, 2),
+        "avg_order_value": round(avg_order_value, 2),
+        "order_completion_cost": round(ESTIMATED_COST_PER_ORDER, 2),
+        "estimated_profit": round(profit, 2),
+        "profit_margin": round(margin, 2),
+    }
+
+
 @api_router.get("/analytics/kpi-dashboard")
 async def get_kpi_dashboard(date: Optional[str] = None):
-    """Get comprehensive KPI dashboard data"""
+    """Comprehensive KPI dashboard — composed from per-category helpers."""
     try:
-        target_date = datetime.fromisoformat(date) if date else datetime.now(timezone.utc)
-        start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-        
-        # Get orders for the day
-        orders = await db.orders.find({
-            "created_at": {
-                "$gte": start_of_day.isoformat(),
-                "$lte": end_of_day.isoformat()
-            }
-        }).to_list(length=None)
-        
-        # Get rental bookings for the day
-        rental_bookings = await db.rental_bookings.find({
-            "created_at": {
-                "$gte": start_of_day.isoformat(),
-                "$lte": end_of_day.isoformat()
-            }
-        }).to_list(length=None)
-        
-        # Calculate delivery performance KPIs
-        completed_orders = [o for o in orders if o.get('status') == 'delivered']
-        total_orders = len(orders)
-        completed_count = len(completed_orders)
-        
-        # Average delivery time calculation
-        delivery_times = []
-        on_time_count = 0
-        
-        for order in completed_orders:
-            if order.get('delivered_at') and order.get('created_at'):
-                created = datetime.fromisoformat(order['created_at'])
-                delivered = datetime.fromisoformat(order['delivered_at'])
-                delivery_time = (delivered - created).total_seconds() / 60  # minutes
-                delivery_times.append(delivery_time)
-                
-                # Check if on time (assuming 30 min standard)
-                if delivery_time <= 30:
-                    on_time_count += 1
-        
-        avg_delivery_time = sum(delivery_times) / len(delivery_times) if delivery_times else 0
-        on_time_rate = (on_time_count / completed_count * 100) if completed_count > 0 else 0
-        
-        # Customer satisfaction
-        ratings = await db.customer_ratings.find({
-            "created_at": {
-                "$gte": start_of_day.isoformat(),
-                "$lte": end_of_day.isoformat()
-            }
-        }).to_list(length=None)
-        
-        avg_rating = sum(r.get('overall_rating', 0) for r in ratings) / len(ratings) if ratings else 0
-        
-        # Financial metrics
-        total_revenue = sum(o.get('total', 0) for o in completed_orders)
-        
-        # Add rental revenue
-        completed_rentals = [r for r in rental_bookings if r.get('status') == 'completed']
-        rental_revenue = sum(r.get('total_cost', 0) for r in completed_rentals)
-        total_revenue += rental_revenue
-        
-        total_transactions = completed_count + len(completed_rentals)
-        avg_order_value = total_revenue / total_transactions if total_transactions > 0 else 0
-        
-        # Order completion cost (estimated)
-        estimated_cost_per_order = 8.50  # Base cost including driver pay, fuel, operations
-        total_costs = completed_count * estimated_cost_per_order
-        order_completion_cost = estimated_cost_per_order
-        
-        # Driver performance
-        active_drivers = await db.drivers.count_documents({"status": {"$in": ["online", "busy"]}})
-        all_drivers = await db.drivers.count_documents({})
-        
-        # Get driver ratings
-        driver_ratings = await db.customer_ratings.find({
-            "created_at": {
-                "$gte": start_of_day.isoformat(),
-                "$lte": end_of_day.isoformat()
-            }
-        }).to_list(length=None)
-        
-        avg_driver_rating = sum(r.get('delivery_rating', 0) for r in driver_ratings) / len(driver_ratings) if driver_ratings else 0
-        
-        kpi_data = {
+        target_date, start_iso, end_iso = _kpi_day_window(date)
+        day_range = {"$gte": start_iso, "$lte": end_iso}
+
+        orders = await db.orders.find({"created_at": day_range}).to_list(length=None)
+        rental_bookings = await db.rental_bookings.find({"created_at": day_range}).to_list(length=None)
+        ratings = await db.customer_ratings.find({"created_at": day_range}).to_list(length=None)
+
+        delivery_perf, completed_orders, completed_count = _kpi_delivery_performance(orders)
+        return {
             "date": target_date.isoformat(),
-            "delivery_performance": {
-                "avg_delivery_time": round(avg_delivery_time, 2),
-                "on_time_delivery_rate": round(on_time_rate, 2),
-                "total_orders": total_orders,
-                "completed_orders": completed_count,
-                "order_completion_rate": round((completed_count / total_orders * 100) if total_orders > 0 else 0, 2)
-            },
-            "customer_satisfaction": {
-                "avg_rating": round(avg_rating, 2),
-                "total_ratings": len(ratings),
-                "delivery_satisfaction": round(sum(r.get('delivery_time_satisfaction', 0) for r in ratings) / len(ratings) if ratings else 0, 2)
-            },
-            "driver_performance": {
-                "active_drivers": active_drivers,
-                "total_drivers": all_drivers,
-                "avg_driver_rating": round(avg_driver_rating, 2),
-                "driver_utilization_rate": round((active_drivers / all_drivers * 100) if all_drivers > 0 else 0, 2)
-            },
-            "financial_metrics": {
-                "total_revenue": round(total_revenue, 2),
-                "avg_order_value": round(avg_order_value, 2),
-                "order_completion_cost": round(order_completion_cost, 2),
-                "estimated_profit": round(total_revenue - total_costs, 2),
-                "profit_margin": round(((total_revenue - total_costs) / total_revenue * 100) if total_revenue > 0 else 0, 2)
-            }
+            "delivery_performance": delivery_perf,
+            "customer_satisfaction": _kpi_customer_satisfaction(ratings),
+            "driver_performance": await _kpi_driver_performance(ratings),
+            "financial_metrics": _kpi_financial(completed_orders, rental_bookings, completed_count),
         }
-        
-        return kpi_data
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @api_router.get("/analytics/daily-operations/{date}")
 async def get_daily_operations(date: str):

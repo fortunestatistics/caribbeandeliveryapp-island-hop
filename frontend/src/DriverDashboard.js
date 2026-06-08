@@ -3,25 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
-import { Badge } from './components/ui/badge';
 import { 
-  MapPin, 
-  DollarSign, 
-  TrendingUp,
-  Clock,
-  CheckCircle,
-  X,
   Navigation,
-  Eye,
   Wallet,
-  BarChart3,
   Power,
   AlertCircle,
-  Phone,
-  MessageCircle,
   Star
 } from 'lucide-react';
 import axios from 'axios';
+import DriverEarningsCards from './DriverEarningsCards';
+import OrderRequestCard from './OrderRequestCard';
+import ActiveOrderCard from './ActiveOrderCard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -280,71 +272,7 @@ const DriverDashboard = () => {
           )}
 
           {/* Earnings Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Today&apos;s Earnings</p>
-                    <p className="text-3xl font-bold text-gold-500">
-                      ${earnings.today.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="bg-gold-500/15 p-3 rounded-lg">
-                    <DollarSign className="h-6 w-6 text-gold-500" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">This Week</p>
-                    <p className="text-3xl font-bold text-green-600">
-                      ${earnings.week.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="bg-green-100 p-3 rounded-lg">
-                    <TrendingUp className="h-6 w-6 text-green-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Wallet Balance</p>
-                    <p className="text-3xl font-bold text-neon-cyan">
-                      ${earnings.balance.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="bg-neon-cyan/15 p-3 rounded-lg">
-                    <Wallet className="h-6 w-6 text-neon-cyan" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-3xl font-bold text-yellow-600">
-                      ${earnings.pending.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="bg-gold-500/15 p-3 rounded-lg">
-                    <Clock className="h-6 w-6 text-yellow-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <DriverEarningsCards earnings={earnings} />
         </div>
 
         {/* Review-driven driver incentives */}
@@ -377,69 +305,12 @@ const DriverDashboard = () => {
             <CardContent>
               <div className="space-y-4">
                 {orderRequests.map((order) => (
-                  <Card key={order.id} className="bg-gold-500/15">
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold text-lg">
-                              New Order #{order.id?.substring(0, 8)}
-                            </h3>
-                            <Badge className="bg-gold-500/15 text-white">
-                              ${order.driver_earnings?.toFixed(2)} Earnings
-                            </Badge>
-                          </div>
-                          <div className="text-sm text-muted-foreground space-y-1">
-                            <p>
-                              <MapPin className="h-4 w-4 inline mr-1" />
-                              {order.estimated_distance_km?.toFixed(1)} km away
-                            </p>
-                            <p>
-                              <Clock className="h-4 w-4 inline mr-1" />
-                              Est. {order.estimated_duration_min || 30} min delivery
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-gold-500">
-                            ${order.driver_earnings?.toFixed(2)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">You&apos;ll earn</p>
-                        </div>
-                      </div>
-
-                      {/* Pickup & Delivery */}
-                      <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-card rounded-lg">
-                        <div>
-                          <p className="font-medium text-sm mb-1">Pickup:</p>
-                          <p className="text-sm text-muted-foreground">{order.pickup_address?.street_address}</p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm mb-1">Delivery:</p>
-                          <p className="text-sm text-muted-foreground">{order.delivery_address?.street_address}</p>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={() => handleAcceptOrder(order.id)}
-                          className="flex-1 bg-green-600 hover:bg-green-700"
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Accept Order
-                        </Button>
-                        <Button
-                          onClick={() => handleRejectOrder(order.id)}
-                          variant="outline"
-                          className="flex-1"
-                        >
-                          <X className="h-4 w-4 mr-2" />
-                          Decline
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <OrderRequestCard
+                    key={order.id}
+                    order={order}
+                    onAccept={handleAcceptOrder}
+                    onReject={handleRejectOrder}
+                  />
                 ))}
               </div>
             </CardContent>
@@ -468,125 +339,13 @@ const DriverDashboard = () => {
             ) : (
               <div className="space-y-4">
                 {activeOrders.map((order) => (
-                  <Card key={order.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold text-lg">
-                              Order #{order.id?.substring(0, 8)}
-                            </h3>
-                            <Badge className={
-                              order.status === 'picked_up' ? 'bg-blue-500' :
-                              order.status === 'in_transit' ? 'bg-indigo-500' :
-                              'bg-green-500'
-                            }>
-                              {order.status?.toUpperCase()}
-                            </Badge>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            <p>Customer: {order.customer_phone || 'N/A'}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-gold-500">
-                            ${order.driver_earnings?.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Addresses */}
-                      <div className="space-y-2 mb-4 p-4 bg-background rounded-lg">
-                        {order.status === 'ready' && (
-                          <div>
-                            <p className="font-medium text-sm mb-1 flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-red-500" />
-                              Pickup from:
-                            </p>
-                            <p className="text-sm text-muted-foreground ml-6">{order.pickup_address?.street_address}</p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-medium text-sm mb-1 flex items-center gap-2">
-                            <MapPin className="h-4 w-4 text-green-500" />
-                            Deliver to:
-                          </p>
-                          <p className="text-sm text-muted-foreground ml-6">{order.delivery_address?.street_address}</p>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        {order.status === 'ready' && (
-                          <>
-                            <Button
-                              onClick={() => handleNavigate(order.pickup_address)}
-                              variant="outline"
-                              className="flex-1"
-                            >
-                              <Navigation className="h-4 w-4 mr-2" />
-                              Navigate to Pickup
-                            </Button>
-                            <Button
-                              onClick={() => handleUpdateOrderStatus(order.id, 'picked_up')}
-                              className="flex-1 bg-blue-600 hover:bg-blue-700"
-                            >
-                              Mark Picked Up
-                            </Button>
-                          </>
-                        )}
-
-                        {order.status === 'picked_up' && (
-                          <>
-                            <Button
-                              onClick={() => handleNavigate(order.delivery_address)}
-                              variant="outline"
-                              className="flex-1"
-                            >
-                              <Navigation className="h-4 w-4 mr-2" />
-                              Navigate to Customer
-                            </Button>
-                            <Button
-                              onClick={() => handleUpdateOrderStatus(order.id, 'in_transit')}
-                              className="flex-1"
-                            >
-                              Start Delivery
-                            </Button>
-                          </>
-                        )}
-
-                        {order.status === 'in_transit' && (
-                          <Button
-                            onClick={() => handleUpdateOrderStatus(order.id, 'delivered')}
-                            className="flex-1 bg-green-600 hover:bg-green-700"
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Mark Delivered
-                          </Button>
-                        )}
-
-                        <Button
-                          onClick={() => navigate(`/order-tracking/${order.id}`)}
-                          variant="outline"
-                          size="sm"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {/* Contact */}
-                      <div className="flex gap-2 mt-4 pt-4 border-t">
-                        <Button variant="outline" size="sm" className="flex-1">
-                          <Phone className="h-4 w-4 mr-2" />
-                          Call Customer
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1">
-                          <MessageCircle className="h-4 w-4 mr-2" />
-                          Message
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <ActiveOrderCard
+                    key={order.id}
+                    order={order}
+                    onNavigate={handleNavigate}
+                    onUpdateStatus={handleUpdateOrderStatus}
+                    onView={(id) => navigate(`/order-tracking/${id}`)}
+                  />
                 ))}
               </div>
             )}

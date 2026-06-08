@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
+import AdminStatsCards from './AdminStatsCards';
+
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -276,79 +278,7 @@ const AdminPanel = () => {
           </div>
 
           {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Users</p>
-                    <p className="text-2xl font-bold">{stats.total_users}</p>
-                  </div>
-                  <Users className="h-8 w-8 text-neon-cyan" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Orders</p>
-                    <p className="text-2xl font-bold">{stats.total_orders}</p>
-                  </div>
-                  <Package className="h-8 w-8 text-purple-600" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Revenue</p>
-                    <p className="text-2xl font-bold">${stats.total_revenue?.toFixed(0)}</p>
-                  </div>
-                  <DollarSign className="h-8 w-8 text-green-600" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Active Drivers</p>
-                    <p className="text-2xl font-bold">{stats.active_drivers}</p>
-                  </div>
-                  <Truck className="h-8 w-8 text-indigo-600" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Active Vendors</p>
-                    <p className="text-2xl font-bold">{stats.active_vendors}</p>
-                  </div>
-                  <ShoppingCart className="h-8 w-8 text-gold-500" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-2xl font-bold">{stats.pending_verifications}</p>
-                  </div>
-                  <AlertCircle className="h-8 w-8 text-yellow-600" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <AdminStatsCards stats={stats} />
         </div>
 
         {/* Tabs */}
