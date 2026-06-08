@@ -11,14 +11,13 @@ provisioned.
 Surface:
   send_sms(to: str, body: str) -> dict
   send_whatsapp(to: str, body: str) -> dict
-  generate_otp() -> str    # 6-digit numeric code
+  generate_otp() -> str    # 6-digit numeric code (cryptographically secure)
 """
 from __future__ import annotations
 
 import os
-import random
+import secrets
 import uuid
-from typing import Optional
 
 
 def _mock_enabled() -> bool:
@@ -26,8 +25,9 @@ def _mock_enabled() -> bool:
 
 
 def generate_otp(length: int = 6) -> str:
-    """Generate a numeric OTP of the requested length."""
-    return "".join(str(random.randint(0, 9)) for _ in range(length))
+    """Generate a cryptographically secure numeric OTP of the requested length."""
+    # `secrets` is the recommended module for security-sensitive randomness (PEP 506).
+    return "".join(str(secrets.randbelow(10)) for _ in range(length))
 
 
 def _mock_send(channel: str, to: str, body: str) -> dict:
