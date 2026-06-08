@@ -622,7 +622,7 @@ const DriverOnboarding = () => {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
-                      <div>Driver's License: {formData.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Driver&apos;s License: {formData.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Vehicle Registration: {formData.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Insurance: {formData.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Profile Photo: {formData.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>

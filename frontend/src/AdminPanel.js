@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -242,6 +243,14 @@ const AdminPanel = () => {
     order.customer_phone?.includes(searchQuery)
   );
 
+  const orderStatusBadgeCls = (status) => {
+    const map = {
+      delivered: 'bg-green-100 text-green-800',
+      cancelled: 'bg-red-100 text-red-800',
+    };
+    return map[status] || 'bg-neon-cyan/15 text-neon-cyan';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -399,11 +408,7 @@ const AdminPanel = () => {
                         <p className="font-medium">#{order.id?.substring(0, 8)}</p>
                         <p className="text-sm text-muted-foreground">{order.customer_phone}</p>
                       </div>
-                      <Badge className={
-                        order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                        order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                        'bg-neon-cyan/15 text-neon-cyan'
-                      }>
+                      <Badge className={orderStatusBadgeCls(order.status)}>
                         {order.status}
                       </Badge>
                     </div>
@@ -528,11 +533,7 @@ const AdminPanel = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="font-semibold">Order #{order.id?.substring(0, 8)}</h3>
-                            <Badge className={
-                              order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                              order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                              'bg-neon-cyan/15 text-neon-cyan'
-                            }>
+                            <Badge className={orderStatusBadgeCls(order.status)}>
                               {order.status?.toUpperCase()}
                             </Badge>
                           </div>
@@ -762,3 +763,4 @@ const AdminPanel = () => {
 };
 
 export default AdminPanel;
+

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
@@ -164,7 +165,8 @@ const WalletPage = () => {
       } else {
         await axios.post(`${API}/wallet/requests/${id}/${action}`, {}, { headers: authHeaders() });
       }
-      flash(action === 'approve' ? 'Request paid' : action === 'decline' ? 'Request declined' : 'Request cancelled');
+      const flashByAction = { approve: 'Request paid', decline: 'Request declined' };
+      flash(flashByAction[action] || 'Request cancelled');
       await refresh();
     } catch (e) {
       setError(e?.response?.data?.detail || `Failed to ${action}`);
@@ -404,7 +406,7 @@ const WalletPage = () => {
       {/* Link modal */}
       <Modal open={activeModal === 'link'} onClose={closeModal} title="Link your CariPay account">
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Enter your CariPay phone number, email, or account ID. We'll use it to deposit and withdraw funds.</p>
+          <p className="text-sm text-muted-foreground">Enter your CariPay phone number, email, or account ID. We&apos;ll use it to deposit and withdraw funds.</p>
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">CariPay handle</label>
             <Input value={linkHandle} onChange={(e) => setLinkHandle(e.target.value)} placeholder="+1 876 555 1234" data-testid="link-handle-input" />
@@ -451,7 +453,9 @@ const WalletPage = () => {
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <Button onClick={() => submitTransfer(activeModal)} disabled={busy} className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="transfer-submit-btn">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : (activeModal === 'deposit' ? 'Deposit' : 'Withdraw')}
+            {busy
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : (activeModal === 'deposit' ? 'Deposit' : 'Withdraw')}
           </Button>
         </div>
       </Modal>

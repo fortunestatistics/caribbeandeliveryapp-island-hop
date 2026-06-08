@@ -384,7 +384,7 @@ const RestaurantOnboarding = () => {
                 <div className="text-center mb-6">
                   <Clock className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
                   <h3 className="text-2xl font-bold text-foreground mb-2">Operating Hours</h3>
-                  <p className="text-muted-foreground">Set your restaurant's operating hours</p>
+                  <p className="text-muted-foreground">Set your restaurant&apos;s operating hours</p>
                 </div>
 
                 <div className="space-y-4">

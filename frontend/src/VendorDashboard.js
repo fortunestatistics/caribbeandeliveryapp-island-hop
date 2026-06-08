@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/immutability */
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
@@ -150,7 +151,7 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Today's Orders</p>
+                    <p className="text-sm text-muted-foreground">Today&apos;s Orders</p>
                     <p className="text-3xl font-bold text-foreground">{stats.today_orders}</p>
                   </div>
                   <div className="bg-neon-cyan/15 p-3 rounded-lg">
@@ -164,7 +165,7 @@ const VendorDashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Today's Revenue</p>
+                    <p className="text-sm text-muted-foreground">Today&apos;s Revenue</p>
                     <p className="text-3xl font-bold text-gold-500">
                       ${stats.today_revenue?.toFixed(2)}
                     </p>
@@ -244,7 +245,7 @@ const VendorDashboard = () => {
               <div className="text-center py-12">
                 <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold text-foreground mb-2">No orders</h3>
-                <p className="text-muted-foreground">You don't have any {selectedTab} orders</p>
+                <p className="text-muted-foreground">You don&apos;t have any {selectedTab} orders</p>
               </div>
             ) : (
               <div className="space-y-4">

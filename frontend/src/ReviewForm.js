@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/immutability */
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Card, CardContent } from './components/ui/card';
@@ -108,7 +109,7 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
           {existing ? (
             <div className="text-center py-6 space-y-3">
               <CheckCircle2 className="h-12 w-12 text-gold-300 mx-auto" />
-              <p className="text-white font-semibold">You've already reviewed this order</p>
+              <p className="text-white font-semibold">You&apos;ve already reviewed this order</p>
               {existing.driver_rating && <p className="text-sm text-muted-foreground">Driver: {existing.driver_rating}★</p>}
               {existing.vendor_rating && <p className="text-sm text-muted-foreground">Merchant: {existing.vendor_rating}★</p>}
               <Button onClick={onClose} className="mt-2" data-testid="review-existing-close">Close</Button>

@@ -291,7 +291,7 @@ const SubscriptionPlans = () => {
         {/* FAQ/Additional Info */}
         <Card className="max-w-4xl mx-auto">
           <CardHeader>
-            <CardTitle className="text-center">What's Included in All Plans?</CardTitle>
+            <CardTitle className="text-center">What&apos;s Included in All Plans?</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -66,7 +66,7 @@ const OTPVerification = ({ phone, purpose = 'signup', onVerified, onCancel }) =>
           Verify Your Phone
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          We'll send a 6-digit code to <span className="text-foreground font-mono">{phone}</span>
+          We&apos;ll send a 6-digit code to <span className="text-foreground font-mono">{phone}</span>
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
