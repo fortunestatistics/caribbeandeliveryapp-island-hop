@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import OrderChat from './OrderChat';
+import { useAuth } from './AuthContext';
 import { 
   Package, 
   DollarSign, 
@@ -15,7 +17,8 @@ import {
   AlertCircle,
   Settings,
   BarChart3,
-  Users
+  Users,
+  MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -24,6 +27,8 @@ const API = `${BACKEND_URL}/api`;
 
 const VendorDashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [chatOpenFor, setChatOpenFor] = useState(null);
   const [orders, setOrders] = useState([]);
   const [stats, setStats] = useState({
     today_orders: 0,
@@ -350,6 +355,14 @@ const VendorDashboard = () => {
                         )}
 
                         <Button
+                          onClick={() => setChatOpenFor((cur) => cur === order.id ? null : order.id)}
+                          variant={chatOpenFor === order.id ? 'default' : 'outline'}
+                          size="sm"
+                          data-testid={`vendor-chat-${order.id}`}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                        </Button>
+                        <Button
                           onClick={() => navigate(`/order-tracking/${order.id}`)}
                           variant="outline"
                           size="sm"
@@ -357,6 +370,16 @@ const VendorDashboard = () => {
                           <Eye className="h-4 w-4" />
                         </Button>
                       </div>
+
+                      {chatOpenFor === order.id && (
+                        <div className="mt-4" data-testid={`vendor-chat-wrapper-${order.id}`}>
+                          <OrderChat
+                            orderId={order.id}
+                            currentUserId={user?.id}
+                            title="Customer & driver"
+                          />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}

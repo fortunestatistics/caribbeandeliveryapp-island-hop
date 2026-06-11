@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import ReviewForm from './ReviewForm';
+import OrderChat from './OrderChat';
+import { useAuth } from './AuthContext';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -32,6 +34,7 @@ const mapContainerStyle = {
 const OrderTrackingPageWithMaps = () => {
   const navigate = useNavigate();
   const { orderId } = useParams();
+  const { user } = useAuth();
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
   const mapRef = useRef(null);
@@ -73,12 +76,15 @@ const OrderTrackingPageWithMaps = () => {
   useEffect(() => {
     const fetchOrder = async () => {
       try {
+        const token = (() => { try { return localStorage.getItem('token'); } catch (_e) { return null; } })();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await axios.get(`${API}/orders/${orderId}`, {
-          withCredentials: true
+          headers,
+          withCredentials: true,
         });
         setOrder(response.data);
         setLoading(false);
-        
+
         // If order is delivered, show rating modal
         if (response.data.status === 'delivered') {
           const hasRated = await checkIfRated();
@@ -320,7 +326,7 @@ const OrderTrackingPageWithMaps = () => {
                           lng: driverLocation.location.lng
                         }}
                         icon={{
-                          url: 'data:image/svg+xml;base64,' + btoa(`
+                          url: 'data:image/svg+xml;utf8,' + encodeURIComponent(`
                             <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
                               <circle cx="20" cy="20" r="15" fill="#0EA5E9" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">🚗</text>
@@ -340,7 +346,7 @@ const OrderTrackingPageWithMaps = () => {
                           lng: order.delivery_address.longitude
                         }}
                         icon={{
-                          url: 'data:image/svg+xml;base64,' + btoa(`
+                          url: 'data:image/svg+xml;utf8,' + encodeURIComponent(`
                             <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
                               <circle cx="20" cy="20" r="15" fill="#10B981" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">📍</text>
@@ -458,43 +464,7 @@ const OrderTrackingPageWithMaps = () => {
             </Card>
 
             {/* Chat */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MessageCircle className="h-5 w-5" />
-                  Chat with Driver
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 overflow-y-auto mb-4 space-y-2">
-                  {messages.map((msg, index) => (
-                    <div
-                      key={msg.id || `msg-${msg.timestamp}-${index}`}
-                      className={`p-3 rounded-lg ${
-                        msg.sender_type === 'customer'
-                          ? 'bg-gold-500/15 ml-auto max-w-[80%]'
-                          : 'bg-matte-800 mr-auto max-w-[80%]'
-                      }`}
-                    >
-                      <p className="text-sm">{msg.message}</p>
-                    </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </div>
-                
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Type a message..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                  />
-                  <Button onClick={sendMessage}>
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <OrderChat orderId={orderId} currentUserId={user?.id} title="Chat with driver & merchant" />
           </div>
         </div>
 

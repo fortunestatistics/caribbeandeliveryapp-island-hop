@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { MapPin, CheckCircle, Navigation, Eye, Phone, MessageCircle } from 'lucide-react';
+import { MapPin, CheckCircle, Navigation, Eye, Phone, MessageCircle, X } from 'lucide-react';
+import OrderChat from './OrderChat';
+import { useAuth } from './AuthContext';
 
 const STATUS_BADGE_MAP = {
   picked_up: 'bg-blue-500',
@@ -10,11 +12,13 @@ const STATUS_BADGE_MAP = {
 };
 
 /**
- * Single active-delivery card with status-driven action buttons.
+ * Single active-delivery card with status-driven action buttons + inline chat toggle.
  * Props: { order, onNavigate(address), onUpdateStatus(orderId, status), onView(orderId) }
  */
 const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView }) => {
   const badgeCls = STATUS_BADGE_MAP[order.status] || 'bg-green-500';
+  const { user } = useAuth();
+  const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`active-order-${order.id}`}>
@@ -113,11 +117,27 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView }) => {
             <Phone className="h-4 w-4 mr-2" />
             Call Customer
           </Button>
-          <Button variant="outline" size="sm" className="flex-1">
-            <MessageCircle className="h-4 w-4 mr-2" />
-            Message
+          <Button
+            variant={chatOpen ? 'default' : 'outline'}
+            size="sm"
+            className="flex-1"
+            onClick={() => setChatOpen((v) => !v)}
+            data-testid={`toggle-chat-${order.id}`}
+          >
+            {chatOpen ? <X className="h-4 w-4 mr-2" /> : <MessageCircle className="h-4 w-4 mr-2" />}
+            {chatOpen ? 'Close chat' : 'Message'}
           </Button>
         </div>
+
+        {chatOpen && (
+          <div className="mt-4" data-testid={`order-chat-wrapper-${order.id}`}>
+            <OrderChat
+              orderId={order.id}
+              currentUserId={user?.id}
+              title="Customer & merchant"
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   );

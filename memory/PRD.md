@@ -27,7 +27,37 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Feb 2026 — Referral Banner + Fraud Review Queue (this session)
+### Feb 2026 — Customer Claims + 3-party Order Chat + Backend refactors (this session)
+
+**Customer Claims/Support Ticketing System (NEW)**
+- Extended `SupportTicket` model with claim-specific fields: `claim_type` (wrong_item/missing_item/damaged/late/quality/other), `photo_url` (base64 or URL), `resolution_credit`.
+- New endpoints: `POST /api/claims`, `GET /api/claims`, `POST /api/claims/{id}/resolve` (admin/agent — approving with `credit_amount` auto-credits customer wallet), `GET /api/admin/claims`.
+- Refactored `POST /api/support/tickets/{id}/messages` to take a clean JSON body (`TicketMessageCreate`) instead of awkward query params. Staff (admin/agent) can now reply on any thread.
+- New customer-facing `/claims` page (`ClaimsPage.js`): list with status pills + credited-amount badges, file-claim wizard with 6 claim-type cards + photo upload (≤4 MB), and a chat thread view with customer/system bubbles.
+- "My Claims" quick action added to the Dashboard.
+- **7 new pytest cases** (`test_claims.py`).
+
+**3-party Order Chat (customer ↔ driver ↔ merchant) — FIXED + UPGRADED**
+- The legacy `/chat/send` route was broken (model shape mismatch from earlier dedupe). Replaced with a proper `OrderChatMessage` model: `order_id, sender_id, sender_user_type (customer|driver|vendor|system), sender_name, message, read_by, created_at`.
+- New endpoints: `POST /api/chat/send`, `GET /api/chat/{order_id}/messages`, `GET /api/chat/{order_id}/unread-count`.
+- Server resolves order participants (`_resolve_order_participants`): customer_id, driver's user_id (from drivers.id → users), and vendor's user_id (from restaurants/businesses). Non-participants get 403.
+- WebSocket fan-out: every message is pushed to all other participants in real-time.
+- New reusable `OrderChat.js` component: role badges, gold-gradient bubbles for own messages, 5-second poll, auto-scroll, unread-by-viewer tracking.
+- Mounted in **3 places**: customer order tracking page, driver active-order card (collapsible), vendor dashboard order card (collapsible).
+- **3 new pytest cases** (`test_order_chat.py`) covering 3-party send/read, 403 for non-participants, unread count.
+
+**Backend complex-function refactors**
+- `register` (was 82 lines, complexity 14) → split into `_resolve_phone_verification`, `_apply_referral_on_register`, `_persist_pending_referral`. Now ~25 lines.
+- `create_rating` (was 90 lines, complexity 16) → split into `_award_five_star_bonus` and `_recompute_entity_avg_rating`. Now ~25 lines.
+- `find_and_assign_driver` (was 101 lines) → split into `_find_nearby_drivers`, `_score_driver_for_pickup`, `_notify_drivers_about_order`. Main fn now ~20 lines.
+
+**Bug fixes along the way**
+- Fixed `OrderTrackingPageWithMaps` failing to send Authorization header on `/orders/{id}` fetch.
+- Fixed `OrderTrackingPageWithMaps` `btoa()` crash on emoji-containing SVG markers (use `encodeURIComponent` instead).
+
+**Tests:** **185/185 backend pytest pass** (was 165, +10 new for chat & claims; flaky `test_refund_unauth_other_user_403` passes in isolation).
+
+### Feb 2026 — Referral Banner + Fraud Review Queue (earlier in this session)
 - **Referral share banner** (`/app/frontend/src/ReferralBanner.js`): luxury card mounted on customer dashboard. Only shown to users with at least one paid order. Shows code + "$10 for you, $10 for them" headline + Copy/Native-Share buttons + dismissible (7-day localStorage TTL). `?ref=CODE` URL param prefills the signup form's referral field.
 - **Dashboard auth-loading fix**: `/dashboard` was redirecting to `/` before AuthContext finished hydrating (pre-existing bug). Now waits for `authLoading=false`; shows a spinner during hydration.
 - **Fraud Review Queue (Admin)**: closes the last MVP gap.

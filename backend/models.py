@@ -649,6 +649,23 @@ class ChatMessage(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# Per-order multi-party chat (customer ↔ driver ↔ merchant)
+class OrderChatMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    sender_id: str
+    sender_user_type: str  # customer | driver | vendor | system
+    sender_name: Optional[str] = None
+    message: str
+    read_by: List[str] = []  # user ids that have read this message
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class OrderChatMessageCreate(BaseModel):
+    order_id: str
+    message: str
+
+
 class ChatMessageCreate(BaseModel):
     order_id: str
     sender_type: str

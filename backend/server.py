@@ -126,6 +126,7 @@ from models import (
     BusinessCategory, BusinessOnboarding,
     PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
+    OrderChatMessage, OrderChatMessageCreate,
     CustomerRating,
     FraudFlag, FraudReviewAction,
     TicketMessageCreate, ResolveClaimRequest,
@@ -1990,60 +1991,121 @@ async def get_user_order_history(
     
     return [Order(**order) for order in orders]
 
-# Chat/Messaging Routes
-@api_router.post("/chat/send", response_model=ChatMessage)
-async def send_message(
-    message_data: ChatMessageCreate,
-    current_user: User = Depends(get_current_user)
-):
-    """Send message in order chat"""
-    # Verify user is part of this order
-    order = await db.orders.find_one({"id": message_data.order_id})
+# Chat/Messaging Routes — 3-party (customer ↔ driver ↔ merchant) order chat
+async def _resolve_order_participants(order: dict) -> dict:
+    """Return {customer_id, driver_id, vendor_user_id} for an order."""
+    customer_id = order.get("customer_id")
+    driver_id_doc = order.get("driver_id")  # this is drivers.id, not user_id
+    driver_user_id = None
+    if driver_id_doc:
+        d = await db.drivers.find_one({"id": driver_id_doc}, {"_id": 0, "user_id": 1})
+        driver_user_id = (d or {}).get("user_id")
+
+    # Vendor user_id: restaurant or business owner
+    vendor_user_id = None
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    if vendor_id:
+        rest = await db.restaurants.find_one({"id": vendor_id}, {"_id": 0, "user_id": 1})
+        if rest:
+            vendor_user_id = rest.get("user_id")
+        else:
+            biz = await db.businesses.find_one({"id": vendor_id}, {"_id": 0, "user_id": 1})
+            if biz:
+                vendor_user_id = biz.get("user_id")
+
+    return {
+        "customer_id": customer_id,
+        "driver_user_id": driver_user_id,
+        "vendor_user_id": vendor_user_id,
+    }
+
+
+def _role_for_user(user: User, participants: dict) -> Optional[str]:
+    """Determine which order role the user holds. Admin/agent are observers (return 'system')."""
+    if user.id == participants["customer_id"]:
+        return "customer"
+    if user.id == participants["driver_user_id"]:
+        return "driver"
+    if user.id == participants["vendor_user_id"]:
+        return "vendor"
+    if user.user_type in ("admin", "agent"):
+        return "system"
+    return None
+
+
+@api_router.post("/chat/send", response_model=OrderChatMessage)
+async def send_order_chat_message(payload: OrderChatMessageCreate, request: Request):
+    """Send a message into the per-order chat thread. Authorized for customer, driver, merchant of the order."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": payload.order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    message = ChatMessage(
-        **message_data.dict(),
-        sender_id=current_user.id
-    )
-    
-    message_dict = prepare_for_mongo(message.dict())
-    await db.chat_messages.insert_one(message_dict)
-    
-    # Notify recipient via WebSocket
-    recipient_id = None
-    if message_data.sender_type == "customer":
-        recipient_id = order.get('driver_id')
-    else:
-        recipient_id = order['customer_id']
-    
-    if recipient_id:
-        await manager.send_personal_message(
-            json.dumps({
-                "type": "new_message",
-                "message": message.dict()
-            }),
-            recipient_id
-        )
-    
-    return message
 
-@api_router.get("/chat/{order_id}/messages", response_model=List[ChatMessage])
-async def get_chat_messages(
-    order_id: str,
-    current_user: User = Depends(get_current_user)
-):
-    """Get all messages for an order"""
-    # Verify user is part of this order
+    participants = await _resolve_order_participants(order)
+    role = _role_for_user(current_user, participants)
+    if not role:
+        raise HTTPException(status_code=403, detail="Not a participant of this order")
+
+    msg = OrderChatMessage(
+        order_id=payload.order_id,
+        sender_id=current_user.id,
+        sender_user_type=role,
+        sender_name=current_user.name,
+        message=payload.message,
+        read_by=[current_user.id],
+    )
+    await db.order_chat_messages.insert_one(prepare_for_mongo(msg.dict()))
+
+    # Fan out to all other participants
+    payload_json = json.dumps({"type": "order_chat", "message": msg.dict(), "order_id": payload.order_id}, default=str)
+    for uid in [participants["customer_id"], participants["driver_user_id"], participants["vendor_user_id"]]:
+        if uid and uid != current_user.id:
+            await manager.send_personal_message(payload_json, uid)
+
+    return msg
+
+
+@api_router.get("/chat/{order_id}/messages", response_model=List[OrderChatMessage])
+async def get_order_chat_messages(order_id: str, request: Request):
+    """Get all messages for an order. Authorized for customer, driver, merchant, or admin/agent."""
+    current_user = await get_current_user_from_request(request)
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    messages = await db.chat_messages.find(
-        {"order_id": order_id}
-    ).sort("timestamp", 1).to_list(length=None)
-    
-    return [ChatMessage(**msg) for msg in messages]
+
+    participants = await _resolve_order_participants(order)
+    role = _role_for_user(current_user, participants)
+    if not role:
+        raise HTTPException(status_code=403, detail="Not a participant of this order")
+
+    messages = await db.order_chat_messages.find(
+        {"order_id": order_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(length=None)
+    # Mark unread messages as read by the current viewer (idempotent)
+    await db.order_chat_messages.update_many(
+        {"order_id": order_id, "read_by": {"$ne": current_user.id}},
+        {"$addToSet": {"read_by": current_user.id}},
+    )
+    return messages
+
+
+@api_router.get("/chat/{order_id}/unread-count")
+async def order_chat_unread_count(order_id: str, request: Request):
+    """How many messages in this order's thread the current user hasn't read yet."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    participants = await _resolve_order_participants(order)
+    role = _role_for_user(current_user, participants)
+    if not role:
+        raise HTTPException(status_code=403, detail="Not a participant of this order")
+    count = await db.order_chat_messages.count_documents({
+        "order_id": order_id,
+        "read_by": {"$ne": current_user.id},
+    })
+    return {"order_id": order_id, "unread": count}
+
 
 # Subscription & Payment Routes
 @api_router.get("/subscriptions/plans", response_model=List[SubscriptionPlan])
