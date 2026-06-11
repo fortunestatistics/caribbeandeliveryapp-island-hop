@@ -10,6 +10,15 @@ const API = `${BACKEND_URL}/api`;
 const DISMISS_KEY = 'referralBannerDismissedAt';
 const DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// localStorage can throw in private browsing on some Safari/iOS configurations.
+// We swallow the error intentionally (banner is non-critical) but log to the dev
+// console so issues are still discoverable during local testing.
+const logStorageWarn = (op, err) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(`ReferralBanner: localStorage ${op} failed —`, err?.message || err);
+  }
+};
+
 const ReferralBanner = () => {
   const [referralCode, setReferralCode] = useState(null);
   const [hasPaidOrder, setHasPaidOrder] = useState(false);
@@ -24,10 +33,10 @@ const ReferralBanner = () => {
         setDismissed(true);
         return;
       }
-    } catch (_e) { /* localStorage unavailable */ }
+    } catch (err) { logStorageWarn('read dismiss', err); }
 
     const token = (() => {
-      try { return localStorage.getItem('token'); } catch (_e) { return null; }
+      try { return localStorage.getItem('token'); } catch (err) { logStorageWarn('read token', err); return null; }
     })();
     if (!token) return;
 
@@ -91,7 +100,7 @@ const ReferralBanner = () => {
 
   const handleDismiss = () => {
     setDismissed(true);
-    try { localStorage.setItem(DISMISS_KEY, Date.now().toString()); } catch (_e) { /* localStorage unavailable */ }
+    try { localStorage.setItem(DISMISS_KEY, Date.now().toString()); } catch (err) { logStorageWarn('write dismiss', err); }
   };
 
   return (

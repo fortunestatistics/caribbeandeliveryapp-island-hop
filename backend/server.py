@@ -1644,47 +1644,62 @@ VELOCITY_WINDOW_MINUTES = 30
 VELOCITY_ORDER_COUNT = 5  # orders within window
 NEW_ACCOUNT_HOURS = 24
 
-async def _evaluate_fraud_signals(order_dict: dict, customer: dict) -> List[str]:
-    """Return list of fraud signal codes for an order. Heuristic, deterministic."""
-    signals: List[str] = []
-    now = datetime.now(timezone.utc)
-
-    total = float(order_dict.get("total", 0) or 0)
-    if total >= HIGH_VALUE_ORDER_THRESHOLD:
-        signals.append("high_value")
-
-    # New account + non-trivial order
-    created_at_raw = customer.get("created_at")
+def _parse_account_created(customer: dict) -> Optional[datetime]:
+    """Best-effort parse of `users.created_at` into a tz-aware datetime."""
+    raw = customer.get("created_at")
     try:
-        if isinstance(created_at_raw, str):
-            acct_created = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
-        elif isinstance(created_at_raw, datetime):
-            acct_created = created_at_raw
+        if isinstance(raw, str):
+            dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        elif isinstance(raw, datetime):
+            dt = raw
         else:
-            acct_created = None
-        if acct_created is not None:
-            if acct_created.tzinfo is None:
-                acct_created = acct_created.replace(tzinfo=timezone.utc)
-            age_hours = (now - acct_created).total_seconds() / 3600.0
-            if age_hours < NEW_ACCOUNT_HOURS and total >= 100.0:
-                signals.append("new_account_high_value")
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, TypeError):
-        pass
+        return None
 
-    # Velocity: many orders in short window
-    window_start = (now - timedelta(minutes=VELOCITY_WINDOW_MINUTES)).isoformat()
-    recent_count = await db.orders.count_documents({
-        "customer_id": customer.get("id"),
+
+def _signal_high_value(total: float) -> Optional[str]:
+    return "high_value" if total >= HIGH_VALUE_ORDER_THRESHOLD else None
+
+
+def _signal_new_account_high_value(total: float, account_created: Optional[datetime]) -> Optional[str]:
+    if account_created is None or total < 100.0:
+        return None
+    age_hours = (datetime.now(timezone.utc) - account_created).total_seconds() / 3600.0
+    return "new_account_high_value" if age_hours < NEW_ACCOUNT_HOURS else None
+
+
+async def _signal_velocity(customer_id: Optional[str]) -> Optional[str]:
+    if not customer_id:
+        return None
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=VELOCITY_WINDOW_MINUTES)).isoformat()
+    recent = await db.orders.count_documents({
+        "customer_id": customer_id,
         "created_at": {"$gte": window_start},
     })
-    if recent_count >= VELOCITY_ORDER_COUNT:
-        signals.append("velocity")
+    return "velocity" if recent >= VELOCITY_ORDER_COUNT else None
 
-    # Phone not verified — light signal
-    if not customer.get("phone_verified", False) and total >= 100.0:
-        signals.append("unverified_phone")
 
-    return signals
+def _signal_unverified_phone(customer: dict, total: float) -> Optional[str]:
+    if customer.get("phone_verified", False):
+        return None
+    return "unverified_phone" if total >= 100.0 else None
+
+
+async def _evaluate_fraud_signals(order_dict: dict, customer: dict) -> List[str]:
+    """Return list of fraud signal codes for an order. Heuristic, deterministic."""
+    total = float(order_dict.get("total", 0) or 0)
+    account_created = _parse_account_created(customer)
+    signals = [
+        _signal_high_value(total),
+        _signal_new_account_high_value(total, account_created),
+        await _signal_velocity(customer.get("id")),
+        _signal_unverified_phone(customer, total),
+    ]
+    return [s for s in signals if s]
 
 
 def _signals_to_severity(signals: List[str]) -> str:
@@ -2226,6 +2241,40 @@ async def list_substitutions(order_id: str, request: Request):
     return rows
 
 
+def _apply_substitution_to_items(items: List[dict], original_name: str, proposed_name: Optional[str]) -> List[dict]:
+    """Return a new items list with the named item swapped or marked removed."""
+    updated = list(items)
+    for it in updated:
+        if it.get("name") == original_name:
+            if proposed_name:
+                it["name"] = proposed_name
+                it["substituted_from"] = original_name
+            else:
+                it["quantity"] = 0
+                it["removed_unavailable"] = True
+            break
+    return updated
+
+
+async def _apply_accepted_substitution(order: dict, prop: dict) -> None:
+    """Mutate an order in Mongo to reflect an accepted substitution."""
+    delta = float(prop.get("price_delta") or 0.0)
+    new_items = _apply_substitution_to_items(
+        order.get("items") or [], prop["original_item_name"], prop.get("proposed_item_name")
+    )
+    new_subtotal = max(0.0, float(order.get("subtotal", 0) or 0) + delta)
+    new_total = max(0.0, float(order.get("total", 0) or 0) + delta)
+    await db.orders.update_one(
+        {"id": order["id"]},
+        {"$set": {
+            "items": new_items,
+            "subtotal": round(new_subtotal, 2),
+            "total": round(new_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+
 @api_router.post("/orders/{order_id}/substitutions/{prop_id}/respond")
 async def respond_substitution(order_id: str, prop_id: str, request: Request, accept: bool):
     """Customer accepts or declines a substitution. accept=true applies the swap & price delta."""
@@ -2253,31 +2302,8 @@ async def respond_substitution(order_id: str, prop_id: str, request: Request, ac
         }},
     )
 
-    # If accepted, mutate the order items + price delta
     if accept:
-        items = list(order.get("items") or [])
-        for it in items:
-            if it.get("name") == prop["original_item_name"]:
-                if prop.get("proposed_item_name"):
-                    it["name"] = prop["proposed_item_name"]
-                    it["substituted_from"] = prop["original_item_name"]
-                else:
-                    it["quantity"] = 0
-                    it["removed_unavailable"] = True
-                break
-        new_subtotal = float(order.get("subtotal", 0) or 0) + float(prop.get("price_delta") or 0.0)
-        # Total recomputation (preserve existing fees/discount)
-        delta = float(prop.get("price_delta") or 0.0)
-        new_total = float(order.get("total", 0) or 0) + delta
-        await db.orders.update_one(
-            {"id": order_id},
-            {"$set": {
-                "items": items,
-                "subtotal": round(max(0.0, new_subtotal), 2),
-                "total": round(max(0.0, new_total), 2),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }},
-        )
+        await _apply_accepted_substitution(order, prop)
 
     body = (
         f"✅ Customer accepted the substitution for **{prop['original_item_name']}**."

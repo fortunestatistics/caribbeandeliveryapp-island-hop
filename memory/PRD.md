@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Feb 2026 — Code-review safe batch #2 (this session)
+- **Refactored `respond_substitution`** (complexity 16, 58 lines): extracted `_apply_substitution_to_items` and `_apply_accepted_substitution`. Main handler is now ~25 lines.
+- **Refactored `_evaluate_fraud_signals`** (complexity 13): split into 4 single-purpose helpers (`_signal_high_value`, `_signal_new_account_high_value`, `_signal_velocity`, `_signal_unverified_phone`) + `_parse_account_created`. Main function reduced to a 5-line list comprehension.
+- **`ReferralBanner.js` "empty" catches** (lines 27, 94): added `logStorageWarn(op, err)` that emits `console.warn` in development only.
+- **Verified report's other items as false positives on current code**: 0 `console.log/.warn/.info/.debug` in source (review claimed 85), 0 real `is "literal"` violations (3 grep hits are inside comments), 0 undefined variables (pyflakes clean).
+- **All 181 backend pytest cases still pass.**
+
 ### Feb 2026 — Customer Claims + 3-party Order Chat + Backend refactors (this session)
 
 **Customer Claims/Support Ticketing System (NEW)**
