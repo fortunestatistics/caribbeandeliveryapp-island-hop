@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect, react-hooks/immutability */
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -23,7 +22,6 @@ const ReferralPage = () => {
       return;
     }
     fetchReferrals();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchReferrals = async () => {

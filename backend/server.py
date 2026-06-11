@@ -1210,6 +1210,45 @@ async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user"""
     return current_user
 
+
+@api_router.get("/auth/me/modes")
+async def get_my_modes(current_user: User = Depends(get_current_user)):
+    """Return which app 'modes' this user can access.
+
+    Customer is always available. Driver requires an approved/active driver row.
+    Merchant requires an approved restaurant OR car-rental OR business record.
+    Admin is granted by user_type == 'admin'.
+    """
+    driver_row = await db.drivers.find_one(
+        {"user_id": current_user.id, "status": {"$in": ["active", "online", "busy"]}},
+        {"_id": 0, "id": 1, "status": 1},
+    )
+    restaurant_row = await db.restaurants.find_one(
+        {"user_id": current_user.id, "status": {"$in": ["active", "approved"]}},
+        {"_id": 0, "id": 1, "status": 1},
+    )
+    rental_row = await db.car_rental_companies.find_one(
+        {"user_id": current_user.id, "status": {"$in": ["active", "approved"]}},
+        {"_id": 0, "id": 1, "status": 1},
+    )
+    business_row = await db.business_applications.find_one(
+        {"user_id": current_user.id, "verification_status": "verified"},
+        {"_id": 0, "id": 1, "verification_status": 1},
+    )
+
+    return {
+        "customer": True,  # everyone can be a customer
+        "driver": bool(driver_row),
+        "merchant": bool(restaurant_row or rental_row or business_row),
+        "admin": current_user.user_type == "admin",
+        "details": {
+            "driver_id": driver_row["id"] if driver_row else None,
+            "restaurant_id": restaurant_row["id"] if restaurant_row else None,
+            "rental_company_id": rental_row["id"] if rental_row else None,
+            "business_application_id": business_row["id"] if business_row else None,
+        },
+    }
+
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: PasswordReset):
     """Initiate password reset"""

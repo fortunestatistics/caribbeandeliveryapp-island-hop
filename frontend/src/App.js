@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect, react-hooks/immutability, react/no-unescaped-entities */
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import KPIDashboard from './KPIDashboard';
@@ -22,6 +21,8 @@ import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
+import { ModeProvider } from './ModeContext';
+import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
 import RestaurantMenu from './RestaurantMenu';
 import TaxiBookingForm from './TaxiBookingForm';
@@ -198,23 +199,43 @@ const GlobalSearch = () => {
     }
   };
 
+  const submitSearch = (e) => {
+    e?.preventDefault?.();
+    if (searchQuery.trim().length >= 2) {
+      performSearch(searchQuery);
+      setShowResults(true);
+    }
+  };
+
   return (
-    <div ref={searchRef} className="relative flex-1 max-w-3xl mx-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground/70" />
-        <Input
-          type="text"
-          placeholder="Search for restaurants, products, pharmacies..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
-          className="pl-10 pr-4 py-3 w-full text-base border-border focus:border-gold-500/30 focus:ring-gold-500"
-        />
-        {isSearching && (
-          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-            <div className="animate-spin h-5 w-5 border-2 border-gold-500/30 border-t-transparent rounded-full"></div>
-          </div>
-        )}
+    <form ref={searchRef} onSubmit={submitSearch} className="relative w-full min-w-[260px]" data-testid="global-search">
+      <div className="flex items-stretch shadow-sm">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gold-500/80 pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="Search restaurants, food, pharmacies..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
+            data-testid="global-search-input"
+            className="pl-11 pr-4 py-3 h-12 w-full text-base bg-matte-800/80 border-2 border-gold-500/30 rounded-l-xl rounded-r-none focus:border-gold-500 focus:ring-2 focus:ring-gold-500/30 placeholder:text-muted-foreground"
+          />
+          {isSearching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="animate-spin h-4 w-4 border-2 border-gold-500/30 border-t-gold-500 rounded-full"></div>
+            </div>
+          )}
+        </div>
+        <button
+          type="submit"
+          data-testid="global-search-btn"
+          aria-label="Search"
+          className="h-12 px-5 sm:px-6 bg-gold-gradient text-white font-semibold rounded-r-xl border-2 border-l-0 border-gold-500/30 hover:opacity-90 active:scale-[0.98] transition-all flex items-center gap-2"
+        >
+          <Search className="h-5 w-5" />
+          <span className="hidden sm:inline">Search</span>
+        </button>
       </div>
 
       {/* Search Results Dropdown */}
@@ -340,6 +361,7 @@ const Header = () => {
             <div className="hidden md:flex items-center space-x-4">
               {user ? (
                 <div className="flex items-center space-x-3">
+                  <ModeSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
                     Dashboard
@@ -1576,10 +1598,11 @@ const DriverRegistration = () => {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <div className="min-h-screen bg-matte-900">
-          <Header />
-          <AuthHandler />
+      <ModeProvider>
+        <Router>
+          <div className="min-h-screen bg-matte-900">
+            <Header />
+            <AuthHandler />
           
           <Routes>
             <Route path="/" element={<LandingPage />} />
@@ -1625,6 +1648,7 @@ function App() {
           <Toaster />
         </div>
       </Router>
+      </ModeProvider>
     </AuthProvider>
   );
 }

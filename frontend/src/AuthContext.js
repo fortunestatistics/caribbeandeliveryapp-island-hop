@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -21,8 +20,11 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
+      const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('token') : null;
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const response = await axios.get(`${API}/auth/me`, {
         withCredentials: true,
+        headers,
         validateStatus: (status) => status < 500,
       });
       if (response.status === 200) {
@@ -48,10 +50,14 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
-      setUser(null);
     } catch (error) {
       console.error('Logout error:', error);
     }
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } catch (_e) { /* localStorage unavailable */ }
+    setUser(null);
   };
 
   useEffect(() => {
