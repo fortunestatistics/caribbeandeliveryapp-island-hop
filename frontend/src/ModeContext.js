@@ -52,6 +52,7 @@ export const ModeProvider = ({ children }) => {
       setAuthorizedModes(res.data);
       return res.data;
     } catch (err) {
+      console.error('Failed to fetch authorized modes:', err);
       setAuthorizedModes({ customer: true });
       return { customer: true };
     } finally {

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Header, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -7,12 +7,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 import json
 import re
 from passlib.context import CryptContext
@@ -110,7 +110,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 from models import (
     SUPPORTED_WALLET_CURRENCIES,
     UserRegister, UserLogin, Token, PasswordReset, PasswordResetConfirm,
-    OrderItem, Order, OrderCreate, OrderUpdate,
+    Order, OrderCreate,
     SubscriptionPlan, UserSubscription, SubscriptionCreate,
     StatusCheck, StatusCheckCreate,
     User, SessionCreate,
@@ -123,10 +123,10 @@ from models import (
     ScheduledOrder, RecurringOrder,
     RentalVehicle, CarRentalCompany, RentalBooking,
     Wallet, WalletTransaction,
-    BusinessType, BusinessCategory, BusinessOwner, BusinessDetails, BusinessOnboarding,
-    PricingTier, PayoutSettings, PaymentTransaction,
+    BusinessCategory, BusinessOnboarding,
+    PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
-    CustomerRating, DriverPerformance, DailyOperations, KPIMetrics,
+    CustomerRating,
 )
 
 # Helper function to calculate commission and split payments
@@ -1159,62 +1159,79 @@ async def get_promo_codes(active_only: bool = False):
     promo_codes = await db.promo_codes.find(query, {"_id": 0}).to_list(length=None)
     return promo_codes
 
+# --- Promo validation helpers (shared by validate_promo_code & apply_promo_to_order) ---
+def _parse_promo_dates(promo: dict) -> tuple:
+    """Return (valid_from, valid_until) as tz-aware datetimes, or (None, None)."""
+    try:
+        vf = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
+        vu = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
+        if vf.tzinfo is None:
+            vf = vf.replace(tzinfo=timezone.utc)
+        if vu.tzinfo is None:
+            vu = vu.replace(tzinfo=timezone.utc)
+        return vf, vu
+    except KeyError:
+        return None, None
+
+def _assert_promo_dates_valid(promo: dict) -> None:
+    vf, vu = _parse_promo_dates(promo)
+    if vf is None:
+        return
+    now = datetime.now(timezone.utc)
+    if now < vf:
+        raise HTTPException(status_code=400, detail="Promo code not yet valid")
+    if now > vu:
+        raise HTTPException(status_code=400, detail="Promo code has expired")
+
+def _assert_promo_usage_within_limit(promo: dict) -> None:
+    if promo.get("usage_limit") and promo.get("used_count", 0) >= promo["usage_limit"]:
+        raise HTTPException(status_code=400, detail="Promo code usage limit reached")
+
+def _assert_promo_min_order(promo: dict, order_total: float) -> None:
+    if order_total < promo.get("min_order_amount", 0):
+        raise HTTPException(status_code=400, detail=f"Minimum order amount is ${promo.get('min_order_amount', 0)}")
+
+def _assert_promo_service_type(promo: dict, service_type: Optional[str]) -> None:
+    service_types = promo.get("service_types") or []
+    if service_types and service_type not in service_types:
+        raise HTTPException(status_code=400, detail="Promo code not valid for this service type")
+
+def _calc_promo_discount(promo: dict, subtotal: float, delivery_fee: float = 5.0) -> float:
+    """Compute discount value (rounded, capped at subtotal)."""
+    ptype = promo.get("type")
+    if ptype == "percentage":
+        discount = subtotal * (float(promo["value"]) / 100.0)
+        if promo.get("max_discount"):
+            discount = min(discount, float(promo["max_discount"]))
+    elif ptype == "fixed_amount":
+        discount = float(promo["value"])
+    elif ptype == "free_delivery":
+        discount = float(delivery_fee or 0)
+    else:
+        discount = 0.0
+    return round(min(discount, subtotal), 2)
+
 @api_router.get("/promo-codes/{code}/validate")
 async def validate_promo_code(code: str, order_total: float, service_type: str):
     """Validate promo code for an order"""
     promo = await db.promo_codes.find_one({"code": code.upper()})
-    
     if not promo:
         raise HTTPException(status_code=404, detail="Promo code not found")
-    
-    # Check if active
     if not promo.get("active"):
         raise HTTPException(status_code=400, detail="Promo code is inactive")
-    
-    # Check dates
-    now = datetime.now(timezone.utc)
-    valid_from = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
-    valid_until = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
-    if valid_from.tzinfo is None:
-        valid_from = valid_from.replace(tzinfo=timezone.utc)
-    if valid_until.tzinfo is None:
-        valid_until = valid_until.replace(tzinfo=timezone.utc)
-    
-    if now < valid_from:
-        raise HTTPException(status_code=400, detail="Promo code not yet valid")
-    if now > valid_until:
-        raise HTTPException(status_code=400, detail="Promo code has expired")
-    
-    # Check usage limit
-    if promo.get("usage_limit") and promo.get("used_count", 0) >= promo["usage_limit"]:
-        raise HTTPException(status_code=400, detail="Promo code usage limit reached")
-    
-    # Check minimum order
-    if order_total < promo.get("min_order_amount", 0):
-        raise HTTPException(status_code=400, detail=f"Minimum order amount is ${promo.get('min_order_amount', 0)}")
-    
-    # Check service types
-    if promo.get("service_types") and len(promo["service_types"]) > 0:
-        if service_type not in promo["service_types"]:
-            raise HTTPException(status_code=400, detail="Promo code not valid for this service type")
-    
-    # Calculate discount
-    discount = 0
-    if promo["type"] == "percentage":
-        discount = order_total * (promo["value"] / 100)
-        if promo.get("max_discount"):
-            discount = min(discount, promo["max_discount"])
-    elif promo["type"] == "fixed_amount":
-        discount = promo["value"]
-    elif promo["type"] == "free_delivery":
-        discount = 5.0  # Assuming $5 delivery fee
-    
+
+    _assert_promo_dates_valid(promo)
+    _assert_promo_usage_within_limit(promo)
+    _assert_promo_min_order(promo, order_total)
+    _assert_promo_service_type(promo, service_type)
+
+    discount = _calc_promo_discount(promo, order_total)
     return {
         "valid": True,
         "code": promo["code"],
         "type": promo["type"],
-        "discount": round(discount, 2),
-        "message": f"Promo code applied! You save ${round(discount, 2)}"
+        "discount": discount,
+        "message": f"Promo code applied! You save ${discount}",
     }
 
 @api_router.post("/promo-codes/{code}/apply")
@@ -3139,45 +3156,14 @@ async def apply_promo_to_order(order_id: str, payload: ApplyPromoToOrderRequest,
     if not promo or not promo.get("active"):
         raise HTTPException(status_code=404, detail="Promo code not found or inactive")
 
-    # Date validity (tz-safe)
-    now = datetime.now(timezone.utc)
-    try:
-        vf = datetime.fromisoformat(promo["valid_from"].replace('Z', '+00:00'))
-        vu = datetime.fromisoformat(promo["valid_until"].replace('Z', '+00:00'))
-        if vf.tzinfo is None:
-            vf = vf.replace(tzinfo=timezone.utc)
-        if vu.tzinfo is None:
-            vu = vu.replace(tzinfo=timezone.utc)
-        if now < vf:
-            raise HTTPException(status_code=400, detail="Promo code not yet valid")
-        if now > vu:
-            raise HTTPException(status_code=400, detail="Promo code has expired")
-    except KeyError:
-        pass  # No date constraints set
-
-    if promo.get("usage_limit") and promo.get("used_count", 0) >= promo["usage_limit"]:
-        raise HTTPException(status_code=400, detail="Promo code usage limit reached")
+    _assert_promo_dates_valid(promo)
+    _assert_promo_usage_within_limit(promo)
 
     subtotal = float(order.get("subtotal", 0) or 0)
-    if subtotal < promo.get("min_order_amount", 0):
-        raise HTTPException(status_code=400, detail=f"Minimum subtotal is ${promo.get('min_order_amount', 0)}")
+    _assert_promo_min_order(promo, subtotal)
+    _assert_promo_service_type(promo, order.get("service_type"))
 
-    service_types = promo.get("service_types") or []
-    if service_types and order.get("service_type") not in service_types:
-        raise HTTPException(status_code=400, detail="Promo not valid for this service type")
-
-    # Calculate discount
-    if promo["type"] == "percentage":
-        discount = subtotal * (float(promo["value"]) / 100.0)
-        if promo.get("max_discount"):
-            discount = min(discount, float(promo["max_discount"]))
-    elif promo["type"] == "fixed_amount":
-        discount = float(promo["value"])
-    elif promo["type"] == "free_delivery":
-        discount = float(order.get("delivery_fee", 0) or 0)
-    else:
-        discount = 0.0
-    discount = round(min(discount, subtotal), 2)
+    discount = _calc_promo_discount(promo, subtotal, delivery_fee=float(order.get("delivery_fee", 0) or 0))
 
     updated = {**order, "discount": discount, "promo_code": code}
     new_total = _recompute_order_total(updated)
