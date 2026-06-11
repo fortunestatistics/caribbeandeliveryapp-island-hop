@@ -385,15 +385,24 @@ class SupportTicket(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     subject: str
-    category: str
+    category: str  # general, order_issue, payment, refund, account, technical, claim
     order_id: Optional[str] = None
     description: str
     status: str = "open"
     priority: str = "normal"
     assigned_to: Optional[str] = None
+    # Claim-specific fields (used when category == "claim")
+    claim_type: Optional[str] = None  # wrong_item, missing_item, damaged, late, quality, other
+    photo_url: Optional[str] = None   # base64 data URL or hosted URL
+    resolution_credit: Optional[float] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_at: Optional[datetime] = None
+
+
+class TicketMessageCreate(BaseModel):
+    message: str
+    sender_type: str = "customer"  # customer | agent | system
 
 
 class TicketMessage(BaseModel):
@@ -403,6 +412,12 @@ class TicketMessage(BaseModel):
     sender_type: str
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ResolveClaimRequest(BaseModel):
+    resolution: str  # "approved" | "rejected"
+    credit_amount: Optional[float] = None  # if approved, credits wallet (USD)
+    notes: Optional[str] = None
 
 
 # Scheduled Order Models

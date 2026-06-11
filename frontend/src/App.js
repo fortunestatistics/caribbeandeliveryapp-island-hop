@@ -22,6 +22,7 @@ import AuthPage from './AuthPage';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
+import ClaimsPage from './ClaimsPage';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -1188,9 +1189,20 @@ const Dashboard = () => {
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
                   onClick={() => navigate('/support')}
+                  data-testid="quick-action-support"
                 >
                   <MessageCircle className="h-6 w-6" />
                   <span className="text-sm">Support</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col items-center justify-center space-y-2"
+                  onClick={() => navigate('/claims')}
+                  data-testid="quick-action-claims"
+                >
+                  <AlertCircle className="h-6 w-6" />
+                  <span className="text-sm">My Claims</span>
                 </Button>
               </div>
             </CardContent>
@@ -1653,6 +1665,7 @@ function App() {
             <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />
             <Route path="/business/earnings" element={<BusinessEarningsDashboard />} />
             <Route path="/support" element={<AISupport />} />
+            <Route path="/claims" element={<ClaimsPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

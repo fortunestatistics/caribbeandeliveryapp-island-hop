@@ -128,6 +128,7 @@ from models import (
     ChatMessage, ChatMessageCreate, ChatRequest,
     CustomerRating,
     FraudFlag, FraudReviewAction,
+    TicketMessageCreate, ResolveClaimRequest,
 )
 
 # Helper function to calculate commission and split payments
@@ -438,24 +439,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         manager.disconnect(websocket, user_id)
 
 # JWT Authentication Routes
-@api_router.post("/auth/register", response_model=Token)
-async def register(user_data: UserRegister):
-    """Register a new user. Optionally verifies a pending OTP for the phone and applies a referral code."""
-    # Check if user already exists
-    existing_user = await db.users.find_one({"email": user_data.email})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    # Normalize phone + optionally verify OTP if user supplied one
-    phone_clean = None
-    phone_verified = False
-    if user_data.phone:
-        phone_clean = re.sub(r"[\s\-\(\)]", "", user_data.phone.strip())
-    if user_data.otp_code and phone_clean:
+async def _resolve_phone_verification(phone_clean: Optional[str], otp_code: Optional[str]) -> bool:
+    """Return True if phone is verified via OTP (either supplied now or previously verified)."""
+    if not phone_clean:
+        return False
+    if otp_code:
         now_iso = datetime.now(timezone.utc).isoformat()
-        # Accept either: (a) a pending OTP that matches, or (b) a recently-verified OTP that matches
         otp = await db.otp_codes.find_one(
-            {"phone": phone_clean, "purpose": "signup", "code": str(user_data.otp_code).strip(),
+            {"phone": phone_clean, "purpose": "signup", "code": str(otp_code).strip(),
              "expires_at": {"$gt": now_iso}},
             sort=[("created_at", -1)],
         )
@@ -463,20 +454,52 @@ async def register(user_data: UserRegister):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
         if not otp.get("verified"):
             await db.otp_codes.update_one({"id": otp["id"]}, {"$set": {"verified": True, "verified_at": now_iso}})
-        phone_verified = True
-    else:
-        # If a verified OTP exists for this phone (just verified separately), accept it
-        if phone_clean:
-            recent_verified = await db.otp_codes.find_one(
-                {"phone": phone_clean, "purpose": "signup", "verified": True},
-                sort=[("created_at", -1)],
-            )
-            phone_verified = bool(recent_verified)
+        return True
+    # Accept a previously verified OTP for this phone
+    recent_verified = await db.otp_codes.find_one(
+        {"phone": phone_clean, "purpose": "signup", "verified": True},
+        sort=[("created_at", -1)],
+    )
+    return bool(recent_verified)
 
-    # Hash password
-    hashed_password = get_password_hash(user_data.password)
 
-    # Create user
+async def _apply_referral_on_register(user: User, referral_code: Optional[str]) -> None:
+    """Mutate user with referred_by/referral_code_used if a valid code is provided. Creates pending row."""
+    if not referral_code:
+        return
+    code = referral_code.strip().upper()
+    code_doc = await db.referral_codes.find_one({"code": code})
+    if not code_doc or code_doc["user_id"] == user.id:
+        return
+    user.referred_by = code_doc["user_id"]
+    user.referral_code_used = code
+
+
+async def _persist_pending_referral(user: User) -> None:
+    if not (user.referred_by and user.referral_code_used):
+        return
+    await db.referrals.insert_one({
+        "id": str(uuid.uuid4()),
+        "referrer_id": user.referred_by,
+        "referee_id": user.id,
+        "code_used": user.referral_code_used,
+        "status": "pending",
+        "reward_amount": REFERRAL_REWARD_AMOUNT,
+        "reward_currency": REFERRAL_REWARD_CURRENCY,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+    })
+
+
+@api_router.post("/auth/register", response_model=Token)
+async def register(user_data: UserRegister):
+    """Register a new user. Optionally verifies a pending OTP for the phone and applies a referral code."""
+    if await db.users.find_one({"email": user_data.email}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    phone_clean = re.sub(r"[\s\-\(\)]", "", user_data.phone.strip()) if user_data.phone else None
+    phone_verified = await _resolve_phone_verification(phone_clean, user_data.otp_code)
+
     user = User(
         email=user_data.email,
         name=user_data.name,
@@ -485,42 +508,20 @@ async def register(user_data: UserRegister):
         address={"street": user_data.address} if user_data.address else None,
         user_type=user_data.user_type,
     )
+    await _apply_referral_on_register(user, user_data.referral_code)
 
-    # Apply referral if code provided
-    if user_data.referral_code:
-        code = user_data.referral_code.strip().upper()
-        code_doc = await db.referral_codes.find_one({"code": code})
-        if code_doc and code_doc["user_id"] != user.id:
-            user.referred_by = code_doc["user_id"]
-            user.referral_code_used = code
-
-    # Store user with hashed password
-    user_dict = user.dict()
-    user_dict['hashed_password'] = hashed_password
-    user_dict = prepare_for_mongo(user_dict)
+    # Persist user with hashed password
+    user_dict = prepare_for_mongo(user.dict())
+    user_dict['hashed_password'] = get_password_hash(user_data.password)
     await db.users.insert_one(user_dict)
 
-    # If referral applied, create pending referral row
-    if user.referred_by and user.referral_code_used:
-        await db.referrals.insert_one({
-            "id": str(uuid.uuid4()),
-            "referrer_id": user.referred_by,
-            "referee_id": user.id,
-            "code_used": user.referral_code_used,
-            "status": "pending",
-            "reward_amount": REFERRAL_REWARD_AMOUNT,
-            "reward_currency": REFERRAL_REWARD_CURRENCY,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "completed_at": None,
-        })
+    await _persist_pending_referral(user)
 
-    # Create access token
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
-
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user.dict()
+        "user": user.dict(),
     }
 
 @api_router.post("/auth/login", response_model=Token)
@@ -1472,44 +1473,48 @@ async def get_ticket(ticket_id: str, request: Request):
     return ticket
 
 @api_router.post("/support/tickets/{ticket_id}/messages", response_model=TicketMessage)
-async def add_ticket_message(ticket_id: str, message: str, sender_type: str, request: Request):
-    """Add message to ticket"""
+async def add_ticket_message(ticket_id: str, payload: TicketMessageCreate, request: Request):
+    """Add message to ticket (JSON body)."""
     current_user = await get_current_user_from_request(request)
-    
-    # Verify ticket ownership
-    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+
+    # Verify ticket ownership OR admin/agent role
+    is_staff = current_user.user_type in ("admin", "agent")
+    query = {"id": ticket_id} if is_staff else {"id": ticket_id, "user_id": current_user.id}
+    ticket = await db.support_tickets.find_one(query)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    
+
+    sender_type = payload.sender_type or ("agent" if is_staff else "customer")
     ticket_message = TicketMessage(
         ticket_id=ticket_id,
         sender_id=current_user.id,
         sender_type=sender_type,
-        message=message
+        message=payload.message,
     )
-    
-    await db.ticket_messages.insert_one(ticket_message.dict())
-    
-    # Update ticket status if customer replied
-    if sender_type == 'customer' and ticket.get("status") == "resolved":
+    await db.ticket_messages.insert_one(prepare_for_mongo(ticket_message.dict()))
+
+    # Reopen if customer replies on a resolved ticket
+    if sender_type == "customer" and ticket.get("status") in ("resolved", "closed"):
         await db.support_tickets.update_one(
             {"id": ticket_id},
-            {"$set": {"status": "open", "updated_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {"status": "open", "updated_at": datetime.now(timezone.utc).isoformat()}},
         )
-    
+
     return ticket_message
 
 @api_router.get("/support/tickets/{ticket_id}/messages")
 async def get_ticket_messages(ticket_id: str, request: Request):
-    """Get all messages for a ticket"""
+    """Get all messages for a ticket (owner or staff)."""
     current_user = await get_current_user_from_request(request)
-    
-    # Verify ticket ownership
-    ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": current_user.id})
+    is_staff = current_user.user_type in ("admin", "agent")
+    query = {"id": ticket_id} if is_staff else {"id": ticket_id, "user_id": current_user.id}
+    ticket = await db.support_tickets.find_one(query)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    
-    messages = await db.ticket_messages.find({"ticket_id": ticket_id}).sort("created_at", 1).to_list(length=None)
+
+    messages = await db.ticket_messages.find(
+        {"ticket_id": ticket_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(length=None)
     return messages
 
 @api_router.put("/support/tickets/{ticket_id}/close")
@@ -1532,6 +1537,103 @@ async def close_ticket(ticket_id: str, request: Request):
     )
     
     return {"success": True}
+
+# ---- Customer Claims (built on top of support tickets) ----
+ALLOWED_CLAIM_TYPES = {"wrong_item", "missing_item", "damaged", "late", "quality", "other"}
+
+@api_router.post("/claims", response_model=SupportTicket)
+async def create_claim(claim: SupportTicket, request: Request):
+    """File a customer claim against an order (creates a support ticket with category='claim')."""
+    current_user = await get_current_user_from_request(request)
+    if not claim.order_id:
+        raise HTTPException(status_code=400, detail="order_id is required for a claim")
+    if claim.claim_type and claim.claim_type not in ALLOWED_CLAIM_TYPES:
+        raise HTTPException(status_code=400, detail=f"claim_type must be one of {sorted(ALLOWED_CLAIM_TYPES)}")
+
+    # Verify the order belongs to the user
+    order = await db.orders.find_one({"id": claim.order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    claim.user_id = current_user.id
+    claim.category = "claim"
+    if not claim.subject:
+        claim.subject = f"Claim: {claim.claim_type or 'other'} (order {claim.order_id[:8]})"
+
+    await db.support_tickets.insert_one(prepare_for_mongo(claim.dict()))
+    return claim
+
+
+@api_router.get("/claims")
+async def list_my_claims(request: Request):
+    """List the current user's claims (subset of tickets with category='claim')."""
+    current_user = await get_current_user_from_request(request)
+    claims = await db.support_tickets.find(
+        {"user_id": current_user.id, "category": "claim"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(length=None)
+    return claims
+
+
+@api_router.post("/claims/{ticket_id}/resolve")
+async def resolve_claim(ticket_id: str, payload: ResolveClaimRequest, request: Request):
+    """Admin-only: resolve a customer claim. If approved with credit_amount, credit the customer's wallet."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin/agent access required")
+
+    resolution = (payload.resolution or "").lower()
+    if resolution not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="resolution must be 'approved' or 'rejected'")
+
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "category": "claim"})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if ticket.get("status") in ("resolved", "closed"):
+        raise HTTPException(status_code=400, detail="Claim is already resolved")
+
+    new_status = "resolved" if resolution == "approved" else "closed"
+    update_doc = {
+        "status": new_status,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if resolution == "approved" and payload.credit_amount and payload.credit_amount > 0:
+        await _credit_wallet_with_txn(
+            ticket["user_id"],
+            _round_money(payload.credit_amount),
+            "USD",
+            txn_type="refund",
+            note=f"Claim approved (ticket {ticket_id})",
+        )
+        update_doc["resolution_credit"] = _round_money(payload.credit_amount)
+
+    await db.support_tickets.update_one({"id": ticket_id}, {"$set": update_doc})
+
+    # Auto-post a system message on the thread
+    sys_msg_text = (
+        f"Claim approved. ${payload.credit_amount:.2f} credited to your wallet."
+        if resolution == "approved" and payload.credit_amount
+        else f"Claim {resolution}." + (f" Notes: {payload.notes}" if payload.notes else "")
+    )
+    sys_msg = TicketMessage(
+        ticket_id=ticket_id, sender_id=current_user.id, sender_type="system", message=sys_msg_text
+    )
+    await db.ticket_messages.insert_one(prepare_for_mongo(sys_msg.dict()))
+
+    return {"success": True, "status": new_status, "credit_amount": update_doc.get("resolution_credit")}
+
+
+@api_router.get("/admin/claims")
+async def admin_list_claims(request: Request, status: str = "open", limit: int = 200):
+    """Admin-only: list all claims across users."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin/agent access required")
+    query: dict = {"category": "claim"}
+    if status and status != "all":
+        query["status"] = status
+    rows = await db.support_tickets.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
+    return rows
 
 # Order Management Routes
 # ---- Fraud detection helpers ----
@@ -2335,110 +2437,89 @@ async def get_order_driver_location(order_id: str):
         "vehicle_plate": driver.get("vehicle_plate")
     }
 
-# Smart Driver Matching Routes
-@api_router.post("/orders/{order_id}/find-driver")
-async def find_and_assign_driver(order_id: str):
-    """
-    Smart algorithm to find and assign best available driver
-    Based on: proximity, availability, rating, vehicle type
-    """
-    order = await db.orders.find_one({"id": order_id})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    pickup_location = order.get("pickup_address", {})
-    pickup_lat = pickup_location.get("latitude")
-    pickup_lng = pickup_location.get("longitude")
-    
-    if not pickup_lat or not pickup_lng:
-        raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
-    
-    # Find online drivers within 10km radius
-    # Using MongoDB geospatial query (requires 2dsphere index)
-    nearby_drivers = await db.drivers.find({
+import math as _math
+
+
+async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: int = 10000) -> List[dict]:
+    """Find online drivers within radius. Falls back to any online driver if none nearby."""
+    nearby = await db.drivers.find({
         "status": "online",
         "current_location": {
             "$near": {
-                "$geometry": {
-                    "type": "Point",
-                    "coordinates": [pickup_lng, pickup_lat]
-                },
-                "$maxDistance": 10000  # 10km in meters
+                "$geometry": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
+                "$maxDistance": radius_m,
             }
-        }
+        },
     }).to_list(length=100)
-    
-    if not nearby_drivers:
-        # Fallback: find any online driver
-        nearby_drivers = await db.drivers.find({"status": "online"}).to_list(length=None)
-    
-    if not nearby_drivers:
-        return {
-            "success": False,
-            "message": "No available drivers found",
-            "drivers_notified": 0
-        }
-    
-    # Score and rank drivers
-    scored_drivers = []
-    for driver in nearby_drivers:
-        driver_loc = driver.get("current_location", {})
-        if not driver_loc:
-            continue
-            
-        # Calculate distance (simple euclidean for now)
-        import math
-        driver_lat = driver_loc.get("lat", 0)
-        driver_lng = driver_loc.get("lng", 0)
-        distance = math.sqrt((driver_lat - pickup_lat)**2 + (driver_lng - pickup_lng)**2) * 111  # Rough km
-        
-        # Score: lower distance = higher score, higher rating = higher score
-        score = (driver.get("rating", 3.0) * 10) - distance
-        
-        scored_drivers.append({
-            "driver": driver,
-            "distance": distance,
-            "score": score
-        })
-    
-    # Sort by score (highest first)
-    scored_drivers.sort(key=lambda x: x["score"], reverse=True)
-    
-    # Notify top 3 drivers
-    drivers_notified = []
-    for i, item in enumerate(scored_drivers[:3]):
+    if nearby:
+        return nearby
+    return await db.drivers.find({"status": "online"}).to_list(length=None)
+
+
+def _score_driver_for_pickup(driver: dict, pickup_lat: float, pickup_lng: float) -> Optional[dict]:
+    """Return {driver, distance_km, score} or None if the driver has no location."""
+    loc = driver.get("current_location") or {}
+    if not loc:
+        return None
+    distance = _math.sqrt(
+        (loc.get("lat", 0) - pickup_lat) ** 2 + (loc.get("lng", 0) - pickup_lng) ** 2
+    ) * 111  # rough km
+    score = (driver.get("rating", 3.0) * 10) - distance
+    return {"driver": driver, "distance": distance, "score": score}
+
+
+async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n: int = 3) -> List[dict]:
+    """Send WebSocket notifications to top-N drivers; return list of notified driver summaries."""
+    notified = []
+    for item in candidates[:top_n]:
         driver = item["driver"]
         await manager.send_personal_message(
             json.dumps({
                 "type": "new_order_request",
-                "order_id": order_id,
+                "order_id": order["id"],
                 "pickup_address": order.get("pickup_address"),
                 "delivery_address": order.get("delivery_address"),
                 "estimated_distance": round(item["distance"], 2),
                 "estimated_earnings": order.get("driver_earnings", 0),
-                "timeout": 30  # Driver has 30 seconds to accept
+                "timeout": 30,
             }),
-            driver["user_id"]
+            driver["user_id"],
         )
-        drivers_notified.append({
-            "driver_id": driver["id"],
-            "distance_km": round(item["distance"], 2)
-        })
-    
-    # Store notified drivers for this order
+        notified.append({"driver_id": driver["id"], "distance_km": round(item["distance"], 2)})
+    return notified
+
+
+# Smart Driver Matching Routes
+@api_router.post("/orders/{order_id}/find-driver")
+async def find_and_assign_driver(order_id: str):
+    """Find best-fit drivers (proximity + rating) and notify top 3 via WebSocket."""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    pickup = order.get("pickup_address", {})
+    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
+    if not pickup_lat or not pickup_lng:
+        raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
+
+    drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
+    if not drivers:
+        return {"success": False, "message": "No available drivers found", "drivers_notified": 0}
+
+    scored = [s for s in (_score_driver_for_pickup(d, pickup_lat, pickup_lng) for d in drivers) if s]
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    notified = await _notify_drivers_about_order(order, scored, top_n=3)
+
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
-            "drivers_notified": [d["driver_id"] for d in drivers_notified],
-            "driver_search_started": datetime.now(timezone.utc).isoformat()
-        }}
+            "drivers_notified": [d["driver_id"] for d in notified],
+            "driver_search_started": datetime.now(timezone.utc).isoformat(),
+        }},
     )
-    
-    return {
-        "success": True,
-        "drivers_notified": len(drivers_notified),
-        "drivers": drivers_notified
-    }
+
+    return {"success": True, "drivers_notified": len(notified), "drivers": notified}
 
 @api_router.post("/orders/{order_id}/accept-driver")
 async def driver_accept_order(order_id: str, driver_id: str):
@@ -2486,28 +2567,62 @@ async def driver_reject_order(order_id: str, driver_id: str):
     return {"success": True, "message": "Order rejected, searching for another driver"}
 
 # Rating & Review Routes
+async def _award_five_star_bonus(rating: Rating) -> None:
+    """Credit $1 bonus to driver wallet when they receive a 5-star rating. Idempotent."""
+    if not (rating.driver_id and rating.driver_rating == 5):
+        return
+    driver_row = await db.drivers.find_one({"id": rating.driver_id}, {"_id": 0})
+    driver_user_id = (driver_row or {}).get("user_id")
+    if not driver_user_id:
+        return
+    await _credit_wallet_with_txn(
+        driver_user_id, 1.00, "USD",
+        txn_type="tip_in",
+        order_id=rating.order_id,
+        note="5-star review bonus",
+    )
+    await db.driver_incentives.insert_one({
+        "id": str(uuid.uuid4()),
+        "driver_id": rating.driver_id,
+        "type": "five_star_bonus",
+        "amount": 1.00,
+        "currency": "USD",
+        "rating_id": rating.id,
+        "order_id": rating.order_id,
+        "awarded_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def _recompute_entity_avg_rating(collection_name: str, entity_id: str, rating_field: str) -> None:
+    """Recompute average rating across all ratings for an entity and update the collection."""
+    docs = await db.ratings.find({
+        f"{'vendor_id' if rating_field == 'vendor_rating' else 'driver_id'}": entity_id,
+        rating_field: {"$ne": None},
+    }).to_list(length=None)
+    if not docs:
+        return
+    avg = sum(d.get(rating_field, 0) for d in docs) / len(docs)
+    await db[collection_name].update_one(
+        {"id": entity_id},
+        {"$set": {"rating": round(avg, 2), "total_ratings": len(docs)}},
+    )
+
+
 @api_router.post("/ratings", response_model=Rating)
 async def create_rating(rating_data: RatingCreate, request: Request):
-    """Customer submits rating after order delivery"""
+    """Customer rates a delivered order."""
     current_user = await get_current_user_from_request(request)
-    
-    # Get order details
+
     order = await db.orders.find_one({"id": rating_data.order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
     if order.get("customer_id") != current_user.id:
         raise HTTPException(status_code=403, detail="Not your order")
-    
     if order.get("status") != "delivered":
         raise HTTPException(status_code=400, detail="Order not yet delivered")
-    
-    # Check if already rated
-    existing = await db.ratings.find_one({"order_id": rating_data.order_id})
-    if existing:
+    if await db.ratings.find_one({"order_id": rating_data.order_id}):
         raise HTTPException(status_code=400, detail="Order already rated")
-    
-    # Create rating
+
     rating = Rating(
         order_id=rating_data.order_id,
         customer_id=current_user.id,
@@ -2518,65 +2633,18 @@ async def create_rating(rating_data: RatingCreate, request: Request):
         food_quality=rating_data.food_quality,
         delivery_speed=rating_data.delivery_speed,
         vendor_review=rating_data.vendor_review,
-        driver_review=rating_data.driver_review
+        driver_review=rating_data.driver_review,
     )
-    
     await db.ratings.insert_one(rating.dict())
 
-    # Driver incentive: a 5-star review credits a $1.00 bonus to the driver's
-    # IslandHop wallet. Awarded once per rating, idempotent because Ratings
-    # are unique per order_id.
-    if rating.driver_id and rating.driver_rating == 5:
-        driver_row = await db.drivers.find_one({"id": rating.driver_id}, {"_id": 0})
-        driver_user_id = (driver_row or {}).get("user_id")
-        if driver_user_id:
-            await _credit_wallet_with_txn(
-                driver_user_id, 1.00, "USD",
-                txn_type="tip_in",
-                order_id=rating.order_id,
-                note="5-star review bonus",
-            )
-            await db.driver_incentives.insert_one({
-                "id": str(uuid.uuid4()),
-                "driver_id": rating.driver_id,
-                "type": "five_star_bonus",
-                "amount": 1.00,
-                "currency": "USD",
-                "rating_id": rating.id,
-                "order_id": rating.order_id,
-                "awarded_at": datetime.now(timezone.utc).isoformat(),
-            })
-    
-    # Update vendor average rating
+    await _award_five_star_bonus(rating)
+
     if rating.vendor_id and rating.vendor_rating:
-        vendor_ratings = await db.ratings.find({
-            "vendor_id": rating.vendor_id,
-            "vendor_rating": {"$ne": None}
-        }).to_list(length=None)
-        avg_rating = sum(r.get("vendor_rating", 0) for r in vendor_ratings) / len(vendor_ratings)
-        
-        await db.restaurants.update_one(
-            {"id": rating.vendor_id},
-            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(vendor_ratings)}}
-        )
-        await db.businesses.update_one(
-            {"id": rating.vendor_id},
-            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(vendor_ratings)}}
-        )
-    
-    # Update driver average rating
+        await _recompute_entity_avg_rating("restaurants", rating.vendor_id, "vendor_rating")
+        await _recompute_entity_avg_rating("businesses", rating.vendor_id, "vendor_rating")
     if rating.driver_id and rating.driver_rating:
-        driver_ratings = await db.ratings.find({
-            "driver_id": rating.driver_id,
-            "driver_rating": {"$ne": None}
-        }).to_list(length=None)
-        avg_rating = sum(r.get("driver_rating", 0) for r in driver_ratings) / len(driver_ratings)
-        
-        await db.drivers.update_one(
-            {"id": rating.driver_id},
-            {"$set": {"rating": round(avg_rating, 2), "total_ratings": len(driver_ratings)}}
-        )
-    
+        await _recompute_entity_avg_rating("drivers", rating.driver_id, "driver_rating")
+
     return rating
 
 @api_router.get("/orders/{order_id}/rating")
