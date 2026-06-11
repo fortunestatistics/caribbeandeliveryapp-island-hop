@@ -134,6 +134,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView }) => {
             <OrderChat
               orderId={order.id}
               currentUserId={user?.id}
+              viewerRole="driver"
               title="Customer & merchant"
             />
           </div>

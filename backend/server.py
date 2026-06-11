@@ -127,6 +127,7 @@ from models import (
     PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
     OrderChatMessage, OrderChatMessageCreate,
+    SubstitutionProposal, SubstitutionCreate,
     CustomerRating,
     FraudFlag, FraudReviewAction,
     TicketMessageCreate, ResolveClaimRequest,
@@ -2105,6 +2106,186 @@ async def order_chat_unread_count(order_id: str, request: Request):
         "read_by": {"$ne": current_user.id},
     })
     return {"order_id": order_id, "unread": count}
+
+
+@api_router.get("/chat/unread/summary")
+async def chat_unread_summary(request: Request):
+    """Aggregate unread message count across all active orders the user participates in."""
+    current_user = await get_current_user_from_request(request)
+
+    # Find candidate order ids the user participates in by role.
+    or_clauses: List[dict] = [{"customer_id": current_user.id}]
+    # Driver: drivers.user_id -> drivers.id
+    driver_row = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if driver_row:
+        or_clauses.append({"driver_id": driver_row["id"]})
+    # Vendor: restaurants.user_id or businesses.user_id
+    vendor_ids: List[str] = []
+    async for rest in db.restaurants.find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+        vendor_ids.append(rest["id"])
+    async for biz in db.businesses.find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+        vendor_ids.append(biz["id"])
+    if vendor_ids:
+        or_clauses.append({"restaurant_id": {"$in": vendor_ids}})
+        or_clauses.append({"vendor_id": {"$in": vendor_ids}})
+
+    # Only consider non-terminal orders
+    active_statuses = ["pending", "accepted", "preparing", "ready", "picked_up", "in_transit"]
+    orders_cursor = db.orders.find(
+        {"$or": or_clauses, "status": {"$in": active_statuses}}, {"_id": 0, "id": 1}
+    )
+    order_ids = [o["id"] async for o in orders_cursor]
+    if not order_ids:
+        return {"unread_total": 0, "orders_with_unread": []}
+
+    pipeline = [
+        {"$match": {"order_id": {"$in": order_ids}, "read_by": {"$ne": current_user.id}}},
+        {"$group": {"_id": "$order_id", "count": {"$sum": 1}}},
+    ]
+    rows = await db.order_chat_messages.aggregate(pipeline).to_list(length=None)
+    by_order = {r["_id"]: r["count"] for r in rows}
+    total = sum(by_order.values())
+    return {
+        "unread_total": total,
+        "orders_with_unread": [{"order_id": oid, "unread": c} for oid, c in by_order.items()],
+    }
+
+
+# ---- Vendor item substitution proposals (chat-integrated) ----
+async def _post_system_chat(order_id: str, sender_id: str, message: str, participants: dict) -> None:
+    """Insert a system chat message and broadcast to all participants."""
+    msg = OrderChatMessage(
+        order_id=order_id,
+        sender_id=sender_id,
+        sender_user_type="system",
+        sender_name="IslandHop",
+        message=message,
+        read_by=[sender_id],
+    )
+    await db.order_chat_messages.insert_one(prepare_for_mongo(msg.dict()))
+    payload_json = json.dumps({"type": "order_chat", "message": msg.dict(), "order_id": order_id}, default=str)
+    for uid in [participants["customer_id"], participants["driver_user_id"], participants["vendor_user_id"]]:
+        if uid:
+            await manager.send_personal_message(payload_json, uid)
+
+
+@api_router.post("/orders/{order_id}/substitutions", response_model=SubstitutionProposal)
+async def propose_substitution(order_id: str, payload: SubstitutionCreate, request: Request):
+    """Merchant proposes swapping an unavailable item for a substitute (or marks it unavailable)."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    participants = await _resolve_order_participants(order)
+    if current_user.id != participants["vendor_user_id"] and current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Only the merchant can propose substitutions")
+    if order.get("status") in ("delivered", "cancelled", "refunded"):
+        raise HTTPException(status_code=400, detail="Order is closed; substitutions not allowed")
+
+    prop = SubstitutionProposal(
+        order_id=order_id,
+        vendor_id=current_user.id,
+        original_item_name=payload.original_item_name,
+        proposed_item_name=payload.proposed_item_name,
+        price_delta=round(payload.price_delta or 0.0, 2),
+        note=payload.note,
+    )
+    await db.substitution_proposals.insert_one(prepare_for_mongo(prop.dict()))
+
+    if payload.proposed_item_name:
+        delta_txt = ""
+        if prop.price_delta > 0:
+            delta_txt = f" (+${prop.price_delta:.2f})"
+        elif prop.price_delta < 0:
+            delta_txt = f" (-${abs(prop.price_delta):.2f})"
+        body = f"🔁 Merchant proposes swapping **{payload.original_item_name}** → **{payload.proposed_item_name}**{delta_txt}."
+    else:
+        body = f"⚠️ Merchant marked **{payload.original_item_name}** as unavailable."
+    if payload.note:
+        body += f"\nNote: {payload.note}"
+    body += "\n\nUse the buttons in chat to accept or decline."
+
+    await _post_system_chat(order_id, current_user.id, body, participants)
+    return prop
+
+
+@api_router.get("/orders/{order_id}/substitutions", response_model=List[SubstitutionProposal])
+async def list_substitutions(order_id: str, request: Request):
+    """List all substitution proposals for an order (participants only)."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    participants = await _resolve_order_participants(order)
+    if not _role_for_user(current_user, participants):
+        raise HTTPException(status_code=403, detail="Not a participant of this order")
+    rows = await db.substitution_proposals.find(
+        {"order_id": order_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(length=None)
+    return rows
+
+
+@api_router.post("/orders/{order_id}/substitutions/{prop_id}/respond")
+async def respond_substitution(order_id: str, prop_id: str, request: Request, accept: bool):
+    """Customer accepts or declines a substitution. accept=true applies the swap & price delta."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    participants = await _resolve_order_participants(order)
+    if current_user.id != participants["customer_id"]:
+        raise HTTPException(status_code=403, detail="Only the customer can respond to substitutions")
+
+    prop = await db.substitution_proposals.find_one({"id": prop_id, "order_id": order_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Substitution proposal not found")
+    if prop.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"Substitution already {prop.get('status')}")
+
+    new_status = "accepted" if accept else "declined"
+    await db.substitution_proposals.update_one(
+        {"id": prop_id},
+        {"$set": {
+            "status": new_status,
+            "responded_by": current_user.id,
+            "responded_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    # If accepted, mutate the order items + price delta
+    if accept:
+        items = list(order.get("items") or [])
+        for it in items:
+            if it.get("name") == prop["original_item_name"]:
+                if prop.get("proposed_item_name"):
+                    it["name"] = prop["proposed_item_name"]
+                    it["substituted_from"] = prop["original_item_name"]
+                else:
+                    it["quantity"] = 0
+                    it["removed_unavailable"] = True
+                break
+        new_subtotal = float(order.get("subtotal", 0) or 0) + float(prop.get("price_delta") or 0.0)
+        # Total recomputation (preserve existing fees/discount)
+        delta = float(prop.get("price_delta") or 0.0)
+        new_total = float(order.get("total", 0) or 0) + delta
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "items": items,
+                "subtotal": round(max(0.0, new_subtotal), 2),
+                "total": round(max(0.0, new_total), 2),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+
+    body = (
+        f"✅ Customer accepted the substitution for **{prop['original_item_name']}**."
+        if accept else
+        f"❌ Customer declined the substitution for **{prop['original_item_name']}**."
+    )
+    await _post_system_chat(order_id, current_user.id, body, participants)
+    return {"success": True, "status": new_status}
 
 
 # Subscription & Payment Routes

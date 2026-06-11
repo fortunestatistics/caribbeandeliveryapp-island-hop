@@ -666,6 +666,29 @@ class OrderChatMessageCreate(BaseModel):
     message: str
 
 
+# Vendor substitution proposal (lives inside the order chat thread)
+class SubstitutionProposal(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    vendor_id: str  # user id of the merchant proposing
+    original_item_name: str
+    proposed_item_name: Optional[str] = None  # null when item is marked unavailable
+    price_delta: float = 0.0  # +/- USD change relative to original
+    note: Optional[str] = None
+    status: str = "pending"  # pending, accepted, declined, cancelled
+    responded_by: Optional[str] = None
+    responded_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SubstitutionCreate(BaseModel):
+    order_id: str
+    original_item_name: str
+    proposed_item_name: Optional[str] = None  # if None, item is marked unavailable
+    price_delta: float = 0.0
+    note: Optional[str] = None
+
+
 class ChatMessageCreate(BaseModel):
     order_id: str
     sender_type: str

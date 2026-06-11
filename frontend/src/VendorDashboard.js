@@ -376,6 +376,7 @@ const VendorDashboard = () => {
                           <OrderChat
                             orderId={order.id}
                             currentUserId={user?.id}
+                            viewerRole="vendor"
                             title="Customer & driver"
                           />
                         </div>

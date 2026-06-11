@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Send,
   Trash2,
+  FileText,
   Plus
 } from 'lucide-react';
 import axios from 'axios';
@@ -58,6 +59,9 @@ const AdminPanel = () => {
   const [fraudFlags, setFraudFlags] = useState([]);
   const [fraudOpenCount, setFraudOpenCount] = useState(0);
   const [fraudFilter, setFraudFilter] = useState('open');
+  const [claims, setClaims] = useState([]);
+  const [claimsFilter, setClaimsFilter] = useState('open');
+  const [claimsOpenCount, setClaimsOpenCount] = useState(0);
   const [selectedTab, setSelectedTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -72,6 +76,10 @@ const AdminPanel = () => {
       .get(`${API}/admin/fraud-queue?status=open&limit=1`, { headers: authHeaders() })
       .then((r) => setFraudOpenCount(r.data?.open_count || 0))
       .catch(() => {});
+    axios
+      .get(`${API}/admin/claims?status=open&limit=500`, { headers: authHeaders() })
+      .then((r) => setClaimsOpenCount(Array.isArray(r.data) ? r.data.length : 0))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -79,7 +87,38 @@ const AdminPanel = () => {
     if (selectedTab === 'zones') fetchZones();
     if (selectedTab === 'whatsapp') fetchWhConvos();
     if (selectedTab === 'fraud') fetchFraudQueue();
-  }, [selectedTab, fraudFilter]);
+    if (selectedTab === 'claims') fetchClaims();
+  }, [selectedTab, fraudFilter, claimsFilter]);
+
+  const fetchClaims = async () => {
+    try {
+      const res = await axios.get(`${API}/admin/claims?status=${claimsFilter}`, { headers: authHeaders() });
+      setClaims(res.data || []);
+    } catch (e) {
+      console.error('Failed to fetch claims:', e);
+    }
+  };
+
+  const handleClaimResolve = async (claimId, resolution, creditAmount = null) => {
+    const verb = resolution === 'approved' ? 'approve' : 'reject';
+    let credit = creditAmount;
+    if (resolution === 'approved' && credit === null) {
+      const raw = window.prompt('Credit amount to refund to customer wallet (USD)? Leave blank for $0.', '0');
+      if (raw === null) return; // cancelled
+      credit = parseFloat(raw) || 0;
+    }
+    if (!window.confirm(`Are you sure you want to ${verb} this claim${credit ? ` and credit $${credit.toFixed(2)}` : ''}?`)) return;
+    try {
+      await axios.post(
+        `${API}/claims/${claimId}/resolve`,
+        { resolution, credit_amount: credit || 0, notes: '' },
+        { headers: authHeaders() }
+      );
+      fetchClaims();
+    } catch (e) {
+      alert(e.response?.data?.detail || `Failed to ${verb} claim`);
+    }
+  };
 
   const fetchFraudQueue = async () => {
     try {
@@ -319,7 +358,7 @@ const AdminPanel = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'approvals', 'fraud', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
+          {['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
@@ -329,6 +368,9 @@ const AdminPanel = () => {
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
               {tab === 'fraud' && fraudOpenCount > 0 && (
                 <Badge variant="destructive" className="ml-2">{fraudOpenCount}</Badge>
+              )}
+              {tab === 'claims' && claimsOpenCount > 0 && (
+                <Badge variant="destructive" className="ml-2">{claimsOpenCount}</Badge>
               )}
             </Button>
           ))}
@@ -692,6 +734,106 @@ const AdminPanel = () => {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedTab === 'claims' && (
+          <Card data-testid="admin-claims-content">
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-gold-500" />
+                    Customer Claims
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Triage customer disputes. Approve with a wallet credit, or reject.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {['open', 'resolved', 'closed', 'all'].map((s) => (
+                    <Button
+                      key={s}
+                      variant={claimsFilter === s ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setClaimsFilter(s)}
+                      data-testid={`claims-filter-${s}`}
+                    >
+                      {s}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {claims.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="claims-empty">
+                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
+                  <p>No {claimsFilter === 'all' ? '' : claimsFilter} claims.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {claims.map((claim) => (
+                    <div
+                      key={claim.id}
+                      data-testid={`admin-claim-row-${claim.id}`}
+                      className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60"
+                    >
+                      <div className="flex items-start justify-between flex-wrap gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <Badge variant="outline" className="bg-gold-500/15 text-gold-500 border-gold-500/30">
+                              {(claim.claim_type || 'other').replace(/_/g, ' ')}
+                            </Badge>
+                            <Badge variant="outline">{claim.status}</Badge>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              ORDER #{(claim.order_id || '').slice(0, 8)}
+                            </span>
+                            {typeof claim.resolution_credit === 'number' && claim.resolution_credit > 0 && (
+                              <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
+                                +${claim.resolution_credit.toFixed(2)} credited
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="font-medium text-foreground truncate">{claim.subject}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{claim.description}</p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {claim.created_at && new Date(claim.created_at).toLocaleString()}
+                          </p>
+                          {claim.photo_url && (
+                            <img
+                              src={claim.photo_url}
+                              alt="claim proof"
+                              className="mt-2 max-h-24 rounded-md border border-matte-700"
+                            />
+                          )}
+                        </div>
+                        {claim.status === 'open' && (
+                          <div className="flex gap-2 flex-shrink-0">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => handleClaimResolve(claim.id, 'approved')}
+                              data-testid={`claim-approve-${claim.id}`}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />Approve & credit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleClaimResolve(claim.id, 'rejected', 0)}
+                              data-testid={`claim-reject-${claim.id}`}
+                            >
+                              <X className="h-4 w-4 mr-1" />Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>

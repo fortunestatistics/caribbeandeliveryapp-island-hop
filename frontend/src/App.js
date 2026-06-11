@@ -23,6 +23,7 @@ import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
 import ClaimsPage from './ClaimsPage';
+import UnreadChatBell from './UnreadChatBell';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -363,6 +364,7 @@ const Header = () => {
             <div className="hidden md:flex items-center space-x-4">
               {user ? (
                 <div className="flex items-center space-x-3">
+                  <UnreadChatBell />
                   <ModeSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">

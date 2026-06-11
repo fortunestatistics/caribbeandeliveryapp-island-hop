@@ -464,7 +464,7 @@ const OrderTrackingPageWithMaps = () => {
             </Card>
 
             {/* Chat */}
-            <OrderChat orderId={orderId} currentUserId={user?.id} title="Chat with driver & merchant" />
+            <OrderChat orderId={orderId} currentUserId={user?.id} viewerRole="customer" title="Chat with driver & merchant" />
           </div>
         </div>
 

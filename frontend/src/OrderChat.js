@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
-import { MessageCircle, Send, User as UserIcon, Truck, Store } from 'lucide-react';
+import { Label } from './components/ui/label';
+import { MessageCircle, Send, User as UserIcon, Truck, Store, Repeat, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -36,25 +37,35 @@ const RoleBadge = ({ role }) => {
 /**
  * Reusable per-order chat panel. Renders the full customer ↔ driver ↔ merchant
  * thread for `orderId` and identifies the current viewer via `currentUserId`.
+ * Also surfaces vendor substitution proposals: merchants can propose a swap,
+ * customers can accept or decline inline.
  */
-const OrderChat = ({ orderId, currentUserId, title = 'Order chat', className = '' }) => {
+const OrderChat = ({ orderId, currentUserId, viewerRole, className = '', title = 'Order chat' }) => {
   const [messages, setMessages] = useState([]);
+  const [substitutions, setSubstitutions] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Vendor-only mini-form
+  const [subFormOpen, setSubFormOpen] = useState(false);
+  const [subForm, setSubForm] = useState({ original: '', proposed: '', priceDelta: '0', note: '' });
+  const [subSubmitting, setSubSubmitting] = useState(false);
   const scrollRef = useRef(null);
 
   const scrollToBottom = () => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   };
 
-  const fetchMessages = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!orderId) return;
     try {
-      const r = await axios.get(`${API}/chat/${orderId}/messages`, { headers: authHeaders() });
-      setMessages(r.data || []);
+      const [msgs, subs] = await Promise.all([
+        axios.get(`${API}/chat/${orderId}/messages`, { headers: authHeaders() }),
+        axios.get(`${API}/orders/${orderId}/substitutions`, { headers: authHeaders() }).catch(() => ({ data: [] })),
+      ]);
+      setMessages(msgs.data || []);
+      setSubstitutions(subs.data || []);
     } catch (err) {
-      // 403 means the viewer is not a participant; render an empty thread quietly.
       if (err.response?.status !== 403) {
         console.error('Failed to fetch order chat:', err);
       }
@@ -64,10 +75,10 @@ const OrderChat = ({ orderId, currentUserId, title = 'Order chat', className = '
   }, [orderId]);
 
   useEffect(() => {
-    fetchMessages();
-    const id = setInterval(fetchMessages, 5000);
+    fetchAll();
+    const id = setInterval(fetchAll, 5000);
     return () => clearInterval(id);
-  }, [fetchMessages]);
+  }, [fetchAll]);
 
   useEffect(() => {
     scrollToBottom();
@@ -84,13 +95,59 @@ const OrderChat = ({ orderId, currentUserId, title = 'Order chat', className = '
         { headers: authHeaders() }
       );
       setInput('');
-      fetchMessages();
+      fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Could not send message');
     } finally {
       setSending(false);
     }
   };
+
+  const submitSubstitution = async () => {
+    if (!subForm.original.trim()) {
+      toast.error('Please enter the original item name.');
+      return;
+    }
+    setSubSubmitting(true);
+    try {
+      await axios.post(
+        `${API}/orders/${orderId}/substitutions`,
+        {
+          order_id: orderId,
+          original_item_name: subForm.original.trim(),
+          proposed_item_name: subForm.proposed.trim() || null,
+          price_delta: parseFloat(subForm.priceDelta) || 0,
+          note: subForm.note.trim() || null,
+        },
+        { headers: authHeaders() }
+      );
+      toast.success('Substitution proposed.');
+      setSubForm({ original: '', proposed: '', priceDelta: '0', note: '' });
+      setSubFormOpen(false);
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to propose');
+    } finally {
+      setSubSubmitting(false);
+    }
+  };
+
+  const respondSubstitution = async (propId, accept) => {
+    try {
+      await axios.post(
+        `${API}/orders/${orderId}/substitutions/${propId}/respond?accept=${accept}`,
+        {},
+        { headers: authHeaders() }
+      );
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to respond');
+    }
+  };
+
+  const pendingSubs = substitutions.filter((s) => s.status === 'pending');
+  const isVendor = viewerRole === 'vendor';
+  const isCustomer = viewerRole === 'customer';
 
   return (
     <Card className={className} data-testid="order-chat">
@@ -104,6 +161,136 @@ const OrderChat = ({ orderId, currentUserId, title = 'Order chat', className = '
         </p>
       </CardHeader>
       <CardContent>
+        {/* Pending substitutions — actionable by customer, visible to all */}
+        {pendingSubs.length > 0 && (
+          <div className="mb-3 space-y-2" data-testid="order-chat-substitutions">
+            {pendingSubs.map((sub) => (
+              <div
+                key={sub.id}
+                className="p-3 rounded-lg border border-gold-500/30 bg-gold-500/5"
+                data-testid={`substitution-${sub.id}`}
+              >
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Repeat className="h-4 w-4 text-gold-500" />
+                      <span className="text-sm font-semibold text-foreground">Substitution proposed</span>
+                    </div>
+                    <p className="text-sm text-foreground">
+                      {sub.proposed_item_name ? (
+                        <>
+                          <span className="line-through text-muted-foreground">{sub.original_item_name}</span>
+                          {' → '}
+                          <span className="font-medium">{sub.proposed_item_name}</span>
+                          {sub.price_delta !== 0 && (
+                            <span className={`ml-2 text-xs ${sub.price_delta > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+                              ({sub.price_delta > 0 ? '+' : ''}${Math.abs(sub.price_delta).toFixed(2)})
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>Mark <span className="font-medium">{sub.original_item_name}</span> as unavailable</>
+                      )}
+                    </p>
+                    {sub.note && <p className="text-xs text-muted-foreground mt-1">“{sub.note}”</p>}
+                  </div>
+                  {isCustomer && (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => respondSubstitution(sub.id, true)}
+                        data-testid={`substitution-accept-${sub.id}`}
+                      >
+                        <Check className="h-4 w-4 mr-1" />Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => respondSubstitution(sub.id, false)}
+                        data-testid={`substitution-decline-${sub.id}`}
+                      >
+                        <X className="h-4 w-4 mr-1" />Decline
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Vendor-only: propose a substitution */}
+        {isVendor && (
+          <div className="mb-3">
+            {!subFormOpen ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSubFormOpen(true)}
+                data-testid="propose-substitution-btn"
+                className="border-gold-500/40 text-gold-500"
+              >
+                <Repeat className="h-4 w-4 mr-2" />Propose substitution
+              </Button>
+            ) : (
+              <div className="p-3 rounded-lg border border-matte-700 bg-matte-900/40 space-y-2" data-testid="substitution-form">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Original item</Label>
+                    <Input
+                      value={subForm.original}
+                      onChange={(e) => setSubForm({ ...subForm, original: e.target.value })}
+                      placeholder="e.g. Margherita Pizza"
+                      data-testid="sub-original-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Substitute (leave blank if unavailable)</Label>
+                    <Input
+                      value={subForm.proposed}
+                      onChange={(e) => setSubForm({ ...subForm, proposed: e.target.value })}
+                      placeholder="e.g. Pepperoni Pizza"
+                      data-testid="sub-proposed-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Price difference ($)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={subForm.priceDelta}
+                      onChange={(e) => setSubForm({ ...subForm, priceDelta: e.target.value })}
+                      data-testid="sub-delta-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Note (optional)</Label>
+                    <Input
+                      value={subForm.note}
+                      onChange={(e) => setSubForm({ ...subForm, note: e.target.value })}
+                      placeholder="e.g. Same toppings, fresher batch"
+                      data-testid="sub-note-input"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={submitSubstitution}
+                    disabled={subSubmitting}
+                    data-testid="sub-submit-btn"
+                    className="bg-gold-gradient text-white"
+                  >
+                    {subSubmitting ? 'Sending…' : 'Send to customer'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSubFormOpen(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div
           ref={scrollRef}
           className="space-y-3 max-h-[340px] min-h-[180px] overflow-y-auto pr-1 mb-3"
@@ -136,6 +323,8 @@ const OrderChat = ({ orderId, currentUserId, title = 'Order chat', className = '
                         'px-3.5 py-2 rounded-2xl text-sm whitespace-pre-line ' +
                         (mine
                           ? 'bg-gold-gradient text-white rounded-br-sm'
+                          : m.sender_user_type === 'system'
+                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200 italic'
                           : 'bg-matte-800 text-foreground rounded-bl-sm')
                       }
                     >
