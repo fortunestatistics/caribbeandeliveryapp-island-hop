@@ -21,6 +21,7 @@ import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
+import ReferralBanner from './ReferralBanner';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -1099,18 +1100,19 @@ const AISupport = () => {
 
 // Dashboard Component
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return; // wait for AuthContext to finish hydrating
     if (!user) {
       navigate('/');
       return;
     }
     fetchApplications();
-  }, [user, navigate]);
+  }, [user, authLoading, navigate]);
 
   const fetchApplications = async () => {
     try {
@@ -1125,6 +1127,14 @@ const Dashboard = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-matte-900 flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-2 border-gold-500/30 border-t-gold-500 rounded-full" />
+      </div>
+    );
+  }
+
   if (!user) {
     return <Navigate to="/" />;
   }
@@ -1136,6 +1146,8 @@ const Dashboard = () => {
           <h1 className="text-3xl font-bold text-foreground mb-2">Welcome back, {user.name}!</h1>
           <p className="text-muted-foreground">Manage your IslandHop experience</p>
         </div>
+
+        <ReferralBanner />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}

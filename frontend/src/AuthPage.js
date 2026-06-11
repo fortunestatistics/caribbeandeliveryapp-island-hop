@@ -26,6 +26,13 @@ const AuthPage = ({ mode = 'login' }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [otpStep, setOtpStep] = useState(false);
   const [verifiedOtp, setVerifiedOtp] = useState('');
+  // Pre-fill referral code from `?ref=CODE` URL param
+  const initialRef = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get('ref') || '').trim().toUpperCase();
+    } catch (_e) { return ''; }
+  })();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -33,7 +40,7 @@ const AuthPage = ({ mode = 'login' }) => {
     password: '',
     confirmPassword: '',
     address: '',
-    referralCode: ''
+    referralCode: initialRef
   });
 
   const handleInputChange = (e) => {

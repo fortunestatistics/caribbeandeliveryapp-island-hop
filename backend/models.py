@@ -717,3 +717,23 @@ class KPIMetrics(BaseModel):
     customer_acquisition_cost: float
     customer_lifetime_value: float
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Fraud Review Models
+class FraudFlag(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str
+    customer_id: str
+    amount: float
+    signals: List[str] = []  # heuristic codes, e.g. ["high_value", "velocity", "new_account"]
+    severity: str = "low"  # low, medium, high
+    status: str = "open"  # open, cleared, confirmed_fraud
+    reviewed_by: Optional[str] = None
+    review_notes: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class FraudReviewAction(BaseModel):
+    action: str  # "clear" or "confirm"
+    notes: Optional[str] = None

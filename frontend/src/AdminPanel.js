@@ -55,6 +55,9 @@ const AdminPanel = () => {
   const [whSelectedPhone, setWhSelectedPhone] = useState('');
   const [whMessages, setWhMessages] = useState([]);
   const [whReplyBody, setWhReplyBody] = useState('');
+  const [fraudFlags, setFraudFlags] = useState([]);
+  const [fraudOpenCount, setFraudOpenCount] = useState(0);
+  const [fraudFilter, setFraudFilter] = useState('open');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -64,13 +67,47 @@ const AdminPanel = () => {
     fetchUsers();
     fetchOrders();
     fetchDisputes();
+    // Lightweight fetch of fraud count for tab badge (silent on failure)
+    axios
+      .get(`${API}/admin/fraud-queue?status=open&limit=1`, { headers: authHeaders() })
+      .then((r) => setFraudOpenCount(r.data?.open_count || 0))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (selectedTab === 'approvals') fetchApprovals();
     if (selectedTab === 'zones') fetchZones();
     if (selectedTab === 'whatsapp') fetchWhConvos();
-  }, [selectedTab]);
+    if (selectedTab === 'fraud') fetchFraudQueue();
+  }, [selectedTab, fraudFilter]);
+
+  const fetchFraudQueue = async () => {
+    try {
+      const res = await axios.get(`${API}/admin/fraud-queue?status=${fraudFilter}`, { headers: authHeaders() });
+      setFraudFlags(res.data.flags || []);
+      setFraudOpenCount(res.data.open_count || 0);
+    } catch (e) {
+      console.error('Failed to fetch fraud queue:', e);
+    }
+  };
+
+  const handleFraudReview = async (flagId, action) => {
+    const verb = action === 'clear' ? 'clear' : 'confirm';
+    const confirmMsg = action === 'confirm'
+      ? 'Confirm fraud? This will cancel the order and suspend the customer.'
+      : 'Clear this flag as safe?';
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await axios.post(
+        `${API}/admin/fraud-queue/${flagId}/review`,
+        { action: verb, notes: '' },
+        { headers: authHeaders() }
+      );
+      fetchFraudQueue();
+    } catch (e) {
+      alert(e.response?.data?.detail || `Failed to ${verb} flag`);
+    }
+  };
 
   const fetchApprovals = async () => {
     try {
@@ -282,7 +319,7 @@ const AdminPanel = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'approvals', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
+          {['overview', 'users', 'orders', 'approvals', 'fraud', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
@@ -290,6 +327,9 @@ const AdminPanel = () => {
               data-testid={`admin-tab-${tab}`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'fraud' && fraudOpenCount > 0 && (
+                <Badge variant="destructive" className="ml-2">{fraudOpenCount}</Badge>
+              )}
             </Button>
           ))}
         </div>
@@ -540,6 +580,118 @@ const AdminPanel = () => {
                       </div>
                     )
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedTab === 'fraud' && (
+          <Card data-testid="admin-fraud-content">
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-500" />
+                    Fraud Review Queue
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Orders auto-flagged by heuristics (high value, velocity, new account, refund requests). Review and clear or confirm.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {['open', 'cleared', 'confirmed_fraud', 'all'].map((s) => (
+                    <Button
+                      key={s}
+                      variant={fraudFilter === s ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setFraudFilter(s)}
+                      data-testid={`fraud-filter-${s}`}
+                    >
+                      {s.replace('_', ' ')}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {fraudFlags.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="fraud-empty">
+                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
+                  <p>No {fraudFilter === 'all' ? '' : fraudFilter} fraud flags.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {fraudFlags.map((flag) => {
+                    const sevColor = flag.severity === 'high'
+                      ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                      : flag.severity === 'medium'
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : 'bg-blue-500/20 text-blue-400 border-blue-500/40';
+                    return (
+                      <div
+                        key={flag.id}
+                        data-testid={`fraud-row-${flag.id}`}
+                        className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60"
+                      >
+                        <div className="flex items-start justify-between flex-wrap gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <Badge variant="outline" className={sevColor}>
+                                {flag.severity.toUpperCase()}
+                              </Badge>
+                              <span className="font-mono text-xs text-muted-foreground">
+                                ORDER #{(flag.order_id || '').slice(0, 8)}
+                              </span>
+                              <Badge variant="outline">
+                                ${(flag.amount || 0).toFixed(2)}
+                              </Badge>
+                              {flag.status !== 'open' && (
+                                <Badge variant="secondary">{flag.status.replace('_', ' ')}</Badge>
+                              )}
+                            </div>
+                            <p className="font-medium text-foreground">
+                              {flag.customer?.name || 'Unknown'}
+                              <span className="text-muted-foreground font-normal ml-2 text-sm">
+                                {flag.customer?.email}
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {flag.order?.service_type} · {flag.order?.payment_status} ·{' '}
+                              {flag.created_at && new Date(flag.created_at).toLocaleString()}
+                            </p>
+                            <div className="flex gap-1 mt-2 flex-wrap">
+                              {(flag.signals || []).map((s) => (
+                                <Badge key={s} variant="outline" className="text-xs">
+                                  {s.replace(/_/g, ' ')}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          {flag.status === 'open' && (
+                            <div className="flex gap-2 flex-shrink-0">
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleFraudReview(flag.id, 'clear')}
+                                data-testid={`fraud-clear-${flag.id}`}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />Clear
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleFraudReview(flag.id, 'confirm')}
+                                data-testid={`fraud-confirm-${flag.id}`}
+                              >
+                                <Ban className="h-4 w-4 mr-1" />Confirm Fraud
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

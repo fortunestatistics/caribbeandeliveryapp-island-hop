@@ -27,7 +27,19 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Feb 2026 — Code-review fixes (safe batch) — this session
+### Feb 2026 — Referral Banner + Fraud Review Queue (this session)
+- **Referral share banner** (`/app/frontend/src/ReferralBanner.js`): luxury card mounted on customer dashboard. Only shown to users with at least one paid order. Shows code + "$10 for you, $10 for them" headline + Copy/Native-Share buttons + dismissible (7-day localStorage TTL). `?ref=CODE` URL param prefills the signup form's referral field.
+- **Dashboard auth-loading fix**: `/dashboard` was redirecting to `/` before AuthContext finished hydrating (pre-existing bug). Now waits for `authLoading=false`; shows a spinner during hydration.
+- **Fraud Review Queue (Admin)**: closes the last MVP gap.
+  - New `FraudFlag` model + `fraud_flags` MongoDB collection.
+  - Heuristic engine (`_evaluate_fraud_signals` + `_signals_to_severity`): flags `high_value` (≥$500), `new_account_high_value` (<24h account + ≥$100), `velocity` (≥5 orders in 30min), `unverified_phone` (no OTP + ≥$100), `refund_requested` (added when refund is requested).
+  - Auto-flags on `POST /api/orders` and `POST /api/orders/{id}/refund`. Idempotent — re-evaluating the same open flag merges new signals.
+  - New endpoints: `GET /api/admin/fraud-queue?status=open|cleared|confirmed_fraud|all` and `POST /api/admin/fraud-queue/{id}/review` with action `clear` or `confirm`. Confirm action cancels the order and suspends the customer.
+  - New AdminPanel tab "Fraud" with a red count badge, severity badges (LOW/MEDIUM/HIGH), per-row signals, status filter pills, Clear (green) & Confirm Fraud (red) buttons.
+- **7 new pytest cases** (`test_fraud_queue.py`): admin-only access, flag creation, no-false-positive small orders, clear, confirm (cancels order + suspends), double-review rejection, invalid-action rejection.
+- **All 165 backend pytest cases pass** (was 158, +7 new).
+
+### Feb 2026 — Code-review fixes (safe batch)
 - **Empty catch block fix**: `ModeContext.js:54` `refreshModes()` now logs `console.error('Failed to fetch authorized modes:', err)` before falling back to customer-only mode.
 - **Promo logic refactor**: Extracted 5 helpers (`_parse_promo_dates`, `_assert_promo_dates_valid`, `_assert_promo_usage_within_limit`, `_assert_promo_min_order`, `_assert_promo_service_type`, `_calc_promo_discount`) shared by `validate_promo_code` (was 56 lines, now ~20) and `apply_promo_to_order` (was 88 lines, now ~45). Single source of truth for promo validation rules — no more divergence.
 - **Unused imports removed**: `fastapi.Header`, `pydantic.EmailStr`, two unused Stripe response classes, and 9 unused model re-exports. Pyflakes: 0 warnings.

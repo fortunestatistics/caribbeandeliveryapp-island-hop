@@ -127,6 +127,7 @@ from models import (
     PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
     CustomerRating,
+    FraudFlag, FraudReviewAction,
 )
 
 # Helper function to calculate commission and split payments
@@ -1136,6 +1137,74 @@ async def admin_cancel_order(order_id: str, request: Request):
     
     return {"success": True}
 
+# ---- Admin: Fraud Review Queue ----
+@api_router.get("/admin/fraud-queue")
+async def admin_fraud_queue(request: Request, status: str = "open", limit: int = 100):
+    """List fraud flags. Default returns only open flags."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    cursor = db.fraud_flags.find(query).sort("created_at", -1).limit(limit)
+    flags = []
+    async for f in cursor:
+        f.pop("_id", None)
+        # Hydrate minimal order + customer info for the queue card
+        order = await db.orders.find_one({"id": f.get("order_id")}, {"_id": 0, "id": 1, "service_type": 1, "total": 1, "status": 1, "payment_status": 1, "created_at": 1})
+        customer = await db.users.find_one({"id": f.get("customer_id")}, {"_id": 0, "id": 1, "name": 1, "email": 1, "phone_verified": 1})
+        f["order"] = order
+        f["customer"] = customer
+        flags.append(f)
+    # Summary counts
+    open_count = await db.fraud_flags.count_documents({"status": "open"})
+    return {"flags": flags, "open_count": open_count}
+
+
+@api_router.post("/admin/fraud-queue/{flag_id}/review")
+async def admin_fraud_review(flag_id: str, payload: FraudReviewAction, request: Request):
+    """Resolve a fraud flag. action='clear' marks safe, 'confirm' marks confirmed_fraud."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    action = (payload.action or "").lower()
+    if action not in {"clear", "confirm"}:
+        raise HTTPException(status_code=400, detail="action must be 'clear' or 'confirm'")
+
+    flag = await db.fraud_flags.find_one({"id": flag_id})
+    if not flag:
+        raise HTTPException(status_code=404, detail="Fraud flag not found")
+    if flag.get("status") != "open":
+        raise HTTPException(status_code=400, detail=f"Flag already {flag.get('status')}")
+
+    new_status = "cleared" if action == "clear" else "confirmed_fraud"
+    await db.fraud_flags.update_one(
+        {"id": flag_id},
+        {"$set": {
+            "status": new_status,
+            "reviewed_by": current_user.id,
+            "review_notes": payload.notes,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    # If confirmed fraud, cancel order and suspend the customer
+    if action == "confirm":
+        await db.orders.update_one(
+            {"id": flag.get("order_id")},
+            {"$set": {"status": "cancelled", "cancelled_by": "fraud_review"}},
+        )
+        await db.users.update_one(
+            {"id": flag.get("customer_id")},
+            {"$set": {"status": "suspended", "suspended_reason": "fraud_review"}},
+        )
+
+    return {"success": True, "status": new_status}
+
+
 # Promo Code Routes
 @api_router.post("/promo-codes", response_model=PromoCode)
 async def create_promo_code(promo: PromoCode, request: Request):
@@ -1465,6 +1534,103 @@ async def close_ticket(ticket_id: str, request: Request):
     return {"success": True}
 
 # Order Management Routes
+# ---- Fraud detection helpers ----
+HIGH_VALUE_ORDER_THRESHOLD = 500.0
+VELOCITY_WINDOW_MINUTES = 30
+VELOCITY_ORDER_COUNT = 5  # orders within window
+NEW_ACCOUNT_HOURS = 24
+
+async def _evaluate_fraud_signals(order_dict: dict, customer: dict) -> List[str]:
+    """Return list of fraud signal codes for an order. Heuristic, deterministic."""
+    signals: List[str] = []
+    now = datetime.now(timezone.utc)
+
+    total = float(order_dict.get("total", 0) or 0)
+    if total >= HIGH_VALUE_ORDER_THRESHOLD:
+        signals.append("high_value")
+
+    # New account + non-trivial order
+    created_at_raw = customer.get("created_at")
+    try:
+        if isinstance(created_at_raw, str):
+            acct_created = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
+        elif isinstance(created_at_raw, datetime):
+            acct_created = created_at_raw
+        else:
+            acct_created = None
+        if acct_created is not None:
+            if acct_created.tzinfo is None:
+                acct_created = acct_created.replace(tzinfo=timezone.utc)
+            age_hours = (now - acct_created).total_seconds() / 3600.0
+            if age_hours < NEW_ACCOUNT_HOURS and total >= 100.0:
+                signals.append("new_account_high_value")
+    except (ValueError, TypeError):
+        pass
+
+    # Velocity: many orders in short window
+    window_start = (now - timedelta(minutes=VELOCITY_WINDOW_MINUTES)).isoformat()
+    recent_count = await db.orders.count_documents({
+        "customer_id": customer.get("id"),
+        "created_at": {"$gte": window_start},
+    })
+    if recent_count >= VELOCITY_ORDER_COUNT:
+        signals.append("velocity")
+
+    # Phone not verified — light signal
+    if not customer.get("phone_verified", False) and total >= 100.0:
+        signals.append("unverified_phone")
+
+    return signals
+
+
+def _signals_to_severity(signals: List[str]) -> str:
+    if not signals:
+        return "low"
+    high_signals = {"velocity", "new_account_high_value"}
+    if any(s in high_signals for s in signals):
+        return "high"
+    if "high_value" in signals or len(signals) >= 2:
+        return "medium"
+    return "low"
+
+
+async def _maybe_flag_order(order_dict: dict, extra_signals: Optional[List[str]] = None) -> Optional[dict]:
+    """Evaluate signals and create a FraudFlag if any are triggered. Idempotent per order."""
+    customer = await db.users.find_one({"id": order_dict.get("customer_id")})
+    if not customer:
+        return None
+    signals = await _evaluate_fraud_signals(order_dict, customer)
+    if extra_signals:
+        for s in extra_signals:
+            if s not in signals:
+                signals.append(s)
+    if not signals:
+        return None
+
+    existing = await db.fraud_flags.find_one({"order_id": order_dict.get("id"), "status": "open"})
+    if existing:
+        # Merge any new signals into the existing open flag
+        merged = list(dict.fromkeys((existing.get("signals") or []) + signals))
+        await db.fraud_flags.update_one(
+            {"id": existing["id"]},
+            {"$set": {"signals": merged, "severity": _signals_to_severity(merged)}},
+        )
+        existing["signals"] = merged
+        existing["severity"] = _signals_to_severity(merged)
+        return existing
+
+    flag = FraudFlag(
+        order_id=order_dict.get("id"),
+        customer_id=order_dict.get("customer_id"),
+        amount=float(order_dict.get("total", 0) or 0),
+        signals=signals,
+        severity=_signals_to_severity(signals),
+    )
+    flag_doc = prepare_for_mongo(flag.dict())
+    await db.fraud_flags.insert_one(flag_doc)
+    return flag_doc
+
+
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
     """Create new order with automatic commission calculation"""
@@ -1492,7 +1658,13 @@ async def create_order(order: Order, request: Request):
     
     order_dict = prepare_for_mongo(order.dict())
     await db.orders.insert_one(order_dict)
-    
+
+    # Fraud scoring (idempotent; only persists if signals fire)
+    try:
+        await _maybe_flag_order(order_dict)
+    except Exception as e:
+        logging.warning(f"Fraud scoring failed for order {order.id}: {e}")
+
     # Notify vendor via WebSocket
     if vendor_id:
         await manager.send_personal_message(
@@ -3567,6 +3739,12 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
         raise HTTPException(status_code=400, detail="Order is not paid; nothing to refund")
     if order.get("payment_status") == "refunded":
         raise HTTPException(status_code=400, detail="Order already refunded")
+
+    # Refund attempt is itself a fraud signal — surface this order for review.
+    try:
+        await _maybe_flag_order(order, extra_signals=["refund_requested"])
+    except Exception as e:
+        logging.warning(f"Fraud flag on refund failed for order {order_id}: {e}")
 
     # If the order was paid from the IslandHop wallet, refund directly to wallet —
     # there is no Stripe charge to reverse.
