@@ -303,7 +303,7 @@ const GlobalSearch = () => {
           </div>
         </div>
       )}
-    </div>
+    </form>
   );
 };
 
