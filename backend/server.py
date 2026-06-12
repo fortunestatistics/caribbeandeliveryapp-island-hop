@@ -1160,17 +1160,31 @@ async def admin_fraud_queue(request: Request, status: str = "open", limit: int =
     query: dict = {}
     if status and status != "all":
         query["status"] = status
-    cursor = db.fraud_flags.find(query).sort("created_at", -1).limit(limit)
-    flags = []
-    async for f in cursor:
+    flags = await db.fraud_flags.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+    for f in flags:
         f.pop("_id", None)
-        # Hydrate minimal order + customer info for the queue card
-        order = await db.orders.find_one({"id": f.get("order_id")}, {"_id": 0, "id": 1, "service_type": 1, "total": 1, "status": 1, "payment_status": 1, "created_at": 1})
-        customer = await db.users.find_one({"id": f.get("customer_id")}, {"_id": 0, "id": 1, "name": 1, "email": 1, "phone_verified": 1})
-        f["order"] = order
-        f["customer"] = customer
-        flags.append(f)
-    # Summary counts
+
+    # Batch-hydrate orders + customers in 2 queries (avoids N+1)
+    order_ids = list({f.get("order_id") for f in flags if f.get("order_id")})
+    customer_ids = list({f.get("customer_id") for f in flags if f.get("customer_id")})
+    orders_by_id: dict = {}
+    customers_by_id: dict = {}
+    if order_ids:
+        async for o in db.orders.find(
+            {"id": {"$in": order_ids}},
+            {"_id": 0, "id": 1, "service_type": 1, "total": 1, "status": 1, "payment_status": 1, "created_at": 1},
+        ):
+            orders_by_id[o["id"]] = o
+    if customer_ids:
+        async for c in db.users.find(
+            {"id": {"$in": customer_ids}},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "phone_verified": 1},
+        ):
+            customers_by_id[c["id"]] = c
+    for f in flags:
+        f["order"] = orders_by_id.get(f.get("order_id"))
+        f["customer"] = customers_by_id.get(f.get("customer_id"))
+
     open_count = await db.fraud_flags.count_documents({"status": "open"})
     return {"flags": flags, "open_count": open_count}
 
