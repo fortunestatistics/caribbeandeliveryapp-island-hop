@@ -26,6 +26,7 @@ import ClaimsPage from './ClaimsPage';
 import UnreadChatBell from './UnreadChatBell';
 import SubAppsDropdown from './SubAppsDropdown';
 import Footer from './Footer';
+import ProtectedRoute from './ProtectedRoute';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -1625,6 +1626,7 @@ function App() {
             <AuthHandler />
           
           <Routes>
+            {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
@@ -1636,33 +1638,42 @@ function App() {
             <Route path="/pharmacy-order" element={<PharmacyOrderForm />} />
             <Route path="/grocery-order" element={<GroceryOrderForm />} />
             <Route path="/car-rentals" element={<CarRentalPage />} />
-            <Route path="/analytics" element={<KPIDashboard />} />
             <Route path="/partner" element={<PartnerSelection />} />
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
-            <Route path="/driver-onboarding" element={<DriverOnboarding />} />
-            <Route path="/restaurant-onboarding" element={<RestaurantOnboarding />} />
-            <Route path="/menu-management" element={<RestaurantMenuManagement />} />
-            <Route path="/vendor-dashboard" element={<VendorDashboard />} />
-            <Route path="/driver-dashboard" element={<DriverDashboard />} />
-            <Route path="/admin" element={<AdminPanel />} />
-            <Route path="/promo-codes" element={<PromoCodeManagement />} />
-            <Route path="/addresses" element={<AddressManagement />} />
-            <Route path="/scheduled-orders" element={<OrderScheduling />} />
-            <Route path="/checkout/:orderId" element={<CheckoutPage />} />
-            <Route path="/payment/success" element={<PaymentSuccess />} />
-            <Route path="/payment/cancel" element={<PaymentCancel />} />
-            <Route path="/vendor/connect-stripe" element={<VendorStripeConnect />} />
-            <Route path="/vendor/stripe-return" element={<VendorStripeConnect />} />
-            <Route path="/vendor/stripe-refresh" element={<VendorStripeConnect />} />
-            <Route path="/wallet" element={<WalletPage />} />
-            <Route path="/referrals" element={<ReferralPage />} />
-            <Route path="/driver" element={<DriverRegistration />} />
-            <Route path="/order/:orderId" element={<OrderTrackingPage />} />
-            <Route path="/driver/earnings" element={<DriverEarningsDashboard />} />
-            <Route path="/business/earnings" element={<BusinessEarningsDashboard />} />
             <Route path="/support" element={<AISupport />} />
-            <Route path="/claims" element={<ClaimsPage />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/order/:orderId" element={<OrderTrackingPage />} />
+
+            {/* Logged-in users (any role) */}
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
+            <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+            <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />
+            <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
+            <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
+            <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+            <Route path="/payment/success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
+            <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancel /></ProtectedRoute>} />
+
+            {/* Driver-only */}
+            <Route path="/driver-dashboard" element={<ProtectedRoute allowedRoles={['driver', 'admin']}><DriverDashboard /></ProtectedRoute>} />
+            <Route path="/driver-onboarding" element={<ProtectedRoute allowedRoles={['driver', 'customer', 'admin']}><DriverOnboarding /></ProtectedRoute>} />
+            <Route path="/driver" element={<ProtectedRoute allowedRoles={['driver', 'customer', 'admin']}><DriverRegistration /></ProtectedRoute>} />
+            <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={['driver', 'admin']}><DriverEarningsDashboard /></ProtectedRoute>} />
+
+            {/* Merchant / Vendor only */}
+            <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorDashboard /></ProtectedRoute>} />
+            <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={['restaurant', 'customer', 'admin']}><RestaurantOnboarding /></ProtectedRoute>} />
+            <Route path="/menu-management" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><RestaurantMenuManagement /></ProtectedRoute>} />
+            <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><BusinessEarningsDashboard /></ProtectedRoute>} />
+            <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/vendor/stripe-refresh" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><PromoCodeManagement /></ProtectedRoute>} />
+
+            {/* Admin only */}
+            <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/analytics" element={<ProtectedRoute allowedRoles={['admin']}><KPIDashboard /></ProtectedRoute>} />
+
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
 

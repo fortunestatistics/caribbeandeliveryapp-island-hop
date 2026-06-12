@@ -27,7 +27,20 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Feb 2026 — Custom domain wire-up + Sub-Apps dropdown + Contact footer (this session)
+### Feb 2026 — Role-based route guards + 403 page (this session)
+- **New `<ProtectedRoute>` wrapper** (`src/ProtectedRoute.js`) — accepts `allowedRoles?: string[]`. While auth is loading shows a spinner; when not logged in redirects to `/login` (preserving `from`); when role mismatches renders a polished `Forbidden403` page; otherwise renders children.
+- **New `<Forbidden403>` page** (`src/Forbidden403.js`) — branded "Access restricted" card with shield icon, shows the role the visitor signed in as, plus Home / Sign-in buttons.
+- **Route gating applied to every role-restricted path in `App.js`**:
+  - Public: `/`, `/login`, `/signup`, `/pricing`, `/restaurants`, all order forms, `/car-rentals`, `/partner`, `/partner/onboarding`, `/support`, `/order/:orderId`.
+  - Auth-required (any role): `/dashboard`, `/wallet`, `/referrals`, `/claims`, `/addresses`, `/scheduled-orders`, `/checkout/:orderId`, `/payment/success`, `/payment/cancel`.
+  - Driver-only: `/driver-dashboard`, `/driver-onboarding`, `/driver`, `/driver/earnings`.
+  - Merchant/Vendor-only: `/vendor-dashboard`, `/restaurant-onboarding`, `/menu-management`, `/business/earnings`, `/vendor/connect-stripe` (+ stripe-return/refresh), `/promo-codes`.
+  - Admin-only: `/admin`, `/analytics`.
+  - `admin` is always included in restricted roles so admins can debug any panel.
+- **Verified end-to-end**: customer hitting `/admin` and `/vendor-dashboard` now sees Forbidden403 (not the page shell). Customer on `/wallet` renders normally. Logged-out on `/admin` redirects to `/login`.
+- **181/181 backend pytest pass** (route guards are pure client-side; backend authorization is unchanged).
+
+### Feb 2026 — Custom domain wire-up + Sub-Apps dropdown + Contact footer (earlier this session)
 - **Sub-Apps Dropdown** (top-left brand): replaced the static "IslandHop" logo with a clickable brand button. Opens a luxury panel listing all 6 services (Food Delivery, Pharmacy, Groceries, Courier, Taxi, Car Rental) with gold icons + short descriptions; each navigates to its service route. Closes on outside-click, ARIA-compliant.
 - **Footer** (`Footer.js`): site-wide footer with 5 official contacts (`support`, `partner`, `drivers`, `investors`, `banking.partners` @ islandhoptt.com), each as a `mailto:` card with gold icon + role description. Brand block + Trinidad & Tobago tag. `CONTACT_EMAILS` exported as the single source of truth.
 - **Domain wiring** (code-side prep — user still completes the Emergent "Link domain" / Entri DNS flow):
