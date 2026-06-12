@@ -252,8 +252,8 @@ async def create_vendor_stripe_account(vendor_id: str, vendor_type: str, email: 
         # Create account link for onboarding
         account_link = stripe.AccountLink.create(
             account=account.id,
-            refresh_url=f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/vendor/stripe-refresh",
-            return_url=f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/vendor/stripe-return",
+            refresh_url=f"{os.environ['FRONTEND_URL']}/vendor/stripe-refresh",
+            return_url=f"{os.environ['FRONTEND_URL']}/vendor/stripe-return",
             type="account_onboarding",
         )
         
@@ -801,26 +801,31 @@ async def global_search(q: str):
             ],
             "available": True
         }).limit(10).to_list(length=None)
-        
+
+        # Batch-fetch vendor names in a single query (avoids N+1)
+        vendor_ids = list({item.get("vendor_id") for item in menu_items if item.get("vendor_id")})
+        vendor_name_by_id: dict = {}
+        if vendor_ids:
+            async for v in db.restaurants.find({"id": {"$in": vendor_ids}}, {"_id": 0, "id": 1, "name": 1}):
+                vendor_name_by_id[v["id"]] = v.get("name")
+
         for item in menu_items:
-            # Get vendor name
-            vendor = await db.restaurants.find_one({"id": item.get("vendor_id")})
             results.append({
                 "id": item.get("id"),
                 "name": item.get("name"),
                 "type": "product",
                 "vendor_id": item.get("vendor_id"),
-                "vendor_name": vendor.get("name") if vendor else "Unknown",
+                "vendor_name": vendor_name_by_id.get(item.get("vendor_id"), "Unknown"),
                 "price": item.get("price"),
                 "description": item.get("description", "")
             })
-    
+
     return {"results": results[:20]}  # Limit to top 20 results
 
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
-    """Get all active restaurants"""
-    restaurants = await db.restaurants.find({"status": "active"}, {"_id": 0}).to_list(length=None)
+    """Get all active restaurants (capped at 200 for safety)."""
+    restaurants = await db.restaurants.find({"status": "active"}, {"_id": 0}).limit(200).to_list(length=None)
     valid = []
     for r in restaurants:
         try:
@@ -865,7 +870,7 @@ async def get_my_menu(request: Request):
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found for user")
     
-    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).to_list(length=None)
+    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).limit(500).to_list(length=None)
     return menu_items
 
 @api_router.get("/restaurants/{restaurant_id}/menu")
@@ -1232,7 +1237,7 @@ async def create_promo_code(promo: PromoCode, request: Request):
 async def get_promo_codes(active_only: bool = False):
     """Get all promo codes"""
     query = {"active": True} if active_only else {}
-    promo_codes = await db.promo_codes.find(query, {"_id": 0}).to_list(length=None)
+    promo_codes = await db.promo_codes.find(query, {"_id": 0}).limit(200).to_list(length=None)
     return promo_codes
 
 # --- Promo validation helpers (shared by validate_promo_code & apply_promo_to_order) ---
