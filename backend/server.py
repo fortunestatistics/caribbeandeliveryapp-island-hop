@@ -2105,7 +2105,7 @@ async def get_order_chat_messages(order_id: str, request: Request):
 
     messages = await db.order_chat_messages.find(
         {"order_id": order_id}, {"_id": 0}
-    ).sort("created_at", 1).to_list(length=None)
+    ).sort("created_at", 1).limit(200).to_list(length=200)
     # Mark unread messages as read by the current viewer (idempotent)
     await db.order_chat_messages.update_many(
         {"order_id": order_id, "read_by": {"$ne": current_user.id}},
@@ -2145,19 +2145,19 @@ async def chat_unread_summary(request: Request):
         or_clauses.append({"driver_id": driver_row["id"]})
     # Vendor: restaurants.user_id or businesses.user_id
     vendor_ids: List[str] = []
-    async for rest in db.restaurants.find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+    async for rest in db.restaurants.find({"user_id": current_user.id}, {"_id": 0, "id": 1}).limit(50):
         vendor_ids.append(rest["id"])
-    async for biz in db.businesses.find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+    async for biz in db.businesses.find({"user_id": current_user.id}, {"_id": 0, "id": 1}).limit(50):
         vendor_ids.append(biz["id"])
     if vendor_ids:
         or_clauses.append({"restaurant_id": {"$in": vendor_ids}})
         or_clauses.append({"vendor_id": {"$in": vendor_ids}})
 
-    # Only consider non-terminal orders
+    # Only consider non-terminal orders (capped to most recent 100 for safety)
     active_statuses = ["pending", "accepted", "preparing", "ready", "picked_up", "in_transit"]
     orders_cursor = db.orders.find(
         {"$or": or_clauses, "status": {"$in": active_statuses}}, {"_id": 0, "id": 1}
-    )
+    ).sort("created_at", -1).limit(100)
     order_ids = [o["id"] async for o in orders_cursor]
     if not order_ids:
         return {"unread_total": 0, "orders_with_unread": []}
