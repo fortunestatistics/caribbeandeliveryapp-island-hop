@@ -27,7 +27,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Feb 2026 — Deployment readiness PASS (this session)
+### Feb 2026 — Custom domain wire-up + Sub-Apps dropdown + Contact footer (this session)
+- **Sub-Apps Dropdown** (top-left brand): replaced the static "IslandHop" logo with a clickable brand button. Opens a luxury panel listing all 6 services (Food Delivery, Pharmacy, Groceries, Courier, Taxi, Car Rental) with gold icons + short descriptions; each navigates to its service route. Closes on outside-click, ARIA-compliant.
+- **Footer** (`Footer.js`): site-wide footer with 5 official contacts (`support`, `partner`, `drivers`, `investors`, `banking.partners` @ islandhoptt.com), each as a `mailto:` card with gold icon + role description. Brand block + Trinidad & Tobago tag. `CONTACT_EMAILS` exported as the single source of truth.
+- **Domain wiring** (code-side prep — user still completes the Emergent "Link domain" / Entri DNS flow):
+  - `backend/.env`: `FRONTEND_URL` → `https://www.islandhoptt.com`
+  - `backend/.env`: `CARIPAY_API_BASE_URL` → `https://www.islandhoptt.com/api`
+  - CORS is `*` so the new domain works automatically.
+- **All 181 backend pytest cases still pass.**
+
+### Feb 2026 — Deployment readiness PASS (earlier this session)
 **Real deployment blockers fixed:**
 - `.gitignore`: removed all 6 duplicate `.env` / `.env.*` patterns that were blocking `.env` files from being committed (Emergent platform requires `.env` to be in repo).
 - `backend/.env`: fixed line 13 where `PAYPAL_CLIENT_ID` and `CARIPAY_API_BASE_URL` were collapsed onto one line.

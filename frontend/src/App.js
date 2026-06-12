@@ -24,6 +24,8 @@ import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
 import ClaimsPage from './ClaimsPage';
 import UnreadChatBell from './UnreadChatBell';
+import SubAppsDropdown from './SubAppsDropdown';
+import Footer from './Footer';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -331,16 +333,8 @@ const Header = () => {
       <header className="bg-matte-900/90 backdrop-blur-xl border-b border-gold-500/20 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
-            {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2 flex-shrink-0">
-              <div className="w-10 h-10 bg-gold-gradient rounded-xl flex items-center justify-center">
-                <Package className="h-6 w-6 text-white" />
-              </div>
-              <div className="hidden sm:block">
-                <h1 className="text-xl font-bold text-foreground">IslandHop</h1>
-                <p className="text-xs text-gold-500">Caribbean Delivery</p>
-              </div>
-            </Link>
+            {/* Brand + Sub-Apps Dropdown */}
+            <SubAppsDropdown />
 
             {/* Global Search - Desktop */}
             <div className="hidden md:flex flex-1 max-w-4xl">
@@ -1671,7 +1665,8 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
-          
+
+          <Footer />
           <Toaster />
         </div>
       </Router>
