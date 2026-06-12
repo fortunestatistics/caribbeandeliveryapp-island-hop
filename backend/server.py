@@ -1006,13 +1006,13 @@ async def get_vendor_stats(request: Request):
         "status": "pending"
     })
     
-    # Total earnings (all time)
-    all_orders = await db.orders.find({
-        filter_field: vendor_id,
-        "status": "delivered"
-    }).to_list(length=None)
-    
-    total_earnings = sum(order.get("vendor_payout", 0) for order in all_orders)
+    # Total earnings (all time) — aggregation avoids loading every delivered order
+    vendor_earnings_pipeline = [
+        {"$match": {filter_field: vendor_id, "status": "delivered"}},
+        {"$group": {"_id": None, "total": {"$sum": "$vendor_payout"}}},
+    ]
+    vendor_earnings_rows = await db.orders.aggregate(vendor_earnings_pipeline).to_list(length=1)
+    total_earnings = vendor_earnings_rows[0]["total"] if vendor_earnings_rows else 0
     
     return {
         "today_orders": today_orders,
@@ -1037,9 +1037,13 @@ async def get_admin_stats(request: Request):
     # Total orders
     total_orders = await db.orders.count_documents({})
     
-    # Total revenue (platform earnings)
-    all_orders = await db.orders.find({"status": "delivered"}).to_list(length=None)
-    total_revenue = sum(order.get("platform_earnings", 0) for order in all_orders)
+    # Total revenue (platform earnings) — aggregation avoids loading every delivered order
+    revenue_pipeline = [
+        {"$match": {"status": "delivered"}},
+        {"$group": {"_id": None, "total": {"$sum": "$platform_earnings"}}},
+    ]
+    revenue_rows = await db.orders.aggregate(revenue_pipeline).to_list(length=1)
+    total_revenue = revenue_rows[0]["total"] if revenue_rows else 0
     
     # Active drivers
     active_drivers = await db.drivers.count_documents({"status": "online"})
@@ -3012,17 +3016,21 @@ async def admin_run_weekly_driver_bonus(request: Request):
 
 @api_router.get("/vendors/{vendor_id}/ratings")
 async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
-    """Get ratings for a vendor"""
+    """Get ratings for a vendor (batched customer lookup; avoids N+1)."""
     ratings = await db.ratings.find({
         "vendor_id": vendor_id,
         "vendor_rating": {"$ne": None}
     }).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
-    
-    # Get customer names
+
+    # Batch-fetch all customer names in a single query
+    customer_ids = list({r["customer_id"] for r in ratings if r.get("customer_id")})
+    name_by_id: dict = {}
+    if customer_ids:
+        async for u in db.users.find({"id": {"$in": customer_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            name_by_id[u["id"]] = u.get("name") or "Anonymous"
     for rating in ratings:
-        customer = await db.users.find_one({"id": rating["customer_id"]})
-        rating["customer_name"] = customer.get("name", "Anonymous") if customer else "Anonymous"
-    
+        rating["customer_name"] = name_by_id.get(rating.get("customer_id"), "Anonymous")
+
     return ratings
 
 @api_router.get("/drivers/{driver_id}/ratings")
