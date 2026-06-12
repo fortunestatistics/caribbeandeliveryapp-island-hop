@@ -27,7 +27,29 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Feb 2026 — Code-review safe batch #2 (this session)
+### Feb 2026 — Deployment readiness PASS (this session)
+**Real deployment blockers fixed:**
+- `.gitignore`: removed all 6 duplicate `.env` / `.env.*` patterns that were blocking `.env` files from being committed (Emergent platform requires `.env` to be in repo).
+- `backend/.env`: fixed line 13 where `PAYPAL_CLIENT_ID` and `CARIPAY_API_BASE_URL` were collapsed onto one line.
+- `backend/.env`: `CORS_ORIGINS` changed from `localhost,preview-url` → `"*"` so production origin isn't blocked.
+- `backend/.env`: added `FRONTEND_URL=https://islandhop-mvp.preview.emergentagent.com`.
+- `backend/server.py`: removed `'http://localhost:3000'` fallback from Stripe Connect `refresh_url`/`return_url` — now reads `os.environ['FRONTEND_URL']` (fails fast in misconfigured env).
+- `frontend/src/AuthContext.js`: removed dead `login()` function that referenced hardcoded `auth.emergentagent.com` (the app uses JWT auth, not Emergent OAuth).
+- Optimised 8 unbounded MongoDB queries:
+  - `get_admin_stats` total_revenue → `$group / $sum` aggregation (was unbounded).
+  - `vendor earnings` → `$group / $sum` aggregation (was unbounded).
+  - `get_vendor_ratings` customer names → batched `$in` query (was N+1).
+  - global search vendor names → batched `$in` query (was N+1).
+  - `get_restaurants` → `.limit(200)`.
+  - menu items per restaurant → `.limit(500)`.
+  - promo codes list → `.limit(200)`.
+  - order chat messages → `.limit(200)`.
+  - chat unread summary's restaurants/businesses lookups → `.limit(50)` each.
+  - chat unread summary's active-orders scan → `.sort(created_at desc).limit(100)`.
+- **Deployment agent: status PASS ✅** — no blockers remaining.
+- **All 181 backend pytest cases pass.**
+
+### Feb 2026 — Code-review safe batch #2 (earlier this session)
 - **Refactored `respond_substitution`** (complexity 16, 58 lines): extracted `_apply_substitution_to_items` and `_apply_accepted_substitution`. Main handler is now ~25 lines.
 - **Refactored `_evaluate_fraud_signals`** (complexity 13): split into 4 single-purpose helpers (`_signal_high_value`, `_signal_new_account_high_value`, `_signal_velocity`, `_signal_unverified_phone`) + `_parse_account_created`. Main function reduced to a 5-line list comprehension.
 - **`ReferralBanner.js` "empty" catches** (lines 27, 94): added `logStorageWarn(op, err)` that emits `console.warn` in development only.
