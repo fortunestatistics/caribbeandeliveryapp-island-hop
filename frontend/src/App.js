@@ -27,6 +27,9 @@ import UnreadChatBell from './UnreadChatBell';
 import SubAppsDropdown from './SubAppsDropdown';
 import Footer from './Footer';
 import ProtectedRoute from './ProtectedRoute';
+import AboutPage from './AboutPage';
+import HotRightNow from './HotRightNow';
+import AnimatedCounter from './AnimatedCounter';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -569,10 +572,10 @@ const LandingPage = () => {
   ];
 
   const stats = [
-    { number: '50K+', label: 'Active Users' },
-    { number: '5K+', label: 'Partner Businesses' },
-    { number: '100K+', label: 'Deliveries Completed' },
-    { number: '4.8', label: 'Average Rating' }
+    { value: 50,  suffix: 'K+', label: 'Active Users' },
+    { value: 5,   suffix: 'K+', label: 'Partner Businesses' },
+    { value: 100, suffix: 'K+', label: 'Deliveries Completed' },
+    { value: 4.8, suffix: '',   label: 'Average Rating', fixed: true },
   ];
 
   const features = [
@@ -644,11 +647,18 @@ const LandingPage = () => {
               </Button>
             </div>
 
+            {/* Hot right now widget */}
+            <div className="mt-12 max-w-2xl mx-auto">
+              <HotRightNow />
+            </div>
+
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center">
-                  <div className="text-4xl md:text-5xl font-bold mb-2">{stat.number}</div>
+                  <div className="text-4xl md:text-5xl font-bold mb-2" data-testid={`stat-${stat.label.replace(/\s+/g, '-').toLowerCase()}`}>
+                    {stat.fixed ? stat.value.toFixed(1) : <AnimatedCounter value={stat.value} suffix={stat.suffix} />}
+                  </div>
                   <div className="text-sm md:text-base text-white/80">{stat.label}</div>
                 </div>
               ))}
@@ -1655,6 +1665,7 @@ function App() {
             <Route path="/partner" element={<PartnerSelection />} />
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
             <Route path="/support" element={<AISupport />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 
             {/* Logged-in users (any role) */}

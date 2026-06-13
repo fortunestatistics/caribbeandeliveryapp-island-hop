@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import ReviewForm from './ReviewForm';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
+import { celebrate } from './celebrate';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -85,10 +86,11 @@ const OrderTrackingPageWithMaps = () => {
         setOrder(response.data);
         setLoading(false);
 
-        // If order is delivered, show rating modal
+        // If order is delivered, celebrate + show rating modal
         if (response.data.status === 'delivered') {
           const hasRated = await checkIfRated();
           if (!hasRated) {
+            celebrate();
             setTimeout(() => setShowRatingModal(true), 2000);
           }
         }
@@ -189,8 +191,9 @@ const OrderTrackingPageWithMaps = () => {
       if (data.type === 'order_status_update' && data.order_id === orderId) {
         setOrder(prev => ({ ...prev, status: data.status }));
         
-        // Show rating modal when delivered
+        // Celebrate + show rating modal when delivered (live WS event)
         if (data.status === 'delivered') {
+          celebrate();
           setTimeout(() => setShowRatingModal(true), 2000);
         }
       }

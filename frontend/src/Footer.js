@@ -43,6 +43,13 @@ const Footer = () => {
             >
               www.islandhoptt.com <ExternalLink className="h-3 w-3" />
             </a>
+            <a
+              href="/about"
+              data-testid="footer-about"
+              className="block text-xs text-muted-foreground hover:text-gold-500 mt-2 transition-colors"
+            >
+              About IslandHop &amp; press →
+            </a>
           </div>
 
           {/* Contact directory — spans 2 cols on md+ */}
