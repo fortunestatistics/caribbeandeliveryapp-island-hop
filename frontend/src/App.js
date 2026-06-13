@@ -104,6 +104,14 @@ import './App.css';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Static role-guard sets, hoisted to module scope so they keep a stable
+// reference identity across renders (avoids re-rendering ProtectedRoute).
+const ROLES_DRIVER_ADMIN = ['driver', 'admin'];
+const ROLES_DRIVER_ONBOARD = ['driver', 'customer', 'admin'];
+const ROLES_VENDOR_ADMIN = ['restaurant', 'business', 'admin'];
+const ROLES_VENDOR_ONBOARD = ['restaurant', 'customer', 'admin'];
+const ROLES_ADMIN_ONLY = ['admin'];
+
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
@@ -1698,24 +1706,24 @@ function App() {
             <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancel /></ProtectedRoute>} />
 
             {/* Driver-only */}
-            <Route path="/driver-dashboard" element={<ProtectedRoute allowedRoles={['driver', 'admin']}><DriverDashboard /></ProtectedRoute>} />
-            <Route path="/driver-onboarding" element={<ProtectedRoute allowedRoles={['driver', 'customer', 'admin']}><DriverOnboarding /></ProtectedRoute>} />
-            <Route path="/driver" element={<ProtectedRoute allowedRoles={['driver', 'customer', 'admin']}><DriverRegistration /></ProtectedRoute>} />
-            <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={['driver', 'admin']}><DriverEarningsDashboard /></ProtectedRoute>} />
+            <Route path="/driver-dashboard" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverDashboard /></ProtectedRoute>} />
+            <Route path="/driver-onboarding" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverOnboarding /></ProtectedRoute>} />
+            <Route path="/driver" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverRegistration /></ProtectedRoute>} />
+            <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverEarningsDashboard /></ProtectedRoute>} />
 
             {/* Merchant / Vendor only */}
-            <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorDashboard /></ProtectedRoute>} />
-            <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={['restaurant', 'customer', 'admin']}><RestaurantOnboarding /></ProtectedRoute>} />
-            <Route path="/menu-management" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><RestaurantMenuManagement /></ProtectedRoute>} />
-            <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><BusinessEarningsDashboard /></ProtectedRoute>} />
-            <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
-            <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
-            <Route path="/vendor/stripe-refresh" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><VendorStripeConnect /></ProtectedRoute>} />
-            <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={['restaurant', 'business', 'admin']}><PromoCodeManagement /></ProtectedRoute>} />
+            <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
+            <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ONBOARD}><RestaurantOnboarding /></ProtectedRoute>} />
+            <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
+            <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
+            <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/vendor/stripe-refresh" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
+            <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><PromoCodeManagement /></ProtectedRoute>} />
 
             {/* Admin only */}
-            <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminPanel /></ProtectedRoute>} />
-            <Route path="/analytics" element={<ProtectedRoute allowedRoles={['admin']}><KPIDashboard /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/analytics" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><KPIDashboard /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

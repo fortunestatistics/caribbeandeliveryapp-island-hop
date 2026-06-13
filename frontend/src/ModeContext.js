@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -84,7 +84,7 @@ export const ModeProvider = ({ children }) => {
   const isMerchant = mode === MODES.MERCHANT;
   const isAdmin = mode === MODES.ADMIN;
 
-  const value = {
+  const value = useMemo(() => ({
     mode,
     setMode,
     authorizedModes,
@@ -94,7 +94,7 @@ export const ModeProvider = ({ children }) => {
     isDriver,
     isMerchant,
     isAdmin,
-  };
+  }), [mode, setMode, authorizedModes, modesLoading, refreshModes, isCustomer, isDriver, isMerchant, isAdmin]);
 
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>;
 };

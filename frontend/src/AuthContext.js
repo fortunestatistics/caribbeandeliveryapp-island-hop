@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -59,8 +59,10 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
+  const value = useMemo(() => ({ user, logout, loading }), [user, loading]);
+
   return (
-    <AuthContext.Provider value={{ user, logout, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
