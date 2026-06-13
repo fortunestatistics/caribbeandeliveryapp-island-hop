@@ -27,12 +27,26 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Jun 2026 — Batch A: Leaderboard, Live Map Preview, Push Notifications (this session)
-- **Driver Leaderboard**: `GET /api/drivers/leaderboard` (public, top drivers by rating→deliveries, GOLD/SILVER/BRONZE tiers). Frontend page at `/leaderboard` (`DriverLeaderboard.js`) with aspirational fallback roster when no rated drivers exist.
-- **Live Order Map Preview**: decorative animated SVG map (`LiveOrderMapPreview.js`) mounted on landing hero — cycles synthetic deliveries across Trinidad & Tobago.
-- **Web Push Notifications** (VAPID/pywebpush): endpoints `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`. Service worker `public/sw.js`, `EnablePushButton.js` on Dashboard. Order-status changes fire a browser push to the customer. VAPID keys in `backend/.env` (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CLAIM_EMAIL`), read lazily in `push_client.py`. Expired subs (404/410) auto-pruned.
-- Tests: `tests/test_leaderboard_push.py` (5 passing). Deployment readiness check: PASS.
-- **PromoSlides** ad carousel + Open Graph meta tags verified compiling (from prior session).
+### Jun 2026 — Admin Outlook/M365 Inbox via Microsoft Graph (BUILT, pending Azure admin consent)
+- **Feature complete & tested on app side; BLOCKED only on customer's Azure "Grant admin consent" step.**
+- Backend `graph_mail.py` (MSAL client-credentials flow, lazy env read) + endpoints (admin-only):
+  - `GET /api/admin/mail/status` (configured / consent_granted / roles / mailboxes)
+  - `GET /api/admin/mail/mailboxes`
+  - `GET /api/admin/mail/mailboxes/{mailbox}/messages` (inbox, paginated)
+  - `GET /api/admin/mail/mailboxes/{mailbox}/messages/{id}` (full body, marks read)
+  - `POST /api/admin/mail/mailboxes/{mailbox}/messages/{id}/reply` (threaded reply via Graph reply action)
+  - Graceful 409 when consent missing, 503 when not configured.
+- Frontend `AdminMailInbox.js` mounted as the **"Mail" tab** in `AdminPanel.js`: mailbox switcher, message list, read pane, reply box, and a "Microsoft 365 approval pending" banner while `consent_granted=false`.
+- Env (in `backend/.env`): `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET` (all verified valid — token acquisition succeeds), `M365_GRAPH_SCOPE`, `SUPPORT_MAILBOXES` (8 islandhoptt.com mailboxes).
+- **BLOCKER:** App token returns `roles: NONE` → the Microsoft Graph **Application permissions Mail.Read / Mail.ReadWrite / Mail.Send have not been added + admin-consented** in the customer's Azure app registration "IslandHop Inbox". Customer (non-technical) repeatedly could not complete the API-permissions/consent step. Once a Global Admin adds those 3 application permissions and clicks "Grant admin consent", the inbox works with zero code changes. Verify with: app-only token must contain `roles` including `Mail.Read`.
+- Azure app: client_id `84d3c4ea-377b-49f4-af44-0abd623921ee`, tenant `2c1ceb20-5931-4915-8876-ce77f7b4152b`.
+
+### Jun 2026 — Batch A: Leaderboard, Live Map Preview, Push Notifications
+- **Driver Leaderboard**: `GET /api/drivers/leaderboard` + `/leaderboard` page (`DriverLeaderboard.js`), tiered, fallback roster.
+- **Live Order Map Preview**: animated SVG (`LiveOrderMapPreview.js`) on landing hero.
+- **Web Push** (VAPID/pywebpush): `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`; `public/sw.js`; `EnablePushButton.js` on Dashboard; order-status changes push to customer. VAPID keys in `backend/.env`.
+- Code-review safe fixes: hoisted static `allowedRoles` arrays to module consts in `App.js`; memoized `AuthContext`/`ModeContext` provider values.
+- Tests: `tests/test_leaderboard_push.py` (5 passing). Deployment readiness: PASS.
 
 ### Feb 2026 — Role-based route guards + 403 page (this session)
 - **New `<ProtectedRoute>` wrapper** (`src/ProtectedRoute.js`) — accepts `allowedRoles?: string[]`. While auth is loading shows a spinner; when not logged in redirects to `/login` (preserving `from`); when role mismatches renders a polished `Forbidden403` page; otherwise renders children.
