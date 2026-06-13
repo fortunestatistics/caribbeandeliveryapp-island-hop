@@ -30,6 +30,7 @@ import ProtectedRoute from './ProtectedRoute';
 import AboutPage from './AboutPage';
 import HotRightNow from './HotRightNow';
 import AnimatedCounter from './AnimatedCounter';
+import PromoSlides from './PromoSlides';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -650,6 +651,11 @@ const LandingPage = () => {
             {/* Hot right now widget */}
             <div className="mt-12 max-w-2xl mx-auto">
               <HotRightNow />
+            </div>
+
+            {/* Advertisement / promo slides */}
+            <div className="mt-10 max-w-4xl mx-auto">
+              <PromoSlides />
             </div>
 
             {/* Stats */}
