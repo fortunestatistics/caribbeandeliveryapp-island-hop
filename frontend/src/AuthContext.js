@@ -46,12 +46,12 @@ export const AuthProvider = ({ children }) => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('Logout request failed:', error);
     }
     try {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-    } catch (_e) { /* localStorage unavailable */ }
+    } catch (e) { console.warn('localStorage unavailable during logout:', e); }
     setUser(null);
   };
 

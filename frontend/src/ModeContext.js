@@ -68,14 +68,14 @@ export const ModeProvider = ({ children }) => {
       try { persisted = localStorage.getItem(STORAGE_KEY); } catch (_e) { persisted = null; }
       if (persisted && persisted !== MODES.CUSTOMER && !modes[persisted]) {
         _setMode(MODES.CUSTOMER);
-        try { localStorage.setItem(STORAGE_KEY, MODES.CUSTOMER); } catch (_e) { /* localStorage unavailable */ }
+        try { localStorage.setItem(STORAGE_KEY, MODES.CUSTOMER); } catch (e) { console.warn('localStorage unavailable:', e); }
       }
     });
   }, [refreshModes]);
 
   const setMode = useCallback((newMode) => {
     _setMode(newMode);
-    try { localStorage.setItem(STORAGE_KEY, newMode); } catch (_e) { /* localStorage unavailable */ }
+    try { localStorage.setItem(STORAGE_KEY, newMode); } catch (e) { console.warn('localStorage unavailable:', e); }
   }, []);
 
   // Convenience flags

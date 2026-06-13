@@ -109,7 +109,7 @@ const DriverDashboard = () => {
       try {
         const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
-      } catch { /* drivers without incentives just see $0 */ }
+      } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
       console.error('Error fetching earnings:', error);
     }

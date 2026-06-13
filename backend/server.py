@@ -4254,12 +4254,28 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
     """
     Phase C: Issue a refund for an order.
     Only the customer who placed the order or an admin user can issue.
+    Orchestrates: validate → fraud-flag → route to wallet or Stripe refund.
     """
     if not STRIPE_API_KEY:
         raise HTTPException(status_code=500, detail="Stripe not configured")
     current_user = await get_current_user_from_request(request)
 
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    _validate_refund_request(current_user, order)
+
+    # Refund attempt is itself a fraud signal — surface this order for review.
+    try:
+        await _maybe_flag_order(order, extra_signals=["refund_requested"])
+    except Exception as e:
+        logging.warning(f"Fraud flag on refund failed for order {order_id}: {e}")
+
+    if order.get("payment_method") == "wallet":
+        return await _refund_to_wallet(order, order_id, payload, current_user)
+    return await _refund_via_stripe(order, order_id, payload, current_user)
+
+
+def _validate_refund_request(current_user, order: Optional[dict]) -> None:
+    """Authorization + state guards for a refund. Raises HTTPException on failure."""
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if current_user.user_type != "admin" and order.get("customer_id") != current_user.id:
@@ -4269,54 +4285,64 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
     if order.get("payment_status") == "refunded":
         raise HTTPException(status_code=400, detail="Order already refunded")
 
-    # Refund attempt is itself a fraud signal — surface this order for review.
-    try:
-        await _maybe_flag_order(order, extra_signals=["refund_requested"])
-    except Exception as e:
-        logging.warning(f"Fraud flag on refund failed for order {order_id}: {e}")
 
-    # If the order was paid from the IslandHop wallet, refund directly to wallet —
-    # there is no Stripe charge to reverse.
-    if order.get("payment_method") == "wallet":
-        order_total = float(order.get("total") or 0)
-        refund_amount = _round_money(payload.amount) if payload.amount is not None else _round_money(order_total)
-        if refund_amount <= 0 or refund_amount > order_total:
-            raise HTTPException(status_code=400, detail="Invalid refund amount")
-        is_full = abs(refund_amount - order_total) < 0.01
-        new_status = "refunded" if is_full else "partially_refunded"
-        # Acquire the order-level lock FIRST (compare-and-set on payment_status)
-        # so we never double-credit a wallet under concurrent refund calls.
-        lock = await db.orders.update_one(
-            {"id": order_id, "payment_status": "paid"},
-            {"$set": {
-                "payment_status": new_status,
-                "refunded_amount": float(order.get("refunded_amount", 0)) + refund_amount,
-                "refunded_at": datetime.now(timezone.utc).isoformat(),
-                "vendor_payout_status": "reversed",
-            }},
-        )
-        if lock.matched_count == 0:
-            raise HTTPException(status_code=400, detail="Order already refunded or not in a refundable state")
-        await _credit_wallet_with_txn(
-            order["customer_id"], refund_amount, "USD",
-            txn_type="refund", order_id=order_id, note="Wallet refund",
-        )
-        await db.refunds.insert_one({
-            "id": str(uuid.uuid4()),
-            "order_id": order_id,
-            "amount": refund_amount,
-            "stripe_refund_id": None,
-            "method": "wallet",
-            "reason": payload.reason,
-            "issued_by": current_user.id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        return {"success": True, "order_id": order_id, "method": "wallet",
-                "amount": refund_amount, "status": new_status}
+def _resolve_refund_amount(order: dict, requested: Optional[float]) -> float:
+    """Resolve and validate the refund amount against the order total."""
+    order_total = float(order.get("total") or 0)
+    amount = _round_money(requested) if requested is not None else _round_money(order_total)
+    if amount <= 0 or amount > order_total:
+        raise HTTPException(status_code=400, detail="Invalid refund amount")
+    return amount
 
-    # Otherwise — Stripe refund flow (original behaviour)
 
-    # Find the successful payment_transaction for this order
+async def _record_refund(order_id: str, amount: float, *, method: str,
+                         stripe_refund_id: Optional[str], reason, issued_by: str) -> None:
+    """Append an audit row to the refunds collection."""
+    await db.refunds.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "amount": amount,
+        "stripe_refund_id": stripe_refund_id,
+        "method": method,
+        "reason": reason,
+        "issued_by": issued_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def _refund_to_wallet(order: dict, order_id: str, payload: "RefundRequest", current_user) -> dict:
+    """Refund an order that was paid from the IslandHop wallet (no Stripe charge to reverse)."""
+    order_total = float(order.get("total") or 0)
+    refund_amount = _resolve_refund_amount(order, payload.amount)
+    is_full = abs(refund_amount - order_total) < 0.01
+    new_status = "refunded" if is_full else "partially_refunded"
+
+    # Acquire the order-level lock FIRST (compare-and-set on payment_status)
+    # so we never double-credit a wallet under concurrent refund calls.
+    lock = await db.orders.update_one(
+        {"id": order_id, "payment_status": "paid"},
+        {"$set": {
+            "payment_status": new_status,
+            "refunded_amount": float(order.get("refunded_amount", 0)) + refund_amount,
+            "refunded_at": datetime.now(timezone.utc).isoformat(),
+            "vendor_payout_status": "reversed",
+        }},
+    )
+    if lock.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Order already refunded or not in a refundable state")
+
+    await _credit_wallet_with_txn(
+        order["customer_id"], refund_amount, "USD",
+        txn_type="refund", order_id=order_id, note="Wallet refund",
+    )
+    await _record_refund(order_id, refund_amount, method="wallet",
+                         stripe_refund_id=None, reason=payload.reason, issued_by=current_user.id)
+    return {"success": True, "order_id": order_id, "method": "wallet",
+            "amount": refund_amount, "status": new_status}
+
+
+async def _refund_via_stripe(order: dict, order_id: str, payload: "RefundRequest", current_user) -> dict:
+    """Reverse a Stripe charge for an order paid by card."""
     txn = await db.payment_transactions.find_one(
         {"metadata.order_id": order_id, "payment_status": "paid"},
         {"_id": 0},
@@ -4324,7 +4350,6 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
     if not txn:
         raise HTTPException(status_code=404, detail="No paid transaction found for this order")
 
-    # Retrieve the Stripe Checkout Session to get its payment_intent
     try:
         session = stripe.checkout.Session.retrieve(txn["session_id"])
         payment_intent_id = session.payment_intent
@@ -4357,17 +4382,8 @@ async def refund_order(order_id: str, payload: RefundRequest, request: Request):
             "vendor_payout_status": "reversed",
         }},
     )
-    # Record the refund event for audit
-    await db.refunds.insert_one({
-        "id": str(uuid.uuid4()),
-        "order_id": order_id,
-        "amount": refund_amount,
-        "stripe_refund_id": refund.id,
-        "reason": payload.reason,
-        "issued_by": current_user.id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-
+    await _record_refund(order_id, refund_amount, method="stripe",
+                         stripe_refund_id=refund.id, reason=payload.reason, issued_by=current_user.id)
     return {
         "success": True,
         "order_id": order_id,
