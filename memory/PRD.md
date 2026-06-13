@@ -54,7 +54,7 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - `.gitignore`: removed all 6 duplicate `.env` / `.env.*` patterns that were blocking `.env` files from being committed (Emergent platform requires `.env` to be in repo).
 - `backend/.env`: fixed line 13 where `PAYPAL_CLIENT_ID` and `CARIPAY_API_BASE_URL` were collapsed onto one line.
 - `backend/.env`: `CORS_ORIGINS` changed from `localhost,preview-url` → `"*"` so production origin isn't blocked.
-- `backend/.env`: added `FRONTEND_URL=https://islandhop-mvp.preview.emergentagent.com`.
+- `backend/.env`: added `FRONTEND_URL=https://super-app-beta.preview.emergentagent.com`.
 - `backend/server.py`: removed `'http://localhost:3000'` fallback from Stripe Connect `refresh_url`/`return_url` — now reads `os.environ['FRONTEND_URL']` (fails fast in misconfigured env).
 - `frontend/src/AuthContext.js`: removed dead `login()` function that referenced hardcoded `auth.emergentagent.com` (the app uses JWT auth, not Emergent OAuth).
 - Optimised 8 unbounded MongoDB queries:
