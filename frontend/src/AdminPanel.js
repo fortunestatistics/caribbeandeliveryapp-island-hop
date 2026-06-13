@@ -32,6 +32,7 @@ import {
 import axios from 'axios';
 
 import AdminStatsCards from './AdminStatsCards';
+import AdminMailInbox from './AdminMailInbox';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -358,7 +359,7 @@ const AdminPanel = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
+          {['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'mail', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
@@ -952,6 +953,11 @@ const AdminPanel = () => {
             </Card>
           </div>
         )}
+        {selectedTab === 'mail' && (
+          <AdminMailInbox />
+        )}
+
+
 
         {selectedTab === 'analytics' && (
           <div className="grid md:grid-cols-2 gap-6">

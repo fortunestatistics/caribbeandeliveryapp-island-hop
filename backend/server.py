@@ -20,6 +20,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import push_client
+import graph_mail
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2576,6 +2577,73 @@ async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/da
         result = await asyncio.to_thread(push_client.send_web_push, subscription_info, payload)
         if result.get("gone"):
             await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+
+
+# ---------------------------------------------------------------------------
+# Admin Outlook / Microsoft 365 Inbox (Microsoft Graph)
+# ---------------------------------------------------------------------------
+async def _require_admin(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+def _ensure_mailbox_allowed(mailbox: str):
+    allowed = [m.lower() for m in graph_mail.get_support_mailboxes()]
+    if mailbox.lower() not in allowed:
+        raise HTTPException(status_code=403, detail="Mailbox not in the configured support list")
+
+
+@api_router.get("/admin/mail/status")
+async def admin_mail_status(request: Request):
+    await _require_admin(request)
+    return await asyncio.to_thread(graph_mail.graph_status)
+
+
+@api_router.get("/admin/mail/mailboxes")
+async def admin_mail_mailboxes(request: Request):
+    await _require_admin(request)
+    return {"mailboxes": graph_mail.get_support_mailboxes()}
+
+
+@api_router.get("/admin/mail/mailboxes/{mailbox}/messages")
+async def admin_mail_list(mailbox: str, request: Request, top: int = 25, skiptoken: Optional[str] = None):
+    await _require_admin(request)
+    _ensure_mailbox_allowed(mailbox)
+    try:
+        return await graph_mail.list_messages(mailbox, top=min(max(top, 1), 50), skip_token=skiptoken)
+    except graph_mail.GraphConsentMissing as exc:
+        raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+    except graph_mail.GraphNotConfigured:
+        raise HTTPException(status_code=503, detail="Microsoft 365 not configured")
+
+
+@api_router.get("/admin/mail/mailboxes/{mailbox}/messages/{message_id}")
+async def admin_mail_get(mailbox: str, message_id: str, request: Request):
+    await _require_admin(request)
+    _ensure_mailbox_allowed(mailbox)
+    try:
+        return await graph_mail.get_message(mailbox, message_id)
+    except graph_mail.GraphConsentMissing as exc:
+        raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+
+
+class MailReplyRequest(BaseModel):
+    body_html: str
+
+
+@api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/reply")
+async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequest, request: Request):
+    await _require_admin(request)
+    _ensure_mailbox_allowed(mailbox)
+    if not payload.body_html.strip():
+        raise HTTPException(status_code=400, detail="Reply body cannot be empty")
+    try:
+        await graph_mail.reply_to_message(mailbox, message_id, payload.body_html)
+        return {"success": True}
+    except graph_mail.GraphConsentMissing as exc:
+        raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
 
 
 # Driver Wallet Routes
