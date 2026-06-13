@@ -315,19 +315,33 @@ const GlobalSearch = () => {
 
 // Header Component
 const Header = () => {
-  const { user, login, logout } = useAuth();
+  const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navigationItems = [
-    { to: "/restaurants", label: "Restaurants", icon: Utensils },
-    { to: "/car-rentals", label: "Car Rentals", icon: Car },
-    { to: "/wallet", label: "Wallet", icon: WalletIcon },
-    { to: "/analytics", label: "Analytics", icon: TrendingUp },
-    { to: "/pricing", label: "Pricing", icon: DollarSign },
-    { to: "/partner", label: "Become a Partner", icon: Building2 },
-    { to: "/driver-onboarding", label: "Drive with Us", icon: Truck },
-    { to: "/support", label: "Support", icon: MessageCircle }
+  // Each nav item declares which roles should see it.
+  //   `show: 'everyone'`        — visible regardless of auth state
+  //   `show: 'guest'`           — only when logged out
+  //   `show: 'authed'`          — any logged-in user
+  //   `show: ['admin', 'driver']` — restricted to listed user_type(s)
+  const allNavigationItems = [
+    { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
+    { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
+    { to: "/wallet",            label: "Wallet",            icon: WalletIcon,  show: 'authed' },
+    { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
+    { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
+    { to: "/partner",           label: "Become a Partner",  icon: Building2,   show: 'guest-or-customer' },
+    { to: "/driver-onboarding", label: "Drive with Us",     icon: Truck,       show: 'guest-or-customer' },
+    { to: "/support",           label: "Support",           icon: MessageCircle, show: 'everyone' },
   ];
+
+  const navigationItems = allNavigationItems.filter((item) => {
+    if (item.show === 'everyone') return true;
+    if (item.show === 'guest') return !user;
+    if (item.show === 'authed') return !!user;
+    if (item.show === 'guest-or-customer') return !user || user.user_type === 'customer';
+    if (Array.isArray(item.show)) return user ? item.show.includes(user.user_type) : false;
+    return true;
+  });
 
   return (
     <>
