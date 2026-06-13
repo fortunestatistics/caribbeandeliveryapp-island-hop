@@ -792,3 +792,22 @@ class FraudFlag(BaseModel):
 class FraudReviewAction(BaseModel):
     action: str  # "clear" or "confirm"
     notes: Optional[str] = None
+
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
+class PushSubscription(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    endpoint: str
+    keys: PushSubscriptionKeys
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

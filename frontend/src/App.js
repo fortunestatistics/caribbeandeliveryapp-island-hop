@@ -31,6 +31,9 @@ import AboutPage from './AboutPage';
 import HotRightNow from './HotRightNow';
 import AnimatedCounter from './AnimatedCounter';
 import PromoSlides from './PromoSlides';
+import LiveOrderMapPreview from './LiveOrderMapPreview';
+import DriverLeaderboard from './DriverLeaderboard';
+import EnablePushButton from './EnablePushButton';
 import { ModeProvider } from './ModeContext';
 import ModeSwitcher from './ModeSwitcher';
 import SubscriptionPlans from './SubscriptionPlans';
@@ -653,6 +656,11 @@ const LandingPage = () => {
               <HotRightNow />
             </div>
 
+            {/* Live order map preview */}
+            <div className="mt-12 max-w-4xl mx-auto">
+              <LiveOrderMapPreview />
+            </div>
+
             {/* Advertisement / promo slides */}
             <div className="mt-10 max-w-4xl mx-auto">
               <PromoSlides />
@@ -1173,6 +1181,9 @@ const Dashboard = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Welcome back, {user.name}!</h1>
           <p className="text-muted-foreground">Manage your IslandHop experience</p>
+          <div className="mt-4">
+            <EnablePushButton />
+          </div>
         </div>
 
         <ReferralBanner />
@@ -1672,6 +1683,7 @@ function App() {
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
             <Route path="/support" element={<AISupport />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 
             {/* Logged-in users (any role) */}

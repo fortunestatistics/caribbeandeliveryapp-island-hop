@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -18,6 +19,7 @@ import re
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
+import push_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -131,6 +133,7 @@ from models import (
     CustomerRating,
     FraudFlag, FraudReviewAction,
     TicketMessageCreate, ResolveClaimRequest,
+    PushSubscription, PushSubscriptionCreate,
 )
 
 # Helper function to calculate commission and split payments
@@ -1940,6 +1943,15 @@ async def update_order_status(order_id: str, status: str, request: Request):
     if order.get("driver_id"):
         await manager.send_personal_message(notification, order["driver_id"])
 
+    # Best-effort browser push so customers get updates even with the tab closed.
+    status_label = status.replace("_", " ").title()
+    await send_push_to_user(
+        order["customer_id"],
+        f"Order {status_label}",
+        f"Your IslandHop order is now {status_label.lower()}.",
+        f"/order/{order_id}",
+    )
+
     return {"message": f"Order status updated to {status}"}
 
 # Enhanced Order Management Routes
@@ -2480,6 +2492,91 @@ async def create_driver(driver: Driver, request: Request):
     )
     
     return driver
+
+@api_router.get("/drivers/leaderboard")
+async def get_driver_leaderboard(limit: int = 10):
+    """Public leaderboard of top drivers ranked by rating, then delivery count.
+
+    Returns an empty list when no rated drivers exist yet; the frontend then
+    shows an aspirational fallback roster.
+    """
+    capped = max(1, min(limit, 50))
+    drivers = await db.drivers.find(
+        {"rating": {"$gt": 0}}, {"_id": 0}
+    ).sort("rating", -1).limit(capped).to_list(length=None)
+
+    leaderboard = []
+    for d in drivers:
+        user = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1})
+        deliveries = await db.orders.count_documents(
+            {"driver_id": d.get("id"), "status": "delivered"}
+        )
+        rating = float(d.get("rating", 0) or 0)
+        if rating >= 4.95:
+            tier = "GOLD"
+        elif rating >= 4.7:
+            tier = "SILVER"
+        else:
+            tier = "BRONZE"
+        leaderboard.append({
+            "id": d.get("id"),
+            "name": (user or {}).get("name") or "IslandHop Driver",
+            "area": "Trinidad & Tobago",
+            "deliveries": deliveries,
+            "rating": round(rating, 2),
+            "streak": tier,
+        })
+
+    leaderboard.sort(key=lambda r: (r["rating"], r["deliveries"]), reverse=True)
+    return leaderboard
+
+
+# ---------------------------------------------------------------------------
+# Web Push (browser notifications)
+# ---------------------------------------------------------------------------
+@api_router.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Public VAPID key the browser needs to create a push subscription."""
+    return {"public_key": os.environ.get("VAPID_PUBLIC_KEY", "")}
+
+
+@api_router.post("/push/subscribe")
+async def subscribe_push(sub: PushSubscriptionCreate, request: Request):
+    """Persist a browser push subscription for the current user (idempotent per endpoint)."""
+    current_user = await get_current_user_from_request(request)
+    record = PushSubscription(user_id=current_user.id, endpoint=sub.endpoint, keys=sub.keys)
+    await db.push_subscriptions.update_one(
+        {"endpoint": sub.endpoint},
+        {"$set": {**record.dict(), "user_id": current_user.id}},
+        upsert=True,
+    )
+    return {"success": True}
+
+
+@api_router.post("/push/unsubscribe")
+async def unsubscribe_push(payload: Dict[str, str], request: Request):
+    """Remove a browser push subscription."""
+    await get_current_user_from_request(request)
+    endpoint = payload.get("endpoint")
+    if endpoint:
+        await db.push_subscriptions.delete_one({"endpoint": endpoint})
+    return {"success": True}
+
+
+async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/dashboard") -> None:
+    """Fire a web push to every device the user has subscribed. Best-effort; never raises."""
+    if not user_id:
+        return
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(length=None)
+    if not subs:
+        return
+    payload = {"title": title, "body": body, "url": url}
+    for sub in subs:
+        subscription_info = {"endpoint": sub["endpoint"], "keys": sub["keys"]}
+        result = await asyncio.to_thread(push_client.send_web_push, subscription_info, payload)
+        if result.get("gone"):
+            await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+
 
 # Driver Wallet Routes
 @api_router.get("/drivers/{driver_id}/wallet")
