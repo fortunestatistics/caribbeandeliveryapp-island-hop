@@ -7,6 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import asyncio
+import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -557,6 +558,61 @@ async def login(credentials: UserLogin):
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user"""
     return current_user
+
+
+# Emergent-managed Google OAuth: we use it only to obtain the verified Google
+# identity, then mint OUR existing JWT so the rest of the app is unchanged.
+EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+
+class SocialAuthRequest(BaseModel):
+    session_id: str
+
+
+@api_router.post("/auth/social/google", response_model=Token)
+async def google_social_auth(payload: SocialAuthRequest):
+    """Exchange an Emergent Google OAuth session_id for our app JWT.
+
+    Creates the user's profile automatically on first sign-in (no password),
+    and links to the existing account by email on subsequent sign-ins.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                EMERGENT_SESSION_URL,
+                headers={"X-Session-ID": payload.session_id},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not reach Google sign-in service")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Google sign-in failed or expired. Please try again.")
+
+    data = resp.json()
+    email = (data.get("email") or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Google did not return an email address")
+    name = data.get("name") or email.split("@")[0]
+    picture = data.get("picture")
+
+    user_doc = await db.users.find_one({"email": email})
+    if user_doc:
+        user = User(**user_doc)
+        if picture and not user_doc.get("picture"):
+            await db.users.update_one({"id": user.id}, {"$set": {"picture": picture}})
+            user.picture = picture
+    else:
+        user = User(email=email, name=name, picture=picture, user_type="customer")
+        user_dict = prepare_for_mongo(user.dict())
+        user_dict["auth_provider"] = "google"
+        await db.users.insert_one(user_dict)
+        try:
+            await _persist_pending_referral(user)
+        except Exception as e:
+            logging.warning(f"Referral persist failed for social signup {email}: {e}")
+
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
 @api_router.get("/auth/me/modes")

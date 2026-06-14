@@ -7,7 +7,13 @@ import {
   LineChart,
   Landmark,
   ExternalLink,
+  Instagram,
 } from 'lucide-react';
+
+// Single source of truth for IslandHop social profiles.
+export const SOCIAL_LINKS = [
+  { key: 'instagram', label: 'Instagram', handle: '@islandhopapp', url: 'https://instagram.com/islandhopapp', icon: Instagram },
+];
 
 // Single source of truth for every official IslandHop contact address.
 // Update here when emails change — nothing else in the codebase hardcodes them.
@@ -50,6 +56,30 @@ const Footer = () => {
             >
               About IslandHop &amp; press →
             </a>
+
+            {/* Social profiles */}
+            <div className="mt-6">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 mb-2">Follow us</p>
+              <div className="flex items-center gap-3">
+                {SOCIAL_LINKS.map((s) => {
+                  const Icon = s.icon;
+                  return (
+                    <a
+                      key={s.key}
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={s.label}
+                      title={`${s.label} ${s.handle}`}
+                      data-testid={`social-${s.key}`}
+                      className="w-9 h-9 rounded-lg bg-gold-500/10 flex items-center justify-center text-gold-500 hover:bg-gold-500/20 hover:scale-105 transition-all"
+                    >
+                      <Icon className="h-4 w-4" />
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* Contact directory — spans 2 cols on md+ */}

@@ -27,7 +27,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Jun 2026 — Admin Outlook/M365 Inbox via Microsoft Graph (✅ LIVE)
+### Jun 2026 — Social Login (Google) + Instagram link
+- **Google sign-in LIVE** via Emergent-managed Google OAuth, integrated into the existing JWT system (NOT the cookie/session model): `POST /api/auth/social/google` takes `{session_id}`, calls Emergent `/auth/v1/env/oauth/session-data`, create-or-links a `User` by email (auto-creates profile on first sign-in, `auth_provider: "google"`, no password), and mints our existing JWT (`create_access_token`). Returns the standard `Token` shape so the rest of the app is unchanged.
+- Frontend: `SocialAuthCallback.js` at route `/auth/callback` parses `#session_id`, posts to backend, stores JWT in localStorage, full-page redirect to `/dashboard`. AuthPage "Continue with Google" button redirects to `https://auth.emergentagent.com/?redirect=${origin}/auth/callback`.
+- Backend verified: invalid session → 401. **Full Google round-trip needs a real Google account to test (cannot be automated).**
+- Apple & Microsoft sign-in buttons still show "coming soon" — Apple needs an Apple Developer account ($99/yr); Microsoft needs an Azure app configured for delegated sign-in (redirect URIs + secret).
+- Footer: added **Instagram** social link (`SOCIAL_LINKS` in `Footer.js`) → https://instagram.com/islandhopapp.
+
+
 - **Feature complete, tested, and WORKING with real mailboxes.**
 - Active Azure app: client_id `3547d007-5f7f-49e0-8400-c531e9ff1824`, tenant `2c1ceb20-5931-4915-8876-ce77f7b4152b` (an earlier app `84d3c4ea-...` was abandoned — customer had two registrations and was editing the wrong one; Mail permissions ended up on `3547d007`). Graph app-only token now carries `Mail.Read`, `Mail.ReadWrite`, `Mail.Send` (+ other mailbox roles); `/api/admin/mail/status` returns `consent_granted: true`.
 - `SUPPORT_MAILBOXES` (7 valid): tracyfortune@, banking.partners@, info@, investors@, partner@, support@, drivers@ islandhoptt.com. NOTE: `partners@islandhoptt.com` was removed — it is not a real mailbox in the tenant (Graph 404 ErrorInvalidUser); only singular `partner@` exists.

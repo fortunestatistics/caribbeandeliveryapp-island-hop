@@ -19,6 +19,7 @@ import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
 import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
+import SocialAuthCallback from './SocialAuthCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
@@ -1678,6 +1679,7 @@ function App() {
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/auth/callback" element={<SocialAuthCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
