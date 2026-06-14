@@ -27,19 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Jun 2026 — Admin Outlook/M365 Inbox via Microsoft Graph (BUILT, pending Azure admin consent)
-- **Feature complete & tested on app side; BLOCKED only on customer's Azure "Grant admin consent" step.**
-- Backend `graph_mail.py` (MSAL client-credentials flow, lazy env read) + endpoints (admin-only):
-  - `GET /api/admin/mail/status` (configured / consent_granted / roles / mailboxes)
-  - `GET /api/admin/mail/mailboxes`
-  - `GET /api/admin/mail/mailboxes/{mailbox}/messages` (inbox, paginated)
-  - `GET /api/admin/mail/mailboxes/{mailbox}/messages/{id}` (full body, marks read)
-  - `POST /api/admin/mail/mailboxes/{mailbox}/messages/{id}/reply` (threaded reply via Graph reply action)
-  - Graceful 409 when consent missing, 503 when not configured.
-- Frontend `AdminMailInbox.js` mounted as the **"Mail" tab** in `AdminPanel.js`: mailbox switcher, message list, read pane, reply box, and a "Microsoft 365 approval pending" banner while `consent_granted=false`.
-- Env (in `backend/.env`): `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET` (all verified valid — token acquisition succeeds), `M365_GRAPH_SCOPE`, `SUPPORT_MAILBOXES` (8 islandhoptt.com mailboxes).
-- **BLOCKER:** App token returns `roles: NONE` → the Microsoft Graph **Application permissions Mail.Read / Mail.ReadWrite / Mail.Send have not been added + admin-consented** in the customer's Azure app registration "IslandHop Inbox". Customer (non-technical) repeatedly could not complete the API-permissions/consent step. Once a Global Admin adds those 3 application permissions and clicks "Grant admin consent", the inbox works with zero code changes. Verify with: app-only token must contain `roles` including `Mail.Read`.
-- Azure app: client_id `84d3c4ea-377b-49f4-af44-0abd623921ee`, tenant `2c1ceb20-5931-4915-8876-ce77f7b4152b`.
+### Jun 2026 — Admin Outlook/M365 Inbox via Microsoft Graph (✅ LIVE)
+- **Feature complete, tested, and WORKING with real mailboxes.**
+- Active Azure app: client_id `3547d007-5f7f-49e0-8400-c531e9ff1824`, tenant `2c1ceb20-5931-4915-8876-ce77f7b4152b` (an earlier app `84d3c4ea-...` was abandoned — customer had two registrations and was editing the wrong one; Mail permissions ended up on `3547d007`). Graph app-only token now carries `Mail.Read`, `Mail.ReadWrite`, `Mail.Send` (+ other mailbox roles); `/api/admin/mail/status` returns `consent_granted: true`.
+- `SUPPORT_MAILBOXES` (7 valid): tracyfortune@, banking.partners@, info@, investors@, partner@, support@, drivers@ islandhoptt.com. NOTE: `partners@islandhoptt.com` was removed — it is not a real mailbox in the tenant (Graph 404 ErrorInvalidUser); only singular `partner@` exists.
+- Backend `graph_mail.py` (MSAL client-credentials, lazy env) + admin-only endpoints: `GET /api/admin/mail/status`, `GET /api/admin/mail/mailboxes`, `GET .../{mailbox}/messages`, `GET .../{mailbox}/messages/{id}`, `POST .../{mailbox}/messages/{id}/reply` (threaded Graph reply). Verified via curl: real emails returned (e.g., support@ shows GoDaddy + test messages).
+- Frontend `AdminMailInbox.js` = the **"Mail" tab** in `AdminPanel.js`: mailbox switcher, message list, read pane, reply box; shows a pending banner only when consent is false.
+- Refund refactor: `refund_order()` (complexity 27) decomposed into `_validate_refund_request` / `_resolve_refund_amount` / `_record_refund` / `_refund_to_wallet` / `_refund_via_stripe`; 53 payment/refund tests pass. Empty-catch logging added in AuthContext/ModeContext/DriverDashboard.
 
 ### Jun 2026 — Batch A: Leaderboard, Live Map Preview, Push Notifications
 - **Driver Leaderboard**: `GET /api/drivers/leaderboard` + `/leaderboard` page (`DriverLeaderboard.js`), tiered, fallback roster.
