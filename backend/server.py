@@ -2719,29 +2719,33 @@ def _parse_mercury_dt(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _payout_matches_transaction(amount_dollars: float, arrival_dt: Optional[datetime], t: Dict[str, Any]) -> bool:
+    """A Mercury credit matches a Stripe payout when the amount lines up and the
+    posting date is within +/- 4 days of the payout arrival date."""
+    if t.get("amount", 0) <= 0:
+        return False  # payouts land as credits (positive)
+    if abs(round(t["amount"], 2) - amount_dollars) > 0.01:
+        return False
+    t_dt = _parse_mercury_dt(t.get("posted_at"))
+    if arrival_dt and t_dt and abs((t_dt - arrival_dt).days) > 4:
+        return False
+    return True
+
+
 def _reconcile_payouts(payouts: List[Dict[str, Any]], transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Match each Stripe payout to a Mercury credit transaction.
 
-    Heuristic: same amount (within $0.01) and Mercury posting date within +/- 4
-    days of the Stripe payout arrival date. Stripe amounts are in cents; Mercury
-    amounts are in dollars (credits are positive).
+    Stripe amounts are in cents; Mercury amounts are in dollars (credits positive).
     """
     results = []
     for p in payouts:
         amount_dollars = round((p.get("amount") or 0) / 100.0, 2)
         arrival = p.get("arrival_date")
         arrival_dt = datetime.fromtimestamp(arrival, tz=timezone.utc) if arrival else None
-        match = None
-        for t in transactions:
-            if t.get("amount", 0) <= 0:
-                continue  # payouts land as credits (positive)
-            if abs(round(t["amount"], 2) - amount_dollars) > 0.01:
-                continue
-            t_dt = _parse_mercury_dt(t.get("posted_at"))
-            if arrival_dt and t_dt and abs((t_dt - arrival_dt).days) > 4:
-                continue
-            match = t
-            break
+        match = next(
+            (t for t in transactions if _payout_matches_transaction(amount_dollars, arrival_dt, t)),
+            None,
+        )
         results.append({
             "payout_id": p.get("id"),
             "amount": amount_dollars,

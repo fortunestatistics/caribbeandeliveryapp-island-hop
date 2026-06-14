@@ -68,22 +68,38 @@ async def get_status() -> Dict[str, Any]:
         return {"configured": True, "connected": False, "detail": "Could not reach Mercury"}
 
 
+def _normalize_account(a: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": a.get("id"),
+        "name": a.get("name") or a.get("nickname") or "Account",
+        "kind": a.get("kind") or a.get("type") or "",
+        "status": a.get("status") or "",
+        "available_balance": float(a.get("availableBalance") or 0),
+        "current_balance": float(a.get("currentBalance") or 0),
+        "account_number": a.get("accountNumber"),
+        "routing_number": a.get("routingNumber"),
+    }
+
+
+def _normalize_transaction(t: Dict[str, Any], account_id: str) -> Dict[str, Any]:
+    return {
+        "id": t.get("id"),
+        "account_id": account_id,
+        "amount": float(t.get("amount") or 0),
+        "description": t.get("bankDescription") or t.get("externalMemo")
+            or t.get("counterpartyName") or t.get("note") or "",
+        "counterparty": t.get("counterpartyName") or "",
+        "kind": t.get("kind") or "",
+        "status": t.get("status") or "",
+        "posted_at": t.get("postedAt") or t.get("createdAt"),
+        "created_at": t.get("createdAt"),
+    }
+
+
 async def list_accounts() -> List[Dict[str, Any]]:
     data = await _get("accounts")
     accounts = data.get("accounts", data) if isinstance(data, dict) else data
-    result = []
-    for a in accounts or []:
-        result.append({
-            "id": a.get("id"),
-            "name": a.get("name") or a.get("nickname") or "Account",
-            "kind": a.get("kind") or a.get("type") or "",
-            "status": a.get("status") or "",
-            "available_balance": float(a.get("availableBalance") or 0),
-            "current_balance": float(a.get("currentBalance") or 0),
-            "account_number": a.get("accountNumber"),
-            "routing_number": a.get("routingNumber"),
-        })
-    return result
+    return [_normalize_account(a) for a in (accounts or [])]
 
 
 async def list_account_transactions(
@@ -97,34 +113,22 @@ async def list_account_transactions(
 
     start/end are ISO date strings (YYYY-MM-DD).
     """
+    base_params: Dict[str, Any] = {"limit": page_limit}
+    if start:
+        base_params["start"] = start
+    if end:
+        base_params["end"] = end
+
     transactions: List[Dict[str, Any]] = []
-    offset = 0
-    for _ in range(max_pages):
-        params: Dict[str, Any] = {"limit": page_limit, "offset": offset}
-        if start:
-            params["start"] = start
-        if end:
-            params["end"] = end
+    for page in range(max_pages):
+        params = {**base_params, "offset": page * page_limit}
         data = await _get(f"account/{account_id}/transactions", params=params)
         batch = data.get("transactions", data.get("data", [])) if isinstance(data, dict) else data
         if not batch:
             break
-        for t in batch:
-            transactions.append({
-                "id": t.get("id"),
-                "account_id": account_id,
-                "amount": float(t.get("amount") or 0),
-                "description": t.get("bankDescription") or t.get("externalMemo")
-                    or t.get("counterpartyName") or t.get("note") or "",
-                "counterparty": t.get("counterpartyName") or "",
-                "kind": t.get("kind") or "",
-                "status": t.get("status") or "",
-                "posted_at": t.get("postedAt") or t.get("createdAt"),
-                "created_at": t.get("createdAt"),
-            })
+        transactions.extend(_normalize_transaction(t, account_id) for t in batch)
         if len(batch) < page_limit:
             break
-        offset += page_limit
     return transactions
 
 
