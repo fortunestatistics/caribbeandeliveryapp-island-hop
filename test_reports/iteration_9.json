@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 9: validated Mercury Banking admin endpoints (status/accounts/reconciliation) with admin vs customer JWT, Google social auth 401 (not 500) on invalid session_id, Driver Onboarding step-3 required-document enforcement, and Admin Panel Banking tab UI. 9/9 backend pytest passed. All 4 review-request features verified working.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/users", "issue": "Returns 500 (ObjectId not JSON serializable) - PRE-EXISTING, not in this review scope but breaks Admin Panel Users/Orders tabs", "priority": "MEDIUM"},
+      {"endpoint": "/api/admin/orders", "issue": "Returns 500 (ObjectId not JSON serializable) - PRE-EXISTING", "priority": "MEDIUM"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mercury_and_google_auth.py",
+    "/app/test_reports/pytest/pytest_iter9.xml"
+  ],
+  "action_items": [
+    "(Optional, not in this scope) Fix Mongo ObjectId serialization in /api/admin/users and /api/admin/orders - they return 500 (visible in console logs as 'Error fetching users/orders' on Admin Panel load). Exclude _id from response."
+  ],
+  "critical_code_review_comments": [
+    "Mercury banking implementation is clean — admin-only guard works (customer JWT correctly receives 403 on status/accounts/reconciliation).",
+    "POST /api/auth/social/google correctly returns 401 with detail on invalid session_id and does not 500 on missing session_id.",
+    "DriverOnboarding.js validateStep + getMissingDocuments correctly blocks 'Next Step' on docs step with destructive toast listing missing documents; submit button is only rendered on review step and is properly gated by getMissingDocuments().length > 0.",
+    "AdminMercuryBanking.js renders all required data-testids (admin-mercury-content, mercury-accounts-grid with 3 cards, mercury-recon-summary, Connected badge) and integrates with backend via admin JWT.",
+    "Several admin console errors fetching users/orders (500) - pre-existing ObjectId bug, unrelated to this iteration's changes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_mercury_and_google_auth.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% (3/3 flows verified)"},
+  "test_credentials": "Admin/customer created at runtime with timestamp emails (qaadmin_<ts>@gmail.com / qacust_<ts>@gmail.com, password Admin1234!). Tokens used via Authorization: Bearer header and localStorage.token for UI flows.",
+  "seed_data_creation": "Two fresh accounts per run (admin + customer) via /api/auth/register. No persistent seed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 features in this review_request pass. The pre-existing /api/admin/users and /api/admin/orders 500s (ObjectId serialization) are visible in Admin Panel console but DO NOT block the Banking tab. If user reports Admin Panel issues, fix those endpoints (exclude _id in MongoDB query responses). Mercury uses a LIVE token (3 real accounts at $0); Stripe is in test mode so reconciliation summary shows 0 payouts - that is expected, not a bug.",
+  "rca_of_the_issue": "N/A - no bugs found in the requested scope. Bonus finding: /api/admin/users and /api/admin/orders raise TypeError: 'ObjectId' object is not iterable in jsonable_encoder. RCA: response models likely return raw Mongo documents containing _id ObjectId. Mitigation: exclude _id from MongoDB find projection OR cast _id to str OR define Pydantic response_model that omits _id."
+}

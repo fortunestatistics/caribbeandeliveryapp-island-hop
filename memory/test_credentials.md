@@ -49,6 +49,12 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 
 ## Social login (Google)
 - `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
+- FIXED (Jun 2026): the 401 was caused by a stale global `AuthHandler` in `App.js` that consumed the single-use `session_id` (POSTing to the legacy `/api/auth/session`) before `SocialAuthCallback` (route `/auth/callback`) could call `/api/auth/social/google`. `AuthHandler` was removed. The Google redirect lands on `/auth/callback#session_id=...` → `SocialAuthCallback` exchanges it.
+
+## Mercury Banking (admin, read-only)
+- Configured & LIVE with a production token in backend `.env` (`MERCURY_API_TOKEN`). 3 real accounts.
+- Admin endpoints: `GET /api/admin/mercury/status`, `GET /api/admin/mercury/accounts`, `GET /api/admin/mercury/reconciliation?days=30` (matches Stripe payouts to Mercury deposits). Admin JWT required.
+- Frontend: Admin Panel → "Banking" tab (`AdminMercuryBanking.js`).
 
 ## Notes for testing agent
 - Customer endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`, `/api/wallet/*`, `/api/referrals/*`.

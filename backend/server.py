@@ -22,6 +22,7 @@ from jose import JWTError, jwt
 import stripe
 import push_client
 import graph_mail
+import mercury_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -586,6 +587,9 @@ async def google_social_auth(payload: SocialAuthRequest):
         raise HTTPException(status_code=502, detail="Could not reach Google sign-in service")
 
     if resp.status_code != 200:
+        logging.warning(
+            f"Emergent session-data exchange failed: status={resp.status_code} body={resp.text[:300]}"
+        )
         raise HTTPException(status_code=401, detail="Google sign-in failed or expired. Please try again.")
 
     data = resp.json()
@@ -2700,6 +2704,124 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
         return {"success": True}
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Admin Mercury Banking — Stripe payout reconciliation (READ-ONLY)
+# ---------------------------------------------------------------------------
+def _parse_mercury_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _reconcile_payouts(payouts: List[Dict[str, Any]], transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Match each Stripe payout to a Mercury credit transaction.
+
+    Heuristic: same amount (within $0.01) and Mercury posting date within +/- 4
+    days of the Stripe payout arrival date. Stripe amounts are in cents; Mercury
+    amounts are in dollars (credits are positive).
+    """
+    results = []
+    for p in payouts:
+        amount_dollars = round((p.get("amount") or 0) / 100.0, 2)
+        arrival = p.get("arrival_date")
+        arrival_dt = datetime.fromtimestamp(arrival, tz=timezone.utc) if arrival else None
+        match = None
+        for t in transactions:
+            if t.get("amount", 0) <= 0:
+                continue  # payouts land as credits (positive)
+            if abs(round(t["amount"], 2) - amount_dollars) > 0.01:
+                continue
+            t_dt = _parse_mercury_dt(t.get("posted_at"))
+            if arrival_dt and t_dt and abs((t_dt - arrival_dt).days) > 4:
+                continue
+            match = t
+            break
+        results.append({
+            "payout_id": p.get("id"),
+            "amount": amount_dollars,
+            "currency": (p.get("currency") or "usd").upper(),
+            "arrival_date": arrival_dt.isoformat() if arrival_dt else None,
+            "status": p.get("status"),
+            "description": p.get("description"),
+            "reconciled": match is not None,
+            "mercury_transaction": match,
+        })
+    return results
+
+
+@api_router.get("/admin/mercury/status")
+async def admin_mercury_status(request: Request):
+    await _require_admin(request)
+    return await mercury_client.get_status()
+
+
+@api_router.get("/admin/mercury/accounts")
+async def admin_mercury_accounts(request: Request):
+    await _require_admin(request)
+    if not mercury_client.is_configured():
+        raise HTTPException(status_code=503, detail="Mercury banking is not configured")
+    try:
+        return {"accounts": await mercury_client.list_accounts()}
+    except PermissionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Mercury accounts fetch failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not reach Mercury")
+
+
+@api_router.get("/admin/mercury/reconciliation")
+async def admin_mercury_reconciliation(request: Request, days: int = 30):
+    """Reconcile recent Stripe payouts against Mercury bank transactions."""
+    await _require_admin(request)
+    if not mercury_client.is_configured():
+        raise HTTPException(status_code=503, detail="Mercury banking is not configured")
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+
+    days = min(max(days, 1), 120)
+    window_start = datetime.now(timezone.utc) - timedelta(days=days)
+    start_iso = window_start.strftime("%Y-%m-%d")
+    end_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Stripe payouts
+    try:
+        payout_list = await asyncio.to_thread(
+            stripe.Payout.list,
+            limit=100,
+            created={"gte": int(window_start.timestamp())},
+        )
+        payouts = [dict(p) for p in payout_list.auto_paging_iter()] if hasattr(payout_list, "auto_paging_iter") else list(payout_list.get("data", []))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Stripe payout list failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not fetch Stripe payouts")
+
+    # Mercury transactions
+    try:
+        transactions = await mercury_client.list_all_transactions(start=start_iso, end=end_iso)
+    except PermissionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Mercury transaction fetch failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not reach Mercury")
+
+    reconciliation = _reconcile_payouts(payouts, transactions)
+    matched = sum(1 for r in reconciliation if r["reconciled"])
+    return {
+        "window_days": days,
+        "summary": {
+            "total_payouts": len(reconciliation),
+            "matched": matched,
+            "unmatched": len(reconciliation) - matched,
+            "mercury_transactions_scanned": len(transactions),
+        },
+        "reconciliation": reconciliation,
+    }
 
 
 # Driver Wallet Routes

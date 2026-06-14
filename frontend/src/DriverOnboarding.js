@@ -110,10 +110,48 @@ const DriverOnboarding = () => {
     }
   };
 
-  const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 5));
+  const requiredDocuments = [
+    { key: 'driversLicense', label: "Driver's License" },
+    { key: 'vehicleRegistration', label: 'Vehicle Registration' },
+    { key: 'insurance', label: 'Insurance Certificate' },
+    { key: 'certificateOfCharacter', label: 'Certificate of Character' },
+    { key: 'profilePhoto', label: 'Profile Photo' }
+  ];
+
+  const getMissingDocuments = () =>
+    requiredDocuments.filter(doc => !formData[doc.key]).map(doc => doc.label);
+
+  const validateStep = (step) => {
+    if (step === 3) {
+      const missing = getMissingDocuments();
+      if (missing.length > 0) {
+        return `Please upload the following required document(s): ${missing.join(', ')}.`;
+      }
+    }
+    return null;
+  };
+
+  const nextStep = () => {
+    const error = validateStep(currentStep);
+    if (error) {
+      toast({ title: 'Missing Required Documents', description: error, variant: 'destructive' });
+      return;
+    }
+    setCurrentStep(prev => Math.min(prev + 1, 5));
+  };
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
   const handleSubmit = async () => {
+    const missing = getMissingDocuments();
+    if (missing.length > 0) {
+      toast({
+        title: 'Cannot Submit — Documents Missing',
+        description: `The following required document(s) must be uploaded: ${missing.join(', ')}.`,
+        variant: 'destructive',
+      });
+      setCurrentStep(3);
+      return;
+    }
     try {
       const driverData = {
         license_number: formData.driversLicense?.name || 'DL-' + Date.now(),
@@ -675,7 +713,8 @@ const DriverOnboarding = () => {
               ) : (
                 <Button 
                   onClick={handleSubmit}
-                  className="bg-gradient-to-r from-green-500 to-emerald-500 text-white"
+                  disabled={getMissingDocuments().length > 0}
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="submit-application-btn"
                 >
                   Submit Application

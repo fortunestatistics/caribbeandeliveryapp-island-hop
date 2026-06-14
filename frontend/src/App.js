@@ -117,42 +117,6 @@ const ROLES_ADMIN_ONLY = ['admin'];
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
 
-// Auth handler component
-const AuthHandler = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    const handleAuth = async () => {
-      const hash = window.location.hash;
-      const sessionIdMatch = hash.match(/session_id=([^&]*)/);
-      
-      if (sessionIdMatch) {
-        const sessionId = sessionIdMatch[1];
-        
-        try {
-          const response = await axios.post(`${API}/auth/session`, {
-            session_id: sessionId
-          }, { withCredentials: true });
-          
-          // Clean the URL
-          window.location.hash = '';
-          navigate('/dashboard');
-          window.location.reload();
-        } catch (error) {
-          console.error('Auth error:', error);
-          navigate('/');
-        }
-      }
-    };
-
-    handleAuth();
-  }, [navigate]);
-
-  return null;
-};
-
 // Global Search Component
 const GlobalSearch = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -1673,8 +1637,7 @@ function App() {
         <Router>
           <div className="min-h-screen bg-matte-900">
             <Header />
-            <AuthHandler />
-          
+
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
