@@ -45,6 +45,10 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 
 ## Known working test users
 - No persisted seed accounts — tests register fresh users with timestamp-suffixed emails like `tester_<ts>@test.com`.
+- Reusable admin created this session: **inboxadmin@test.com / Admin1234!** (user_type=admin). Note: `.test` TLD emails are rejected by email validation — use `@test.com` / `@gmail.com` style domains.
+
+## Social login (Google)
+- `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
 
 ## Notes for testing agent
 - Customer endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`, `/api/wallet/*`, `/api/referrals/*`.

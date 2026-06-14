@@ -61,6 +61,7 @@ const DriverOnboarding = () => {
     vehicleRegistration: null,
     insurance: null,
     profilePhoto: null,
+    certificateOfCharacter: null,
     
     // Banking Information
     accountHolderName: '',
@@ -451,10 +452,14 @@ const DriverOnboarding = () => {
                     { key: 'driversLicense', label: "Driver's License *", testId: 'drivers-license-upload' },
                     { key: 'vehicleRegistration', label: 'Vehicle Registration *', testId: 'vehicle-registration-upload' },
                     { key: 'insurance', label: 'Insurance Certificate *', testId: 'insurance-upload' },
+                    { key: 'certificateOfCharacter', label: 'Certificate of Character *', testId: 'certificate-of-character-upload', hint: 'Official police Certificate of Character / Good Conduct — required for all Caribbean drivers' },
                     { key: 'profilePhoto', label: 'Profile Photo *', testId: 'profile-photo-upload' }
                   ].map((doc) => (
                     <div key={doc.key}>
                       <Label>{doc.label}</Label>
+                      {doc.hint && (
+                        <p className="text-xs text-muted-foreground/80 mt-1">{doc.hint}</p>
+                      )}
                       <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-turquoise-400 transition-colors">
                         <Upload className="h-8 w-8 text-muted-foreground/70 mx-auto mb-2" />
                         <p className="text-sm text-muted-foreground mb-2">
@@ -625,6 +630,7 @@ const DriverOnboarding = () => {
                       <div>Driver&apos;s License: {formData.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Vehicle Registration: {formData.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Insurance: {formData.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Certificate of Character: {formData.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Profile Photo: {formData.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
                     </CardContent>
                   </Card>
