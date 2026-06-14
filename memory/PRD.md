@@ -26,6 +26,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Google Login fix, Onboarding enforcement, Mercury Banking
+- **Fixed Google Social Login 401**: root cause was a stale global `AuthHandler` in `App.js` that consumed the single-use OAuth `session_id` (POSTing to legacy `/api/auth/session`) before `SocialAuthCallback` (`/auth/callback`) could exchange it via `/api/auth/social/google`. Removed `AuthHandler`. Added diagnostic logging to the backend endpoint.
+- **Driver Onboarding required-document enforcement** (`DriverOnboarding.js`): `validateStep`/`getMissingDocuments` block "Next" on the Documents step with a destructive toast; "Submit Application" is disabled until all 5 required docs (License, Registration, Insurance, Certificate of Character, Profile Photo) are uploaded.
+- **Mercury Business Banking (read-only)** — reconcile Stripe payouts vs Mercury deposits. New `mercury_client.py` (LIVE production token in `.env`, 3 real accounts). Admin endpoints: `/api/admin/mercury/status|accounts|reconciliation?days=N`. New Admin Panel "Banking" tab (`AdminMercuryBanking.js`). Matching heuristic: amount within $0.01 + posting date within ±4 days of payout arrival. 5 unit tests in `tests/test_mercury_reconciliation.py`.
+- **Fixed** `/api/admin/users` & `/api/admin/orders` 500s (ObjectId not serializable) by excluding `_id` projection — restores Admin Panel Users/Orders tabs.
+
+
 
 ### Jun 2026 — Driver "Certificate of Character" required doc
 - Added **Certificate of Character** to `DriverOnboarding.js` Documents step (`certificateOfCharacter` in formData, in the documents array with `data-testid="certificate-of-character-upload"` + helper text, and in the Step 5 review summary). Verified PASS by testing agent (iteration_8).

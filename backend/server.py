@@ -1142,7 +1142,7 @@ async def get_all_users(request: Request, limit: int = 100):
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    users = await db.users.find({}).limit(limit).to_list(length=None)
+    users = await db.users.find({}, {"_id": 0}).limit(limit).to_list(length=None)
     return users
 
 @api_router.get("/admin/orders")
@@ -1153,7 +1153,7 @@ async def get_all_orders(request: Request, limit: int = 100):
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    orders = await db.orders.find({}).sort("created_at", -1).limit(limit).to_list(length=None)
+    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
     return orders
 
 @api_router.get("/admin/disputes")
