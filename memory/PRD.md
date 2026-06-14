@@ -27,7 +27,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
-### Jun 2026 — Social Login (Google) + Instagram link
+### Jun 2026 — Driver "Certificate of Character" required doc
+- Added **Certificate of Character** to `DriverOnboarding.js` Documents step (`certificateOfCharacter` in formData, in the documents array with `data-testid="certificate-of-character-upload"` + helper text, and in the Step 5 review summary). Verified PASS by testing agent (iteration_8).
+- KNOWN GAP (pre-existing): the onboarding form does NOT enforce required-document upload before submit — Submit stays enabled with docs missing. Enhancement offered to user (gate Submit on required docs).
+
+
 - **Google sign-in LIVE** via Emergent-managed Google OAuth, integrated into the existing JWT system (NOT the cookie/session model): `POST /api/auth/social/google` takes `{session_id}`, calls Emergent `/auth/v1/env/oauth/session-data`, create-or-links a `User` by email (auto-creates profile on first sign-in, `auth_provider: "google"`, no password), and mints our existing JWT (`create_access_token`). Returns the standard `Token` shape so the rest of the app is unchanged.
 - Frontend: `SocialAuthCallback.js` at route `/auth/callback` parses `#session_id`, posts to backend, stores JWT in localStorage, full-page redirect to `/dashboard`. AuthPage "Continue with Google" button redirects to `https://auth.emergentagent.com/?redirect=${origin}/auth/callback`.
 - Backend verified: invalid session → 401. **Full Google round-trip needs a real Google account to test (cannot be automated).**
