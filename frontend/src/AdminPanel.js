@@ -34,6 +34,7 @@ import axios from 'axios';
 import AdminStatsCards from './AdminStatsCards';
 import AdminMailInbox from './AdminMailInbox';
 import AdminMercuryBanking from './AdminMercuryBanking';
+import AdminTeam from './AdminTeam';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -73,6 +74,7 @@ const AdminPanel = () => {
   const [claimsFilter, setClaimsFilter] = useState('open');
   const [claimsOpenCount, setClaimsOpenCount] = useState(0);
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -99,6 +101,16 @@ const AdminPanel = () => {
     if (selectedTab === 'fraud') fetchFraudQueue();
     if (selectedTab === 'claims') fetchClaims();
   }, [selectedTab, fraudFilter, claimsFilter]);
+
+  useEffect(() => {
+    axios.get(`${API}/auth/me`, { headers: authHeaders() })
+      .then((r) => setMyRole(r.data.user_type))
+      .catch(() => {});
+  }, []);
+
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
+  const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
+  const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
 
   const fetchClaims = async () => {
     try {
@@ -382,7 +394,7 @@ const AdminPanel = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'mail', 'banking', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
+          {visibleTabs.map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
@@ -1019,6 +1031,10 @@ const AdminPanel = () => {
 
         {selectedTab === 'banking' && (
           <AdminMercuryBanking />
+        )}
+
+        {selectedTab === 'team' && (
+          <AdminTeam />
         )}
 
 

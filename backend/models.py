@@ -38,6 +38,27 @@ class Token(BaseModel):
     user: Dict[str, Any]
 
 
+class TeamPromote(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class TeamInvite(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class InviteAccept(BaseModel):
+    token: str
+    name: str
+    password: str
+
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class PasswordReset(BaseModel):
     email: EmailStr
 

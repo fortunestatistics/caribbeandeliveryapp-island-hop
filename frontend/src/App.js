@@ -8,6 +8,7 @@ import RestaurantMenuManagement from './RestaurantMenuManagement';
 import VendorDashboard from './VendorDashboard';
 import DriverDashboard from './DriverDashboard';
 import AdminPanel from './AdminPanel';
+import AdminInviteAccept from './AdminInviteAccept';
 import PromoCodeManagement from './PromoCodeManagement';
 import AddressManagement from './AddressManagement';
 import OrderScheduling from './OrderScheduling';
@@ -113,6 +114,7 @@ const ROLES_DRIVER_ONBOARD = ['driver', 'customer', 'admin'];
 const ROLES_VENDOR_ADMIN = ['restaurant', 'business', 'admin'];
 const ROLES_VENDOR_ONBOARD = ['restaurant', 'customer', 'admin'];
 const ROLES_ADMIN_ONLY = ['admin'];
+const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
@@ -1689,7 +1691,8 @@ function App() {
             <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><PromoCodeManagement /></ProtectedRoute>} />
 
             {/* Admin only */}
-            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin/invite/:token" element={<AdminInviteAccept />} />
             <Route path="/analytics" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><KPIDashboard /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" />} />

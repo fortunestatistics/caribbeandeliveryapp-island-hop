@@ -58,6 +58,21 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 - Uses existing `STRIPE_API_KEY` (test mode). NOTE: completing the Stripe-hosted document+selfie flow requires a browser on verify.stripe.com and cannot be fully automated; auto-approve logic is unit-tested (`tests/test_identity_kyc.py`).
 - To go LIVE: enable the Identity product in the Stripe Dashboard + switch to live key.
 
+## OWNER / SUPER-ADMIN LOGIN (seeded from env on startup)
+- **Email:** tracyfortune@islandhoptt.com
+- **Password:** IslandHopAdmin2026!  (change via Admin Panel → Team → "Change my password")
+- Seeded idempotently from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in backend/.env. Marked `is_owner` (cannot be revoked/demoted).
+- Log in at `/login` → access Admin Panel at `/admin`.
+
+## Admin team management & registration lockdown (Jun 2026)
+- SECURITY: public `POST /api/auth/register` now ALWAYS creates `user_type=customer` (the `user_type` body field is ignored). Admins/agents can no longer self-register.
+- Roles: **admin** (full access) and **agent** (support agent: only overview/claims/mail/disputes tabs; admin-only endpoints 403 for agents). Both can reach `/admin`.
+- Admin endpoints (admin-only): `GET /api/admin/team`, `POST /api/admin/team/promote` {email, role}, `POST /api/admin/team/revoke` {user_id} (cannot revoke owner or self), `POST /api/admin/team/invite` {email, role} (emails a link via M365; returns invite_link).
+- Invite accept (public): `GET /api/auth/invite/{token}`, `POST /api/auth/invite/accept` {token, name, password}. Frontend page: `/admin/invite/:token`.
+- Change password (auth): `POST /api/auth/change-password` {current_password, new_password}.
+- Frontend: Admin Panel → "Team" tab (`AdminTeam.js`).
+- Tests: `tests/test_admin_team.py`.
+
 ## Driver KYC document upload + admin approval (Jun 2026)
 - Drivers upload identity docs (Driver's License, Vehicle Registration, Insurance, Certificate of Character, Profile Photo) which are stored in **private object storage** (Emergent Object Storage, uses `EMERGENT_LLM_KEY`).
 - Flow: `POST /api/drivers/documents` (multipart: `doc_type` + `file`) → returns `document_id`. Then `POST /api/drivers` with `{license_number, vehicle_type, vehicle_plate, documents:{docType:document_id}, personal_info, vehicle_info, banking_info}` → creates driver with `status="pending"`.

@@ -18,6 +18,7 @@ from emergentintegrations.payments.stripe.checkout import StripeCheckout, Checko
 import json
 import re
 from passlib.context import CryptContext
+import secrets
 from jose import JWTError, jwt
 import stripe
 import push_client
@@ -116,6 +117,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 from models import (
     SUPPORTED_WALLET_CURRENCIES,
     UserRegister, UserLogin, Token, PasswordReset, PasswordResetConfirm,
+    TeamPromote, TeamInvite, InviteAccept, ChangePassword,
     Order, OrderCreate,
     SubscriptionPlan, UserSubscription, SubscriptionCreate,
     StatusCheck, StatusCheckCreate,
@@ -515,8 +517,9 @@ async def register(user_data: UserRegister):
         phone=phone_clean,
         phone_verified=phone_verified,
         address={"street": user_data.address} if user_data.address else None,
-        user_type=user_data.user_type,
-    )
+        user_type="customer",  # SECURITY: public sign-up can only ever create a customer.
+    )                          # Privileged roles (admin/agent) are granted by an admin;
+                               # restaurant/driver are set via their own onboarding/approval.
     await _apply_referral_on_register(user, user_data.referral_code)
 
     # Persist user with hashed password
@@ -2923,6 +2926,169 @@ async def _require_admin(request: Request):
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# Admin team management (owner-seeded super admin + promote/invite/revoke)
+# ---------------------------------------------------------------------------
+VALID_TEAM_ROLES = ("admin", "agent")
+
+
+async def seed_owner_admin():
+    """Idempotently create the owner/super-admin from env. Never demotes an
+    existing owner; updates the password only if the env value changed."""
+    email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not email or not password:
+        print("⚠️ ADMIN_EMAIL/ADMIN_PASSWORD not set — skipping owner admin seed")
+        return
+    existing = await db.users.find_one({"email": email})
+    if existing is None:
+        owner = User(email=email, name="IslandHop Owner", user_type="admin")
+        owner_dict = prepare_for_mongo(owner.dict())
+        owner_dict["hashed_password"] = get_password_hash(password)
+        owner_dict["is_owner"] = True
+        await db.users.insert_one(owner_dict)
+        print(f"✅ Owner admin seeded: {email}")
+    else:
+        updates = {"user_type": "admin", "is_owner": True}
+        if not verify_password(password, existing.get("hashed_password", "")):
+            updates["hashed_password"] = get_password_hash(password)
+        await db.users.update_one({"email": email}, {"$set": updates})
+        print(f"✅ Owner admin ensured: {email}")
+
+
+@api_router.get("/admin/team")
+async def list_team(request: Request):
+    """List all admins and support agents."""
+    await _require_admin(request)
+    members = await db.users.find(
+        {"user_type": {"$in": list(VALID_TEAM_ROLES)}},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "user_type": 1, "is_owner": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(200).to_list(length=200)
+    return {"team": members}
+
+
+@api_router.post("/admin/team/promote")
+async def promote_team_member(payload: TeamPromote, request: Request):
+    """Grant admin/agent role to an EXISTING registered user."""
+    await _require_admin(request)
+    if payload.role not in VALID_TEAM_ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {VALID_TEAM_ROLES}")
+    target = await db.users.find_one({"email": payload.email.strip().lower()})
+    if not target:
+        raise HTTPException(status_code=404, detail="No registered user with that email. Ask them to sign up first, or send an invite.")
+    await db.users.update_one({"id": target["id"]}, {"$set": {"user_type": payload.role}})
+    return {"success": True, "email": payload.email, "role": payload.role}
+
+
+@api_router.post("/admin/team/revoke")
+async def revoke_team_member(payload: Dict[str, str], request: Request):
+    """Revoke a team member's role (back to customer)."""
+    admin = await _require_admin(request)
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("is_owner"):
+        raise HTTPException(status_code=403, detail="The owner account cannot be revoked.")
+    if target["id"] == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot revoke your own access.")
+    await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
+    return {"success": True, "user_id": user_id}
+
+
+@api_router.post("/admin/team/invite")
+async def invite_team_member(payload: TeamInvite, request: Request):
+    """Create an invite for a new admin/agent and email them a link to set a password."""
+    admin = await _require_admin(request)
+    if payload.role not in VALID_TEAM_ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {VALID_TEAM_ROLES}")
+    email = payload.email.strip().lower()
+
+    token = secrets.token_urlsafe(32)
+    await db.admin_invites.insert_one({
+        "token": token,
+        "email": email,
+        "role": payload.role,
+        "invited_by": admin.id,
+        "used": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+    })
+
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    invite_link = f"{frontend_url}/admin/invite/{token}"
+    try:
+        html = (
+            f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>"
+            f"<p>You've been invited to join the IslandHop team as <strong>{payload.role}</strong>.</p>"
+            f"<p>Click below to set your password and activate your account (link expires in 7 days):</p>"
+            f"<p><a href='{invite_link}'>{invite_link}</a></p>"
+            f"<p style='margin-top:24px;color:#888;font-size:12px'>— IslandHop</p></div>"
+        )
+        await graph_mail.send_mail(email, "You're invited to the IslandHop team", html)
+        emailed = True
+    except Exception as exc:  # noqa: BLE001 — invite still works via the returned link
+        logging.warning(f"Team invite email failed for {email}: {exc}")
+        emailed = False
+    return {"success": True, "email": email, "role": payload.role, "invite_link": invite_link, "emailed": emailed}
+
+
+@api_router.get("/auth/invite/{token}")
+async def get_invite(token: str):
+    """Validate an invite token (public) — returns the email + role if valid."""
+    invite = await db.admin_invites.find_one({"token": token, "used": False}, {"_id": 0})
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found or already used")
+    if invite["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="This invite has expired")
+    return {"email": invite["email"], "role": invite["role"]}
+
+
+@api_router.post("/auth/invite/accept", response_model=Token)
+async def accept_invite(payload: InviteAccept):
+    """Accept an invite (public): create or promote the account with the invited role."""
+    invite = await db.admin_invites.find_one({"token": payload.token, "used": False})
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found or already used")
+    if invite["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="This invite has expired")
+
+    email = invite["email"]
+    role = invite["role"]
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        await db.users.update_one(
+            {"id": existing["id"]},
+            {"$set": {"user_type": role, "hashed_password": get_password_hash(payload.password)}},
+        )
+        user = User(**{k: v for k, v in existing.items() if k != "_id"})
+        user.user_type = role
+    else:
+        user = User(email=email, name=payload.name, user_type=role)
+        user_dict = prepare_for_mongo(user.dict())
+        user_dict["hashed_password"] = get_password_hash(payload.password)
+        await db.users.insert_one(user_dict)
+
+    await db.admin_invites.update_one({"token": payload.token}, {"$set": {"used": True}})
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
+
+
+@api_router.post("/auth/change-password")
+async def change_password(payload: ChangePassword, request: Request):
+    """Change the authenticated user's password."""
+    current_user = await get_current_user_from_request(request)
+    user_doc = await db.users.find_one({"id": current_user.id})
+    if not user_doc or not verify_password(payload.current_password, user_doc.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}})
+    return {"success": True}
 
 
 def _ensure_mailbox_allowed(mailbox: str):
@@ -6427,6 +6593,11 @@ async def initialize_data():
         print("✅ Object storage initialized")
     except Exception as e:
         print(f"⚠️ Could not initialize object storage: {e}")
+
+    try:
+        await seed_owner_admin()
+    except Exception as e:
+        print(f"⚠️ Could not seed owner admin: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)

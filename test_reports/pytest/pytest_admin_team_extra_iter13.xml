@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="3.488" timestamp="2026-06-15T20:33:34.451770+00:00" hostname="agent-env-342c6482-28f2-4ac5-9cb8-c7f91dd42d9d"><testcase classname="backend.tests.test_admin_team_extra" name="test_owner_me_is_admin" time="0.626" /><testcase classname="backend.tests.test_admin_team_extra" name="test_register_cannot_self_assign_agent" time="0.460" /><testcase classname="backend.tests.test_admin_team_extra" name="test_agent_cannot_access_admin_only_endpoints" time="1.135" /><testcase classname="backend.tests.test_admin_team_extra" name="test_invite_link_shape" time="0.774" /><testcase classname="backend.tests.test_admin_team_extra" name="test_owner_team_list_marks_owner_with_no_revoke" time="0.456"><failure message="AttributeError: 'str' object has no attribute 'get'">backend/tests/test_admin_team_extra.py:111: in test_owner_team_list_marks_owner_with_no_revoke
+    owners = [m for m in members if m.get("is_owner") or m.get("email", "").lower() == OWNER_EMAIL.lower()]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/tests/test_admin_team_extra.py:111: in &lt;listcomp&gt;
+    owners = [m for m in members if m.get("is_owner") or m.get("email", "").lower() == OWNER_EMAIL.lower()]
+                                    ^^^^^
+E   AttributeError: 'str' object has no attribute 'get'</failure></testcase></testsuite></testsuites>
