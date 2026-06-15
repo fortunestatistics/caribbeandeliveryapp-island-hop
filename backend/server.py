@@ -944,7 +944,7 @@ async def get_restaurant_menu(restaurant_id: str):
     menu_items = await db.menu_items.find({
         "restaurant_id": restaurant_id,
         "available": True
-    }).limit(500).to_list(length=500)
+    }, {"_id": 0}).limit(500).to_list(length=500)
     return menu_items
 
 @api_router.put("/menu-items/{item_id}", response_model=MenuItem)
@@ -2051,8 +2051,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         await manager.send_personal_message(
             json.dumps({
                 "type": "new_order",
-                "order": order.dict()
-            }),
+                "order": prepare_for_mongo(order.dict())
+            }, default=str),
             order.restaurant_id
         )
     
@@ -2061,8 +2061,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         await manager.send_personal_message(
             json.dumps({
                 "type": "new_assignment",
-                "order": order.dict()
-            }),
+                "order": prepare_for_mongo(order.dict())
+            }, default=str),
             order.driver_id
         )
     
