@@ -120,7 +120,7 @@ const AdminTeam = () => {
             {team.map((m) => (
               <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-matte-900/40 border border-border" data-testid={`team-member-${m.id}`}>
                 <div>
-                  <p className="font-medium">{m.name || m.email} {m.is_owner && <Badge className="ml-1 bg-gold-500/20 text-gold-500">Owner</Badge>}</p>
+                  <div className="font-medium flex items-center gap-1">{m.name || m.email} {m.is_owner && <Badge className="bg-gold-500/20 text-gold-500">Owner</Badge>}</div>
                   <p className="text-xs text-muted-foreground">{m.email}</p>
                 </div>
                 <div className="flex items-center gap-2">

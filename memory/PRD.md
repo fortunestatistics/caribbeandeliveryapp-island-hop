@@ -26,6 +26,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Secure admin access, roles & team management
+- **Owner/super-admin seeded** from env (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) idempotently on startup; marked `is_owner` (can't be revoked/demoted).
+- **SECURITY FIX**: public `POST /api/auth/register` now always creates `user_type=customer` (ignores any `user_type` in the body) — admins/agents can no longer self-register.
+- **Roles**: `admin` (full access) + `agent` (support agent — only overview/claims/mail/disputes tabs; admin-only endpoints 403). `/admin` route allows both; tabs gated by `myRole`; stats hidden for agents.
+- **Team management** (admin-only): `GET/POST /api/admin/team`, `/promote`, `/revoke` (owner & self protected), `/invite` (emails link via M365, returns invite_link). Invite accept (public): `GET /api/auth/invite/{token}`, `POST /api/auth/invite/accept`. Change password: `POST /api/auth/change-password`.
+- **Frontend**: Admin Panel → "Team" tab (`AdminTeam.js`); invite-accept page `/admin/invite/:token` (`AdminInviteAccept.js`).
+- Tests: `tests/test_admin_team.py` (7). Verified iteration_13 (100% — 12 backend + 12 frontend).
+- PRODUCTION: set `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars in the deployed app + redeploy so the owner seeds there too.
+
 ### Jun 2026 — Full E2E dry-run (preview, Stripe test mode) — ALL GREEN
 - Verified the complete chain (iteration_12, 20/20 pytest): restaurant onboarding + menu → driver onboarding + admin approval + go-online → customer order → Stripe TEST-card (4242) checkout captured (payment_status=paid) → driver assignment → delivery lifecycle + proof upload → driver wallet/earnings credited.
 - Fixed en route: ObjectId leak on `GET /api/restaurants/{id}/menu`; datetime JSON-serialization in `/orders/create` WebSocket broadcast (added `prepare_for_mongo` + `default=str`).

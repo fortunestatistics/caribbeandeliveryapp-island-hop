@@ -389,7 +389,7 @@ const AdminPanel = () => {
           </div>
 
           {/* Stats Overview */}
-          <AdminStatsCards stats={stats} />
+          {myRole !== 'agent' && <AdminStatsCards stats={stats} />}
         </div>
 
         {/* Tabs */}
