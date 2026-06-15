@@ -3044,7 +3044,7 @@ async def get_driver_withdrawals(driver_id: str):
 async def get_current_driver(request: Request):
     """Get current driver profile"""
     current_user = await get_current_user_from_request(request)
-    driver = await db.drivers.find_one({"user_id": current_user.id})
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     return driver

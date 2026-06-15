@@ -26,7 +26,17 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
-### Jun 2026 — Google Login fix, Onboarding enforcement, Mercury Banking
+### Jun 2026 — Driver KYC document upload + admin identity review (manual)
+- **Secure ID document storage**: new `storage_client.py` integrates Emergent **Object Storage** (private; uses `EMERGENT_LLM_KEY`). Driver docs (License, Registration, Insurance, Certificate of Character, Profile Photo) upload via `POST /api/drivers/documents` and are retrievable only by the owner or an admin via `GET /api/drivers/documents/{id}/download` (others 403). Files are never public.
+- **Application flow fixed**: `POST /api/drivers` previously 422'd (required `user_id` in body) — replaced with `DriverApplicationCreate`. New applicants are `status="pending"`, store `documents`/`personal_info`/`vehicle_info`/`banking_info`, and are NOT promoted to `user_type=driver` until approved. `PUT /api/drivers/status` is blocked (403) while pending/rejected.
+- **Admin review UI**: Approvals tab shows each driver's identity documents with "View" buttons (blob fetch). `POST /api/admin/drivers/{id}/approve` flips status→active AND user_type→driver; `/reject` sets rejected.
+- **Frontend** (`DriverOnboarding.js`): uploads each file immediately with Bearer auth, shows "✓ Securely uploaded", gates Next/Submit until all 5 docs uploaded.
+- **Fixes**: `/api/drivers/me`, `/api/admin/users`, `/api/admin/orders` ObjectId-serialization 500s.
+- **Deployment hardening**: added `.limit()` to 5 unbounded queries (vendor orders, addresses, support tickets, claims, restaurant menu) to prevent Atlas memory/timeout pod restarts.
+- Tests: `backend/tests/test_driver_onboarding_kyc.py` (3), verified via testing agent iteration_10 (100% backend + frontend).
+- NEXT: extend the same secure ID-upload + review to **customers** (user requested).
+
+
 - **Fixed Google Social Login 401**: root cause was a stale global `AuthHandler` in `App.js` that consumed the single-use OAuth `session_id` (POSTing to legacy `/api/auth/session`) before `SocialAuthCallback` (`/auth/callback`) could exchange it via `/api/auth/social/google`. Removed `AuthHandler`. Added diagnostic logging to the backend endpoint.
 - **Driver Onboarding required-document enforcement** (`DriverOnboarding.js`): `validateStep`/`getMissingDocuments` block "Next" on the Documents step with a destructive toast; "Submit Application" is disabled until all 5 required docs (License, Registration, Insurance, Certificate of Character, Profile Photo) are uploaded.
 - **Mercury Business Banking (read-only)** — reconcile Stripe payouts vs Mercury deposits. New `mercury_client.py` (LIVE production token in `.env`, 3 real accounts). Admin endpoints: `/api/admin/mercury/status|accounts|reconciliation?days=N`. New Admin Panel "Banking" tab (`AdminMercuryBanking.js`). Matching heuristic: amount within $0.01 + posting date within ±4 days of payout arrival. 5 unit tests in `tests/test_mercury_reconciliation.py`.
