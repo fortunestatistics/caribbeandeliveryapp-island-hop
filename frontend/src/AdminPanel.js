@@ -39,6 +39,14 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
+const DOC_LABELS = {
+  driversLicense: "Driver's License",
+  vehicleRegistration: 'Vehicle Registration',
+  insurance: 'Insurance',
+  certificateOfCharacter: 'Certificate of Character',
+  profilePhoto: 'Profile Photo',
+};
+
 const AdminPanel = () => {
   const [stats, setStats] = useState({
     total_users: 0,
@@ -169,6 +177,20 @@ const AdminPanel = () => {
       fetchApprovals();
     } catch (e) {
       alert(e.response?.data?.detail || `Failed to ${action} ${kind}`);
+    }
+  };
+
+  const viewDocument = async (documentId) => {
+    try {
+      const res = await axios.get(`${API}/drivers/documents/${documentId}/download`, {
+        headers: authHeaders(),
+        responseType: 'blob',
+      });
+      const blobUrl = URL.createObjectURL(res.data);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Could not open document');
     }
   };
 
@@ -604,20 +626,45 @@ const AdminPanel = () => {
                         <h3 className="font-semibold mb-3 text-gold-500">{label} ({approvals[key].length})</h3>
                         <div className="space-y-2">
                           {approvals[key].map((row) => (
-                            <div key={row.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
-                              <div>
-                                <p className="font-medium">{row.name || row.id}</p>
-                                <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
-                                {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
+                            <div key={row.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium">{row.name || row.id}</p>
+                                  <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
+                                  {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
+                                    <CheckCircle className="h-4 w-4 mr-1" />Approve
+                                  </Button>
+                                  <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
+                                    <X className="h-4 w-4 mr-1" />Reject
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="flex gap-2">
-                                <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
-                                  <CheckCircle className="h-4 w-4 mr-1" />Approve
-                                </Button>
-                                <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
-                                  <X className="h-4 w-4 mr-1" />Reject
-                                </Button>
-                              </div>
+                              {kind === 'driver' && row.raw?.documents && Object.keys(row.raw.documents).length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-docs-${row.id}`}>
+                                  <p className="text-xs font-semibold text-gold-500 mb-2">Identity Documents (click to review)</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {Object.entries(row.raw.documents).map(([docType, docId]) => (
+                                      <Button
+                                        key={docType}
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => viewDocument(docId)}
+                                        data-testid={`view-doc-${row.id}-${docType}`}
+                                      >
+                                        <FileText className="h-3.5 w-3.5 mr-1" />{DOC_LABELS[docType] || docType}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {kind === 'driver' && (!row.raw?.documents || Object.keys(row.raw.documents).length === 0) && (
+                                <p className="mt-3 pt-3 border-t border-border text-xs text-yellow-500" data-testid={`approval-nodocs-${row.id}`}>
+                                  ⚠ No identity documents were submitted with this application.
+                                </p>
+                              )}
                             </div>
                           ))}
                         </div>

@@ -51,6 +51,13 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 - `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
 - FIXED (Jun 2026): the 401 was caused by a stale global `AuthHandler` in `App.js` that consumed the single-use `session_id` (POSTing to the legacy `/api/auth/session`) before `SocialAuthCallback` (route `/auth/callback`) could call `/api/auth/social/google`. `AuthHandler` was removed. The Google redirect lands on `/auth/callback#session_id=...` → `SocialAuthCallback` exchanges it.
 
+## Driver KYC document upload + admin approval (Jun 2026)
+- Drivers upload identity docs (Driver's License, Vehicle Registration, Insurance, Certificate of Character, Profile Photo) which are stored in **private object storage** (Emergent Object Storage, uses `EMERGENT_LLM_KEY`).
+- Flow: `POST /api/drivers/documents` (multipart: `doc_type` + `file`) → returns `document_id`. Then `POST /api/drivers` with `{license_number, vehicle_type, vehicle_plate, documents:{docType:document_id}, personal_info, vehicle_info, banking_info}` → creates driver with `status="pending"`.
+- New applicants are `pending`; they CANNOT go online (`PUT /api/drivers/status` → 403) and are NOT promoted to `user_type=driver` until an admin approves.
+- Admin: Approvals tab shows each driver's documents; admin opens them via `GET /api/drivers/documents/{id}/download` (owner or admin only; others 403; supports `?auth=<jwt>`). `POST /api/admin/drivers/{id}/approve` flips status→active AND user_type→driver. `/reject` sets status→rejected.
+- Tests: `backend/tests/test_driver_onboarding_kyc.py` (3 passing).
+
 ## Mercury Banking (admin, read-only)
 - Configured & LIVE with a production token in backend `.env` (`MERCURY_API_TOKEN`). 3 real accounts.
 - Admin endpoints: `GET /api/admin/mercury/status`, `GET /api/admin/mercury/accounts`, `GET /api/admin/mercury/reconciliation?days=30` (matches Stripe payouts to Mercury deposits). Admin JWT required.

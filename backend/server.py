@@ -2614,21 +2614,46 @@ async def download_driver_document(document_id: str, request: Request, auth: Opt
     return Response(content=data, media_type=record.get("content_type", content_type))
 
 
+class DriverApplicationCreate(BaseModel):
+    license_number: str
+    vehicle_type: str
+    vehicle_plate: str
+    documents: Optional[Dict[str, str]] = None
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
 @api_router.post("/drivers", response_model=Driver)
-async def create_driver(driver: Driver, request: Request):
+async def create_driver(application: DriverApplicationCreate, request: Request):
     """Create a driver application. New applicants are 'pending' until an admin
     approves them — they cannot go online or operate until then."""
     current_user = await get_current_user_from_request(request)
-    driver.user_id = current_user.id
-    driver.status = "pending"  # awaiting admin identity review
+
+    # Prevent duplicate applications
+    existing = await db.drivers.find_one({"user_id": current_user.id})
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have a driver application on file.")
+
+    driver = Driver(
+        user_id=current_user.id,
+        license_number=application.license_number,
+        vehicle_type=application.vehicle_type,
+        vehicle_plate=application.vehicle_plate,
+        documents=application.documents,
+        personal_info=application.personal_info,
+        vehicle_info=application.vehicle_info,
+        banking_info=application.banking_info,
+        status="pending",  # awaiting admin identity review
+    )
 
     driver_dict = prepare_for_mongo(driver.dict())
     await db.drivers.insert_one(driver_dict)
-    
+
     # Create driver wallet
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
-    
+
     # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
     # account restricted (still a customer) while the application is reviewed.
     return driver
@@ -3026,12 +3051,17 @@ async def get_current_driver(request: Request):
 
 @api_router.put("/drivers/status")
 async def update_driver_status(status: str, request: Request):
-    """Update driver online/offline status"""
+    """Update driver online/offline status. Blocked until the driver is approved."""
     current_user = await get_current_user_from_request(request)
     driver = await db.drivers.find_one({"user_id": current_user.id})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
-    
+
+    if driver.get("status") in ("pending", "pending_approval"):
+        raise HTTPException(status_code=403, detail="Your driver application is pending admin approval. You cannot go online yet.")
+    if driver.get("status") == "rejected":
+        raise HTTPException(status_code=403, detail="Your driver application was rejected. Please contact support.")
+
     await db.drivers.update_one(
         {"id": driver["id"]},
         {"$set": {"status": status}}
@@ -6115,7 +6145,12 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("drivers", driver_id, "active", current_user.id, payload.notes)
+    result = await _set_partner_status("drivers", driver_id, "active", current_user.id, payload.notes)
+    # Promote the user to a driver now that identity has been reviewed & approved.
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and driver.get("user_id"):
+        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+    return result
 
 
 @api_router.post("/admin/drivers/{driver_id}/reject")
@@ -6209,6 +6244,12 @@ async def initialize_data():
             print("✅ APScheduler started — nightly vendor payouts scheduled at 02:00 UTC")
     except Exception as e:
         print(f"⚠️ Could not start scheduler: {e}")
+
+    try:
+        await asyncio.to_thread(storage_client.init_storage)
+        print("✅ Object storage initialized")
+    except Exception as e:
+        print(f"⚠️ Could not initialize object storage: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)
