@@ -2664,6 +2664,48 @@ async def create_driver(application: DriverApplicationCreate, request: Request):
 # Model: automated-first with admin fallback. A 'verified' result auto-approves
 # the driver; any other outcome leaves them pending for manual admin review.
 # ---------------------------------------------------------------------------
+async def _notify_driver_status(user_id: str, decision: str, notes: Optional[str] = None):
+    """Best-effort email to a driver applicant on a KYC/approval decision.
+    Sent via the M365 support mailbox. Never raises (won't block the flow)."""
+    try:
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+        if not user or not user.get("email"):
+            return
+        name = user.get("name") or "there"
+        templates = {
+            "approved": (
+                "You're approved to drive with IslandHop! 🎉",
+                f"<p>Hi {name},</p><p>Great news — your identity has been verified and your driver "
+                f"application is <strong>approved</strong>. You can now log in, go online, and start "
+                f"accepting trips.</p><p>Welcome to the IslandHop driver community!</p>",
+            ),
+            "rejected": (
+                "Update on your IslandHop driver application",
+                f"<p>Hi {name},</p><p>Thank you for applying to drive with IslandHop. After review, we're "
+                f"unable to approve your application at this time."
+                + (f"<br/><br/><strong>Reason:</strong> {notes}" if notes else "")
+                + "</p><p>If you believe this was a mistake or want to reapply, please reply to this email "
+                "or contact support.</p>",
+            ),
+            "review": (
+                "Your IslandHop verification needs a quick review",
+                f"<p>Hi {name},</p><p>We couldn't automatically verify your identity, so our team is now "
+                f"reviewing your application manually. No action is needed right now — we'll be in touch "
+                f"within 24–48 hours.</p>",
+            ),
+        }
+        subject, body = templates.get(decision, (None, None))
+        if not subject:
+            return
+        html = (
+            f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>{body}"
+            "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+        )
+        await graph_mail.send_mail(user["email"], subject, html)
+    except Exception as exc:  # noqa: BLE001 — notifications must never break the flow
+        logging.warning(f"Driver notification ({decision}) failed for {user_id}: {exc}")
+
+
 async def _apply_identity_result(driver: dict, session) -> str:
     """Reconcile a Stripe Identity session onto a driver record. Auto-approves
     the driver when the session is verified. Returns the session status."""
@@ -2683,12 +2725,20 @@ async def _apply_identity_result(driver: dict, session) -> str:
     if status == "verified":
         iv["verified_at"] = datetime.now(timezone.utc).isoformat()
         # Auto-approve: identity confirmed → activate driver & promote user.
-        if driver.get("status") in ("pending", "pending_approval", None):
+        newly_approved = driver.get("status") in ("pending", "pending_approval", None)
+        if newly_approved:
             update["status"] = "active"
             update["approval_method"] = "auto_kyc"
         await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
 
     await db.drivers.update_one({"id": driver["id"]}, {"$set": update})
+
+    if status == "verified":
+        await _notify_driver_status(driver["user_id"], "approved")
+    elif status in ("requires_input", "processing", "canceled"):
+        # Only notify once when it first lands in manual-review territory.
+        if (driver.get("identity_verification") or {}).get("status") != status:
+            await _notify_driver_status(driver["user_id"], "review")
     return status
 
 
@@ -6272,6 +6322,7 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
     if driver and driver.get("user_id"):
         await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+        await _notify_driver_status(driver["user_id"], "approved")
     return result
 
 
@@ -6280,7 +6331,11 @@ async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: 
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("drivers", driver_id, "rejected", current_user.id, payload.notes)
+    result = await _set_partner_status("drivers", driver_id, "rejected", current_user.id, payload.notes)
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and driver.get("user_id"):
+        await _notify_driver_status(driver["user_id"], "rejected", payload.notes)
+    return result
 
 
 @api_router.post("/admin/restaurants/{restaurant_id}/approve")
