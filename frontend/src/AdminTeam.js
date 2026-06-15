@@ -24,7 +24,10 @@ const AdminTeam = () => {
     try {
       const r = await axios.get(`${API}/admin/team/audit`, { headers: authHeaders() });
       setAudit(r.data.entries || []);
-    } catch { /* non-blocking */ }
+    } catch (e) {
+      // Non-blocking: the audit log is supplementary. Log for diagnostics only.
+      console.debug('Audit log load failed:', e.response?.status);
+    }
   }, []);
 
   const loadTeam = useCallback(async () => {
