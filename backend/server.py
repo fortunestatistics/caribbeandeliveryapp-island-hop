@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -23,6 +23,7 @@ import stripe
 import push_client
 import graph_mail
 import mercury_client
+import storage_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2533,12 +2534,94 @@ async def confirm_payment(
         raise HTTPException(status_code=400, detail=str(e))
 
 # Driver Management Routes
+ALLOWED_DOC_TYPES = {
+    "driversLicense", "vehicleRegistration", "insurance",
+    "certificateOfCharacter", "profilePhoto",
+}
+MAX_DOC_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@api_router.post("/drivers/documents")
+async def upload_driver_document(
+    request: Request,
+    doc_type: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Securely upload one driver identity document to private object storage.
+
+    Returns a document_id that the applicant attaches to their driver application.
+    """
+    current_user = await get_current_user_from_request(request)
+    if doc_type not in ALLOWED_DOC_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid doc_type. Allowed: {sorted(ALLOWED_DOC_TYPES)}")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_DOC_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    ext = (file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "bin")
+    content_type = file.content_type or storage_client.MIME_TYPES.get(ext, "application/octet-stream")
+    if ext not in storage_client.MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Use PDF, JPG, PNG, or WEBP.")
+
+    document_id = str(uuid.uuid4())
+    storage_path = f"{storage_client.APP_NAME}/driver-docs/{current_user.id}/{document_id}.{ext}"
+    try:
+        result = await asyncio.to_thread(storage_client.put_object, storage_path, data, content_type)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Driver document upload failed for {current_user.id}/{doc_type}: {e}")
+        raise HTTPException(status_code=502, detail="Document storage failed. Please try again.")
+
+    await db.driver_documents.insert_one({
+        "id": document_id,
+        "user_id": current_user.id,
+        "doc_type": doc_type,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"document_id": document_id, "doc_type": doc_type, "filename": file.filename}
+
+
+@api_router.get("/drivers/documents/{document_id}/download")
+async def download_driver_document(document_id: str, request: Request, auth: Optional[str] = Query(None)):
+    """Stream a driver document. Accessible only to the owner or an admin.
+
+    Supports `?auth=<jwt>` so <img>/<iframe> tags (which can't send headers) work.
+    """
+    # Auth: header Bearer OR ?auth= query param (for img/iframe tags)
+    if auth and not request.headers.get("Authorization"):
+        request.scope.setdefault("headers", [])
+        request.scope["headers"].append((b"authorization", f"Bearer {auth}".encode()))
+    current_user = await get_current_user_from_request(request)
+
+    record = await db.driver_documents.find_one({"id": document_id, "is_deleted": False}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if current_user.user_type != "admin" and record["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this document")
+
+    try:
+        data, content_type = await asyncio.to_thread(storage_client.get_object, record["storage_path"])
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Driver document fetch failed for {document_id}: {e}")
+        raise HTTPException(status_code=502, detail="Could not retrieve document")
+    return Response(content=data, media_type=record.get("content_type", content_type))
+
+
 @api_router.post("/drivers", response_model=Driver)
 async def create_driver(driver: Driver, request: Request):
-    """Create driver profile"""
+    """Create a driver application. New applicants are 'pending' until an admin
+    approves them — they cannot go online or operate until then."""
     current_user = await get_current_user_from_request(request)
     driver.user_id = current_user.id
-    
+    driver.status = "pending"  # awaiting admin identity review
+
     driver_dict = prepare_for_mongo(driver.dict())
     await db.drivers.insert_one(driver_dict)
     
@@ -2546,12 +2629,8 @@ async def create_driver(driver: Driver, request: Request):
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
     
-    # Update user type
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$set": {"user_type": "driver"}}
-    )
-    
+    # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
+    # account restricted (still a customer) while the application is reviewed.
     return driver
 
 @api_router.get("/drivers/leaderboard")

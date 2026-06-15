@@ -235,6 +235,11 @@ class Driver(BaseModel):
     current_location: Optional[Dict[str, float]] = None
     wallet_balance: float = 0.0
     total_earnings: float = 0.0
+    # Onboarding / KYC fields (set when a driver applies; reviewed by an admin)
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+    documents: Optional[Dict[str, str]] = None  # doc_type -> driver_documents.id
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
