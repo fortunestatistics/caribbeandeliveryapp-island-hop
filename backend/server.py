@@ -943,7 +943,7 @@ async def get_restaurant_menu(restaurant_id: str):
     menu_items = await db.menu_items.find({
         "restaurant_id": restaurant_id,
         "available": True
-    }).to_list(length=None)
+    }).limit(500).to_list(length=500)
     return menu_items
 
 @api_router.put("/menu-items/{item_id}", response_model=MenuItem)
@@ -1018,9 +1018,9 @@ async def get_vendor_orders(request: Request):
     business = await db.businesses.find_one({"user_id": current_user.id})
     
     if restaurant:
-        orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).to_list(length=None)
+        orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
     elif business:
-        orders = await db.orders.find({"vendor_id": business["id"]}).sort("created_at", -1).to_list(length=None)
+        orders = await db.orders.find({"vendor_id": business["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
     else:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
@@ -1461,7 +1461,7 @@ async def create_address(address: Address, request: Request):
 async def get_user_addresses(request: Request):
     """Get user's saved addresses"""
     current_user = await get_current_user_from_request(request)
-    addresses = await db.addresses.find({"user_id": current_user.id}, {"_id": 0}).to_list(length=None)
+    addresses = await db.addresses.find({"user_id": current_user.id}, {"_id": 0}).limit(50).to_list(length=50)
     return addresses
 
 @api_router.put("/addresses/{address_id}", response_model=Address)
@@ -1549,7 +1549,7 @@ async def create_support_ticket(ticket: SupportTicket, request: Request):
 async def get_user_tickets(request: Request):
     """Get user's support tickets"""
     current_user = await get_current_user_from_request(request)
-    tickets = await db.support_tickets.find({"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
+    tickets = await db.support_tickets.find({"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(length=100)
     return tickets
 
 @api_router.get("/support/tickets/{ticket_id}")
@@ -1659,7 +1659,7 @@ async def list_my_claims(request: Request):
     current_user = await get_current_user_from_request(request)
     claims = await db.support_tickets.find(
         {"user_id": current_user.id, "category": "claim"}, {"_id": 0}
-    ).sort("created_at", -1).to_list(length=None)
+    ).sort("created_at", -1).limit(100).to_list(length=100)
     return claims
 
 
