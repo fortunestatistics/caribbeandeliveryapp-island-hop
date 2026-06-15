@@ -2934,6 +2934,23 @@ async def _require_admin(request: Request):
 VALID_TEAM_ROLES = ("admin", "agent")
 
 
+async def _log_admin_action(actor_id, actor_email, action, target_email=None, role=None, details=None):
+    """Append an entry to the admin team audit log (best-effort)."""
+    try:
+        await db.admin_audit_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "action": action,
+            "actor_id": actor_id,
+            "actor_email": actor_email,
+            "target_email": target_email,
+            "role": role,
+            "details": details,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Audit log write failed ({action}): {exc}")
+
+
 async def seed_owner_admin():
     """Idempotently create the owner/super-admin from env. Never demotes an
     existing owner; updates the password only if the env value changed."""
@@ -2958,6 +2975,14 @@ async def seed_owner_admin():
         print(f"✅ Owner admin ensured: {email}")
 
 
+@api_router.get("/admin/team/audit")
+async def team_audit_log(request: Request):
+    """Recent admin team actions (promote/revoke/invite/accept)."""
+    await _require_admin(request)
+    entries = await db.admin_audit_log.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(length=100)
+    return {"entries": entries}
+
+
 @api_router.get("/admin/team")
 async def list_team(request: Request):
     """List all admins and support agents."""
@@ -2972,13 +2997,14 @@ async def list_team(request: Request):
 @api_router.post("/admin/team/promote")
 async def promote_team_member(payload: TeamPromote, request: Request):
     """Grant admin/agent role to an EXISTING registered user."""
-    await _require_admin(request)
+    admin = await _require_admin(request)
     if payload.role not in VALID_TEAM_ROLES:
         raise HTTPException(status_code=400, detail=f"Role must be one of {VALID_TEAM_ROLES}")
     target = await db.users.find_one({"email": payload.email.strip().lower()})
     if not target:
         raise HTTPException(status_code=404, detail="No registered user with that email. Ask them to sign up first, or send an invite.")
     await db.users.update_one({"id": target["id"]}, {"$set": {"user_type": payload.role}})
+    await _log_admin_action(admin.id, admin.email, "promote", payload.email, payload.role)
     return {"success": True, "email": payload.email, "role": payload.role}
 
 
@@ -2997,6 +3023,7 @@ async def revoke_team_member(payload: Dict[str, str], request: Request):
     if target["id"] == admin.id:
         raise HTTPException(status_code=400, detail="You cannot revoke your own access.")
     await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
+    await _log_admin_action(admin.id, admin.email, "revoke", target.get("email"), "customer")
     return {"success": True, "user_id": user_id}
 
 
@@ -3034,6 +3061,7 @@ async def invite_team_member(payload: TeamInvite, request: Request):
     except Exception as exc:  # noqa: BLE001 — invite still works via the returned link
         logging.warning(f"Team invite email failed for {email}: {exc}")
         emailed = False
+    await _log_admin_action(admin.id, admin.email, "invite", email, payload.role)
     return {"success": True, "email": email, "role": payload.role, "invite_link": invite_link, "emailed": emailed}
 
 
@@ -3074,6 +3102,7 @@ async def accept_invite(payload: InviteAccept):
         await db.users.insert_one(user_dict)
 
     await db.admin_invites.update_one({"token": payload.token}, {"$set": {"used": True}})
+    await _log_admin_action(user.id, user.email, "invite_accepted", email, role)
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 

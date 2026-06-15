@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
-import { UserPlus, Mail, Shield, Trash2, KeyRound, Copy } from 'lucide-react';
+import { UserPlus, Mail, Shield, Trash2, KeyRound, Copy, History } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -18,6 +18,14 @@ const AdminTeam = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('admin');
   const [pwd, setPwd] = useState({ current_password: '', new_password: '' });
+  const [audit, setAudit] = useState([]);
+
+  const loadAudit = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/admin/team/audit`, { headers: authHeaders() });
+      setAudit(r.data.entries || []);
+    } catch { /* non-blocking */ }
+  }, []);
 
   const loadTeam = useCallback(async () => {
     try {
@@ -28,14 +36,16 @@ const AdminTeam = () => {
     }
   }, []);
 
-  useEffect(() => { loadTeam(); }, [loadTeam]);
+  useEffect(() => { loadTeam(); loadAudit(); }, [loadTeam, loadAudit]);
+
+  const refreshAll = () => { loadTeam(); loadAudit(); };
 
   const promote = async () => {
     try {
       await axios.post(`${API}/admin/team/promote`, { email: promoteEmail, role: promoteRole }, { headers: authHeaders() });
       toast.success(`${promoteEmail} is now ${promoteRole}`);
       setPromoteEmail('');
-      loadTeam();
+      refreshAll();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Promote failed');
     }
@@ -45,6 +55,7 @@ const AdminTeam = () => {
     try {
       const r = await axios.post(`${API}/admin/team/invite`, { email: inviteEmail, role: inviteRole }, { headers: authHeaders() });
       setInviteEmail('');
+      loadAudit();
       if (r.data.emailed) {
         toast.success(`Invite emailed to ${r.data.email}`);
       } else {
@@ -65,7 +76,7 @@ const AdminTeam = () => {
     try {
       await axios.post(`${API}/admin/team/revoke`, { user_id: member.id }, { headers: authHeaders() });
       toast.success(`Revoked ${member.email}`);
-      loadTeam();
+      refreshAll();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Revoke failed');
     }
@@ -142,6 +153,29 @@ const AdminTeam = () => {
           <Input type="password" placeholder="Current password" value={pwd.current_password} onChange={(e) => setPwd({ ...pwd, current_password: e.target.value })} data-testid="current-password-input" />
           <Input type="password" placeholder="New password (min 8 chars)" value={pwd.new_password} onChange={(e) => setPwd({ ...pwd, new_password: e.target.value })} data-testid="new-password-input" />
           <Button onClick={changePassword} disabled={!pwd.current_password || !pwd.new_password} data-testid="change-password-btn">Update password</Button>
+        </CardContent>
+      </Card>
+
+      {/* Audit log */}
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4 text-gold-500" />Activity Log</CardTitle></CardHeader>
+        <CardContent>
+          {audit.length === 0 ? (
+            <p className="text-center text-muted-foreground py-4 text-sm" data-testid="audit-empty">No team activity yet.</p>
+          ) : (
+            <div className="space-y-1" data-testid="audit-log">
+              {audit.map((e) => (
+                <div key={e.id} className="flex items-center justify-between py-2 px-3 rounded-md bg-matte-900/40 text-sm" data-testid={`audit-entry-${e.id}`}>
+                  <span>
+                    <span className="font-medium capitalize">{e.action.replace('_', ' ')}</span>
+                    {e.target_email && <span className="text-muted-foreground"> — {e.target_email}{e.role ? ` (${e.role})` : ''}</span>}
+                    <span className="text-muted-foreground"> by {e.actor_email}</span>
+                  </span>
+                  <span className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
