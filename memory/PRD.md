@@ -26,6 +26,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Full E2E dry-run (preview, Stripe test mode) — ALL GREEN
+- Verified the complete chain (iteration_12, 20/20 pytest): restaurant onboarding + menu → driver onboarding + admin approval + go-online → customer order → Stripe TEST-card (4242) checkout captured (payment_status=paid) → driver assignment → delivery lifecycle + proof upload → driver wallet/earnings credited.
+- Fixed en route: ObjectId leak on `GET /api/restaurants/{id}/menu`; datetime JSON-serialization in `/orders/create` WebSocket broadcast (added `prepare_for_mongo` + `default=str`).
+- Removed `ProtectedRoute` gate on `/payment/success` & `/payment/cancel` so the Stripe-redirect confirmation always renders (polls by session_id; status endpoint is unauthenticated).
+- KYC decision emails (M365) wired into approve/reject + auto-KYC outcomes (best-effort; preview has placeholder M365 creds so they only send in production). Tests: `tests/test_driver_notifications.py`.
+- Known/parked: auto-driver assignment on `/orders/create` picks first online driver (no geo filter) — use `/find-driver`+`/accept-driver` for production; `paid_at` not surfaced on Order model (cosmetic).
+
 ### Jun 2026 — Automated KYC (Stripe Identity) for drivers
 - **Stripe Identity** integration (reuses existing `STRIPE_API_KEY`): document authenticity + selfie/liveness. Model = automated-first with admin fallback.
 - Endpoints: `POST /api/drivers/identity/start` (creates hosted verification session), `GET /api/drivers/identity/status` (retrieves + reconciles from Stripe; auto-approves on `verified`), `POST /api/webhook/stripe/identity` (production real-time, needs `STRIPE_WEBHOOK_SECRET_IDENTITY`). On `verified`: driver → active + user_type → driver automatically; any other outcome stays pending for manual admin review.
