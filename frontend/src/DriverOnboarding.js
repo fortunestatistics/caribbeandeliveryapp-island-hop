@@ -198,12 +198,23 @@ const DriverOnboarding = () => {
 
       await axios.post(`${API}/drivers`, driverData, { headers: authHeaders() });
 
-      toast({
-        title: "Driver Application Submitted!",
-        description: "Your documents are now with our team for identity review. We'll get back to you within 24-48 hours.",
-      });
-
-      navigate('/dashboard');
+      // Kick off automated identity verification (Stripe Identity).
+      try {
+        const idRes = await axios.post(`${API}/drivers/identity/start`, {}, { headers: authHeaders() });
+        toast({
+          title: "Application Submitted — Verify Your Identity",
+          description: "You'll now complete a quick ID + selfie check to get approved automatically.",
+        });
+        window.location.href = idRes.data.url;
+        return;
+      } catch (idErr) {
+        console.error('Identity start failed:', idErr);
+        toast({
+          title: "Driver Application Submitted!",
+          description: "Your documents are with our team for review. We'll get back to you within 24-48 hours.",
+        });
+        navigate('/dashboard');
+      }
     } catch (error) {
       console.error('Error submitting driver application:', error);
       toast({

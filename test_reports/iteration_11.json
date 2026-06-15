@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 11: end-to-end verification of Stripe Identity automated KYC (driver). All 5 backend scenarios + 2 frontend scenarios from review request pass. New regression suite /app/backend/tests/test_identity_kyc_review.py (7/7) plus existing /app/backend/tests/test_identity_kyc.py (3/3 when run from /app/backend with server on path) and /app/backend/tests/test_driver_onboarding_kyc.py (3/3) all pass. Frontend Playwright validated the /driver/verification/callback page (identity-callback-page + identity-pending + identity-dashboard-btn) and Admin Panel Approvals tab (approval-kyc-<id> badge showing 'requires_input' alongside existing approve/reject buttons and document view).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_identity_kyc.py::test_apply_identity_result_auto_approves", "issue": "Test imports 'server' directly; needs to be run with cwd=/app/backend (it is when invoked via the project Makefile/CI from backend dir). Fails with ModuleNotFoundError when invoked from /app. Cosmetic test-runner config issue, not a product bug. Mitigation: add 'pythonpath = backend' to pytest.ini, or run from /app/backend."},
+      {"endpoint": "/api/drivers/me, /api/admin/users, /api/admin/orders", "issue": "Pre-existing 500s (ObjectId not JSON serializable) carried over from iteration_9/10. Out of scope for this iteration."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_identity_kyc_review.py",
+    "/app/backend/tests/test_identity_kyc.py",
+    "/app/test_reports/pytest/pytest_iter11.xml"
+  ],
+  "action_items": [
+    "(Optional) Add 'pythonpath = backend' to /app/pytest.ini so test_apply_identity_result_auto_approves passes when invoked from repo root.",
+    "(Carry-over from iter10, optional) Exclude Mongo _id from /api/drivers/me, /api/admin/users, /api/admin/orders responses."
+  ],
+  "critical_code_review_comments": [
+    "server.py start_identity_verification correctly 400s when no driver application exists, creates a real Stripe Identity VerificationSession (test mode), persists session_id + status='requires_input' under driver.identity_verification.",
+    "get_identity_status reconciles via stripe.identity.VerificationSession.retrieve and calls _apply_identity_result; auto-promotes user to driver only on status='verified' — verified by unit test.",
+    "Pending gating intact: PUT /api/drivers/status?status=online → 403 until admin approves (or auto-verified). /auth/me remains user_type='customer' during identity flow.",
+    "_flatten_pending exposes the full driver doc (with _id popped) under 'raw', so AdminPanel can read row.raw.identity_verification.status to render the approval-kyc-<id> badge.",
+    "Admin manual fallback admin_approve_driver still flips status=active AND user_type=driver atomically — confirmed by post-approve /auth/me + online toggle 200.",
+    "IdentityVerificationCallback polls /api/drivers/identity/status and renders 4 distinct status cards (loading/verified/pending/review) with consistent dashboard navigation button.",
+    "AdminPanel.js Approvals tab renders KYC badge with stripe identity status next to docs/approve/reject controls — verified visually."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_identity_kyc_review.py (new — 7 review-request regression tests)"
+  ],
+  "success_rate": {"backend": "100% (7/7 review tests + 3/3 existing identity tests + 3/3 KYC doc upload tests)", "frontend": "100% (callback page + admin approvals KYC badge both verified)"},
+  "test_credentials": "Created fresh users per run with @gmail.com domain: rev_*_<ts>@gmail.com (customer applicants) and rev_*_adm_<ts>@gmail.com (admins), password Test1234! / Admin1234!. JWT in Authorization header / localStorage.token.",
+  "seed_data_creation": "Per-test fresh customer/admin/driver applications. Real Stripe Identity test sessions were created against verify.stripe.com (test mode) — they remain incomplete (requires_input).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 5 backend + 2 frontend review-request scenarios pass. Completing Stripe-hosted doc+selfie flow cannot be automated (external domain). Auto-approve-on-verified path is covered by the existing unit test test_apply_identity_result_auto_approves. Pre-existing /api/drivers/me + /api/admin/users + /api/admin/orders 500s (ObjectId) are unrelated and still open.",
+  "rca_of_the_issue": "N/A — no in-scope bugs. test_apply_identity_result_auto_approves ModuleNotFoundError is a pytest path issue when running from /app; running from /app/backend resolves it. Adding [tool.pytest.ini_options] pythonpath = ['backend'] (or pytest.ini equivalent) would normalize this."
+}

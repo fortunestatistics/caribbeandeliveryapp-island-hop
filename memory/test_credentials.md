@@ -51,6 +51,13 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 - `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
 - FIXED (Jun 2026): the 401 was caused by a stale global `AuthHandler` in `App.js` that consumed the single-use `session_id` (POSTing to the legacy `/api/auth/session`) before `SocialAuthCallback` (route `/auth/callback`) could call `/api/auth/social/google`. `AuthHandler` was removed. The Google redirect lands on `/auth/callback#session_id=...` → `SocialAuthCallback` exchanges it.
 
+## Automated KYC — Stripe Identity (Jun 2026)
+- Model: automated-first with admin fallback. Driver applies (status=pending) → frontend auto-starts Stripe Identity → on `verified` the driver is AUTO-approved (status=active, user_type=driver); any other outcome stays pending for manual admin review.
+- Endpoints: `POST /api/drivers/identity/start` (auth; requires an existing driver application; returns Stripe-hosted `url` + `session_id`), `GET /api/drivers/identity/status` (auth; retrieves+reconciles from Stripe, auto-approves on verified), `POST /api/webhook/stripe/identity` (production real-time; needs `STRIPE_WEBHOOK_SECRET_IDENTITY` env — not set in preview, reconcile via status endpoint instead).
+- Frontend: after onboarding submit, redirects to Stripe hosted flow; returns to `/driver/verification/callback` (`IdentityVerificationCallback.js`) which polls status. Admin Approvals tab shows a KYC badge per driver (`approval-kyc-<id>`).
+- Uses existing `STRIPE_API_KEY` (test mode). NOTE: completing the Stripe-hosted document+selfie flow requires a browser on verify.stripe.com and cannot be fully automated; auto-approve logic is unit-tested (`tests/test_identity_kyc.py`).
+- To go LIVE: enable the Identity product in the Stripe Dashboard + switch to live key.
+
 ## Driver KYC document upload + admin approval (Jun 2026)
 - Drivers upload identity docs (Driver's License, Vehicle Registration, Insurance, Certificate of Character, Profile Photo) which are stored in **private object storage** (Emergent Object Storage, uses `EMERGENT_LLM_KEY`).
 - Flow: `POST /api/drivers/documents` (multipart: `doc_type` + `file`) → returns `document_id`. Then `POST /api/drivers` with `{license_number, vehicle_type, vehicle_plate, documents:{docType:document_id}, personal_info, vehicle_info, banking_info}` → creates driver with `status="pending"`.

@@ -20,6 +20,7 @@ import DriverEarningsDashboard from './DriverEarningsDashboard';
 import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import SocialAuthCallback from './SocialAuthCallback';
+import IdentityVerificationCallback from './IdentityVerificationCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
@@ -1643,6 +1644,7 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
+            <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />

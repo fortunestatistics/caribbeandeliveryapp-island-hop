@@ -642,6 +642,18 @@ const AdminPanel = () => {
                                   </Button>
                                 </div>
                               </div>
+                              {kind === 'driver' && row.raw?.identity_verification && (
+                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-kyc-${row.id}`}>
+                                  <span className="text-xs font-semibold text-gold-500">Automated KYC (Stripe Identity): </span>
+                                  <Badge
+                                    className={row.raw.identity_verification.status === 'verified'
+                                      ? 'bg-green-600/20 text-green-400'
+                                      : 'bg-yellow-600/20 text-yellow-400'}
+                                  >
+                                    {row.raw.identity_verification.status || 'not started'}
+                                  </Badge>
+                                </div>
+                              )}
                               {kind === 'driver' && row.raw?.documents && Object.keys(row.raw.documents).length > 0 && (
                                 <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-docs-${row.id}`}>
                                   <p className="text-xs font-semibold text-gold-500 mb-2">Identity Documents (click to review)</p>

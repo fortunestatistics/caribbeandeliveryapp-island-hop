@@ -2658,6 +2658,128 @@ async def create_driver(application: DriverApplicationCreate, request: Request):
     # account restricted (still a customer) while the application is reviewed.
     return driver
 
+
+# ---------------------------------------------------------------------------
+# Automated KYC — Stripe Identity (document + selfie/liveness)
+# Model: automated-first with admin fallback. A 'verified' result auto-approves
+# the driver; any other outcome leaves them pending for manual admin review.
+# ---------------------------------------------------------------------------
+async def _apply_identity_result(driver: dict, session) -> str:
+    """Reconcile a Stripe Identity session onto a driver record. Auto-approves
+    the driver when the session is verified. Returns the session status."""
+    status = session.get("status") if isinstance(session, dict) else session.status
+    last_error = session.get("last_error") if isinstance(session, dict) else getattr(session, "last_error", None)
+    session_id = session.get("id") if isinstance(session, dict) else session.id
+
+    iv = {
+        "provider": "stripe_identity",
+        "session_id": session_id,
+        "status": status,
+        "last_error": last_error,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    update = {"identity_verification": iv}
+
+    if status == "verified":
+        iv["verified_at"] = datetime.now(timezone.utc).isoformat()
+        # Auto-approve: identity confirmed → activate driver & promote user.
+        if driver.get("status") in ("pending", "pending_approval", None):
+            update["status"] = "active"
+            update["approval_method"] = "auto_kyc"
+        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+
+    await db.drivers.update_one({"id": driver["id"]}, {"$set": update})
+    return status
+
+
+@api_router.post("/drivers/identity/start")
+async def start_identity_verification(request: Request):
+    """Create a Stripe Identity verification session (document + selfie) for the
+    current driver applicant. Returns the hosted verification URL."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=400, detail="Submit your driver application before verifying your identity.")
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=503, detail="Identity verification is not configured")
+
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    try:
+        session = await asyncio.to_thread(
+            lambda: stripe.identity.VerificationSession.create(
+                type="document",
+                options={"document": {"require_matching_selfie": True}},
+                metadata={"driver_id": driver["id"], "user_id": current_user.id},
+                return_url=f"{frontend_url}/driver/verification/callback",
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Stripe Identity session create failed for {current_user.id}: {e}")
+        raise HTTPException(status_code=502, detail="Could not start identity verification")
+
+    await db.drivers.update_one(
+        {"id": driver["id"]},
+        {"$set": {"identity_verification": {
+            "provider": "stripe_identity",
+            "session_id": session.id,
+            "status": session.status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}},
+    )
+    return {"session_id": session.id, "url": session.url, "status": session.status}
+
+
+@api_router.get("/drivers/identity/status")
+async def get_identity_status(request: Request):
+    """Return the current driver's identity-verification status. Reconciles with
+    Stripe (so it works even if the webhook hasn't been configured)."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver application not found")
+
+    iv = driver.get("identity_verification") or {}
+    session_id = iv.get("session_id")
+    if session_id and iv.get("status") != "verified" and STRIPE_API_KEY:
+        try:
+            session = await asyncio.to_thread(stripe.identity.VerificationSession.retrieve, session_id)
+            await _apply_identity_result(driver, session)
+            iv = {**iv, "status": session.status}
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Identity status retrieve failed for {session_id}: {e}")
+
+    return {
+        "status": iv.get("status", "unstarted"),
+        "session_id": session_id,
+        "verified": iv.get("status") == "verified",
+        "last_error": iv.get("last_error"),
+    }
+
+
+@api_router.post("/webhook/stripe/identity")
+async def stripe_identity_webhook(request: Request):
+    """Production real-time Identity webhook. Requires STRIPE_WEBHOOK_SECRET_IDENTITY.
+    The /drivers/identity/status endpoint reconciles regardless, so this is an
+    optimization for instant updates in production."""
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET_IDENTITY")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Identity webhook not configured")
+    payload = await request.body()
+    sig = request.headers.get("Stripe-Signature")
+    try:
+        event = stripe.Webhook.construct_event(payload=payload, sig_header=sig, secret=secret)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Webhook verification failed: {e}")
+
+    if event["type"] in ("identity.verification_session.verified", "identity.verification_session.requires_input"):
+        session_obj = event["data"]["object"]
+        driver_id = (session_obj.get("metadata") or {}).get("driver_id")
+        if driver_id:
+            driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+            if driver:
+                await _apply_identity_result(driver, session_obj)
+    return {"status": "ok"}
+
 @api_router.get("/drivers/leaderboard")
 async def get_driver_leaderboard(limit: int = 10):
     """Public leaderboard of top drivers ranked by rating, then delivery count.
