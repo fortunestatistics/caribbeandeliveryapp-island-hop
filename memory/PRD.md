@@ -26,6 +26,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Automated KYC (Stripe Identity) for drivers
+- **Stripe Identity** integration (reuses existing `STRIPE_API_KEY`): document authenticity + selfie/liveness. Model = automated-first with admin fallback.
+- Endpoints: `POST /api/drivers/identity/start` (creates hosted verification session), `GET /api/drivers/identity/status` (retrieves + reconciles from Stripe; auto-approves on `verified`), `POST /api/webhook/stripe/identity` (production real-time, needs `STRIPE_WEBHOOK_SECRET_IDENTITY`). On `verified`: driver → active + user_type → driver automatically; any other outcome stays pending for manual admin review.
+- Frontend: onboarding submit auto-launches the Stripe hosted flow; returns to `/driver/verification/callback` (`IdentityVerificationCallback.js`) which polls status. Admin Approvals shows a per-driver KYC badge.
+- Tests: `tests/test_identity_kyc.py` (3) + testing-agent `test_identity_kyc_review.py` (7). Verified iteration_11 (100% backend + frontend).
+- To go LIVE: enable the Identity product in the Stripe Dashboard + switch to live key + set `STRIPE_WEBHOOK_SECRET_IDENTITY`.
+- NEXT: extend secure ID upload + (optionally Identity) verification to **customers** (user requested).
+
 ### Jun 2026 — Driver KYC document upload + admin identity review (manual)
 - **Secure ID document storage**: new `storage_client.py` integrates Emergent **Object Storage** (private; uses `EMERGENT_LLM_KEY`). Driver docs (License, Registration, Insurance, Certificate of Character, Profile Photo) upload via `POST /api/drivers/documents` and are retrievable only by the owner or an admin via `GET /api/drivers/documents/{id}/download` (others 403). Files are never public.
 - **Application flow fixed**: `POST /api/drivers` previously 422'd (required `user_id` in body) — replaced with `DriverApplicationCreate`. New applicants are `status="pending"`, store `documents`/`personal_info`/`vehicle_info`/`banking_info`, and are NOT promoted to `user_type=driver` until approved. `PUT /api/drivers/status` is blocked (403) while pending/rejected.
