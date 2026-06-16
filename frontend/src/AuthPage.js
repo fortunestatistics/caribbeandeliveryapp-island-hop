@@ -19,6 +19,18 @@ import {
 } from 'lucide-react';
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
+import axios from 'axios';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const MicrosoftIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+    <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+    <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+    <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+  </svg>
+);
 
 const AuthPage = ({ mode = 'login' }) => {
   const navigate = useNavigate();
@@ -112,11 +124,28 @@ const AuthPage = ({ mode = 'login' }) => {
     }, 50);
   };
 
-  const handleSocialLogin = (provider) => {
+  const handleSocialLogin = async (provider) => {
     if (provider === 'Google') {
       // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
       const redirectUrl = window.location.origin + '/auth/callback';
       window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+      return;
+    }
+    if (provider === 'Microsoft') {
+      try {
+        const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('ms_oauth_state', state);
+        const redirectUri = window.location.origin + '/auth/microsoft/callback';
+        const res = await axios.get(`${API}/auth/social/microsoft/login-url`, {
+          params: { redirect_uri: redirectUri, state },
+        });
+        window.location.href = res.data.url;
+      } catch (err) {
+        const msg = err.response?.status === 503
+          ? 'Microsoft sign-in is not available in this environment yet.'
+          : 'Could not start Microsoft sign-in. Please try again.';
+        alert(msg);
+      }
       return;
     }
     alert(`${provider} login coming soon!`);
@@ -168,6 +197,16 @@ const AuthPage = ({ mode = 'login' }) => {
               >
                 <Chrome className="h-5 w-5 mr-2" />
                 Continue with Google
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => handleSocialLogin('Microsoft')}
+                data-testid="microsoft-login-btn"
+              >
+                <MicrosoftIcon className="h-5 w-5 mr-2" />
+                Continue with Microsoft
               </Button>
               <Button
                 type="button"

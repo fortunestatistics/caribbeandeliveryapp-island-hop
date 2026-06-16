@@ -21,6 +21,7 @@ import DriverEarningsDashboard from './DriverEarningsDashboard';
 import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import SocialAuthCallback from './SocialAuthCallback';
+import MicrosoftAuthCallback from './MicrosoftAuthCallback';
 import IdentityVerificationCallback from './IdentityVerificationCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
@@ -1646,6 +1647,7 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
+            <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
             <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />

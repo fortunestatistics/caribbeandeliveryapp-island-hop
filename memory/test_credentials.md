@@ -49,6 +49,12 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 
 ## Social login (Google)
 - `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
+
+## Social login (Microsoft — Azure AD, Jun 2026)
+- Reuses the M365 Azure app. Endpoints: `GET /api/auth/social/microsoft/login-url?redirect_uri=&state=` (returns authorize URL), `POST /api/auth/social/microsoft` {code, redirect_uri} (exchanges code, verifies ID token via JWKS, create-or-links by email with `auth_provider:"microsoft"`, mints our JWT). Frontend callback route `/auth/microsoft/callback`.
+- PREVIEW: `M365_*` are placeholders → both endpoints 503 "not configured" (expected). PRODUCTION: real Azure creds make it live.
+- ACTION REQUIRED in production: add Web-platform redirect URI `https://islandhopapp.com/auth/microsoft/callback` to the Azure app registration (`3547d007-...`) → Authentication, and ensure delegated scopes `openid profile email`. Cannot fully round-trip test without a real Microsoft account + the redirect URI registered.
+- Tests: `tests/test_microsoft_social_login.py` (5 passing).
 - FIXED (Jun 2026): the 401 was caused by a stale global `AuthHandler` in `App.js` that consumed the single-use `session_id` (POSTing to the legacy `/api/auth/session`) before `SocialAuthCallback` (route `/auth/callback`) could call `/api/auth/social/google`. `AuthHandler` was removed. The Google redirect lands on `/auth/callback#session_id=...` → `SocialAuthCallback` exchanges it.
 
 ## Automated KYC — Stripe Identity (Jun 2026)

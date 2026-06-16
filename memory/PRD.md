@@ -32,7 +32,18 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - Fixed the one in-scope item: empty error handler in `AdminTeam.js` audit-log loader now logs at debug level.
 - DEFERRED (high-risk on a LIVE app, need a dedicated tested phase): localStorage→httpOnly cookie auth migration (~20 files); adding the intentionally-suppressed React hook deps (suppressed to prevent infinite render loops); splitting large components (AdminPanel 1022 lines, BusinessOnboarding 1211); backend high-complexity refactors; wholesale console-statement removal.
 
-### Jun 2026 — Audit log + secure admin access
+### Jun 2026 — Microsoft (Azure AD) social sign-in
+- **"Continue with Microsoft"** added to AuthPage (between Google & Apple, with the 4-square MS logo). Reuses the existing **M365 Azure app registration** (`M365_CLIENT_ID`/`M365_TENANT_ID`/`M365_CLIENT_SECRET`) — no new secrets.
+- Flow (mirrors Google, frontend-centric + backend code exchange): frontend gets authorize URL from `GET /api/auth/social/microsoft/login-url?redirect_uri=&state=` → redirects browser to Microsoft → returns `code` to frontend route `/auth/microsoft/callback` (`MicrosoftAuthCallback.js`, verifies `state` from sessionStorage) → posts `{code, redirect_uri}` to `POST /api/auth/social/microsoft` → backend exchanges code for tokens, **verifies the ID token via JWKS** (signature/issuer/audience), create-or-links the user by email (`auth_provider="microsoft"`), mints our existing JWT.
+- **Preview vs prod**: preview `M365_*` are placeholders (`logistics-island`), so both endpoints return **503 "not configured"** gracefully; the button shows a friendly alert. In **production** the real Azure creds make it live — BUT the user must add **Web platform redirect URIs** to the Azure app: `https://islandhopapp.com/auth/microsoft/callback` (and the preview URL if testing there) + ensure delegated scopes `openid profile email`.
+- Tests: `tests/test_microsoft_social_login.py` (5 passing — 503 paths via HTTP + mocked configured happy-path via asyncio.run).
+- Apple sign-in still "coming soon" (needs paid Apple Developer account + Service ID/Team ID/Key ID/.p8).
+
+### Jun 2026 — Production config alignment
+- `backend/.env`: `FRONTEND_URL` and `CARIPAY_API_BASE_URL` updated from `www.islandhoptt.com` → **`islandhopapp.com`** (the live production domain). NOTE: production env vars are separate — user must also set `FRONTEND_URL=https://islandhopapp.com` in the Deploy panel + redeploy.
+- Stripe confirmed in TEST mode (`sk_test...`/`pk_test...`, same account). Deployment health check: PASS (0 blockers).
+
+
 - **Owner/super-admin seeded** from env (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) idempotently on startup; marked `is_owner` (can't be revoked/demoted).
 - **SECURITY FIX**: public `POST /api/auth/register` now always creates `user_type=customer` (ignores any `user_type` in the body) — admins/agents can no longer self-register.
 - **Roles**: `admin` (full access) + `agent` (support agent — only overview/claims/mail/disputes tabs; admin-only endpoints 403). `/admin` route allows both; tabs gated by `myRole`; stats hidden for agents.

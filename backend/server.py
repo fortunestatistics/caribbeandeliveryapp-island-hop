@@ -623,6 +623,130 @@ async def google_social_auth(payload: SocialAuthRequest):
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
+# Microsoft (Azure AD / Entra ID) social login. Reuses the existing M365 app
+# registration. We run an OIDC authorization-code flow: the frontend redirects
+# the browser to Microsoft, Microsoft returns a `code` to a frontend callback
+# route, and the frontend posts that code here. We exchange it server-side with
+# the client secret, verify the ID token, then mint OUR existing JWT.
+MS_TENANT_ID = os.environ.get("M365_TENANT_ID")
+MS_CLIENT_ID = os.environ.get("M365_CLIENT_ID")
+MS_CLIENT_SECRET = os.environ.get("M365_CLIENT_SECRET")
+
+
+def _ms_configured() -> bool:
+    """True only when real Azure credentials are present (preview uses placeholders)."""
+    placeholder = "logistics-island"
+    return bool(
+        MS_TENANT_ID and MS_CLIENT_ID and MS_CLIENT_SECRET
+        and MS_TENANT_ID != placeholder and MS_CLIENT_ID != placeholder
+    )
+
+
+class MicrosoftAuthRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+
+async def _verify_ms_id_token(id_token: str) -> dict:
+    """Verify a Microsoft v2.0 ID token signature, issuer and audience via JWKS."""
+    jwks_url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/discovery/v2.0/keys"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            jwks = (await client.get(jwks_url)).json()
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not fetch Microsoft signing keys")
+    try:
+        header = jwt.get_unverified_header(id_token)
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid Microsoft identity token")
+    key = next((k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid")), None)
+    if not key:
+        raise HTTPException(status_code=400, detail="Unable to verify Microsoft identity token")
+    issuer = f"https://login.microsoftonline.com/{MS_TENANT_ID}/v2.0"
+    try:
+        return jwt.decode(
+            id_token, key, algorithms=["RS256"],
+            audience=MS_CLIENT_ID, issuer=issuer,
+        )
+    except JWTError as e:
+        logging.warning(f"Microsoft id_token validation failed: {e}")
+        raise HTTPException(status_code=401, detail="Microsoft sign-in verification failed")
+
+
+@api_router.get("/auth/social/microsoft/login-url")
+async def microsoft_login_url(redirect_uri: str, state: str):
+    """Build the Microsoft authorization URL for the frontend to redirect to."""
+    if not _ms_configured():
+        raise HTTPException(status_code=503, detail="Microsoft sign-in is not configured in this environment")
+    from urllib.parse import urlencode
+    params = {
+        "client_id": MS_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "response_mode": "query",
+        "scope": "openid profile email",
+        "state": state,
+        "prompt": "select_account",
+    }
+    url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/authorize?{urlencode(params)}"
+    return {"url": url}
+
+
+@api_router.post("/auth/social/microsoft", response_model=Token)
+async def microsoft_social_auth(payload: MicrosoftAuthRequest):
+    """Exchange a Microsoft authorization code for our app JWT.
+
+    Creates the user's profile automatically on first sign-in (no password),
+    and links to the existing account by email on subsequent sign-ins.
+    """
+    if not _ms_configured():
+        raise HTTPException(status_code=503, detail="Microsoft sign-in is not configured in this environment")
+    token_url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token"
+    data = {
+        "client_id": MS_CLIENT_ID,
+        "client_secret": MS_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": payload.code,
+        "redirect_uri": payload.redirect_uri,
+        "scope": "openid profile email",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(token_url, data=data)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not reach Microsoft sign-in service")
+    if resp.status_code != 200:
+        logging.warning(f"Microsoft token exchange failed: status={resp.status_code} body={resp.text[:300]}")
+        raise HTTPException(status_code=401, detail="Microsoft sign-in failed or expired. Please try again.")
+
+    id_token = resp.json().get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=400, detail="Microsoft did not return an identity token")
+
+    claims = await _verify_ms_id_token(id_token)
+    email = (claims.get("email") or claims.get("preferred_username") or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Microsoft did not return an email address")
+    name = claims.get("name") or email.split("@")[0]
+
+    user_doc = await db.users.find_one({"email": email})
+    if user_doc:
+        user = User(**user_doc)
+    else:
+        user = User(email=email, name=name, user_type="customer")
+        user_dict = prepare_for_mongo(user.dict())
+        user_dict["auth_provider"] = "microsoft"
+        await db.users.insert_one(user_dict)
+        try:
+            await _persist_pending_referral(user)
+        except Exception as e:
+            logging.warning(f"Referral persist failed for social signup {email}: {e}")
+
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
+
+
+
 @api_router.get("/auth/me/modes")
 async def get_my_modes(current_user: User = Depends(get_current_user)):
     """Return which app 'modes' this user can access.
