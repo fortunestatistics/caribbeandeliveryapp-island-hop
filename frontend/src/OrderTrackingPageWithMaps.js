@@ -334,8 +334,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#0EA5E9" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">🚗</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Driver Location"
                       />
@@ -354,8 +353,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#10B981" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">📍</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Delivery Location"
                       />
