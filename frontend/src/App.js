@@ -1132,7 +1132,7 @@ const Dashboard = () => {
   const fetchApplications = async () => {
     try {
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: true
+        withCredentials: false
       });
       setApplications(response.data);
     } catch (error) {
@@ -1436,7 +1436,7 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       toast({

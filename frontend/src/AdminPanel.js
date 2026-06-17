@@ -275,7 +275,7 @@ const AdminPanel = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setStats(response.data);
       setLoading(false);
@@ -288,7 +288,7 @@ const AdminPanel = () => {
   const fetchUsers = async () => {
     try {
       const response = await axios.get(`${API}/admin/users`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setUsers(response.data);
     } catch (error) {
@@ -299,7 +299,7 @@ const AdminPanel = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/admin/orders`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setOrders(response.data);
     } catch (error) {
@@ -310,7 +310,7 @@ const AdminPanel = () => {
   const fetchDisputes = async () => {
     try {
       const response = await axios.get(`${API}/admin/disputes`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setDisputes(response.data);
     } catch (error) {
@@ -321,7 +321,7 @@ const AdminPanel = () => {
   const handleUserAction = async (userId, action) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       fetchUsers();
     } catch (error) {
@@ -333,7 +333,7 @@ const AdminPanel = () => {
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       fetchOrders();
     } catch (error) {

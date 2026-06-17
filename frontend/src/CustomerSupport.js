@@ -106,7 +106,7 @@ const CustomerSupport = () => {
   const fetchTickets = async () => {
     try {
       const response = await axios.get(`${API}/support/tickets`, {
-        withCredentials: true
+        withCredentials: false
       });
       setTickets(response.data);
       setLoading(false);
@@ -119,7 +119,7 @@ const CustomerSupport = () => {
   const fetchTicketMessages = async (ticketId) => {
     try {
       const response = await axios.get(`${API}/support/tickets/${ticketId}/messages`, {
-        withCredentials: true
+        withCredentials: false
       });
       setMessages(response.data);
     } catch (error) {
@@ -132,7 +132,7 @@ const CustomerSupport = () => {
 
     try {
       await axios.post(`${API}/support/tickets`, newTicketData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setShowNewTicketModal(false);
@@ -158,7 +158,7 @@ const CustomerSupport = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setNewMessage('');
@@ -171,7 +171,7 @@ const CustomerSupport = () => {
   const handleCloseTicket = async (ticketId) => {
     try {
       await axios.put(`${API}/support/tickets/${ticketId}/close`, {}, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchTickets();
       setSelectedTicket(null);
