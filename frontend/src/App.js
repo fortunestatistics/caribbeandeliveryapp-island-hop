@@ -22,6 +22,7 @@ import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import SocialAuthCallback from './SocialAuthCallback';
 import MicrosoftAuthCallback from './MicrosoftAuthCallback';
+import ProfilePage from './ProfilePage';
 import IdentityVerificationCallback from './IdentityVerificationCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
@@ -67,6 +68,7 @@ import {
   Car,
   MessageCircle,
   MapPin,
+  UserCircle,
   Clock,
   CreditCard,
   CheckCircle,
@@ -1165,6 +1167,21 @@ const Dashboard = () => {
 
         <ReferralBanner />
 
+        {(!user.picture || !user.address || !user.address.street) && (
+          <Card className="mb-6 border-gold-500/40 bg-gold-500/5" data-testid="complete-profile-banner">
+            <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4">
+              <div className="flex items-center gap-3">
+                <UserCircle className="h-8 w-8 text-gold-500 shrink-0" />
+                <div>
+                  <p className="font-semibold text-foreground">Complete your profile</p>
+                  <p className="text-sm text-muted-foreground">Add a profile picture and delivery address to start ordering.</p>
+                </div>
+              </div>
+              <Button onClick={() => navigate('/profile')} data-testid="complete-profile-btn">Complete now</Button>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
           <Card className="col-span-full lg:col-span-2">
@@ -1231,7 +1248,7 @@ const Dashboard = () => {
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-3">
                 {user.picture ? (
-                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full" />
+                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full object-cover" />
                 ) : (
                   <div className="w-12 h-12 bg-gold-gradient rounded-full flex items-center justify-center text-white font-bold">
                     {user.name.charAt(0)}
@@ -1242,9 +1259,16 @@ const Dashboard = () => {
                   <div className="text-sm text-muted-foreground">{user.email}</div>
                 </div>
               </div>
+              {user.address?.street && (
+                <div className="flex items-start gap-2 text-sm text-muted-foreground" data-testid="profile-card-address">
+                  <MapPin className="h-4 w-4 mt-0.5 text-gold-500 shrink-0" />
+                  <span>{[user.address.street, user.address.city, user.address.country].filter(Boolean).join(', ')}</span>
+                </div>
+              )}
               <div className="pt-4 border-t">
                 <Badge variant="secondary" className="mb-2">Active Member</Badge>
-                <p className="text-xs text-muted-foreground">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <p className="text-xs text-muted-foreground mb-3">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <Button variant="outline" size="sm" className="w-full" onClick={() => navigate('/profile')} data-testid="edit-profile-btn">Edit Profile</Button>
               </div>
             </CardContent>
           </Card>
@@ -1667,6 +1691,7 @@ function App() {
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />

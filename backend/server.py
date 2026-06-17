@@ -565,6 +565,31 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    picture: Optional[str] = None  # base64 data URL or external URL
+    address: Optional[Dict[str, str]] = None
+
+
+@api_router.put("/users/me", response_model=User)
+async def update_my_profile(
+    payload: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """Update the current user's profile (name, phone, picture, address)."""
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if not update:
+        return current_user
+    # Guard against oversized base64 images (~3MB base64 ≈ ~2.2MB binary)
+    if update.get("picture") and len(update["picture"]) > 3_000_000:
+        raise HTTPException(status_code=413, detail="Profile picture too large (max ~2MB)")
+    await db.users.update_one({"id": current_user.id}, {"$set": update})
+    user_doc = await db.users.find_one({"id": current_user.id}, {"_id": 0})
+    return User(**user_doc)
+
+
+
 # Emergent-managed Google OAuth: we use it only to obtain the verified Google
 # identity, then mint OUR existing JWT so the rest of the app is unchanged.
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"

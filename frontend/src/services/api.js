@@ -41,6 +41,7 @@ export const authAPI = {
   logout: () => api.post('/auth/logout'),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, newPassword) => api.post('/auth/reset-password', { token, new_password: newPassword }),
+  updateProfile: (data) => api.put('/users/me', data),
 };
 
 // Order API

@@ -88,8 +88,9 @@ const AuthPage = ({ mode = 'login' }) => {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Login successful!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token
+        // (SPA navigate() leaves stale auth state and bounces back to /login).
+        window.location.href = '/dashboard';
       } else {
         const response = await authAPI.register({
           email: formData.email,
@@ -106,8 +107,8 @@ const AuthPage = ({ mode = 'login' }) => {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Account created successfully!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token.
+        window.location.href = '/dashboard';
       }
     } catch (error) {
       alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
