@@ -3896,6 +3896,9 @@ async def create_rating(rating_data: RatingCreate, request: Request):
         driver_rating=rating_data.driver_rating,
         food_quality=rating_data.food_quality,
         delivery_speed=rating_data.delivery_speed,
+        driver_professionalism=rating_data.driver_professionalism,
+        driver_care=rating_data.driver_care,
+        driver_communication=rating_data.driver_communication,
         vendor_review=rating_data.vendor_review,
         driver_review=rating_data.driver_review,
     )
@@ -4003,6 +4006,196 @@ async def admin_run_weekly_driver_bonus(request: Request):
         raise HTTPException(status_code=403, detail="Admin only")
     n = await award_weekly_top_driver_bonus()
     return {"success": True, "drivers_awarded": n}
+
+
+
+# ---- Monthly driver-excellence incentives (multi-area, tiered top-3) ----
+MONTHLY_BONUS_TIERS = [200.0, 100.0, 50.0]   # 1st, 2nd, 3rd (USD)
+MONTHLY_MIN_DELIVERIES = 20
+MONTHLY_MIN_RATINGS = 10
+DRIVER_RATING_AREAS = {
+    "overall": "driver_rating",
+    "punctuality": "delivery_speed",
+    "professionalism": "driver_professionalism",
+    "care": "driver_care",
+    "communication": "driver_communication",
+}
+
+
+def _month_bounds(month: Optional[str]):
+    """Return (month_key 'YYYY-MM', start_iso, end_iso) for the given month (default current UTC)."""
+    now = datetime.now(timezone.utc)
+    if month:
+        try:
+            year, mon = int(month[:4]), int(month[5:7])
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="month must be 'YYYY-MM'")
+    else:
+        year, mon = now.year, now.month
+    start = datetime(year, mon, 1, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if mon == 12 else datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+    return f"{year:04d}-{mon:02d}", start.isoformat(), end.isoformat()
+
+
+async def _build_driver_leaderboard(month: Optional[str]):
+    month_key, start_iso, end_iso = _month_bounds(month)
+
+    # Ratings in window (only those carrying a driver score)
+    ratings = await db.ratings.find(
+        {"driver_id": {"$ne": None}, "driver_rating": {"$ne": None},
+         "created_at": {"$gte": start_iso, "$lt": end_iso}},
+        {"_id": 0},
+    ).to_list(length=None)
+
+    # Delivered orders in window → deliveries count per driver
+    delivered = await db.orders.find(
+        {"driver_id": {"$ne": None}, "status": "delivered"},
+        {"_id": 0, "driver_id": 1, "delivered_at": 1, "actual_delivery_time": 1, "updated_at": 1, "created_at": 1},
+    ).to_list(length=None)
+    deliveries_by_driver: dict = {}
+    for o in delivered:
+        ts = o.get("delivered_at") or o.get("actual_delivery_time") or o.get("updated_at") or o.get("created_at")
+        if ts and start_iso <= ts < end_iso:
+            deliveries_by_driver[o["driver_id"]] = deliveries_by_driver.get(o["driver_id"], 0) + 1
+
+    # Aggregate per driver
+    agg: dict = {}
+    for r in ratings:
+        d = agg.setdefault(r["driver_id"], {area: [] for area in DRIVER_RATING_AREAS})
+        for area, field in DRIVER_RATING_AREAS.items():
+            v = r.get(field)
+            if isinstance(v, (int, float)) and v:
+                d[area].append(float(v))
+
+    # Driver names (batch)
+    driver_ids = list(set(list(agg.keys()) + list(deliveries_by_driver.keys())))
+    name_by_driver: dict = {}
+    if driver_ids:
+        drivers = await db.drivers.find({"id": {"$in": driver_ids}}, {"_id": 0, "id": 1, "user_id": 1, "name": 1}).to_list(length=None)
+        user_ids = [d["user_id"] for d in drivers if d.get("user_id")]
+        user_name: dict = {}
+        if user_ids:
+            async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+                user_name[u["id"]] = u.get("name")
+        for d in drivers:
+            name_by_driver[d["id"]] = d.get("name") or user_name.get(d.get("user_id")) or "Driver"
+
+    rows = []
+    for driver_id in driver_ids:
+        area_avgs = {}
+        present = []
+        for area in DRIVER_RATING_AREAS:
+            vals = agg.get(driver_id, {}).get(area, [])
+            if vals:
+                avg = round(sum(vals) / len(vals), 2)
+                area_avgs[area] = avg
+                present.append(avg)
+            else:
+                area_avgs[area] = None
+        ratings_count = len(agg.get(driver_id, {}).get("overall", []))
+        deliveries = deliveries_by_driver.get(driver_id, 0)
+        composite = round(sum(present) / len(present), 2) if present else 0
+        qualified = deliveries >= MONTHLY_MIN_DELIVERIES and ratings_count >= MONTHLY_MIN_RATINGS
+        rows.append({
+            "driver_id": driver_id,
+            "name": name_by_driver.get(driver_id, "Driver"),
+            "areas": area_avgs,
+            "composite": composite,
+            "ratings_count": ratings_count,
+            "deliveries": deliveries,
+            "qualified": qualified,
+        })
+
+    # Rank qualified drivers by composite, tiebreak ratings_count
+    qualified_rows = sorted(
+        [r for r in rows if r["qualified"]],
+        key=lambda r: (r["composite"], r["ratings_count"]),
+        reverse=True,
+    )
+    for i, r in enumerate(qualified_rows):
+        r["rank"] = i + 1
+    # Unqualified rows shown below, no rank
+    rows_sorted = qualified_rows + sorted(
+        [r for r in rows if not r["qualified"]],
+        key=lambda r: (r["composite"], r["ratings_count"]), reverse=True,
+    )
+
+    awarded = await db.driver_incentives.find(
+        {"type": "monthly_top_driver", "period": month_key}, {"_id": 0},
+    ).to_list(length=None)
+
+    return {
+        "month": month_key,
+        "thresholds": {"min_deliveries": MONTHLY_MIN_DELIVERIES, "min_ratings": MONTHLY_MIN_RATINGS},
+        "tiers": MONTHLY_BONUS_TIERS,
+        "currency": "USD",
+        "areas": list(DRIVER_RATING_AREAS.keys()),
+        "drivers": rows_sorted,
+        "already_awarded": awarded,
+    }
+
+
+@api_router.get("/admin/driver-incentives/leaderboard")
+async def admin_driver_leaderboard(request: Request, month: Optional[str] = None):
+    """Admin: monthly driver leaderboard with per-area scores."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return await _build_driver_leaderboard(month)
+
+
+@api_router.post("/admin/driver-incentives/run-monthly")
+async def admin_run_monthly_driver_bonus(request: Request):
+    """Admin: pay the tiered top-3 drivers for a month. Idempotent per month."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    body = await request.json()
+    month = body.get("month")
+
+    board = await _build_driver_leaderboard(month)
+    month_key = board["month"]
+
+    if board["already_awarded"]:
+        return {"success": False, "already_awarded": True, "month": month_key,
+                "awarded": board["already_awarded"]}
+
+    top = [d for d in board["drivers"] if d.get("qualified")][:len(MONTHLY_BONUS_TIERS)]
+    if not top:
+        return {"success": False, "month": month_key, "awarded": [],
+                "message": "No drivers met the qualifying thresholds this month."}
+
+    now = datetime.now(timezone.utc).isoformat()
+    awarded = []
+    for idx, d in enumerate(top):
+        amount = MONTHLY_BONUS_TIERS[idx]
+        driver_row = await db.drivers.find_one({"id": d["driver_id"]}, {"_id": 0, "user_id": 1})
+        user_id = (driver_row or {}).get("user_id")
+        if not user_id:
+            continue
+        await _credit_wallet_with_txn(
+            user_id, amount, "USD", txn_type="payout_in",
+            note=f"Monthly driver excellence bonus — #{idx + 1} ({month_key}), composite {d['composite']}",
+        )
+        rec = {
+            "id": str(uuid.uuid4()),
+            "driver_id": d["driver_id"],
+            "type": "monthly_top_driver",
+            "period": month_key,
+            "rank": idx + 1,
+            "amount": amount,
+            "currency": "USD",
+            "composite": d["composite"],
+            "deliveries": d["deliveries"],
+            "ratings_count": d["ratings_count"],
+            "awarded_at": now,
+        }
+        await db.driver_incentives.insert_one(rec)
+        rec.pop("_id", None)
+        awarded.append(rec)
+
+    return {"success": True, "month": month_key, "awarded": awarded}
+
 
 
 @api_router.get("/vendors/{vendor_id}/ratings")

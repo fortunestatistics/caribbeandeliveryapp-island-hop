@@ -32,7 +32,23 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - Fixed the one in-scope item: empty error handler in `AdminTeam.js` audit-log loader now logs at debug level.
 - DEFERRED (high-risk on a LIVE app, need a dedicated tested phase): localStorage→httpOnly cookie auth migration (~20 files); adding the intentionally-suppressed React hook deps (suppressed to prevent infinite render loops); splitting large components (AdminPanel 1022 lines, BusinessOnboarding 1211); backend high-complexity refactors; wholesale console-statement removal.
 
-### Jun 2026 — Full E2E verified + order-tracking map crash FIXED
+### Jun 2026 — Merchant reviews, driver multi-area reviews + monthly incentives, compact footer
+**Merchant reviews (Google-style, on RestaurantMenu `/restaurant/:id`):**
+- New collection `merchant_reviews`. Endpoints: `GET /api/merchants/{id}/reviews` (public: returns `{summary:{average,count,distribution}, reviews, can_reply}`; optional auth sets can_reply), `POST /api/merchants/{id}/reviews` (auth; upsert one review per customer; rating 1-5 + comment), `POST /api/merchants/{id}/reviews/{review_id}/reply` (merchant owner via restaurants/businesses/car_rental_companies.user_id, or admin).
+- Frontend `MerchantReviews.js`: avg + star-distribution bars, write-review form (StarPicker + comment), review cards (avatar/name/stars/date/comment), nested merchant reply, owner-only reply form. Mounted at bottom of RestaurantMenu.
+- Tests: `tests/test_merchant_reviews.py` (5 passing).
+
+**Driver multi-area reviews + MONTHLY tiered incentives:**
+- 5 rating areas (customer rates post-delivery): Overall(`driver_rating`), Punctuality/Speed(`delivery_speed`), Professionalism(`driver_professionalism`), Care(`driver_care`), Communication(`driver_communication`). Added 3 new fields to Rating + RatingCreate models and `create_rating`. `ReviewForm.js` extended with the 4 sub-area star rows (also fixed token-key bug: `access_token`→`token`).
+- Monthly engine: `GET /api/admin/driver-incentives/leaderboard?month=YYYY-MM` (per-area avgs, composite, deliveries, ratings_count, qualified flag, ranked) and `POST /api/admin/driver-incentives/run-monthly` (pays tiered top-3, idempotent per month). Config: tiers $200/$100/$50 USD; qualify ≥20 deliveries AND ≥10 ratings/month. Writes `driver_incentives` docs type `monthly_top_driver`. (Existing weekly bonus untouched.)
+- Frontend: new Admin tab "Incentives" (`AdminDriverIncentives.js`) — month picker, tier/threshold banner, leaderboard table with per-area scores + medals for top-3, "Run payout" button (disabled when 0 qualified or already paid), awarded banner.
+- Tests: `tests/test_driver_monthly_incentives.py` (2 passing — seeds qualifying driver via fresh Motor client, verifies rank/payout/idempotency via HTTP).
+
+**Compact footer:** `Footer.js` condensed from a large 3-col block (5 big email cards) into a slim single row (brand + Instagram + 5 inline contact pills + thin copyright/website/About row). `mt-20`→`mt-12`, `py-12`→`py-7`.
+
+All verified: 16 new backend tests pass; merchant-reviews UI, admin incentives tab, and tracking map confirmed in-browser.
+
+
 - **OrderTrackingPageWithMaps.js bug FIXED**: page crashed with `Cannot read properties of undefined (reading 'maps')` because `new window.google.maps.Size(40,40)` was evaluated inline in Marker icon JSX BEFORE LoadScript injected `window.google` → the whole tracking page went blank ("Oops! Something went wrong"). Fix: removed the redundant `scaledSize` (the SVG markers are already 40×40). Verified in-browser: map tiles + delivery marker render, no crash overlay. (This was the real cause of the grey map — NOT the API key.)
 - **Full E2E run (iteration_14, PREVIEW)**: restaurant onboarding + menu → driver KYC + admin approval + go-online → customer order → Stripe TEST checkout (paid) → driver assignment → delivery lifecycle → POD upload → driver wallet credit. ALL PASS. Backend 29/29 (20 E2E + 4 profile + 5 Microsoft). Login→dashboard + profile flows verified.
 - `test_e2e_dryrun_iter12.py` updated by testing agent: logs in as the seeded owner admin (post registration-lockdown, /auth/register always returns customer).

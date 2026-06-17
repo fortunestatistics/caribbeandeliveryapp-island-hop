@@ -327,6 +327,9 @@ class Rating(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
     response_from_vendor: Optional[str] = None
@@ -342,6 +345,9 @@ class RatingCreate(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
 

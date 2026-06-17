@@ -7,7 +7,7 @@ import { Star, X, Loader2, CheckCircle2 } from 'lucide-react';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => {
-  const t = localStorage.getItem('access_token');
+  const t = localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
@@ -46,6 +46,10 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [driverRating, setDriverRating] = useState(0);
+  const [punctuality, setPunctuality] = useState(0);
+  const [professionalism, setProfessionalism] = useState(0);
+  const [care, setCare] = useState(0);
+  const [communication, setCommunication] = useState(0);
   const [vendorRating, setVendorRating] = useState(0);
   const [driverReview, setDriverReview] = useState('');
   const [vendorReview, setVendorReview] = useState('');
@@ -69,6 +73,10 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
       const body = { order_id: orderId };
       if (showDriver && driverRating > 0) {
         body.driver_rating = driverRating;
+        if (punctuality) body.delivery_speed = punctuality;
+        if (professionalism) body.driver_professionalism = professionalism;
+        if (care) body.driver_care = care;
+        if (communication) body.driver_communication = communication;
         if (driverReview.trim()) body.driver_review = driverReview.trim();
       }
       if (showVendor && vendorRating > 0) {
@@ -117,14 +125,41 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
             <>
               {showDriver && (
                 <div>
-                  <p className="text-sm font-semibold text-white mb-2">Your driver</p>
+                  <p className="text-sm font-semibold text-white mb-2">Your driver — overall</p>
                   <StarPicker value={driverRating} onChange={setDriverRating} testIdPrefix="review-driver" />
+
+                  <div className="mt-3 space-y-2">
+                    {[
+                      { label: 'Punctuality / Speed', value: punctuality, set: setPunctuality, prefix: 'review-punctuality' },
+                      { label: 'Professionalism & Courtesy', value: professionalism, set: setProfessionalism, prefix: 'review-professionalism' },
+                      { label: 'Care of Items', value: care, set: setCare, prefix: 'review-care' },
+                      { label: 'Communication', value: communication, set: setCommunication, prefix: 'review-communication' },
+                    ].map((row) => (
+                      <div key={row.prefix} className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">{row.label}</span>
+                        <div className="flex items-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => row.set(n)}
+                              aria-label={`${row.label} ${n} star`}
+                              data-testid={`${row.prefix}-star-${n}`}
+                            >
+                              <Star className={`h-5 w-5 ${n <= row.value ? 'fill-gold-300 text-gold-300' : 'text-muted-foreground/40'}`} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   <textarea
                     value={driverReview}
                     onChange={(e) => setDriverReview(e.target.value.slice(0, 400))}
                     placeholder="Anything to share about your driver?"
                     rows={2}
-                    className="mt-2 w-full px-3 py-2 bg-matte-900 border border-border rounded-md text-sm text-white placeholder-muted-foreground/60 focus:outline-none focus:border-gold-500"
+                    className="mt-3 w-full px-3 py-2 bg-matte-900 border border-border rounded-md text-sm text-white placeholder-muted-foreground/60 focus:outline-none focus:border-gold-500"
                     data-testid="review-driver-text"
                   />
                 </div>
