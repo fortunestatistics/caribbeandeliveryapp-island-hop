@@ -57,11 +57,28 @@ def _hdr(token: str) -> Dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def _login_owner_admin() -> Dict[str, Any]:
+    """Login as the seeded owner admin (registration lockdown forces customer on /register)."""
+    r = requests.post(
+        f"{BASE_URL}/api/auth/login",
+        json={
+            "email": os.environ.get("ADMIN_EMAIL", "tracyfortune@islandhoptt.com"),
+            "password": os.environ.get("ADMIN_PASSWORD", "IslandHopAdmin2026!"),
+        },
+        timeout=30,
+    )
+    assert r.status_code == 200, f"owner admin login failed: {r.status_code} {r.text}"
+    data = r.json()
+    token = data.get("access_token") or data.get("token")
+    assert token, f"no token returned for owner admin: {data}"
+    return {"email": data.get("user", {}).get("email"), "token": token, "user": data.get("user", {})}
+
+
 @pytest.fixture(scope="module")
 def actors():
     owner = _register("owner", "business")
     driver_applicant = _register("drv", "customer")  # customer until approved
-    admin = _register("adm", "admin")
+    admin = _login_owner_admin()
     customer = _register("cust", "customer")
     return {"owner": owner, "driver": driver_applicant, "admin": admin, "customer": customer}
 

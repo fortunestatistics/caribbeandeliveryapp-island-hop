@@ -1,0 +1,47 @@
+{
+  "summary": "Full E2E run on PREVIEW. Backend chain (restaurant → menu → driver KYC → admin approval → go-online → customer order → Stripe checkout session → driver assignment → status lifecycle → POD upload → driver wallet credit) ALL PASS (20/20 pytest cases) after fixing test_e2e_dryrun_iter12.py to log in as the seeded owner admin instead of trying to register an admin (registration lockdown forces user_type=customer). Profile backend PUT /api/users/me persists picture+address (200). Auth → /dashboard redirect works and the dashboard shows 'Welcome back, UI Tester' with the complete-profile-banner and edit-profile-btn. Profile page renders all required data-testids and Save works. CRITICAL: the order-tracking page /order/:orderId CRASHES with an Uncaught TypeError 'Cannot read properties of undefined (reading maps)' in OrderTrackingPageWithMaps — the Google Map does NOT render. This is the exact verification the user requested and it FAILS — but NOT because of the Maps API key (the key is fine), it is a frontend JS bug where `new window.google.maps.Size(40,40)` is evaluated in the Marker icon props on first render, BEFORE LoadScript injects window.google.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/users/me", "issue": "Returns 405 Method Not Allowed (only PUT defined). Frontend likely uses /api/auth/me — but having a GET on the same path would be standard."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OrderTrackingPageWithMaps.js",
+        "issue": "CRITICAL — Page throws TypeError: 'Cannot read properties of undefined (reading maps)' at first render. Root cause: Marker icon props use `new window.google.maps.Size(40, 40)` (lines 338 and 358). These JSX expressions are evaluated when the parent component renders, BEFORE LoadScript has injected window.google, so window.google.maps is undefined and the whole component tree throws. Result: the page is blank with an Uncaught runtime errors overlay; the Google Map never renders. Fix: lazily build the Size only after the script is loaded (e.g. wrap markers in a `mapsReady` state set in <LoadScript onLoad={()=>setReady(true)}>, or guard with `window.google?.maps && new window.google.maps.Size(40,40)`), OR replace Size with a plain {width:40,height:40,unit:'px'} object. This is independent of the Google Maps API key — the key itself works fine (verified in an isolated test earlier this session).",
+        "selector": "OrderTrackingPageWithMaps GoogleMap > Marker icon.scaledSize",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_e2e_dryrun_iter12.py",
+    "/app/test_reports/pytest/pytest_e2e_iter14.xml",
+    "/app/test_reports/pytest/pytest_profile_iter14.xml"
+  ],
+  "action_items": [
+    "[CRITICAL] Fix OrderTrackingPageWithMaps.js: defer `new window.google.maps.Size(...)` until after the Maps JS API loads (track a `mapsReady` flag from LoadScript onLoad), or use a plain object. This is the user's primary requested verification — the map currently never appears.",
+    "[Low] Add a GET handler for /api/users/me (currently 405) for symmetry with PUT.",
+    "Profile UI Save flow requires a picture file via the avatar file input — backend PUT /api/users/me happily accepts a base64 picture, so the Save button could be made tolerant of an existing picture or accept dataURL paste; current behavior is acceptable as documented."
+  ],
+  "critical_code_review_comments": [
+    "OrderTrackingPageWithMaps.js evaluates `new window.google.maps.Size(40,40)` in Marker icon props during the initial render of the parent component, even though LoadScript has not yet injected window.google. This is the root cause of the 'Oops!/blank map' the user is seeing in production. The fix is small (defer Marker rendering until script is loaded, or remove scaledSize and let SVG use its natural 40x40 size).",
+    "test_e2e_dryrun_iter12.py needed an update: post the iter13 registration lockdown, /api/auth/register always returns user_type=customer, so the prior `_register('adm','admin')` produced a non-admin token and broke admin-only steps. Updated to log in as the seeded owner admin instead. After the fix all 20 phases pass.",
+    "Driver document upload doc_type values are camelCase (driversLicense, vehicleRegistration, certificateOfCharacter, profilePhoto, vehicleRegistration, insurance) — easy to trip on. Document this in API spec/test_credentials.md.",
+    "/api/orders/create requires fully-priced body (subtotal, delivery_fee, tip, total, pickup_address) — clients that send only items will get 422. Worth client-side defaulting in /services flow."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_e2e_dryrun_iter12.py (replaced admin-via-register with login as seeded owner admin; all 20 tests now pass)"
+  ],
+  "success_rate": {"backend": "100% (29/29: 20 E2E + 4 profile + 5 microsoft)", "frontend": "75% (auth/dashboard/profile pass; order-tracking map FAILS)"},
+  "test_credentials": "Owner: tracyfortune@islandhoptt.com / IslandHopAdmin2026!. Fresh per-run users e.g. i14c_*_<ts>@gmail.com / Test1234! .",
+  "seed_data_creation": "Created throwaway users + 1 restaurant + 2 menu items + 1 approved driver + 1 order with assigned driver (order_id 7306232e-9ddd-4d1b-9af7-59e23f559429). Helper script saved at /tmp/seed_order.py.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend chain is fully working. The single remaining blocker for the user's review request is the OrderTrackingPageWithMaps crash — fix the `new window.google.maps.Size(40,40)` evaluation, redeploy, then load /order/<any active order id> as the customer and confirm: (a) no 'Uncaught runtime errors' overlay, (b) .gm-style element present, (c) Google tile images visible. Use /tmp/seed_order.json to grab a fresh order_id + customer token to re-verify.",
+  "rca of the issue": "TypeError at OrderTrackingPageWithMaps.js render. window.google is undefined at first render because LoadScript injects it asynchronously. The Marker icon objects (lines ~338 and ~358) call `new window.google.maps.Size(40, 40)` inline in the JSX, so the prop is evaluated before the script is ready and throws. The error propagates as 'Cannot read properties of undefined (reading maps)' and the entire tracking page goes blank. Repro: log in as a customer with an active order and visit /order/<orderId>. Fix options (any one works): (1) keep a `mapsReady` boolean that is flipped true inside <LoadScript onLoad={...}> and short-circuit Marker rendering until it is true; (2) replace `scaledSize: new window.google.maps.Size(40, 40)` with a plain object `{width:40,height:40}` or remove scaledSize entirely (the SVG already declares width=40 height=40); (3) move icon construction into onLoad of GoogleMap and stash in state. Option (2) is the smallest change."
+}
