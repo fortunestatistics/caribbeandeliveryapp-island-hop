@@ -44,6 +44,12 @@ export const authAPI = {
   updateProfile: (data) => api.put('/users/me', data),
 };
 
+export const reviewAPI = {
+  getMerchantReviews: (merchantId) => api.get(`/merchants/${merchantId}/reviews`),
+  createMerchantReview: (merchantId, data) => api.post(`/merchants/${merchantId}/reviews`, data),
+  replyMerchantReview: (merchantId, reviewId, reply) => api.post(`/merchants/${merchantId}/reviews/${reviewId}/reply`, { reply }),
+};
+
 // Order API
 export const orderAPI = {
   create: (data) => api.post('/orders/create', data),

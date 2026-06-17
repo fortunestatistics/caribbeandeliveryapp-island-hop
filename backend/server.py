@@ -4024,6 +4024,135 @@ async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
 
     return ratings
 
+
+# ---- Merchant reviews (Google-style: rating + comment + merchant reply) ----
+class MerchantReviewCreate(BaseModel):
+    rating: int
+    comment: Optional[str] = None
+
+
+class MerchantReviewReply(BaseModel):
+    reply: str
+
+
+async def _is_merchant_owner(merchant_id: str, user: User) -> bool:
+    """True if the user is an admin or owns the restaurant/business/rental for this id."""
+    if user.user_type == "admin":
+        return True
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": merchant_id, "user_id": user.id}, {"_id": 0, "id": 1})
+        if doc:
+            return True
+    return False
+
+
+@api_router.get("/merchants/{merchant_id}/reviews")
+async def get_merchant_reviews(merchant_id: str, request: Request, limit: int = 50, offset: int = 0):
+    """Public: list reviews for a merchant + an aggregate summary (Google-style)."""
+    limit = min(max(limit, 1), 100)
+    reviews = await db.merchant_reviews.find(
+        {"merchant_id": merchant_id}, {"_id": 0}
+    ).sort("created_at", -1).skip(max(offset, 0)).limit(limit).to_list(length=None)
+
+    all_rows = await db.merchant_reviews.find(
+        {"merchant_id": merchant_id}, {"_id": 0, "rating": 1}
+    ).to_list(length=None)
+    count = len(all_rows)
+    distribution = {str(i): 0 for i in range(1, 6)}
+    total = 0
+    for r in all_rows:
+        rt = int(r.get("rating") or 0)
+        if 1 <= rt <= 5:
+            distribution[str(rt)] += 1
+            total += rt
+    average = round(total / count, 1) if count else 0
+
+    # Optional auth → tell the client whether this viewer may reply.
+    can_reply = False
+    try:
+        viewer = await get_current_user_from_request(request)
+        can_reply = await _is_merchant_owner(merchant_id, viewer)
+    except Exception:
+        can_reply = False
+
+    return {
+        "merchant_id": merchant_id,
+        "summary": {"average": average, "count": count, "distribution": distribution},
+        "reviews": reviews,
+        "can_reply": can_reply,
+    }
+
+
+@api_router.post("/merchants/{merchant_id}/reviews")
+async def create_merchant_review(
+    merchant_id: str,
+    payload: MerchantReviewCreate,
+    current_user: User = Depends(get_current_user),
+):
+    """Create or update the current customer's review for a merchant."""
+    if not 1 <= payload.rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    comment = (payload.comment or "").strip()
+    if len(comment) > 2000:
+        raise HTTPException(status_code=400, detail="Comment too long (max 2000 chars)")
+    now = datetime.now(timezone.utc).isoformat()
+
+    existing = await db.merchant_reviews.find_one(
+        {"merchant_id": merchant_id, "customer_id": current_user.id}, {"_id": 0}
+    )
+    if existing:
+        await db.merchant_reviews.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "rating": payload.rating,
+                "comment": comment,
+                "customer_name": current_user.name,
+                "customer_picture": current_user.picture,
+                "updated_at": now,
+            }},
+        )
+        review_id = existing["id"]
+    else:
+        review_id = str(uuid.uuid4())
+        await db.merchant_reviews.insert_one({
+            "id": review_id,
+            "merchant_id": merchant_id,
+            "customer_id": current_user.id,
+            "customer_name": current_user.name,
+            "customer_picture": current_user.picture,
+            "rating": payload.rating,
+            "comment": comment,
+            "reply": None,
+            "reply_at": None,
+            "created_at": now,
+        })
+    return await db.merchant_reviews.find_one({"id": review_id}, {"_id": 0})
+
+
+@api_router.post("/merchants/{merchant_id}/reviews/{review_id}/reply")
+async def reply_merchant_review(
+    merchant_id: str,
+    review_id: str,
+    payload: MerchantReviewReply,
+    current_user: User = Depends(get_current_user),
+):
+    """Merchant owner (or admin) replies to a review."""
+    if not await _is_merchant_owner(merchant_id, current_user):
+        raise HTTPException(status_code=403, detail="Only the merchant or an admin can reply")
+    review = await db.merchant_reviews.find_one({"id": review_id, "merchant_id": merchant_id}, {"_id": 0})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    reply = (payload.reply or "").strip()
+    if not reply:
+        raise HTTPException(status_code=400, detail="Reply cannot be empty")
+    await db.merchant_reviews.update_one(
+        {"id": review_id},
+        {"$set": {"reply": reply, "reply_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return await db.merchant_reviews.find_one({"id": review_id}, {"_id": 0})
+
+
+
 @api_router.get("/drivers/{driver_id}/ratings")
 async def get_driver_ratings(driver_id: str, limit: int = 20):
     """Get ratings for a driver"""
