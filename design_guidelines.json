@@ -1,225 +1,170 @@
 {
-  "theme": "dark-first",
-  "archetype": "Jewel & Luxury with Neon Utility",
-  "mood": "Premium fintech, Caribbean nightlife, Black-Excellence, Confident, Gold-forward",
-  "palette": {
-    "matte_black": {
-      "base": "#0C0C0C",
-      "card": "#141414",
-      "elevated": "#1E1E1E",
-      "border": "#27272A",
-      "usage": "Backgrounds, deep cards, primary structural elements"
-    },
-    "metallic_gold": {
-      "light": "#E8C872",
-      "base": "#D4AF37",
-      "dark": "#AA7C11",
-      "gradient": "linear-gradient(135deg, #E8C872 0%, #D4AF37 50%, #AA7C11 100%)",
-      "usage": "Primary CTAs, focus rings, highlight indicators, balance amounts, premium filigree"
-    },
-    "white": {
-      "pure": "#FFFFFF",
-      "muted": "#A1A1AA",
-      "usage": "Primary text on dark backgrounds, card backgrounds in light mode"
-    },
-    "neon_cyan": {
-      "base": "#00F2FE",
-      "usage": "Secondary accent, hover glows, live-update pulses (sparingly, e.g., driver moving, live order status)"
+  "theme_and_archetype": {
+    "theme": "LIGHT",
+    "primary_archetype": "Archetype 4 (Swiss & High-Contrast) / Archetype 1 (Organic & Earthy)",
+    "rationale": "The user requested a light background redesign moving away from the dark luxury theme, drawing inspiration from Uber/Grab. A clean, high-contrast light theme maximizes legibility under Caribbean sunlight, removes clinical dark mode friction, and is proven to drive trust and conversions in multi-service marketplaces."
+  },
+  "migration_blueprint": {
+    "instructions": "Replace the existing CSS variables in the root scope with the selected palette option. Preserve the component structure but update the Tailwind utility tokens. Remove neon effects and metallic gold gradients, replacing them with solid high-contrast backgrounds or soft glassmorphism for a modern, airy marketplace feel.",
+    "css_variables_mapping": {
+      "--background": "Update to Option Background",
+      "--surface": "Update to Option Surface",
+      "--primary": "Update to Option Primary",
+      "--accent": "Update to Option Accent",
+      "--text-main": "Update to Option Text Main",
+      "--text-muted": "Update to Option Text Muted"
     }
   },
-  "tailwind_config_additions": {
-    "colors": {
-      "matte": {
-        "700": "#1E1E1E",
-        "800": "#141414",
-        "900": "#0C0C0C"
+  "palette_options": [
+    {
+      "option_name": "Option 1: The Global Standard (Uber-Inspired)",
+      "archetype": "Archetype 4: Swiss & High-Contrast",
+      "rationale": "High contrast, ultra-clean aesthetic proven to drive conversions in leading ride-hailing apps. Focuses entirely on usability and clear visual hierarchy, removing any distraction from the service categories.",
+      "colors": {
+        "background": "#FFFFFF",
+        "surface": "#F8FAFC",
+        "surface_elevated": "#F1F5F9",
+        "primary": "#0F172A",
+        "primary_foreground": "#FFFFFF",
+        "accent": "#2563EB",
+        "accent_foreground": "#FFFFFF",
+        "text_main": "#0F172A",
+        "text_muted": "#64748B",
+        "border": "#E2E8F0",
+        "success": "#16A34A",
+        "warning": "#EAB308",
+        "error": "#DC2626"
       },
-      "gold": {
-        "300": "#E8C872",
-        "500": "#D4AF37",
-        "700": "#AA7C11"
+      "typography": {
+        "headings": "Outfit",
+        "body": "IBM Plex Sans",
+        "pairing_rationale": "Outfit brings a modern, geometric tech feel, while IBM Plex Sans ensures high readability for complex data (like driver dashboards, currency conversion and menus)."
       },
-      "neon": {
-        "cyan": "#00F2FE"
-      },
-      "border": "hsl(var(--border))",
-      "input": "hsl(var(--input))",
-      "ring": "hsl(var(--ring))",
-      "background": "hsl(var(--background))",
-      "foreground": "hsl(var(--foreground))",
-      "primary": {
-        "DEFAULT": "hsl(var(--primary))",
-        "foreground": "hsl(var(--primary-foreground))"
-      },
-      "secondary": {
-        "DEFAULT": "hsl(var(--secondary))",
-        "foreground": "hsl(var(--secondary-foreground))"
-      },
-      "destructive": {
-        "DEFAULT": "hsl(var(--destructive))",
-        "foreground": "hsl(var(--destructive-foreground))"
-      },
-      "muted": {
-        "DEFAULT": "hsl(var(--muted))",
-        "foreground": "hsl(var(--muted-foreground))"
-      },
-      "accent": {
-        "DEFAULT": "hsl(var(--accent))",
-        "foreground": "hsl(var(--accent-foreground))"
-      },
-      "popover": {
-        "DEFAULT": "hsl(var(--popover))",
-        "foreground": "hsl(var(--popover-foreground))"
-      },
-      "card": {
-        "DEFAULT": "hsl(var(--card))",
-        "foreground": "hsl(var(--card-foreground))"
+      "styling": {
+        "buttons": "Square or slightly rounded (rounded-md), solid primary color, no gradient.",
+        "cards": "Flat background with 1px border (#E2E8F0), no shadow for default state. Subtle shadow on hover.",
+        "shadows": "Minimal. Use shadow-sm for active elements only."
       }
     },
-    "backgroundImage": {
-      "gold-gradient": "linear-gradient(135deg, #E8C872 0%, #D4AF37 50%, #AA7C11 100%)",
-      "gold-gradient-hover": "linear-gradient(135deg, #F9D983 0%, #E5C048 50%, #BB8D22 100%)"
+    {
+      "option_name": "Option 2: Caribbean Energetic (Tropical Marketplace)",
+      "archetype": "Archetype 1 / Vibrant Play",
+      "rationale": "Maintains the island identity while transitioning to a light theme. Uses warm, sandy whites and energetic accents (sunset orange, ocean blue) to stimulate appetite for food delivery and excitement for car rentals.",
+      "colors": {
+        "background": "#FFFCF9",
+        "surface": "#FDF9F3",
+        "surface_elevated": "#FDEEDC",
+        "primary": "#0369A1",
+        "primary_foreground": "#FFFFFF",
+        "accent": "#F97316",
+        "accent_foreground": "#FFFFFF",
+        "text_main": "#1E293B",
+        "text_muted": "#64748B",
+        "border": "#E5E7EB",
+        "success": "#10B981",
+        "warning": "#F59E0B",
+        "error": "#EF4444"
+      },
+      "typography": {
+        "headings": "Manrope",
+        "body": "Figtree",
+        "pairing_rationale": "Manrope is highly readable but with friendly geometric curves that match an approachable, high-energy Caribbean brand."
+      },
+      "styling": {
+        "buttons": "Pill-shaped (rounded-full) for high energy and approachability.",
+        "cards": "Soft rounded corners (rounded-2xl) with subtle warm drop shadows.",
+        "shadows": "Soft and diffuse, tinted with a warm orange/brown hue (e.g., shadow-[0_8px_30px_rgba(249,115,22,0.1)])."
+      }
     },
-    "boxShadow": {
-      "gold-glow": "0 0 15px rgba(212, 175, 55, 0.4)",
-      "gold-glow-lg": "0 0 30px rgba(212, 175, 55, 0.6)",
-      "cyan-pulse": "0 0 20px rgba(0, 242, 254, 0.6)",
-      "card-hover": "0 10px 40px -10px rgba(0,0,0,0.5)"
-    },
-    "fontFamily": {
-      "heading": ["Outfit", "sans-serif"],
-      "sans": ["Manrope", "sans-serif"]
-    },
-    "animation": {
-      "pulse-cyan": "pulse-cyan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite"
-    },
-    "keyframes": {
-      "pulse-cyan": {
-        "0%, 100%": { "opacity": "1", "boxShadow": "0 0 20px rgba(0, 242, 254, 0.6)" },
-        "50%": { "opacity": ".5", "boxShadow": "0 0 10px rgba(0, 242, 254, 0.2)" }
+    {
+      "option_name": "Option 3: Fresh & Crisp (Grab/Gojek-Inspired)",
+      "archetype": "Archetype 1: Organic & Earthy",
+      "rationale": "A natural, healthy vibe utilizing deep tropical greens. Highly effective for grocery and pharmacy logistics, projecting reliability, health, and growth.",
+      "colors": {
+        "background": "#F8FAFC",
+        "surface": "#FFFFFF",
+        "surface_elevated": "#F0FDF4",
+        "primary": "#064E3B",
+        "primary_foreground": "#FFFFFF",
+        "accent": "#10B981",
+        "accent_foreground": "#FFFFFF",
+        "text_main": "#022C22",
+        "text_muted": "#475569",
+        "border": "#CBD5E1",
+        "success": "#059669",
+        "warning": "#D97706",
+        "error": "#E11D48"
+      },
+      "typography": {
+        "headings": "Cabinet Grotesk",
+        "body": "Satoshi",
+        "pairing_rationale": "Cabinet Grotesk provides strong, modern business authority, while Satoshi is highly legible and clean for quick-scan mobile interfaces."
+      },
+      "styling": {
+        "buttons": "Slightly rounded (rounded-lg) with high-contrast active states.",
+        "cards": "Clean surfaces with a subtle 1px border and soft shadow on hover.",
+        "shadows": "Crisp and minimal, tinted with green (e.g., shadow-[0_4px_20px_rgba(6,78,59,0.08)])."
       }
     }
-  },
-  "index_css_variables": {
-    "light": {
-      "--background": "0 0% 98%",
-      "--foreground": "240 10% 3.9%",
-      "--card": "0 0% 100%",
-      "--card-foreground": "240 10% 3.9%",
-      "--popover": "0 0% 100%",
-      "--popover-foreground": "240 10% 3.9%",
-      "--primary": "45 65% 52%",
-      "--primary-foreground": "240 10% 3.9%",
-      "--secondary": "240 4.8% 95.9%",
-      "--secondary-foreground": "240 5.9% 10%",
-      "--muted": "240 4.8% 95.9%",
-      "--muted-foreground": "240 3.8% 46.1%",
-      "--accent": "183 100% 50%",
-      "--accent-foreground": "240 5.9% 10%",
-      "--destructive": "0 84.2% 60.2%",
-      "--destructive-foreground": "0 0% 98%",
-      "--border": "240 5.9% 90%",
-      "--input": "240 5.9% 90%",
-      "--ring": "45 65% 52%",
-      "--radius": "0.5rem"
-    },
-    "dark": {
-      "--background": "0 0% 5%",
-      "--foreground": "0 0% 100%",
-      "--card": "0 0% 8%",
-      "--card-foreground": "0 0% 100%",
-      "--popover": "0 0% 8%",
-      "--popover-foreground": "0 0% 100%",
-      "--primary": "45 65% 52%",
-      "--primary-foreground": "0 0% 5%",
-      "--secondary": "0 0% 12%",
-      "--secondary-foreground": "0 0% 100%",
-      "--muted": "0 0% 12%",
-      "--muted-foreground": "240 5% 64.9%",
-      "--accent": "183 100% 50%",
-      "--accent-foreground": "0 0% 5%",
-      "--destructive": "0 62.8% 30.6%",
-      "--destructive-foreground": "0 0% 100%",
-      "--border": "240 3.7% 15.9%",
-      "--input": "240 3.7% 15.9%",
-      "--ring": "45 65% 52%"
-    }
-  },
-  "typography": {
-    "google_fonts_import": "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');",
-    "h1": "font-heading text-5xl sm:text-6xl tracking-tight font-bold",
-    "h2": "font-heading text-3xl sm:text-4xl tracking-tight font-semibold",
-    "h3": "font-heading text-xl sm:text-2xl font-medium",
-    "body": "font-sans text-base leading-relaxed text-muted-foreground",
-    "labels_overlines": "font-sans text-xs uppercase tracking-[0.2em] font-bold text-gold-500"
-  },
-  "component_rules": {
-    "Button": {
-      "primary": "bg-gold-gradient text-matte-900 shadow-gold-glow hover:bg-gold-gradient-hover hover:shadow-gold-glow-lg transition-all duration-300 font-bold border-none",
-      "secondary": "bg-matte-800 text-white border border-matte-700 hover:border-gold-500/50 hover:text-gold-300 transition-colors",
-      "ghost": "text-muted-foreground hover:text-gold-500 hover:bg-white/5",
-      "wallet_pay": "bg-gold-gradient text-matte-900 font-bold shadow-gold-glow-lg hover:scale-[1.02] transform transition-all rounded-full px-8 py-4"
-    },
-    "Card": {
-      "default": "bg-card border-border hover:border-gold-500/30 transition-colors shadow-none rounded-xl",
-      "wallet_balance": "bg-gradient-to-br from-matte-800 to-matte-900 border border-gold-500/30 shadow-gold-glow relative overflow-hidden p-6 rounded-2xl",
-      "kpi_tile": "bg-card border-l-2 border-l-gold-500 border-y-border border-r-border",
-      "money_request_approval": "bg-matte-800 border border-border/50 flex flex-col gap-4",
-      "kpi_tile_live": "bg-card border-l-2 border-l-neon-cyan border-y-border border-r-border"
-    },
-    "Input": {
-      "default": "bg-matte-900 border-matte-700 text-white focus-visible:ring-gold-500 focus-visible:border-gold-500 transition-all rounded-lg placeholder:text-muted-foreground"
-    },
-    "Badge": {
-      "default": "bg-matte-800 text-white border-matte-700",
-      "success": "bg-gold-500/20 text-gold-300 border border-gold-500/50",
-      "live": "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 animate-pulse-cyan"
-    },
-    "Tabs": {
-      "list": "bg-matte-900 border border-matte-800 p-1 rounded-lg",
-      "trigger": "data-[state=active]:bg-gold-gradient data-[state=active]:text-matte-900 data-[state=active]:shadow-sm rounded-md transition-all text-muted-foreground"
-    },
-    "Dialog": {
-      "content": "bg-matte-900 border border-border sm:rounded-2xl shadow-2xl"
-    },
-    "Header": {
-      "wrapper": "sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60"
-    }
-  },
-  "motion_guidance": {
-    "hover_glow": "Primary buttons should transition smoothly to a larger, brighter gold shadow (`shadow-gold-glow-lg`) on hover.",
-    "live_indicators": "Any live status (driver map marker, order processing) should use the `animate-pulse-cyan` keyframe to throb softly with a cyan glow.",
-    "cards": "Interactive cards should lift slightly on hover (`-translate-y-1`) with an increased drop shadow (`shadow-card-hover`)."
-  },
-  "migration_checklist": {
-    "step_1_tailwind": "Update `tailwind.config.js` to include the new colors (matte, gold, neon), fontFamily, backgroundImage, and boxShadow extensions.",
-    "step_2_css": "Replace the content of `index.css` `:root` and `.dark` blocks with the new HSL variables. Ensure the Google Fonts `@import` is at the top of `index.css`.",
-    "step_3_force_dark": "Set the default theme to dark by adding the `dark` class to the HTML or body tag by default, or configuring the theme provider to default to dark.",
-    "step_4_find_replace_colors": [
-      "Find `bg-blue-*`, `bg-indigo-*`, `bg-teal-*` and replace with `bg-primary` or `bg-gold-500` depending on context.",
-      "Find `text-blue-*` and replace with `text-primary` or `text-gold-500`.",
-      "Ensure backgrounds use `bg-background` for pages and `bg-card` for elevated surfaces instead of hardcoded `bg-gray-*`."
-    ],
-    "step_5_typography": "Replace `font-sans` with `font-heading` on all `h1`, `h2`, `h3` tags to apply Outfit. Ensure body text relies on the default `font-sans` (Manrope).",
-    "step_6_components": [
-      "Update Shadcn `Button` component variations in `components/ui/button.tsx` to use the new `bg-gold-gradient` for the `default` variant.",
-      "Update Shadcn `Card` component to use the new border colors.",
-      "Update Shadcn `Badge` to include a `live` variant with `bg-neon-cyan/20` and `animate-pulse-cyan`."
-    ],
-    "step_7_data_testid": "Verify all interactive elements (buttons, inputs, links) have a `data-testid` attribute using kebab-case role-based naming (e.g., `data-testid=\"checkout-pay-button\"`)."
+  ],
+  "design_system_rules": {
+    "spacing_and_layout": "Use generous padding. Cards should use p-6 or p-8. Grid systems must be direct children. Utilize 'Bento' grids for service selection menus (Mode A) and strict 'Control Room' grids (Mode B) for dense driver/merchant dashboards.",
+    "accessibility_and_contrast": "Ensure minimum 4.5:1 contrast for normal text. Avoid pure black/white, use tinted neutrals. Always explicitly set hover text colors (e.g., hover:text-white).",
+    "motion": "Use Framer Motion for smooth transitions. Cards should slightly lift (-translate-y-1) on hover with a slight darkening of the border.",
+    "surface_strategies": "For headers, use Glassmorphism (bg-white/70 backdrop-blur-xl border-b border-black/5). For dashboards, use flat solid surfaces with 1px border. Avoid muddy gray transparencies.",
+    "components": "Use Shadcn UI for structural interactive elements. Heavily customize border radii and colors to match the chosen palette. ADD data-testid attribute to all interactive elements."
   },
   "media": {
-    "hero_abstract_gold": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/1c69b5e6-6caf-4534-9642-7887e961a3f1/images/c8d75fcd52e1910c085ccf95ec55a6fedb92981a649e447f4f04cd3bcdb359d1.png",
-      "description": "Abstract 3D metallic gold waves over matte black background. Use for marketing landing page hero background."
-    },
-    "wallet_card_premium": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/1c69b5e6-6caf-4534-9642-7887e961a3f1/images/09219b34e723265b92b5743f3006759421b9c2a1bd24dd84d56bea4abffd9efc.png",
-      "description": "Sleek matte black credit card with metallic gold edges. Use for Wallet deposit/balance visual or marketing page."
-    },
-    "lifestyle_car": {
-      "url": "https://images.unsplash.com/photo-1770892371524-a12eda92b1c4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMGV4Y2VsbGVuY2UlMjBwcmVtaXVtJTIwbGlmZXN0eWxlJTIwbHV4dXJ5fGVufDB8fHx8MTc3ODg5MjAwM3ww&ixlib=rb-4.1.0&q=85",
-      "description": "Black luxury car on cobblestone. Use for 'Drive with Us' / Partner CTA section."
+    "instructions": "Use these exact URLs for placing images across the app. Main agent MUST NOT use generic placeholders.",
+    "categories": {
+      "food_delivery": [
+        {
+          "url": "https://images.unsplash.com/photo-1770679646453-34641c08c570?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxwZXJzb24lMjBmb29kJTIwZGVsaXZlcnklMjBzdW5ueXxlbnwwfHx8fDE3ODE4MTQ1MjV8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Delivery worker by the beach (Caribbean context)"
+        },
+        {
+          "url": "https://images.pexels.com/photos/13443799/pexels-photo-13443799.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Sunny food delivery action shot"
+        }
+      ],
+      "taxi_ride": [
+        {
+          "url": "https://images.pexels.com/photos/17686999/pexels-photo-17686999.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Modern taxi in sunny street"
+        },
+        {
+          "url": "https://images.pexels.com/photos/17887094/pexels-photo-17887094.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Taxi view under clear blue sky"
+        }
+      ],
+      "groceries": [
+        {
+          "url": "https://images.pexels.com/photos/19138180/pexels-photo-19138180.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Fresh grocery produce in aisle"
+        },
+        {
+          "url": "https://images.pexels.com/photos/30741639/pexels-photo-30741639.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Tropical fruit close-up (pineapples)"
+        }
+      ],
+      "hero_backgrounds": [
+        {
+          "url": "https://images.unsplash.com/photo-1551418988-c21e451467b7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwxfHxjYXJpYmJlYW4lMjBvY2VhbiUyMGJlYWNoJTIwbGFuZHNjYXBlfGVufDB8fHx8MTc4MTgxNDUyMXww&ixlib=rb-4.1.0&q=85",
+          "description": "Calm clear daytime ocean"
+        },
+        {
+          "url": "https://images.pexels.com/photos/10490921/pexels-photo-10490921.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Tropical beach with turquoise water"
+        }
+      ]
     }
-  }
+  },
+  "instructions_to_main_agent": [
+    "Present the three distinct palette options to the user or allow switching via a theme-provider configuration.",
+    "Refactor global CSS tokens (variables) from Matte Black/Cyan/Gold to the chosen Light Theme structure mapping provided in this document.",
+    "Do NOT alter business logic, routing, or existing features. Ensure components function exactly as before.",
+    "Implement Glassmorphism (bg-white/70 with backdrop-blur-xl) for headers instead of fully transparent backgrounds to maintain text readability.",
+    "MUST include 'data-testid' attributes on all new or modified interactive elements.",
+    "Incorporate the provided media URLs specifically mapped to Courier, Taxi, Grocery, and Food delivery service cards."
+  ]
 }
