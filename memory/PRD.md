@@ -32,7 +32,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - Fixed the one in-scope item: empty error handler in `AdminTeam.js` audit-log loader now logs at debug level.
 - DEFERRED (high-risk on a LIVE app, need a dedicated tested phase): localStorage→httpOnly cookie auth migration (~20 files); adding the intentionally-suppressed React hook deps (suppressed to prevent infinite render loops); splitting large components (AdminPanel 1022 lines, BusinessOnboarding 1211); backend high-complexity refactors; wholesale console-statement removal.
 
-### Jun 2026 — Merchant reviews, driver multi-area reviews + monthly incentives, compact footer
+### Jun 2026 — OAuth-account login crash fix + login error UX + production www-URL diagnosis
+- **Login 500 crash fixed**: OAuth-only users (Google/Microsoft, no `hashed_password`) attempting email/password login crashed `pwd_context.verify` (empty hash). Now `verify_password` defensively returns False on empty/invalid hashes, and `/auth/login` returns a clear 401: "This account uses Google/Microsoft sign-in. Please use the Continue with {provider} button." (provider-aware via `auth_provider`).
+- **Login error UX bug fixed**: `api.js` response interceptor redirected to `/login` on ANY 401 — including the login call itself — so failed logins silently reloaded and NEVER showed an error. Now skips redirect for `/auth/login` & `/auth/register`. AuthPage shows an inline red error banner (`data-testid="auth-error-message"`) instead of `alert()`; handles string + array(422) details.
+- Tests: `tests/test_oauth_login_guard.py` (4 passing). Verified banner in-browser.
+- **withCredentials → false** across all 57 frontend call sites (auth is Bearer-token; avoids cross-origin credentialed-CORS blocks).
+- **PRODUCTION login still broken — platform/domain issue (NOT code)**: deployed frontend bundle is built with `REACT_APP_BACKEND_URL=https://www.islandhopapp.com` (www), which 308-redirects to the apex, blocking browser API calls. Backend at apex `islandhopapp.com` is healthy (register/login return 200 directly; CORS correct). `REACT_APP_BACKEND_URL` is auto-set by the platform and not user-editable; re-link+redeploy did not regenerate the bundle. ESCALATED to support@emergent.sh: need canonical domain set to apex `islandhopapp.com` + forced clean frontend rebuild. Deployment health check: PASS (0 blockers).
+
+
 **Merchant reviews (Google-style, on RestaurantMenu `/restaurant/:id`):**
 - New collection `merchant_reviews`. Endpoints: `GET /api/merchants/{id}/reviews` (public: returns `{summary:{average,count,distribution}, reviews, can_reply}`; optional auth sets can_reply), `POST /api/merchants/{id}/reviews` (auth; upsert one review per customer; rating 1-5 + comment), `POST /api/merchants/{id}/reviews/{review_id}/reply` (merchant owner via restaurants/businesses/car_rental_companies.user_id, or admin).
 - Frontend `MerchantReviews.js`: avg + star-distribution bars, write-review form (StarPicker + comment), review cards (avatar/name/stars/date/comment), nested merchant reply, owner-only reply form. Mounted at bottom of RestaurantMenu.

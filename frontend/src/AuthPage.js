@@ -54,8 +54,10 @@ const AuthPage = ({ mode = 'login' }) => {
     address: '',
     referralCode: initialRef
   });
+  const [authError, setAuthError] = useState('');
 
   const handleInputChange = (e) => {
+    setAuthError('');
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
@@ -111,7 +113,13 @@ const AuthPage = ({ mode = 'login' }) => {
         window.location.href = '/dashboard';
       }
     } catch (error) {
-      alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
+      const detail = error.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d) => (d && typeof d.msg === 'string' ? d.msg : '')).filter(Boolean).join(' ')
+          : 'Authentication failed. Please try again.';
+      setAuthError(msg);
       console.error('Auth error:', error);
     }
   };
@@ -375,6 +383,17 @@ const AuthPage = ({ mode = 'login' }) => {
                   </button>
                 </div>
               )}
+
+              {authError && (
+                <div
+                  className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-300"
+                  data-testid="auth-error-message"
+                  role="alert"
+                >
+                  {authError}
+                </div>
+              )}
+
 
               <Button
                 id="auth-form-submit-btn"

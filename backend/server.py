@@ -83,7 +83,14 @@ manager = ConnectionManager()
 
 # Authentication Helper Functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    # Defensive: OAuth-only accounts (Google/Microsoft) have no password hash.
+    # passlib raises on empty/invalid hashes, so guard before verifying.
+    if not hashed_password:
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -543,6 +550,15 @@ async def login(credentials: UserLogin):
     user_doc = await db.users.find_one({"email": credentials.email})
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # OAuth-only accounts (Google/Microsoft) have no password — guide the user.
+    if not user_doc.get('hashed_password'):
+        provider = (user_doc.get('auth_provider') or 'google').lower()
+        provider_label = 'Microsoft' if provider == 'microsoft' else 'Google'
+        raise HTTPException(
+            status_code=401,
+            detail=f"This account uses {provider_label} sign-in. Please use the Continue with {provider_label} button.",
+        )
     
     # Verify password
     if not verify_password(credentials.password, user_doc.get('hashed_password', '')):
