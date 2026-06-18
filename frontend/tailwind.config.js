@@ -15,6 +15,9 @@ module.exports = {
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
+        /* NOTE: "Midnight Tropical" theme — legacy palette names are intentionally
+           reused so we didn't have to touch ~130 files. Actual colors:
+           matte = deep navy/charcoal, gold = sunset orange, neon.cyan = teal. */
         matte: {
           '700': '#1C3A52',
           '800': '#102433',

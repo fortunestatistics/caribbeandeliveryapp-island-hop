@@ -26,7 +26,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
-### Jun 2026 — Code review pass (triage)
+### Jun 2026 — "Midnight Tropical" theme re-skin (whole app)
+- Re-themed the entire app from the old Matte-Black/Gold/Cyan look to **Midnight Tropical**: deep navy/charcoal base + **sunset-orange** primary + **teal** secondary accent. User-requested, mobile-first marketplace direction (Uber/DoorDash-style but dark).
+- Done centrally via design tokens (no per-component churn): `tailwind.config.js` repurposed `matte`→navy scale (`#0A1824/#102433/#1C3A52`), `gold`→sunset-orange (`#FDBA74/#F97316/#EA580C`), `neon.cyan`→teal (`#2DD4BF`); updated `gold-gradient` bg images, `gold-glow`/`cyan-pulse` shadows. `index.css` `:root`+`.dark` CSS vars now midnight (bg `hsl(207 56% 9%)`, primary orange `hsl(25 95% 53%)`, accent teal `hsl(172 66% 50%)`), plus `.text-gold`/`.text-gold-gradient`/selection/scrollbar. Literal hex updated in `LiveOrderMapPreview.js` + `celebrate.js`; orange radial-glow in `App.js`.
+- NOTE: legacy token names (`matte`/`gold`/`neon.cyan`, `.text-gold`, `bg-gold-gradient`, `shadow-gold-glow`) are intentionally reused for the re-skin — they now render navy/orange/teal. Comment added in tailwind.config.js. Future refactor could rename to `navy-/sunset-/teal-`.
+- Preview-only page `/theme-preview` (and `?opt=3`) added earlier for palette comparison (light Option 2/3); left in place, harmless.
+- Verified: frontend compiles clean; testing agent iteration_15 = 100% visual readability across Landing, Login, Dashboard, Admin (Overview/Users/Orders/Approvals), Restaurants, shadcn popover/dialog/dropdown. No JS errors or contrast regressions from the theme.
+
+
 - Verified "hardcoded secrets" findings are FALSE POSITIVES (throwaway test passwords like `Test1234!` for ephemeral runtime accounts; `graph_mail.py:139` is OData `$skiptoken=` pagination parsing). Real secrets remain in `.env`.
 - `pyflakes` on all backend modules = **0 undefined names** → the "18 undefined variables" are false positives (analyzer can't resolve dynamic/imported names). No crash risk.
 - Fixed the one in-scope item: empty error handler in `AdminTeam.js` audit-log loader now logs at debug level.
