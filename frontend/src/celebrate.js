@@ -1,7 +1,7 @@
 import confetti from 'canvas-confetti';
 
-// Caribbean palette — gold + brand neon-cyan + matte black, plus tropical accents.
-const ISLANDHOP_COLORS = ['#D4AF37', '#F7E27E', '#00E5FF', '#FFB55C', '#34D399', '#FFFFFF'];
+// Midnight Tropical palette — sunset orange + teal + tropical accents.
+const ISLANDHOP_COLORS = ['#F97316', '#FDBA74', '#2DD4BF', '#FB8C3C', '#34D399', '#FFFFFF'];
 
 /**
  * Fire a brand-on celebration burst — used when a customer's order

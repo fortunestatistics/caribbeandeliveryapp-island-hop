@@ -589,7 +589,7 @@ const LandingPage = () => {
     <div className="min-h-screen bg-background">
       {/* Hero Section - Premium Matte Black + Gold */}
       <section className="relative overflow-hidden bg-matte-900 pt-20 pb-32">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.18),transparent_60%)]"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.18),transparent_60%)]"></div>
         <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-gold-500/10 blur-3xl"></div>
         <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-neon-cyan/5 blur-3xl"></div>
         
@@ -863,7 +863,7 @@ const PartnerSelection = () => {
   return (
     <div className="min-h-screen bg-matte-900 py-16 relative overflow-hidden">
       {/* Ambient gold glow to match landing page */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.12),transparent_60%)] pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.12),transparent_60%)] pointer-events-none"></div>
       <div className="absolute -top-20 -right-20 h-80 w-80 rounded-full bg-gold-500/10 blur-3xl pointer-events-none"></div>
 
       <div className="relative container mx-auto px-4">
