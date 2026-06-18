@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import KPIDashboard from './KPIDashboard';
+import ThemePreview from './ThemePreview';
 import CarRentalPage from './CarRentalPage';
 import DriverOnboarding from './DriverOnboarding';
 import RestaurantOnboarding from './RestaurantOnboarding';
@@ -1667,6 +1668,7 @@ function App() {
             <Header />
 
           <Routes>
+            <Route path="/theme-preview" element={<ThemePreview />} />
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
