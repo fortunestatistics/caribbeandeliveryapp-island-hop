@@ -126,7 +126,7 @@ async def list_messages(mailbox: str, top: int = 25, skip_token: Optional[str] =
                         folder: str = "inbox") -> Dict[str, Any]:
     params = {
         "$top": top,
-        "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments",
+        "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId",
         "$orderby": "receivedDateTime desc",
     }
     if skip_token:

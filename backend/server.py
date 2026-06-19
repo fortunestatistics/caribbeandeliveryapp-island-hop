@@ -3293,31 +3293,50 @@ def _ensure_mailbox_allowed(mailbox: str):
 
 @api_router.get("/admin/mail/status")
 async def admin_mail_status(request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     return await asyncio.to_thread(graph_mail.graph_status)
 
 
 @api_router.get("/admin/mail/mailboxes")
 async def admin_mail_mailboxes(request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     return {"mailboxes": graph_mail.get_support_mailboxes()}
 
 
 @api_router.get("/admin/mail/mailboxes/{mailbox}/messages")
 async def admin_mail_list(mailbox: str, request: Request, top: int = 25, skiptoken: Optional[str] = None):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     try:
-        return await graph_mail.list_messages(mailbox, top=min(max(top, 1), 50), skip_token=skiptoken)
+        result = await graph_mail.list_messages(mailbox, top=min(max(top, 1), 50), skip_token=skiptoken)
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
     except graph_mail.GraphNotConfigured:
         raise HTTPException(status_code=503, detail="Microsoft 365 not configured")
+    # Enrich each message with its workflow ticket (auto-reply + assignment status)
+    msgs = result.get("value", [])
+    msg_ids = [m.get("id") for m in msgs if m.get("id")]
+    conv_ids = [m.get("conversationId") for m in msgs if m.get("conversationId")]
+    tickets = await db.mail_tickets.find(
+        {"mailbox": mailbox, "$or": [{"message_id": {"$in": msg_ids}}, {"conversation_id": {"$in": conv_ids}}]},
+        {"_id": 0},
+    ).limit(400).to_list(length=400)
+    by_msg = {t["message_id"]: t for t in tickets}
+    by_conv = {t["conversation_id"]: t for t in tickets if t.get("conversation_id")}
+    for m in msgs:
+        t = by_msg.get(m.get("id")) or by_conv.get(m.get("conversationId"))
+        m["ticket"] = {
+            "assigned_to": t.get("assigned_to"),
+            "assigned_to_name": t.get("assigned_to_name"),
+            "auto_replied": t.get("auto_replied", False),
+            "status": t.get("status", "new"),
+        } if t else None
+    return result
 
 
 @api_router.get("/admin/mail/mailboxes/{mailbox}/messages/{message_id}")
 async def admin_mail_get(mailbox: str, message_id: str, request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     try:
         return await graph_mail.get_message(mailbox, message_id)
@@ -3331,7 +3350,7 @@ class MailReplyRequest(BaseModel):
 
 @api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/reply")
 async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequest, request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     if not payload.body_html.strip():
         raise HTTPException(status_code=400, detail="Reply body cannot be empty")
@@ -3340,6 +3359,289 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
         return {"success": True}
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Support inbox workflow: instant auto-reply + assign-to-agent
+# ---------------------------------------------------------------------------
+DEFAULT_AUTOREPLY_SUBJECT = "Thanks for contacting IslandHop — we've received your message"
+DEFAULT_AUTOREPLY_HTML = (
+    "<p>Hi {name},</p>"
+    "<p>Thanks for reaching out to <strong>IslandHop</strong>! This is an automated confirmation "
+    "that we've received your message. A member of our support team will personally get back to you "
+    "shortly — typically within a few hours.</p>"
+    "<p>For anything urgent, you can also reach us through the Support section inside the IslandHop app.</p>"
+    "<p>Warm regards,<br/>The IslandHop Support Team 🌴</p>"
+)
+# Senders we must never auto-reply to (avoids loops with system/no-reply mailers)
+AUTOREPLY_SKIP_TOKENS = (
+    "no-reply", "noreply", "donotreply", "do-not-reply", "mailer-daemon",
+    "postmaster", "notifications@", "automated@", "bounce", "mailerdaemon",
+)
+
+
+async def _require_admin_or_agent(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin/agent access required")
+    return current_user
+
+
+async def _get_mail_autoreply_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "mail_autoreply"}, {"_id": 0})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if not doc:
+        doc = {
+            "id": "mail_autoreply",
+            "enabled": True,
+            "subject": DEFAULT_AUTOREPLY_SUBJECT,
+            "body_html": DEFAULT_AUTOREPLY_HTML,
+            # Watermark: only auto-reply to mail received AFTER this moment, so
+            # enabling the feature never blasts the existing mailbox backlog.
+            "autoreply_since": now_iso,
+            "updated_at": now_iso,
+        }
+        await db.app_settings.insert_one({**doc})
+        return doc
+    if not doc.get("autoreply_since"):
+        await db.app_settings.update_one({"id": "mail_autoreply"}, {"$set": {"autoreply_since": now_iso}})
+        doc["autoreply_since"] = now_iso
+    return doc
+
+
+def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _sender_should_get_autoreply(from_email: str) -> bool:
+    fe = (from_email or "").lower()
+    if not fe or "@" not in fe:
+        return False
+    if any(tok in fe for tok in AUTOREPLY_SKIP_TOKENS):
+        return False
+    if fe in [m.lower() for m in graph_mail.get_support_mailboxes()]:
+        return False  # never auto-reply to our own support mailboxes (loop guard)
+    return True
+
+
+async def _process_mailbox_autoreply(mailbox: str, settings: dict) -> int:
+    """Auto-reply once per conversation to new inbound client emails in a mailbox."""
+    sent = 0
+    since_dt = _parse_iso_dt(settings.get("autoreply_since"))
+    try:
+        data = await graph_mail.list_messages(mailbox, top=20)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"auto-reply list failed for {mailbox}: {exc}")
+        return 0
+    for msg in data.get("value", []):
+        try:
+            # Watermark: never auto-reply to mail that predates feature enablement
+            recv_dt = _parse_iso_dt(msg.get("receivedDateTime"))
+            if since_dt and recv_dt and recv_dt <= since_dt:
+                continue
+            frm = (msg.get("from") or {}).get("emailAddress", {})
+            from_email = frm.get("address", "")
+            from_name = frm.get("name") or (from_email.split("@")[0] if from_email else "there")
+            conv_id = msg.get("conversationId") or msg.get("id")
+            subject = (msg.get("subject") or "")
+            if subject.lower().startswith(("auto:", "automatic reply", "out of office", "undeliverable")):
+                continue
+            if not _sender_should_get_autoreply(from_email):
+                continue
+            existing = await db.mail_tickets.find_one({"mailbox": mailbox, "conversation_id": conv_id})
+            if existing and existing.get("auto_replied"):
+                continue  # idempotent — one auto-reply per conversation
+            html = (settings.get("body_html") or DEFAULT_AUTOREPLY_HTML).replace("{name}", from_name)
+            await graph_mail.reply_to_message(mailbox, msg["id"], html)
+            now = datetime.now(timezone.utc).isoformat()
+            if existing:
+                await db.mail_tickets.update_one(
+                    {"id": existing["id"]},
+                    {"$set": {"auto_replied": True, "auto_replied_at": now, "updated_at": now}},
+                )
+            else:
+                await db.mail_tickets.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "mailbox": mailbox,
+                    "message_id": msg["id"],
+                    "conversation_id": conv_id,
+                    "from_email": from_email,
+                    "from_name": from_name,
+                    "subject": subject,
+                    "received_at": msg.get("receivedDateTime"),
+                    "auto_replied": True,
+                    "auto_replied_at": now,
+                    "assigned_to": None,
+                    "assigned_to_name": None,
+                    "assigned_to_email": None,
+                    "status": "new",
+                    "created_at": now,
+                    "updated_at": now,
+                })
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"auto-reply send failed in {mailbox}: {exc}")
+            continue
+    return sent
+
+
+async def process_inbound_mail_autoreply() -> int:
+    """Poll all support mailboxes and instantly auto-reply to new client emails."""
+    settings = await _get_mail_autoreply_settings()
+    if not settings.get("enabled", True):
+        return 0
+    status = await asyncio.to_thread(graph_mail.graph_status)
+    if not status.get("consent_granted"):
+        return 0
+    total = 0
+    for mb in graph_mail.get_support_mailboxes():
+        total += await _process_mailbox_autoreply(mb, settings)
+    return total
+
+
+class MailAutoReplySettings(BaseModel):
+    enabled: bool
+    subject: Optional[str] = None
+    body_html: Optional[str] = None
+
+
+@api_router.get("/admin/mail/auto-reply/settings")
+async def get_mail_autoreply_settings(request: Request):
+    await _require_admin(request)
+    return await _get_mail_autoreply_settings()
+
+
+@api_router.put("/admin/mail/auto-reply/settings")
+async def update_mail_autoreply_settings(payload: MailAutoReplySettings, request: Request):
+    await _require_admin(request)
+    existing = await _get_mail_autoreply_settings()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    updates = {"enabled": payload.enabled, "updated_at": now_iso}
+    # Re-enabling resets the watermark so we don't blast mail that piled up while off
+    if payload.enabled and not existing.get("enabled"):
+        updates["autoreply_since"] = now_iso
+    if payload.subject is not None:
+        updates["subject"] = payload.subject
+    if payload.body_html is not None and payload.body_html.strip():
+        updates["body_html"] = payload.body_html
+    await db.app_settings.update_one({"id": "mail_autoreply"}, {"$set": updates}, upsert=True)
+    return await _get_mail_autoreply_settings()
+
+
+@api_router.post("/admin/mail/auto-reply/run")
+async def run_mail_autoreply(request: Request):
+    await _require_admin(request)
+    try:
+        n = await process_inbound_mail_autoreply()
+        return {"success": True, "auto_replies_sent": n}
+    except graph_mail.GraphNotConfigured:
+        raise HTTPException(status_code=503, detail="Microsoft 365 not configured")
+
+
+@api_router.get("/admin/mail/team")
+async def list_mail_assignees(request: Request):
+    await _require_admin_or_agent(request)
+    members = await db.users.find(
+        {"user_type": {"$in": ["admin", "agent"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1},
+    ).limit(100).to_list(length=100)
+    return {"members": members}
+
+
+@api_router.get("/admin/mail/tickets")
+async def list_mail_tickets(request: Request, mailbox: Optional[str] = None,
+                            status: Optional[str] = None, assigned: Optional[str] = None):
+    user = await _require_admin_or_agent(request)
+    query: Dict[str, Any] = {}
+    if mailbox:
+        query["mailbox"] = mailbox
+    if status:
+        query["status"] = status
+    if assigned == "me":
+        query["assigned_to"] = user.id
+    elif assigned == "unassigned":
+        query["assigned_to"] = None
+    tickets = await db.mail_tickets.find(query, {"_id": 0}).sort("received_at", -1).limit(200).to_list(length=200)
+    return {"tickets": tickets}
+
+
+class MailAssignRequest(BaseModel):
+    assignee_id: Optional[str] = None  # None = unassign
+
+
+@api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/assign")
+async def assign_mail_ticket(mailbox: str, message_id: str, payload: MailAssignRequest, request: Request):
+    user = await _require_admin_or_agent(request)
+    _ensure_mailbox_allowed(mailbox)
+    assignee_id = payload.assignee_id
+    if user.user_type == "agent" and assignee_id not in (None, user.id):
+        raise HTTPException(status_code=403, detail="Agents can only claim tickets to themselves")
+    assignee = None
+    if assignee_id:
+        assignee = await db.users.find_one(
+            {"id": assignee_id, "user_type": {"$in": ["admin", "agent"]}}, {"_id": 0})
+        if not assignee:
+            raise HTTPException(status_code=404, detail="Assignee must be an admin or agent")
+    now = datetime.now(timezone.utc).isoformat()
+    set_fields = {
+        "assigned_to": assignee_id,
+        "assigned_to_name": assignee.get("name") if assignee else None,
+        "assigned_to_email": assignee.get("email") if assignee else None,
+        "status": "assigned" if assignee_id else "new",
+        "updated_at": now,
+    }
+    existing = await db.mail_tickets.find_one({"mailbox": mailbox, "message_id": message_id})
+    if existing:
+        await db.mail_tickets.update_one({"id": existing["id"]}, {"$set": set_fields})
+        ticket_id = existing["id"]
+    else:
+        try:
+            msg = await graph_mail.get_message(mailbox, message_id)
+        except Exception:  # noqa: BLE001
+            msg = {}
+        frm = (msg.get("from") or {}).get("emailAddress", {})
+        ticket_id = str(uuid.uuid4())
+        await db.mail_tickets.insert_one({
+            "id": ticket_id,
+            "mailbox": mailbox,
+            "message_id": message_id,
+            "conversation_id": msg.get("conversationId") or message_id,
+            "from_email": frm.get("address", ""),
+            "from_name": frm.get("name", ""),
+            "subject": msg.get("subject", ""),
+            "received_at": msg.get("receivedDateTime"),
+            "auto_replied": False,
+            "auto_replied_at": None,
+            "created_at": now,
+            **set_fields,
+        })
+    await _log_admin_action(user.id, user.email, "mail_assign",
+                            target_email=set_fields["assigned_to_email"],
+                            details=f"msg {message_id[:12]} in {mailbox}")
+    doc = await db.mail_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    return {"success": True, "ticket": doc}
+
+
+@api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/resolve")
+async def resolve_mail_ticket(mailbox: str, message_id: str, request: Request):
+    user = await _require_admin_or_agent(request)
+    _ensure_mailbox_allowed(mailbox)
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.mail_tickets.update_one(
+        {"mailbox": mailbox, "message_id": message_id},
+        {"$set": {"status": "resolved", "updated_at": now}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="No ticket for this message yet")
+    doc = await db.mail_tickets.find_one({"mailbox": mailbox, "message_id": message_id}, {"_id": 0})
+    return {"success": True, "ticket": doc}
+
 
 
 # ---------------------------------------------------------------------------
@@ -7098,6 +7400,22 @@ async def initialize_data():
                     logger.error(f"❌ Weekly top-driver bonus failed: {e}")
 
             scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
+
+            from apscheduler.triggers.interval import IntervalTrigger
+
+            async def _poll_mail_autoreply():
+                try:
+                    n = await process_inbound_mail_autoreply()
+                    if n:
+                        logger.info(f"✉️ Auto-replied to {n} new client email(s)")
+                except Exception as e:
+                    logger.error(f"❌ Mail auto-reply poll failed: {e}")
+
+            # Background polling is gated by env so only ONE environment (production)
+            # auto-replies to the shared mailboxes. Manual "Run now" works everywhere.
+            if (os.environ.get("MAIL_AUTOREPLY_POLL_ENABLED", "false").lower() == "true"):
+                scheduler.add_job(_poll_mail_autoreply, IntervalTrigger(minutes=2), id="mail_autoreply_poll", replace_existing=True)
+                print("✅ Mail auto-reply background poller enabled (every 2 min)")
             scheduler.start()
             app.state.scheduler = scheduler
             print("✅ APScheduler started — nightly vendor payouts scheduled at 02:00 UTC")

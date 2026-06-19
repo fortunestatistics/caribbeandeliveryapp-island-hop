@@ -3,8 +3,9 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Textarea } from './components/ui/textarea';
+import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
-import { Mail, RefreshCw, Send, AlertTriangle, Inbox, ChevronLeft } from 'lucide-react';
+import { Mail, RefreshCw, Send, AlertTriangle, Inbox, ChevronLeft, Zap, UserCheck, CheckCircle2, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -25,6 +26,15 @@ const AdminMailInbox = () => {
   const [reply, setReply] = useState('');
   const [loadingList, setLoadingList] = useState(false);
   const [sending, setSending] = useState(false);
+  // Workflow state
+  const [team, setTeam] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [showTemplate, setShowTemplate] = useState(false);
+  const [tplSubject, setTplSubject] = useState('');
+  const [tplBody, setTplBody] = useState('');
+  const [savingTpl, setSavingTpl] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/admin/mail/status`, { headers: authHeaders() })
@@ -35,6 +45,11 @@ const AdminMailInbox = () => {
         if (mb.length) setActiveMailbox(mb[0]);
       })
       .catch(() => setStatus({ configured: false, consent_granted: false, mailboxes: [] }));
+    axios.get(`${API}/admin/mail/team`, { headers: authHeaders() })
+      .then((r) => setTeam(r.data.members || [])).catch(() => {});
+    axios.get(`${API}/admin/mail/auto-reply/settings`, { headers: authHeaders() })
+      .then((r) => { setSettings(r.data); setTplSubject(r.data.subject || ''); setTplBody(r.data.body_html || ''); })
+      .catch(() => {});
   }, []);
 
   const loadMessages = useCallback(async (mailbox) => {
@@ -45,8 +60,7 @@ const AdminMailInbox = () => {
       const r = await axios.get(`${API}/admin/mail/mailboxes/${encodeURIComponent(mailbox)}/messages?top=25`, { headers: authHeaders() });
       setMessages(r.data.value || []);
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Failed to load messages';
-      toast.error(msg);
+      toast.error(err.response?.data?.detail || 'Failed to load messages');
       setMessages([]);
     } finally {
       setLoadingList(false);
@@ -58,7 +72,7 @@ const AdminMailInbox = () => {
   const openMessage = async (msg) => {
     try {
       const r = await axios.get(`${API}/admin/mail/mailboxes/${encodeURIComponent(activeMailbox)}/messages/${msg.id}`, { headers: authHeaders() });
-      setSelected(r.data);
+      setSelected({ ...r.data, ticket: msg.ticket });
       setReply('');
     } catch {
       toast.error('Failed to open message');
@@ -83,6 +97,76 @@ const AdminMailInbox = () => {
     }
   };
 
+  const toggleAutoReply = async () => {
+    if (!settings) return;
+    try {
+      const r = await axios.put(`${API}/admin/mail/auto-reply/settings`, { enabled: !settings.enabled }, { headers: authHeaders() });
+      setSettings(r.data);
+      toast.success(`Auto-reply ${r.data.enabled ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update');
+    }
+  };
+
+  const runAutoReply = async () => {
+    setRunning(true);
+    try {
+      const r = await axios.post(`${API}/admin/mail/auto-reply/run`, {}, { headers: authHeaders() });
+      toast.success(r.data.auto_replies_sent > 0 ? `Auto-replied to ${r.data.auto_replies_sent} new email(s)` : 'No new emails awaiting an auto-reply');
+      loadMessages(activeMailbox);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to run auto-reply');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const saveTemplate = async () => {
+    setSavingTpl(true);
+    try {
+      const r = await axios.put(`${API}/admin/mail/auto-reply/settings`, { enabled: settings?.enabled ?? true, subject: tplSubject, body_html: tplBody }, { headers: authHeaders() });
+      setSettings(r.data);
+      toast.success('Auto-reply template saved');
+      setShowTemplate(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to save template');
+    } finally {
+      setSavingTpl(false);
+    }
+  };
+
+  const assignTo = async (assigneeId) => {
+    if (!selected) return;
+    setAssigning(true);
+    try {
+      const r = await axios.post(
+        `${API}/admin/mail/mailboxes/${encodeURIComponent(activeMailbox)}/messages/${selected.id}/assign`,
+        { assignee_id: assigneeId || null },
+        { headers: authHeaders() }
+      );
+      const t = r.data.ticket;
+      setSelected((s) => ({ ...s, ticket: { ...(s.ticket || {}), assigned_to: t.assigned_to, assigned_to_name: t.assigned_to_name, status: t.status } }));
+      setMessages((ms) => ms.map((m) => m.id === selected.id ? { ...m, ticket: { ...(m.ticket || {}), assigned_to: t.assigned_to, assigned_to_name: t.assigned_to_name, status: t.status, auto_replied: m.ticket?.auto_replied } } : m));
+      toast.success(assigneeId ? `Assigned to ${t.assigned_to_name}` : 'Unassigned');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to assign');
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const resolveTicket = async () => {
+    if (!selected) return;
+    try {
+      await axios.post(`${API}/admin/mail/mailboxes/${encodeURIComponent(activeMailbox)}/messages/${selected.id}/resolve`, {}, { headers: authHeaders() });
+      setSelected((s) => ({ ...s, ticket: { ...(s.ticket || {}), status: 'resolved' } }));
+      setMessages((ms) => ms.map((m) => m.id === selected.id ? { ...m, ticket: { ...(m.ticket || {}), status: 'resolved' } } : m));
+      toast.success('Marked as resolved');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to resolve');
+    }
+  };
+
   // Not configured / consent pending banner
   if (status && (!status.configured || !status.consent_granted)) {
     return (
@@ -104,17 +188,56 @@ const AdminMailInbox = () => {
 
   return (
     <div data-testid="admin-mail-inbox">
+      {/* Auto-reply control bar (admins only — agents won't have settings) */}
+      {settings && (
+        <Card className="mb-4" data-testid="auto-reply-bar">
+          <CardContent className="py-3 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Zap className={`h-4 w-4 ${settings.enabled ? 'text-accent' : 'text-muted-foreground'}`} />
+              <span className="text-sm font-semibold text-foreground">Instant auto-reply</span>
+            </div>
+            <button
+              onClick={toggleAutoReply}
+              data-testid="auto-reply-toggle-btn"
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.enabled ? 'bg-accent' : 'bg-muted'}`}
+              aria-label="Toggle auto-reply"
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+            <Badge variant={settings.enabled ? 'default' : 'secondary'} className="text-[10px]">
+              {settings.enabled ? 'ON — new client emails get an instant acknowledgement' : 'OFF'}
+            </Badge>
+            <div className="ml-auto flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowTemplate((v) => !v)} data-testid="auto-reply-edit-btn">
+                <Settings2 className="h-4 w-4 mr-1" /> Template
+              </Button>
+              <Button size="sm" onClick={runAutoReply} disabled={running} data-testid="auto-reply-run-btn">
+                <RefreshCw className={`h-4 w-4 mr-1 ${running ? 'animate-spin' : ''}`} /> Run now
+              </Button>
+            </div>
+            {showTemplate && (
+              <div className="w-full mt-2 border-t border-border pt-3 space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase">Subject</label>
+                <Input value={tplSubject} onChange={(e) => setTplSubject(e.target.value)} data-testid="auto-reply-subject-input" />
+                <label className="text-xs font-semibold text-muted-foreground uppercase">Body (use {'{name}'} for the sender's name)</label>
+                <Textarea value={tplBody} onChange={(e) => setTplBody(e.target.value)} className="min-h-[120px] font-mono text-xs" data-testid="auto-reply-body-input" />
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={saveTemplate} disabled={savingTpl} data-testid="auto-reply-save-btn">
+                    {savingTpl ? 'Saving…' : 'Save template'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Mailbox switcher */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Mail className="h-4 w-4 text-gold-500" />
         {mailboxes.map((mb) => (
-          <Button
-            key={mb}
-            size="sm"
-            variant={mb === activeMailbox ? 'default' : 'outline'}
-            onClick={() => setActiveMailbox(mb)}
-            data-testid={`mailbox-tab-${mb}`}
-          >
+          <Button key={mb} size="sm" variant={mb === activeMailbox ? 'default' : 'outline'}
+            onClick={() => setActiveMailbox(mb)} data-testid={`mailbox-tab-${mb}`}>
             {mb.split('@')[0]}
           </Button>
         ))}
@@ -135,12 +258,8 @@ const AdminMailInbox = () => {
             {loadingList && <p className="text-sm text-muted-foreground p-4">Loading…</p>}
             {!loadingList && messages.length === 0 && <p className="text-sm text-muted-foreground p-4">No messages.</p>}
             {messages.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => openMessage(m)}
-                data-testid={`mail-item-${m.id}`}
-                className={`w-full text-left p-3 border-b border-matte-700/50 hover:bg-matte-800/50 transition-colors ${selected?.id === m.id ? 'bg-matte-800/60' : ''}`}
-              >
+              <button key={m.id} onClick={() => openMessage(m)} data-testid={`mail-item-${m.id}`}
+                className={`w-full text-left p-3 border-b border-matte-700/50 hover:bg-matte-800/50 transition-colors ${selected?.id === m.id ? 'bg-matte-800/60' : ''}`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className={`text-sm truncate ${m.isRead ? 'text-muted-foreground' : 'font-semibold text-foreground'}`}>
                     {m.from?.emailAddress?.name || m.from?.emailAddress?.address || 'Unknown'}
@@ -149,7 +268,24 @@ const AdminMailInbox = () => {
                 </div>
                 <p className="text-sm text-foreground truncate">{m.subject || '(no subject)'}</p>
                 <p className="text-xs text-muted-foreground truncate">{m.bodyPreview}</p>
-                <p className="text-[10px] text-muted-foreground/70 mt-1">{fmtDate(m.receivedDateTime)}</p>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {m.ticket?.auto_replied && (
+                    <span data-testid={`auto-replied-badge-${m.id}`} className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                      <Zap className="h-2.5 w-2.5" /> Auto-replied
+                    </span>
+                  )}
+                  {m.ticket?.assigned_to_name && (
+                    <span data-testid={`assigned-badge-${m.id}`} className="inline-flex items-center gap-1 text-[10px] font-semibold text-gold-500 bg-gold-500/10 px-1.5 py-0.5 rounded">
+                      <UserCheck className="h-2.5 w-2.5" /> {m.ticket.assigned_to_name}
+                    </span>
+                  )}
+                  {m.ticket?.status === 'resolved' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
+                      <CheckCircle2 className="h-2.5 w-2.5" /> Resolved
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/70 ml-auto">{fmtDate(m.receivedDateTime)}</span>
+                </div>
               </button>
             ))}
           </CardContent>
@@ -159,7 +295,7 @@ const AdminMailInbox = () => {
         <Card className="lg:col-span-2">
           {!selected ? (
             <CardContent className="py-16 text-center text-muted-foreground text-sm">
-              Select a message to read and reply.
+              Select a message to read, assign and reply.
             </CardContent>
           ) : (
             <>
@@ -171,6 +307,33 @@ const AdminMailInbox = () => {
                 <div className="text-xs text-muted-foreground mt-1">
                   From <strong>{selected.from?.emailAddress?.address}</strong> · {fmtDate(selected.receivedDateTime)}
                 </div>
+                {/* Assignment row */}
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <UserCheck className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Assign to:</span>
+                  <select
+                    data-testid="mail-assign-select"
+                    disabled={assigning}
+                    value={selected.ticket?.assigned_to || ''}
+                    onChange={(e) => assignTo(e.target.value)}
+                    className="text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {team.map((mem) => (
+                      <option key={mem.id} value={mem.id}>{mem.name || mem.email} ({mem.user_type})</option>
+                    ))}
+                  </select>
+                  {selected.ticket?.auto_replied && (
+                    <Badge variant="outline" className="text-[10px] text-accent border-accent/40"><Zap className="h-2.5 w-2.5 mr-1" /> Auto-replied</Badge>
+                  )}
+                  {selected.ticket?.status !== 'resolved' ? (
+                    <Button size="sm" variant="outline" className="ml-auto" onClick={resolveTicket} data-testid="mail-resolve-btn">
+                      <CheckCircle2 className="h-4 w-4 mr-1" /> Mark resolved
+                    </Button>
+                  ) : (
+                    <Badge className="ml-auto text-[10px] bg-green-500/15 text-green-500"><CheckCircle2 className="h-2.5 w-2.5 mr-1" /> Resolved</Badge>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="py-4">
                 <div
@@ -179,13 +342,8 @@ const AdminMailInbox = () => {
                 />
                 <div className="mt-4">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reply as {activeMailbox}</label>
-                  <Textarea
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    placeholder="Type your reply…"
-                    className="mt-2 min-h-[120px]"
-                    data-testid="mail-reply-input"
-                  />
+                  <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type your reply…"
+                    className="mt-2 min-h-[120px]" data-testid="mail-reply-input" />
                   <div className="flex justify-end mt-2">
                     <Button onClick={sendReply} disabled={sending} data-testid="mail-send-reply-btn">
                       <Send className="h-4 w-4 mr-2" /> {sending ? 'Sending…' : 'Send reply'}
