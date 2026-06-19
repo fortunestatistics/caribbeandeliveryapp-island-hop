@@ -26,6 +26,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Twilio SMS went LIVE (OTP)
+- Flipped `MOCK_TWILIO=false`; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM=+12523746444` in backend/.env. Installed `twilio==9.10.9` (in requirements.txt). Account validated via REST API: status=active, type=Full (paid), number +12523746444 is SMS-capable. Live path confirmed (Twilio auth succeeded; only rejected a same-number self-test). `twilio_client.py` already used the correct env var names + `messages.create(from_=...)`.
+- WhatsApp left OFF (`TWILIO_WHATSAPP_FROM` empty) — needs a separate WhatsApp-enabled sender. CAVEAT: US long-code (+1252) A2P 10DLC registration recommended for reliable US-destination SMS; T&T (+1868) is international. PREVIEW now sends REAL SMS on phone signups. PRODUCTION: add the 3 TWILIO_* vars + MOCK_TWILIO=false to the Deploy panel + redeploy.
+
+
 ### Jun 2026 — Public application intake from islandhoptt.com (external leads)
 - New UNAUTHENTICATED endpoints so the external marketing site submits partner applications that land in Admin → Pending Approvals: `POST /api/public/applications/driver` and `POST /api/public/applications/merchant`.
 - Leads insert into existing `drivers` (status=pending) / `business_applications` (verification_status=pending) with `source:"islandhoptt.com"` + `is_external_lead:true`, `user_id:null` — appear alongside in-app applications, reuse existing approve/reject. `_flatten_pending` returns `source`; AdminPanel shows a "🌐 Lead from islandhoptt.com" badge.
