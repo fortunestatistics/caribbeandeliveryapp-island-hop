@@ -109,6 +109,10 @@ const AdminMailInbox = () => {
   };
 
   const runAutoReply = async () => {
+    if (settings && !settings.enabled) {
+      toast.info('Auto-reply is turned off. Enable it to acknowledge new emails.');
+      return;
+    }
     setRunning(true);
     try {
       const r = await axios.post(`${API}/admin/mail/auto-reply/run`, {}, { headers: authHeaders() });
