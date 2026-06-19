@@ -2059,17 +2059,17 @@ async def get_user_orders(request: Request):
     current_user = await get_current_user_from_request(request)
     
     if current_user.user_type == "customer":
-        orders = await db.orders.find({"customer_id": current_user.id}).to_list(length=None)
+        orders = await db.orders.find({"customer_id": current_user.id}).sort("created_at", -1).limit(200).to_list(length=200)
     elif current_user.user_type == "restaurant":
         restaurant = await db.restaurants.find_one({"user_id": current_user.id})
         if restaurant:
-            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).to_list(length=None)
+            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
         else:
             orders = []
     elif current_user.user_type == "driver":
         driver = await db.drivers.find_one({"user_id": current_user.id})
         if driver:
-            orders = await db.orders.find({"driver_id": driver["id"]}).to_list(length=None)
+            orders = await db.orders.find({"driver_id": driver["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
         else:
             orders = []
     else:
@@ -3072,7 +3072,7 @@ async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/da
     """Fire a web push to every device the user has subscribed. Best-effort; never raises."""
     if not user_id:
         return
-    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(length=None)
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).limit(50).to_list(length=50)
     if not subs:
         return
     payload = {"title": title, "body": body, "url": url}
