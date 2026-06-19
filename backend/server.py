@@ -7257,6 +7257,8 @@ def _flatten_pending(items: List[dict], kind: str) -> List[dict]:
             "phone": item.get("phone") or item.get("contact_info", {}).get("phone") or item.get("business_owner", {}).get("phone"),
             "status": item.get("status") or item.get("verification_status"),
             "user_id": item.get("user_id"),
+            "source": item.get("source"),
+            "is_external_lead": item.get("is_external_lead", False),
             "created_at": item.get("created_at") or item.get("application_date"),
             "raw": item,
         })
@@ -7368,6 +7370,144 @@ async def admin_reject_business(application_id: str, payload: ApprovalAction, re
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+
+
+# ---------------------------------------------------------------------------
+# PUBLIC application intake (from external marketing site islandhoptt.com)
+# Unauthenticated; protected by rate-limit + honeypot + optional X-API-Key.
+# Leads land in the SAME collections as in-app applications (status=pending),
+# so they appear in Admin → Pending Approvals, tagged with source.
+# ---------------------------------------------------------------------------
+PUBLIC_APP_RATE_LIMIT = 5
+PUBLIC_APP_RATE_WINDOW_MIN = 60
+
+
+class PublicDriverApplication(BaseModel):
+    full_name: str
+    email: str
+    phone: str
+    vehicle_type: str
+    license_number: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+
+class PublicMerchantApplication(BaseModel):
+    business_name: str
+    owner_name: str
+    email: str
+    phone: str
+    business_type: str
+    category: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def _check_public_app_guard(request: Request) -> str:
+    """Optional API key + per-IP rate limiting. Returns the client IP."""
+    configured_key = os.environ.get("PUBLIC_APPLICATIONS_API_KEY")
+    provided = request.headers.get("x-api-key")
+    if provided and configured_key and provided != configured_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    ip = _client_ip(request)
+    since = (datetime.now(timezone.utc) - timedelta(minutes=PUBLIC_APP_RATE_WINDOW_MIN)).isoformat()
+    recent = await db.public_application_log.count_documents({"ip": ip, "created_at": {"$gte": since}})
+    if recent >= PUBLIC_APP_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many applications from this network. Please try again later.")
+    return ip
+
+
+async def _log_public_app(ip: str, kind: str):
+    await db.public_application_log.insert_one({
+        "ip": ip, "kind": kind, "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@api_router.post("/public/applications/driver")
+async def public_driver_application(payload: PublicDriverApplication, request: Request):
+    """Receive a driver application from the external site (islandhoptt.com)."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # bot tripped the honeypot — pretend success, store nothing
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        "name": payload.full_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "vehicle_type": payload.vehicle_type,
+        "license_number": payload.license_number,
+        "vehicle_plate": payload.vehicle_plate,
+        "city": payload.city,
+        "lead_notes": payload.notes,
+        "created_at": now,
+    }
+    await db.drivers.insert_one({**doc})
+    await _log_public_app(ip, "driver")
+    return {"success": True, "id": doc["id"], "message": "Driver application received — our team will review it shortly."}
+
+
+@api_router.post("/public/applications/merchant")
+async def public_merchant_application(payload: PublicMerchantApplication, request: Request):
+    """Receive a merchant/restaurant application from the external site (islandhoptt.com)."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # honeypot
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    address_obj = {"line1": payload.address or "", "city": payload.city or ""}
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "verification_status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        # top-level fields for admin list display
+        "business_name": payload.business_name,
+        "name": payload.business_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        # nested structures matching BusinessOnboarding shape
+        "business_owner": {
+            "name": payload.owner_name,
+            "email": payload.email,
+            "phone": payload.phone,
+            "address": address_obj,
+        },
+        "business_details": {
+            "business_name": payload.business_name,
+            "business_type": payload.business_type,
+            "category_id": payload.category or "",
+            "description": payload.description or "",
+            "address": address_obj,
+            "phone": payload.phone,
+            "email": payload.email,
+            "website": payload.website,
+        },
+        "lead_notes": payload.notes,
+        "application_date": now,
+        "created_at": now,
+    }
+    await db.business_applications.insert_one({**doc})
+    await _log_public_app(ip, "merchant")
+    return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
+
 
 
 

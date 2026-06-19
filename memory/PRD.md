@@ -26,6 +26,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Public application intake from islandhoptt.com (external leads)
+- New UNAUTHENTICATED endpoints so the external marketing site submits partner applications that land in Admin → Pending Approvals: `POST /api/public/applications/driver` and `POST /api/public/applications/merchant`.
+- Leads insert into existing `drivers` (status=pending) / `business_applications` (verification_status=pending) with `source:"islandhoptt.com"` + `is_external_lead:true`, `user_id:null` — appear alongside in-app applications, reuse existing approve/reject. `_flatten_pending` returns `source`; AdminPanel shows a "🌐 Lead from islandhoptt.com" badge.
+- Spam protection: per-IP **rate limit 5/hr** (`public_application_log`, X-Forwarded-For aware)→429; **honeypot** `hp` field (silently accepted, not stored); **optional `X-API-Key`** vs `PUBLIC_APPLICATIONS_API_KEY` (backend/.env). CORS wildcard already allows islandhoptt.com.
+- Tested: `tests/test_public_applications.py` 4/4 + curl rate-limit verified; test data cleaned. PRODUCTION: add `PUBLIC_APPLICATIONS_API_KEY` to Deploy panel + redeploy.
+
+### Jun 2026 — Facebook Login config staged (App ID 2180974786018435 in FB_APP_ID/REACT_APP_FB_APP_ID; awaiting App Secret before building the button).
+
+
 ### Jun 2026 — Support inbox workflow: instant auto-reply + assign-to-agent
 - New workflow on the Admin → Mail tab (`AdminMailInbox.js`): (1) **instant auto-reply** to NEW inbound client emails with admin-editable template (subject + `{name}` placeholder body), enable/disable toggle, and a manual **"Run now"**; (2) **assign-to-agent** per email (admin assigns any admin/agent; agent self-claims) with assigned/auto-replied/resolved **badges** + **Mark resolved**.
 - Safety: a **watermark** (`autoreply_since`) means enabling NEVER blasts the existing mailbox backlog (only mail received after enablement); **one auto-reply per conversationId** (idempotent); skip rules for no-reply/notification/mailer-daemon senders + "Auto:"/"Automatic reply" subjects to prevent loops.

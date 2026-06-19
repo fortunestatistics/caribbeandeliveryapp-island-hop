@@ -644,6 +644,11 @@ const AdminPanel = () => {
                                 <div>
                                   <p className="font-medium">{row.name || row.id}</p>
                                   <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
+                                  {row.source && (
+                                    <span data-testid={`lead-source-${row.id}`} className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                                      🌐 Lead from {row.source}
+                                    </span>
+                                  )}
                                   {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
                                 </div>
                                 <div className="flex gap-2">
