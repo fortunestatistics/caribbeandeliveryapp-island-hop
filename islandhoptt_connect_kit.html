@@ -1,0 +1,119 @@
+<!-- ============================================================================
+     IslandHop — "Connect Kit" for islandhoptt.com
+     Paste these blocks into your website builder (Wix / Squarespace / WordPress
+     / custom) wherever it allows "Embed HTML" or "Custom Code".
+     App base URL:  https://islandhopapp.com
+     ============================================================================ -->
+
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     1) HEADER CTA BUTTONS  — put at the top of every page so every view
+        connects into the app. (Order online / Sign up / Log in)
+     ───────────────────────────────────────────────────────────────────────── -->
+<div style="display:flex;gap:12px;justify-content:center;align-items:center;padding:10px;flex-wrap:wrap;font-family:system-ui,sans-serif">
+  <a href="https://islandhopapp.com/restaurants" target="_blank" rel="noopener"
+     style="background:#F97316;color:#fff;padding:10px 20px;border-radius:9999px;font-weight:700;text-decoration:none">Order Now</a>
+  <a href="https://islandhopapp.com/signup" target="_blank" rel="noopener"
+     style="background:#0A1824;color:#fff;padding:10px 20px;border-radius:9999px;font-weight:700;text-decoration:none">Sign Up</a>
+  <a href="https://islandhopapp.com/login" target="_blank" rel="noopener"
+     style="color:#0A1824;padding:10px 16px;font-weight:700;text-decoration:none">Log In</a>
+</div>
+
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     2) FOOTER BLOCK  — includes the app URL (as requested)
+     ───────────────────────────────────────────────────────────────────────── -->
+<footer style="background:#0A1824;color:#cbd5e1;padding:28px 20px;text-align:center;font-family:system-ui,sans-serif">
+  <p style="font-size:18px;font-weight:800;color:#fff;margin:0 0 6px">IslandHop 🌴</p>
+  <p style="margin:0 0 12px">Trinidad &amp; Tobago's all-in-one delivery &amp; logistics super app.</p>
+  <p style="margin:0 0 14px">
+    Get the app:
+    <a href="https://islandhopapp.com" target="_blank" rel="noopener"
+       style="color:#F97316;font-weight:700;text-decoration:none">islandhopapp.com</a>
+  </p>
+  <div style="display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin-bottom:14px">
+    <a href="https://islandhopapp.com/restaurants" target="_blank" rel="noopener" style="color:#cbd5e1;text-decoration:none">Order</a>
+    <a href="https://islandhopapp.com/signup" target="_blank" rel="noopener" style="color:#cbd5e1;text-decoration:none">Become a Customer</a>
+    <a href="#ih-driver-form" style="color:#cbd5e1;text-decoration:none">Drive with us</a>
+    <a href="#ih-merchant-form" style="color:#cbd5e1;text-decoration:none">Partner your business</a>
+  </div>
+  <p style="font-size:12px;color:#64748b;margin:0">© <span id="ih-year"></span> IslandHop. All rights reserved.</p>
+  <script>document.getElementById('ih-year').textContent=new Date().getFullYear();</script>
+</footer>
+
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     3) "BECOME A DRIVER" FORM  — submits straight into the app's admin panel
+        as a pending lead. (Posts to the public endpoint.)
+     ───────────────────────────────────────────────────────────────────────── -->
+<form id="ih-driver-form" onsubmit="ihSubmitDriver(event)"
+      style="max-width:480px;margin:0 auto;font-family:system-ui,sans-serif;display:grid;gap:10px">
+  <h3 style="margin:0">Drive with IslandHop</h3>
+  <input name="full_name" placeholder="Full name" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="email" type="email" placeholder="Email" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="phone" placeholder="Phone (+1868...)" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <select name="vehicle_type" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+    <option value="">Vehicle type…</option>
+    <option>motorcycle</option><option>car</option><option>van</option><option>bicycle</option>
+  </select>
+  <input name="city" placeholder="City" style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <!-- honeypot: keep hidden, leave empty -->
+  <input name="hp" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
+  <button type="submit" style="background:#F97316;color:#fff;padding:12px;border:0;border-radius:9999px;font-weight:700;cursor:pointer">Apply to drive</button>
+  <p id="ih-driver-msg" style="font-size:14px;margin:0"></p>
+</form>
+
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     4) "PARTNER YOUR BUSINESS" FORM  — submits into the admin panel as a lead.
+     ───────────────────────────────────────────────────────────────────────── -->
+<form id="ih-merchant-form" onsubmit="ihSubmitMerchant(event)"
+      style="max-width:480px;margin:0 auto;font-family:system-ui,sans-serif;display:grid;gap:10px">
+  <h3 style="margin:0">Partner your business with IslandHop</h3>
+  <input name="business_name" placeholder="Business name" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="owner_name" placeholder="Owner / contact name" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="email" type="email" placeholder="Email" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="phone" placeholder="Phone (+1868...)" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <select name="business_type" required style="padding:10px;border:1px solid #ccc;border-radius:8px">
+    <option value="">Business type…</option>
+    <option>restaurant</option><option>pharmacy</option><option>grocery</option><option>retail</option><option>other</option>
+  </select>
+  <input name="address" placeholder="Address" style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="city" placeholder="City" style="padding:10px;border:1px solid #ccc;border-radius:8px">
+  <input name="hp" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
+  <button type="submit" style="background:#F97316;color:#fff;padding:12px;border:0;border-radius:9999px;font-weight:700;cursor:pointer">Apply to partner</button>
+  <p id="ih-merchant-msg" style="font-size:14px;margin:0"></p>
+</form>
+
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     5) ONE SHARED SCRIPT  — paste once (handles both forms above)
+     ───────────────────────────────────────────────────────────────────────── -->
+<script>
+  const IH_API = "https://islandhopapp.com/api";
+  const IH_API_KEY = "ihtt_pub_GU4x1SizzZCs3sDkf1YJ12mWnM700Eb96HwX2Wx824c"; // optional extra security
+
+  async function ihPost(path, form, msgEl) {
+    msgEl.textContent = "Submitting…"; msgEl.style.color = "#475569";
+    const data = Object.fromEntries(new FormData(form).entries());
+    try {
+      const res = await fetch(IH_API + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": IH_API_KEY },
+        body: JSON.stringify(data),
+      });
+      const j = await res.json();
+      if (res.ok && j.success) {
+        msgEl.textContent = "✅ " + (j.message || "Application received!");
+        msgEl.style.color = "#16a34a"; form.reset();
+      } else {
+        msgEl.textContent = "⚠️ " + (j.detail || "Something went wrong. Please try again.");
+        msgEl.style.color = "#dc2626";
+      }
+    } catch (e) {
+      msgEl.textContent = "⚠️ Network error. Please try again."; msgEl.style.color = "#dc2626";
+    }
+  }
+  function ihSubmitDriver(e){ e.preventDefault(); ihPost("/public/applications/driver", e.target, document.getElementById("ih-driver-msg")); }
+  function ihSubmitMerchant(e){ e.preventDefault(); ihPost("/public/applications/merchant", e.target, document.getElementById("ih-merchant-msg")); }
+</script>
