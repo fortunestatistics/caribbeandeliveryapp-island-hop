@@ -63,29 +63,40 @@ def send_whatsapp(to: str, body: str) -> dict:
 def _real_send_sms(to: str, body: str) -> dict:
     try:
         from twilio.rest import Client  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("twilio SDK not installed — pip install twilio") from exc
+    except ImportError:
+        return {"success": False, "error": "twilio SDK not installed", "channel": "sms", "to": to}
     sid = os.environ.get("TWILIO_ACCOUNT_SID")
     token = os.environ.get("TWILIO_AUTH_TOKEN")
     from_number = os.environ.get("TWILIO_SMS_FROM")
     if not (sid and token and from_number):
-        raise RuntimeError("Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_FROM)")
-    client = Client(sid, token)
-    msg = client.messages.create(from_=from_number, to=to, body=body)
-    return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "sms", "to": to, "body": body}
+        return {"success": False, "error": "SMS is not configured on the server.", "channel": "sms", "to": to}
+    if to and from_number.strip() == to.strip():
+        return {"success": False, "error": "Sender and recipient cannot be the same number.", "channel": "sms", "to": to}
+    try:
+        client = Client(sid, token)
+        msg = client.messages.create(from_=from_number, to=to, body=body)
+        return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "sms", "to": to, "body": body}
+    except Exception as exc:  # noqa: BLE001 — surface a clean error, never crash the request
+        return {"success": False, "error": str(getattr(exc, "msg", exc)),
+                "error_code": getattr(exc, "code", None), "channel": "sms", "to": to}
 
 
 def _real_send_whatsapp(to: str, body: str) -> dict:
     try:
         from twilio.rest import Client  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("twilio SDK not installed — pip install twilio") from exc
+    except ImportError:
+        return {"success": False, "error": "twilio SDK not installed", "channel": "whatsapp", "to": to}
     sid = os.environ.get("TWILIO_ACCOUNT_SID")
     token = os.environ.get("TWILIO_AUTH_TOKEN")
     from_number = os.environ.get("TWILIO_WHATSAPP_FROM")  # e.g. 'whatsapp:+14155238886'
     if not (sid and token and from_number):
-        raise RuntimeError("Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM)")
-    client = Client(sid, token)
-    to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
-    msg = client.messages.create(from_=from_number, to=to_addr, body=body)
-    return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "whatsapp", "to": to, "body": body}
+        return {"success": False, "error": "WhatsApp is not configured on the server (no WhatsApp sender set up).",
+                "channel": "whatsapp", "to": to}
+    try:
+        client = Client(sid, token)
+        to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
+        msg = client.messages.create(from_=from_number, to=to_addr, body=body)
+        return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "whatsapp", "to": to, "body": body}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(getattr(exc, "msg", exc)),
+                "error_code": getattr(exc, "code", None), "channel": "whatsapp", "to": to}

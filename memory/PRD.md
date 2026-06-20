@@ -26,6 +26,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 2026 — Fixed Twilio "failed to send" (uncaught errors + phone format)
+- ROOT CAUSE: with `MOCK_TWILIO=false`, `twilio_client._real_send_sms/_real_send_whatsapp` RAISED on any failure → uncaught 500 "failed to send". WhatsApp always crashed (no `TWILIO_WHATSAPP_FROM`). Also `_normalize_phone` didn't add a country code, so bare local numbers (e.g. `7654321`) were rejected by Twilio.
+- FIX: twilio_client now RETURNS `{success:False, error, error_code}` (never raises) + same-number guard. `_normalize_phone` now produces E.164, defaulting bare 7-digit numbers to Trinidad `+1868`, 10-digit→`+1`, 11-digit→`+`. OTP endpoint handles send failure gracefully (preview still returns dev_code; prod raises a friendly 400). WhatsApp endpoint returns clean 400 when no WA sender. Used **400 not 502** because Cloudflare masks origin 5xx with its own error page.
+- SMS itself works (Twilio 201). Tests: `tests/test_twilio_graceful.py` 5/5. NOTE: A2P 10DLC still recommended for US-destination delivery; WhatsApp stays disabled until a WA sender is provisioned.
+
+
 ### Jun 2026 — Twilio SMS went LIVE (OTP)
 - Flipped `MOCK_TWILIO=false`; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM=+12523746444` in backend/.env. Installed `twilio==9.10.9` (in requirements.txt). Account validated via REST API: status=active, type=Full (paid), number +12523746444 is SMS-capable. Live path confirmed (Twilio auth succeeded; only rejected a same-number self-test). `twilio_client.py` already used the correct env var names + `messages.create(from_=...)`.
 - WhatsApp left OFF (`TWILIO_WHATSAPP_FROM` empty) — needs a separate WhatsApp-enabled sender. CAVEAT: US long-code (+1252) A2P 10DLC registration recommended for reliable US-destination SMS; T&T (+1868) is international. PREVIEW now sends REAL SMS on phone signups. PRODUCTION: add the 3 TWILIO_* vars + MOCK_TWILIO=false to the Deploy panel + redeploy.

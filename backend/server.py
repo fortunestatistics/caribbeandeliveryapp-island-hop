@@ -6696,10 +6696,24 @@ class OTPVerifyRequest(BaseModel):
 
 
 def _normalize_phone(p: str) -> str:
-    """Strip spaces/dashes/parens; keep leading +."""
+    """Normalize to E.164. Defaults bare local numbers to Trinidad & Tobago (+1868)."""
     if not p:
         return ""
-    return re.sub(r"[\s\-\(\)]", "", p.strip())
+    p = p.strip()
+    had_plus = p.startswith("+")
+    digits = re.sub(r"\D", "", p)
+    if not digits:
+        return ""
+    if had_plus:
+        return "+" + digits
+    # No '+' provided — infer country code for the Caribbean (NANP)
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits                 # 1XXXXXXXXXX → +1XXXXXXXXXX
+    if len(digits) == 10:
+        return "+1" + digits                # NANP 10-digit (incl. +1868/+1868) → +1XXXXXXXXXX
+    if len(digits) == 7:
+        return "+1868" + digits             # bare TT local 7-digit → +1868XXXXXXX
+    return "+" + digits                      # best effort
 
 
 @api_router.post("/otp/send")
@@ -6735,15 +6749,29 @@ async def otp_send(payload: OTPSendRequest):
 
     body = f"Your IslandHop verification code is {code}. It expires in {expires_in} minutes."
     send_result = twilio_client.send_sms(phone, body)
+    dev_return = os.environ.get("OTP_DEV_RETURN_CODE", "true").lower() in {"1", "true", "yes"}
+
+    if not send_result.get("success"):
+        logger.warning(f"OTP SMS send failed for {phone}: {send_result.get('error')} (code={send_result.get('error_code')})")
+        # In dev/preview we still return the code so testing isn't blocked.
+        if not dev_return:
+            raise HTTPException(
+                status_code=400,
+                detail="We couldn't send your code by SMS right now. Please double-check the phone number (include the country code, e.g. +1868…) and try again.",
+            )
 
     response = {
         "success": True,
         "expires_at": expires_at.isoformat(),
         "channel": "sms",
         "mock": send_result.get("mock", False),
+        "phone": phone,
     }
+    if not send_result.get("success"):
+        response["sms_delivered"] = False
+        response["warning"] = send_result.get("error")
     # In dev/mock mode return the code so test flows + the UI can show it.
-    if os.environ.get("OTP_DEV_RETURN_CODE", "true").lower() in {"1", "true", "yes"}:
+    if dev_return:
         response["dev_code"] = code
     return response
 
@@ -7148,6 +7176,9 @@ async def whatsapp_send(payload: WhatsAppSendRequest, request: Request):
         raise HTTPException(status_code=400, detail="to and body are required")
 
     send_result = twilio_client.send_whatsapp(to, payload.body)
+    if not send_result.get("success"):
+        logger.warning(f"WhatsApp send failed for {to}: {send_result.get('error')}")
+        raise HTTPException(status_code=400, detail=send_result.get("error", "Could not send WhatsApp message."))
     msg_doc = {
         "id": str(uuid.uuid4()),
         "user_id": payload.user_id,
