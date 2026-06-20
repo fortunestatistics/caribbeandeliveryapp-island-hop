@@ -7732,6 +7732,60 @@ async def _log_public_app(ip: str, kind: str):
     })
 
 
+async def _notify_new_application(kind: str, doc: dict):
+    """Email an internal alert (to the admin/team mailbox) + an acknowledgement to
+    the applicant when a public application lands. Never raises — best effort."""
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    if kind == "driver":
+        team_mailbox = os.environ.get("DRIVER_NOTIFY_MAILBOX") or os.environ.get("ADMIN_EMAIL")
+        label = "driver"
+        summary = (
+            f"<li><b>Name:</b> {doc.get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Vehicle:</b> {doc.get('vehicle_type','')}</li>"
+            f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        )
+    else:
+        team_mailbox = "partner@islandhoptt.com"
+        label = "merchant"
+        summary = (
+            f"<li><b>Business:</b> {doc.get('business_name','')}</li>"
+            f"<li><b>Owner:</b> {doc.get('business_owner',{}).get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Type:</b> {doc.get('business_details',{}).get('business_type','')}</li>"
+        )
+
+    internal_html = (
+        f"<h2>New {label} application from {doc.get('source','the website')}</h2>"
+        f"<p>A new {label} lead just came in. Review it in Admin → Approvals.</p>"
+        f"<ul>{summary}</ul>"
+        f"<p style='color:#888'>Application ID: {doc.get('id')}</p>"
+    )
+    ack_html = (
+        f"<h2>Thanks for applying to IslandHop 🌴</h2>"
+        f"<p>We've received your {label} application and our team will review it shortly. "
+        f"You'll hear from us at <b>{doc.get('email','')}</b>.</p>"
+        f"<p>— The IslandHop Team</p>"
+    )
+
+    # Internal alert (sent from the team mailbox to the admin inbox)
+    try:
+        if admin_email:
+            await graph_mail.send_mail(admin_email, f"New {label} application — {doc.get('name') or doc.get('business_name','')}",
+                                       internal_html, mailbox=team_mailbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"New-application internal alert email failed ({kind}): {exc}")
+    # Acknowledgement to the applicant
+    try:
+        if doc.get("email"):
+            await graph_mail.send_mail(doc["email"], "We received your IslandHop application",
+                                       ack_html, mailbox=team_mailbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"New-application ack email failed ({kind}): {exc}")
+
+
 @api_router.post("/public/applications/driver")
 async def public_driver_application(payload: PublicDriverApplication, request: Request):
     """Receive a driver application from the external site (islandhoptt.com)."""
@@ -7757,6 +7811,7 @@ async def public_driver_application(payload: PublicDriverApplication, request: R
     }
     await db.drivers.insert_one({**doc})
     await _log_public_app(ip, "driver")
+    asyncio.create_task(_notify_new_application("driver", doc))
     return {"success": True, "id": doc["id"], "message": "Driver application received — our team will review it shortly."}
 
 
@@ -7802,6 +7857,7 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
     }
     await db.business_applications.insert_one({**doc})
     await _log_public_app(ip, "merchant")
+    asyncio.create_task(_notify_new_application("merchant", doc))
     return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
 
 
