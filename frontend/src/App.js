@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import KPIDashboard from './KPIDashboard';
+import ThemePreview from './ThemePreview';
 import CarRentalPage from './CarRentalPage';
 import DriverOnboarding from './DriverOnboarding';
 import RestaurantOnboarding from './RestaurantOnboarding';
@@ -8,6 +9,7 @@ import RestaurantMenuManagement from './RestaurantMenuManagement';
 import VendorDashboard from './VendorDashboard';
 import DriverDashboard from './DriverDashboard';
 import AdminPanel from './AdminPanel';
+import AdminInviteAccept from './AdminInviteAccept';
 import PromoCodeManagement from './PromoCodeManagement';
 import AddressManagement from './AddressManagement';
 import OrderScheduling from './OrderScheduling';
@@ -20,6 +22,9 @@ import DriverEarningsDashboard from './DriverEarningsDashboard';
 import BusinessEarningsDashboard from './BusinessEarningsDashboard';
 import AuthPage from './AuthPage';
 import SocialAuthCallback from './SocialAuthCallback';
+import MicrosoftAuthCallback from './MicrosoftAuthCallback';
+import ProfilePage from './ProfilePage';
+import IdentityVerificationCallback from './IdentityVerificationCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
 import ReferralBanner from './ReferralBanner';
@@ -64,6 +69,7 @@ import {
   Car,
   MessageCircle,
   MapPin,
+  UserCircle,
   Clock,
   CreditCard,
   CheckCircle,
@@ -112,6 +118,7 @@ const ROLES_DRIVER_ONBOARD = ['driver', 'customer', 'admin'];
 const ROLES_VENDOR_ADMIN = ['restaurant', 'business', 'admin'];
 const ROLES_VENDOR_ONBOARD = ['restaurant', 'customer', 'admin'];
 const ROLES_ADMIN_ONLY = ['admin'];
+const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
@@ -582,7 +589,7 @@ const LandingPage = () => {
     <div className="min-h-screen bg-background">
       {/* Hero Section - Premium Matte Black + Gold */}
       <section className="relative overflow-hidden bg-matte-900 pt-20 pb-32">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.18),transparent_60%)]"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.18),transparent_60%)]"></div>
         <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-gold-500/10 blur-3xl"></div>
         <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-neon-cyan/5 blur-3xl"></div>
         
@@ -856,7 +863,7 @@ const PartnerSelection = () => {
   return (
     <div className="min-h-screen bg-matte-900 py-16 relative overflow-hidden">
       {/* Ambient gold glow to match landing page */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.12),transparent_60%)] pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.12),transparent_60%)] pointer-events-none"></div>
       <div className="absolute -top-20 -right-20 h-80 w-80 rounded-full bg-gold-500/10 blur-3xl pointer-events-none"></div>
 
       <div className="relative container mx-auto px-4">
@@ -1126,7 +1133,7 @@ const Dashboard = () => {
   const fetchApplications = async () => {
     try {
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: true
+        withCredentials: false
       });
       setApplications(response.data);
     } catch (error) {
@@ -1160,6 +1167,21 @@ const Dashboard = () => {
         </div>
 
         <ReferralBanner />
+
+        {(!user.picture || !user.address || !user.address.street) && (
+          <Card className="mb-6 border-gold-500/40 bg-gold-500/5" data-testid="complete-profile-banner">
+            <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4">
+              <div className="flex items-center gap-3">
+                <UserCircle className="h-8 w-8 text-gold-500 shrink-0" />
+                <div>
+                  <p className="font-semibold text-foreground">Complete your profile</p>
+                  <p className="text-sm text-muted-foreground">Add a profile picture and delivery address to start ordering.</p>
+                </div>
+              </div>
+              <Button onClick={() => navigate('/profile')} data-testid="complete-profile-btn">Complete now</Button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
@@ -1227,7 +1249,7 @@ const Dashboard = () => {
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-3">
                 {user.picture ? (
-                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full" />
+                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full object-cover" />
                 ) : (
                   <div className="w-12 h-12 bg-gold-gradient rounded-full flex items-center justify-center text-white font-bold">
                     {user.name.charAt(0)}
@@ -1238,9 +1260,16 @@ const Dashboard = () => {
                   <div className="text-sm text-muted-foreground">{user.email}</div>
                 </div>
               </div>
+              {user.address?.street && (
+                <div className="flex items-start gap-2 text-sm text-muted-foreground" data-testid="profile-card-address">
+                  <MapPin className="h-4 w-4 mt-0.5 text-gold-500 shrink-0" />
+                  <span>{[user.address.street, user.address.city, user.address.country].filter(Boolean).join(', ')}</span>
+                </div>
+              )}
               <div className="pt-4 border-t">
                 <Badge variant="secondary" className="mb-2">Active Member</Badge>
-                <p className="text-xs text-muted-foreground">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <p className="text-xs text-muted-foreground mb-3">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <Button variant="outline" size="sm" className="w-full" onClick={() => navigate('/profile')} data-testid="edit-profile-btn">Edit Profile</Button>
               </div>
             </CardContent>
           </Card>
@@ -1408,7 +1437,7 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       toast({
@@ -1639,10 +1668,13 @@ function App() {
             <Header />
 
           <Routes>
+            <Route path="/theme-preview" element={<ThemePreview />} />
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
+            <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
+            <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
@@ -1661,14 +1693,15 @@ function App() {
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />
             <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
             <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
-            <Route path="/payment/success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
-            <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancel /></ProtectedRoute>} />
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/cancel" element={<PaymentCancel />} />
 
             {/* Driver-only */}
             <Route path="/driver-dashboard" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverDashboard /></ProtectedRoute>} />
@@ -1687,7 +1720,8 @@ function App() {
             <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><PromoCodeManagement /></ProtectedRoute>} />
 
             {/* Admin only */}
-            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin/invite/:token" element={<AdminInviteAccept />} />
             <Route path="/analytics" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><KPIDashboard /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" />} />

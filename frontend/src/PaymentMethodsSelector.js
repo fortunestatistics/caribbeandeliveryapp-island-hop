@@ -47,8 +47,7 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
       name: 'PayPal',
       icon: DollarSign,
       description: 'Pay with PayPal balance',
-      enabled: false, // Will be enabled when user provides PayPal Client ID
-      comingSoon: true
+      enabled: true
     },
     {
       id: 'cash',

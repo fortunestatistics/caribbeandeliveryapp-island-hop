@@ -81,7 +81,7 @@ const OrderTrackingPageWithMaps = () => {
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await axios.get(`${API}/orders/${orderId}`, {
           headers,
-          withCredentials: true,
+          withCredentials: false,
         });
         setOrder(response.data);
         setLoading(false);
@@ -109,7 +109,7 @@ const OrderTrackingPageWithMaps = () => {
   const checkIfRated = async () => {
     try {
       const response = await axios.get(`${API}/ratings?order_id=${orderId}`, {
-        withCredentials: true
+        withCredentials: false
       });
       return response.data.length > 0;
     } catch (error) {
@@ -220,7 +220,7 @@ const OrderTrackingPageWithMaps = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setNewMessage('');
@@ -236,7 +236,7 @@ const OrderTrackingPageWithMaps = () => {
         order_id: orderId,
         ...ratings
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setShowRatingModal(false);
@@ -334,8 +334,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#0EA5E9" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">🚗</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Driver Location"
                       />
@@ -354,8 +353,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#10B981" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">📍</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Delivery Location"
                       />

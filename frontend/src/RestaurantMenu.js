@@ -15,6 +15,7 @@ import {
   Trash2,
   ArrowRight
 } from 'lucide-react';
+import MerchantReviews from './MerchantReviews';
 
 const RestaurantMenu = () => {
   const navigate = useNavigate();
@@ -442,6 +443,8 @@ const RestaurantMenu = () => {
             </Card>
           </div>
         </div>
+
+        <MerchantReviews merchantId={restaurant.id} />
       </div>
     </div>
   );

@@ -1,0 +1,58 @@
+{
+  "summary": "Iteration 12 — Full end-to-end LIVE dry-run on PREVIEW in Stripe TEST mode. All 9 chain links GREEN: restaurant onboarding, menu, driver onboarding, admin approval+go-online, order placement, Stripe TEST checkout session created + card 4242 charged via Playwright on Stripe-hosted page (payment_status=paid, status=complete), driver assignment, full status lifecycle (confirmed → preparing → ready → picked_up), proof-of-delivery upload, order=delivered with actual_delivery_time set, and driver wallet/earnings credited. Backend pytest 20/20 PASS. Fixed 2 in-scope backend bugs found en route (Mongo ObjectId leak on /api/restaurants/{id}/menu and datetime-not-JSON-serializable in /api/orders/create WebSocket broadcast).",
+  "checklist": {
+    "restaurant_onboarding": "GREEN — POST /api/restaurants 200, status=active",
+    "menu_visible": "GREEN — POST /api/menu-items + GET /api/restaurants/{id}/menu returns items (after _id fix)",
+    "driver_onboarding": "GREEN — POST /api/drivers/documents + POST /api/drivers, status=pending",
+    "driver_pending_gated": "GREEN — PUT /api/drivers/status?status=online returns 403 while pending",
+    "admin_approval": "GREEN — POST /api/admin/drivers/{id}/approve → /auth/me user_type=driver, can go online",
+    "order_placement": "GREEN — POST /api/orders/create 200 (after datetime fix)",
+    "stripe_test_payment_captured": "GREEN — Playwright filled card 4242 4242 4242 4242 12/34 CVC 123 on https://checkout.stripe.com → status.payment_status=paid, status=complete, redirected to /payment/success; order.payment_status=paid",
+    "driver_assignment": "GREEN — driver_id assigned (auto-assign on creation works; deterministic per-test reassignment used)",
+    "delivery_completion": "GREEN — PUT status lifecycle 200 each step; POST /orders/{id}/proof 200; order.status=delivered, actual_delivery_time set",
+    "payout_earnings_record": "GREEN — driver wallet endpoint returns 200; _credit_driver_on_delivery credits driver_wallets on transition to delivered"
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/orders/{id} GET response", "issue": "Order model does not expose paid_at field (set by checkout/status path but stripped on serialization). Cosmetic — payment_status='paid' is exposed and correct."},
+      {"endpoint": "/api/orders/create", "issue": "Auto-assigns to ANY online driver (db.drivers.find_one({status:'online'})) without geo/availability filtering — can pick a stale driver from prior runs. Use /find-driver + /accept-driver flow for production, or filter by current_location near pickup."},
+      {"endpoint": "/api/admin/users, /api/admin/orders, /api/drivers/me", "issue": "Pre-existing 500 (Mongo _id ObjectId) — carried over from iter9/10/11, not in this iteration's scope."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "/payment/success page", "issue": "When user lands on /payment/success without a valid frontend session (e.g. via direct Stripe redirect in a fresh browser), the SPA bounces to /login instead of polling /api/payments/checkout/status with the session_id. Payment is still captured server-side; this only affects the UI confirmation experience.", "affected_selectors": ["/payment/success route guard"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_e2e_dryrun_iter12.py",
+    "/app/test_reports/pytest/pytest_iter12.xml"
+  ],
+  "action_items": [
+    "(Optional, polish) Add 'paid_at' to Order pydantic model so GET /orders/{id} surfaces it.",
+    "(Recommended) Improve auto-driver selection on POST /orders/create — currently picks first 'status:online' driver in DB regardless of location/availability; switch to _find_nearby_drivers/_score_driver_for_pickup or drop auto-assign and require explicit /find-driver + /accept-driver.",
+    "(Optional) Make /payment/success route handle un-authenticated polling so a direct Stripe redirect can still display a 'Payment received' confirmation."
+  ],
+  "critical_code_review_comments": [
+    "BUG FIXED: GET /api/restaurants/{id}/menu returned raw Mongo docs containing ObjectId _id → 500. Fixed with projection {_id: 0}.",
+    "BUG FIXED: POST /api/orders/create called json.dumps(order.dict()) for WebSocket broadcast — datetime fields blew up the response with 500 even though the order was inserted. Fixed by passing through prepare_for_mongo + default=str.",
+    "POST /payments/checkout/session correctly trusts ONLY the server-side order.total (no client-supplied amount); marks transaction 'initiated' and persists session_id.",
+    "GET /payments/checkout/status/{session_id} is idempotent — uses {payment_status: {$ne:'paid'}} guard before flipping order to paid. Verified working with real Stripe test charge.",
+    "admin_approve_driver atomically flips drivers.status='active' AND users.user_type='driver'.",
+    "_credit_driver_on_delivery credits both legacy driver_wallets and in-app wallet on order=delivered transition."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (1) added projection {_id:0} to get_restaurant_menu; (2) wrapped WebSocket order broadcasts in prepare_for_mongo+default=str inside create_new_order",
+    "/app/backend/tests/test_e2e_dryrun_iter12.py (new — 20 e2e tests, all pass)"
+  ],
+  "success_rate": {"backend": "100% (20/20 pytest)", "frontend": "100% (Stripe-hosted card form filled + submitted + redirected; payment captured)"},
+  "test_credentials": "Per-run fresh @gmail.com users (e2e_owner/drv/adm/cust_<ts>@gmail.com) with passwords Test1234! / Admin1234!. JWT in Authorization header.",
+  "seed_data_creation": "Per-test fresh restaurant, 2 menu items, 1 driver application+document, 1 order. Real Stripe test charge against checkout.stripe.com session cs_test_a1Yfeva1NT64gw...",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full chain restaurant→menu→driver→approve→order→pay(Stripe TEST 4242)→assign→deliver→payout verified end-to-end on PREVIEW. Two production-impacting bugs were fixed in server.py during this run (menu _id leak + order create datetime). Twilio SMS/WhatsApp, CariPay payouts, and Stripe Identity hosted flow remain MOCKED per request — not retested. /payment/success route bounce-to-login is a small UI polish item; the payment itself is captured.",
+  "rca_of_the_issue": "1) Menu 500: get_restaurant_menu projected raw Mongo docs with ObjectId _id; FastAPI's default JSON encoder cannot serialize ObjectId. Mitigation: project {_id:0}. 2) Order create 500: create_new_order broadcast `json.dumps(order.dict())` directly on Pydantic order containing tz-aware datetimes; json.dumps cannot serialize datetime. Mitigation: prepare_for_mongo + default=str."
+}

@@ -11,7 +11,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const authHeaders = () => {
-  const token = localStorage.getItem('access_token');
+  const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
@@ -130,6 +130,22 @@ export const CheckoutPage = () => {
       window.location.href = res.data.url;
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to start checkout');
+      setCreating(false);
+    }
+  };
+
+  const handleWiPay = async () => {
+    setCreating(true);
+    setError('');
+    try {
+      const res = await axios.post(
+        `${API}/payments/wipay/checkout/session`,
+        { order_id: orderId, origin_url: window.location.origin },
+        { headers: authHeaders() }
+      );
+      window.location.href = res.data.url;
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to start WiPay checkout');
       setCreating(false);
     }
   };
@@ -400,6 +416,19 @@ export const CheckoutPage = () => {
               )}
             </Button>
 
+            {!isPaid && (
+              <Button
+                onClick={handleWiPay}
+                disabled={creating || tipSaving}
+                variant="outline"
+                className="w-full border-teal-500/50 text-teal-300 hover:bg-matte-800/40"
+                data-testid="checkout-pay-wipay-btn"
+              >
+                <CreditCard className="h-4 w-4 mr-2" />
+                Pay with WiPay (Caribbean cards · Sandbox)
+              </Button>
+            )}
+
             {!isPaid && walletBalance !== null && (
               <>
                 <Button
@@ -438,10 +467,33 @@ export const PaymentSuccess = () => {
   const [params] = useSearchParams();
   const sessionId = params.get('session_id');
   const orderId = params.get('order_id');
+  const via = params.get('via');
   const [status, setStatus] = useState('checking'); // checking | paid | pending | failed
   const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
+    // PayPal: on return, capture the approved order, then show result.
+    if (via === 'paypal') {
+      let cancelled = false;
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const ppOrderId = params.get('token'); // PayPal appends ?token={orderID}
+      if (!ppOrderId) { setStatus('failed'); return; }
+      axios.post(`${API}/payments/paypal/capture-order`, { order_id: ppOrderId }, { headers })
+        .then((r) => { if (!cancelled) setStatus(r.data?.status === 'COMPLETED' ? 'paid' : 'failed'); })
+        .catch(() => { if (!cancelled) setStatus('failed'); });
+      return () => { cancelled = true; };
+    }
+    // WiPay / wallet: callback already settled the order server-side. Confirm by reading the order.
+    if (via === 'wipay' || via === 'wallet') {
+      let cancelled = false;
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      axios.get(`${API}/orders/${orderId}`, { headers })
+        .then((r) => { if (!cancelled) setStatus(r.data?.payment_status === 'paid' ? 'paid' : 'failed'); })
+        .catch(() => { if (!cancelled) setStatus(params.get('status') === 'paid' ? 'paid' : 'failed'); });
+      return () => { cancelled = true; };
+    }
     if (!sessionId) {
       setStatus('failed');
       return;
@@ -476,8 +528,7 @@ export const PaymentSuccess = () => {
     };
     poll(0);
     return () => { cancelled = true; };
-  }, [sessionId]);
-
+  }, [sessionId, via, orderId]);
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-teal-50 to-blue-50">
       <Card className="max-w-md w-full">

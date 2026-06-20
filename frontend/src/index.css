@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&family=Figtree:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -19,58 +19,58 @@ code {
 
 @layer base {
   :root {
-    /* Light mode — kept available but app defaults to dark */
-    --background: 0 0% 98%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 45 65% 52%;
-    --primary-foreground: 240 10% 3.9%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 183 100% 50%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 45 65% 52%;
-    --chart-1: 45 65% 52%;
-    --chart-2: 183 100% 50%;
-    --chart-3: 0 0% 50%;
-    --chart-4: 30 80% 55%;
-    --chart-5: 340 75% 55%;
+    /* Midnight Tropical — deep navy/charcoal base, sunset-orange primary, teal accent */
+    --background: 207 56% 9%;
+    --foreground: 0 0% 100%;
+    --card: 205 52% 13%;
+    --card-foreground: 0 0% 100%;
+    --popover: 205 52% 13%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 25 95% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 205 40% 18%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 205 40% 18%;
+    --muted-foreground: 210 16% 72%;
+    --accent: 172 66% 50%;
+    --accent-foreground: 207 56% 9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 205 35% 22%;
+    --input: 205 35% 22%;
+    --ring: 25 95% 53%;
+    --chart-1: 25 95% 53%;
+    --chart-2: 172 66% 50%;
+    --chart-3: 210 16% 60%;
+    --chart-4: 32 90% 60%;
+    --chart-5: 188 80% 45%;
     --radius: 0.5rem;
   }
   .dark {
-    --background: 0 0% 5%;
+    --background: 207 56% 9%;
     --foreground: 0 0% 100%;
-    --card: 0 0% 8%;
+    --card: 205 52% 13%;
     --card-foreground: 0 0% 100%;
-    --popover: 0 0% 8%;
+    --popover: 205 52% 13%;
     --popover-foreground: 0 0% 100%;
-    --primary: 45 65% 52%;
-    --primary-foreground: 0 0% 5%;
-    --secondary: 0 0% 12%;
+    --primary: 25 95% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 205 40% 18%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 12%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 183 100% 50%;
-    --accent-foreground: 0 0% 5%;
-    --destructive: 0 62.8% 30.6%;
+    --muted: 205 40% 18%;
+    --muted-foreground: 210 16% 72%;
+    --accent: 172 66% 50%;
+    --accent-foreground: 207 56% 9%;
+    --destructive: 0 62.8% 40%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 45 65% 52%;
-    --chart-1: 45 65% 52%;
-    --chart-2: 183 100% 50%;
-    --chart-3: 45 65% 32%;
-    --chart-4: 183 100% 30%;
-    --chart-5: 0 0% 80%;
+    --border: 205 35% 22%;
+    --input: 205 35% 22%;
+    --ring: 25 95% 53%;
+    --chart-1: 25 95% 53%;
+    --chart-2: 172 66% 50%;
+    --chart-3: 210 16% 60%;
+    --chart-4: 32 90% 60%;
+    --chart-5: 188 80% 45%;
   }
 }
 
@@ -87,31 +87,31 @@ code {
   }
 }
 
-/* Custom selection color — gold */
+/* Custom selection color — sunset orange */
 ::selection {
-  background: rgba(212, 175, 55, 0.35);
+  background: rgba(249, 115, 22, 0.35);
   color: #ffffff;
 }
 
-/* Gold text utility (since the brand palette is dominant in primary CTAs) */
+/* Sunset-orange text utility (brand accent on primary CTAs) */
 .text-gold {
-  color: #D4AF37;
+  color: #F97316;
 }
 .text-gold-light {
-  color: #E8C872;
+  color: #FDBA74;
 }
 
-/* Gold gradient text used for hero headings */
+/* Sunset-orange gradient text used for hero headings */
 .text-gold-gradient {
-  background: linear-gradient(135deg, #E8C872 0%, #D4AF37 50%, #AA7C11 100%);
+  background: linear-gradient(135deg, #FDBA74 0%, #F97316 50%, #EA580C 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   color: transparent;
 }
 
-/* Premium scrollbar in dark mode */
+/* Premium scrollbar (midnight navy) */
 .dark ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dark ::-webkit-scrollbar-track { background: #0C0C0C; }
-.dark ::-webkit-scrollbar-thumb { background: #1E1E1E; border-radius: 5px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: #D4AF37; }
+.dark ::-webkit-scrollbar-track { background: #0A1824; }
+.dark ::-webkit-scrollbar-thumb { background: #1C3A52; border-radius: 5px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #F97316; }

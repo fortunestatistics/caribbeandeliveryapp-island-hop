@@ -23,11 +23,15 @@ import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
 const DriverOnboarding = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
+  const [uploadedDocs, setUploadedDocs] = useState({}); // key -> { document_id, filename }
+  const [uploadingDocs, setUploadingDocs] = useState({}); // key -> true while uploading
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     // Personal Information
     fullName: '',
@@ -119,10 +123,15 @@ const DriverOnboarding = () => {
   ];
 
   const getMissingDocuments = () =>
-    requiredDocuments.filter(doc => !formData[doc.key]).map(doc => doc.label);
+    requiredDocuments.filter(doc => !uploadedDocs[doc.key]).map(doc => doc.label);
+
+  const isUploading = () => Object.values(uploadingDocs).some(Boolean);
 
   const validateStep = (step) => {
     if (step === 3) {
+      if (isUploading()) {
+        return 'Please wait for all documents to finish uploading.';
+      }
       const missing = getMissingDocuments();
       if (missing.length > 0) {
         return `Please upload the following required document(s): ${missing.join(', ')}.`;
@@ -152,11 +161,16 @@ const DriverOnboarding = () => {
       setCurrentStep(3);
       return;
     }
+    setSubmitting(true);
     try {
+      const documents = Object.fromEntries(
+        Object.entries(uploadedDocs).map(([key, val]) => [key, val.document_id])
+      );
       const driverData = {
-        license_number: formData.driversLicense?.name || 'DL-' + Date.now(),
+        license_number: uploadedDocs.driversLicense?.filename || 'DL-' + Date.now(),
         vehicle_type: formData.vehicleType,
         vehicle_plate: formData.licensePlate,
+        documents,
         personal_info: {
           full_name: formData.fullName,
           email: formData.email,
@@ -182,33 +196,68 @@ const DriverOnboarding = () => {
         }
       };
 
-      await axios.post(`${API}/drivers`, driverData, {
-        withCredentials: true
-      });
+      await axios.post(`${API}/drivers`, driverData, { headers: authHeaders() });
 
-      toast({
-        title: "Driver Application Submitted!",
-        description: "We'll review your application and get back to you within 24-48 hours.",
-      });
-
-      navigate('/dashboard');
+      // Kick off automated identity verification (Stripe Identity).
+      try {
+        const idRes = await axios.post(`${API}/drivers/identity/start`, {}, { headers: authHeaders() });
+        toast({
+          title: "Application Submitted — Verify Your Identity",
+          description: "You'll now complete a quick ID + selfie check to get approved automatically.",
+        });
+        window.location.href = idRes.data.url;
+        return;
+      } catch (idErr) {
+        console.error('Identity start failed:', idErr);
+        toast({
+          title: "Driver Application Submitted!",
+          description: "Your documents are with our team for review. We'll get back to you within 24-48 hours.",
+        });
+        navigate('/dashboard');
+      }
     } catch (error) {
       console.error('Error submitting driver application:', error);
       toast({
         title: "Error",
-        description: "Failed to submit application. Please try again.",
+        description: error.response?.data?.detail || "Failed to submit application. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleFileUpload = (fileType, event) => {
+  const handleFileUpload = async (fileType, event) => {
     const file = event.target.files[0];
-    if (file) {
-      setFormData(prev => ({
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum file size is 10 MB.', variant: 'destructive' });
+      return;
+    }
+    setFormData(prev => ({ ...prev, [fileType]: file }));
+    setUploadingDocs(prev => ({ ...prev, [fileType]: true }));
+    try {
+      const fd = new FormData();
+      fd.append('doc_type', fileType);
+      fd.append('file', file);
+      const res = await axios.post(`${API}/drivers/documents`, fd, {
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+      });
+      setUploadedDocs(prev => ({
         ...prev,
-        [fileType]: file
+        [fileType]: { document_id: res.data.document_id, filename: res.data.filename },
       }));
+      toast({ title: 'Document uploaded', description: `${file.name} stored securely.` });
+    } catch (error) {
+      console.error('Document upload failed:', error);
+      setFormData(prev => ({ ...prev, [fileType]: null }));
+      toast({
+        title: 'Upload failed',
+        description: error.response?.data?.detail || 'Could not upload document. Please sign in and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingDocs(prev => ({ ...prev, [fileType]: false }));
     }
   };
 
@@ -505,7 +554,7 @@ const DriverOnboarding = () => {
                         </p>
                         <input
                           type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
+                          accept=".pdf,.jpg,.jpeg,.png,.webp"
                           className="hidden"
                           id={`${doc.key}Upload`}
                           onChange={(e) => handleFileUpload(doc.key, e)}
@@ -514,13 +563,19 @@ const DriverOnboarding = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          disabled={uploadingDocs[doc.key]}
                           onClick={() => document.getElementById(`${doc.key}Upload`).click()}
                         >
-                          Choose File
+                          {uploadingDocs[doc.key] ? 'Uploading…' : (uploadedDocs[doc.key] ? 'Replace File' : 'Choose File')}
                         </Button>
-                        {formData[doc.key] && (
-                          <Badge variant="secondary" className="mt-2 block">
-                            ✓ Uploaded
+                        {uploadingDocs[doc.key] && (
+                          <Badge variant="secondary" className="mt-2 block" data-testid={`${doc.testId}-uploading`}>
+                            Uploading…
+                          </Badge>
+                        )}
+                        {!uploadingDocs[doc.key] && uploadedDocs[doc.key] && (
+                          <Badge variant="secondary" className="mt-2 block bg-green-600/20 text-green-400" data-testid={`${doc.testId}-uploaded`}>
+                            ✓ Securely uploaded
                           </Badge>
                         )}
                       </div>
@@ -665,11 +720,11 @@ const DriverOnboarding = () => {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
-                      <div>Driver&apos;s License: {formData.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Vehicle Registration: {formData.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Insurance: {formData.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Certificate of Character: {formData.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Profile Photo: {formData.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Driver&apos;s License: {uploadedDocs.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Vehicle Registration: {uploadedDocs.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Insurance: {uploadedDocs.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Certificate of Character: {uploadedDocs.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Profile Photo: {uploadedDocs.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
                     </CardContent>
                   </Card>
 
@@ -713,11 +768,11 @@ const DriverOnboarding = () => {
               ) : (
                 <Button 
                   onClick={handleSubmit}
-                  disabled={getMissingDocuments().length > 0}
+                  disabled={getMissingDocuments().length > 0 || submitting}
                   className="bg-gradient-to-r from-green-500 to-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="submit-application-btn"
                 >
-                  Submit Application
+                  {submitting ? 'Submitting…' : 'Submit Application'}
                 </Button>
               )}
             </div>

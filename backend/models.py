@@ -38,6 +38,27 @@ class Token(BaseModel):
     user: Dict[str, Any]
 
 
+class TeamPromote(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class TeamInvite(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class InviteAccept(BaseModel):
+    token: str
+    name: str
+    password: str
+
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class PasswordReset(BaseModel):
     email: EmailStr
 
@@ -235,6 +256,11 @@ class Driver(BaseModel):
     current_location: Optional[Dict[str, float]] = None
     wallet_balance: float = 0.0
     total_earnings: float = 0.0
+    # Onboarding / KYC fields (set when a driver applies; reviewed by an admin)
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+    documents: Optional[Dict[str, str]] = None  # doc_type -> driver_documents.id
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -301,6 +327,9 @@ class Rating(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
     response_from_vendor: Optional[str] = None
@@ -316,6 +345,9 @@ class RatingCreate(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
 

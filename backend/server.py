@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -18,11 +18,15 @@ from emergentintegrations.payments.stripe.checkout import StripeCheckout, Checko
 import json
 import re
 from passlib.context import CryptContext
+import secrets
 from jose import JWTError, jwt
 import stripe
 import push_client
 import graph_mail
 import mercury_client
+import storage_client
+import wipay_client
+import paypal_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -81,7 +85,14 @@ manager = ConnectionManager()
 
 # Authentication Helper Functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    # Defensive: OAuth-only accounts (Google/Microsoft) have no password hash.
+    # passlib raises on empty/invalid hashes, so guard before verifying.
+    if not hashed_password:
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -115,6 +126,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 from models import (
     SUPPORTED_WALLET_CURRENCIES,
     UserRegister, UserLogin, Token, PasswordReset, PasswordResetConfirm,
+    TeamPromote, TeamInvite, InviteAccept, ChangePassword,
     Order, OrderCreate,
     SubscriptionPlan, UserSubscription, SubscriptionCreate,
     StatusCheck, StatusCheckCreate,
@@ -514,8 +526,9 @@ async def register(user_data: UserRegister):
         phone=phone_clean,
         phone_verified=phone_verified,
         address={"street": user_data.address} if user_data.address else None,
-        user_type=user_data.user_type,
-    )
+        user_type="customer",  # SECURITY: public sign-up can only ever create a customer.
+    )                          # Privileged roles (admin/agent) are granted by an admin;
+                               # restaurant/driver are set via their own onboarding/approval.
     await _apply_referral_on_register(user, user_data.referral_code)
 
     # Persist user with hashed password
@@ -539,6 +552,15 @@ async def login(credentials: UserLogin):
     user_doc = await db.users.find_one({"email": credentials.email})
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # OAuth-only accounts (Google/Microsoft) have no password — guide the user.
+    if not user_doc.get('hashed_password'):
+        provider = (user_doc.get('auth_provider') or 'google').lower()
+        provider_label = 'Microsoft' if provider == 'microsoft' else 'Google'
+        raise HTTPException(
+            status_code=401,
+            detail=f"This account uses {provider_label} sign-in. Please use the Continue with {provider_label} button.",
+        )
     
     # Verify password
     if not verify_password(credentials.password, user_doc.get('hashed_password', '')):
@@ -559,6 +581,31 @@ async def login(credentials: UserLogin):
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user"""
     return current_user
+
+
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    picture: Optional[str] = None  # base64 data URL or external URL
+    address: Optional[Dict[str, str]] = None
+
+
+@api_router.put("/users/me", response_model=User)
+async def update_my_profile(
+    payload: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """Update the current user's profile (name, phone, picture, address)."""
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if not update:
+        return current_user
+    # Guard against oversized base64 images (~3MB base64 ≈ ~2.2MB binary)
+    if update.get("picture") and len(update["picture"]) > 3_000_000:
+        raise HTTPException(status_code=413, detail="Profile picture too large (max ~2MB)")
+    await db.users.update_one({"id": current_user.id}, {"$set": update})
+    user_doc = await db.users.find_one({"id": current_user.id}, {"_id": 0})
+    return User(**user_doc)
+
 
 
 # Emergent-managed Google OAuth: we use it only to obtain the verified Google
@@ -617,6 +664,130 @@ async def google_social_auth(payload: SocialAuthRequest):
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
+
+
+# Microsoft (Azure AD / Entra ID) social login. Reuses the existing M365 app
+# registration. We run an OIDC authorization-code flow: the frontend redirects
+# the browser to Microsoft, Microsoft returns a `code` to a frontend callback
+# route, and the frontend posts that code here. We exchange it server-side with
+# the client secret, verify the ID token, then mint OUR existing JWT.
+MS_TENANT_ID = os.environ.get("M365_TENANT_ID")
+MS_CLIENT_ID = os.environ.get("M365_CLIENT_ID")
+MS_CLIENT_SECRET = os.environ.get("M365_CLIENT_SECRET")
+
+
+def _ms_configured() -> bool:
+    """True only when real Azure credentials are present (preview uses placeholders)."""
+    placeholder = "logistics-island"
+    return bool(
+        MS_TENANT_ID and MS_CLIENT_ID and MS_CLIENT_SECRET
+        and MS_TENANT_ID != placeholder and MS_CLIENT_ID != placeholder
+    )
+
+
+class MicrosoftAuthRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+
+async def _verify_ms_id_token(id_token: str) -> dict:
+    """Verify a Microsoft v2.0 ID token signature, issuer and audience via JWKS."""
+    jwks_url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/discovery/v2.0/keys"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            jwks = (await client.get(jwks_url)).json()
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not fetch Microsoft signing keys")
+    try:
+        header = jwt.get_unverified_header(id_token)
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid Microsoft identity token")
+    key = next((k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid")), None)
+    if not key:
+        raise HTTPException(status_code=400, detail="Unable to verify Microsoft identity token")
+    issuer = f"https://login.microsoftonline.com/{MS_TENANT_ID}/v2.0"
+    try:
+        return jwt.decode(
+            id_token, key, algorithms=["RS256"],
+            audience=MS_CLIENT_ID, issuer=issuer,
+        )
+    except JWTError as e:
+        logging.warning(f"Microsoft id_token validation failed: {e}")
+        raise HTTPException(status_code=401, detail="Microsoft sign-in verification failed")
+
+
+@api_router.get("/auth/social/microsoft/login-url")
+async def microsoft_login_url(redirect_uri: str, state: str):
+    """Build the Microsoft authorization URL for the frontend to redirect to."""
+    if not _ms_configured():
+        raise HTTPException(status_code=503, detail="Microsoft sign-in is not configured in this environment")
+    from urllib.parse import urlencode
+    params = {
+        "client_id": MS_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "response_mode": "query",
+        "scope": "openid profile email",
+        "state": state,
+        "prompt": "select_account",
+    }
+    url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/authorize?{urlencode(params)}"
+    return {"url": url}
+
+
+@api_router.post("/auth/social/microsoft", response_model=Token)
+async def microsoft_social_auth(payload: MicrosoftAuthRequest):
+    """Exchange a Microsoft authorization code for our app JWT.
+
+    Creates the user's profile automatically on first sign-in (no password),
+    and links to the existing account by email on subsequent sign-ins.
+    """
+    if not _ms_configured():
+        raise HTTPException(status_code=503, detail="Microsoft sign-in is not configured in this environment")
+    token_url = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token"
+    data = {
+        "client_id": MS_CLIENT_ID,
+        "client_secret": MS_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": payload.code,
+        "redirect_uri": payload.redirect_uri,
+        "scope": "openid profile email",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(token_url, data=data)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Could not reach Microsoft sign-in service")
+    if resp.status_code != 200:
+        logging.warning(f"Microsoft token exchange failed: status={resp.status_code} body={resp.text[:300]}")
+        raise HTTPException(status_code=401, detail="Microsoft sign-in failed or expired. Please try again.")
+
+    id_token = resp.json().get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=400, detail="Microsoft did not return an identity token")
+
+    claims = await _verify_ms_id_token(id_token)
+    email = (claims.get("email") or claims.get("preferred_username") or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Microsoft did not return an email address")
+    name = claims.get("name") or email.split("@")[0]
+
+    user_doc = await db.users.find_one({"email": email})
+    if user_doc:
+        user = User(**user_doc)
+    else:
+        user = User(email=email, name=name, user_type="customer")
+        user_dict = prepare_for_mongo(user.dict())
+        user_dict["auth_provider"] = "microsoft"
+        await db.users.insert_one(user_dict)
+        try:
+            await _persist_pending_referral(user)
+        except Exception as e:
+            logging.warning(f"Referral persist failed for social signup {email}: {e}")
+
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
+
 
 
 @api_router.get("/auth/me/modes")
@@ -943,7 +1114,7 @@ async def get_restaurant_menu(restaurant_id: str):
     menu_items = await db.menu_items.find({
         "restaurant_id": restaurant_id,
         "available": True
-    }).limit(500).to_list(length=500)
+    }, {"_id": 0}).limit(500).to_list(length=500)
     return menu_items
 
 @api_router.put("/menu-items/{item_id}", response_model=MenuItem)
@@ -1890,17 +2061,17 @@ async def get_user_orders(request: Request):
     current_user = await get_current_user_from_request(request)
     
     if current_user.user_type == "customer":
-        orders = await db.orders.find({"customer_id": current_user.id}).to_list(length=None)
+        orders = await db.orders.find({"customer_id": current_user.id}).sort("created_at", -1).limit(200).to_list(length=200)
     elif current_user.user_type == "restaurant":
         restaurant = await db.restaurants.find_one({"user_id": current_user.id})
         if restaurant:
-            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).to_list(length=None)
+            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
         else:
             orders = []
     elif current_user.user_type == "driver":
         driver = await db.drivers.find_one({"user_id": current_user.id})
         if driver:
-            orders = await db.orders.find({"driver_id": driver["id"]}).to_list(length=None)
+            orders = await db.orders.find({"driver_id": driver["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
         else:
             orders = []
     else:
@@ -1971,6 +2142,74 @@ async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
     return {"driver_payout_status": "accumulated"}
 
 
+async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
+                     event: Optional[str] = None, order_id: Optional[str] = None,
+                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None):
+    """Send a WhatsApp-first notification and log it to whatsapp_messages. Never raises.
+
+    Uses the unified WhatsApp-first engine: on 63005 (no 24h session) it logs and skips,
+    on other errors it falls back to SMS. Returns the send result (or None if no phone)."""
+    norm = _normalize_phone(phone or "")
+    if not norm:
+        return None
+    try:
+        result = twilio_client.send_notification(
+            norm, body, channel="whatsapp",
+            content_sid=content_sid, content_variables=content_variables,
+        )
+        await db.whatsapp_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "order_id": order_id,
+            "phone": norm,
+            "direction": "outbound",
+            "body": body,
+            "status": result.get("status", "failed" if not result.get("success") else "queued"),
+            "twilio_sid": result.get("sid"),
+            "automated": True,
+            "event": event,
+            "channel_used": result.get("channel_used", "whatsapp"),
+            "skipped": result.get("skipped", False),
+            "mock": result.get("mock", False),
+            "error": result.get("error"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        if not result.get("success") and not result.get("skipped"):
+            logging.warning(f"WA notify ({event}) to {norm} failed: {result.get('error')} ({result.get('error_code')})")
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"WA notify ({event}) crashed: {exc}")
+        return None
+
+
+# Map order status → WhatsApp message + optional approved-template env key.
+# Template SIDs are required to message customers outside WhatsApp's 24h window;
+# if unset, we send free-form (delivers only within the 24h session window).
+ORDER_WHATSAPP_EVENTS = {
+    "confirmed": ("✅ Your IslandHop order #{short} is confirmed and being prepared.", "WHATSAPP_TEMPLATE_CONFIRMED_SID"),
+    "picked_up": ("🛵 Your IslandHop order #{short} has been picked up and is on the way!", "WHATSAPP_TEMPLATE_PICKED_UP_SID"),
+    "out_for_delivery": ("🛵 Your IslandHop order #{short} is out for delivery!", "WHATSAPP_TEMPLATE_PICKED_UP_SID"),
+    "delivered": ("🎉 Your IslandHop order #{short} has been delivered. Enjoy! 🌴", "WHATSAPP_TEMPLATE_DELIVERED_SID"),
+}
+
+
+async def _notify_order_whatsapp(order: dict, status: str):
+    """Best-effort WhatsApp order-status update to the customer. Never raises."""
+    cfg = ORDER_WHATSAPP_EVENTS.get(status)
+    if not cfg:
+        return
+    msg_template, template_env_key = cfg
+    short = str(order.get("id", ""))[:8]
+    body = msg_template.format(short=short)
+    content_sid = os.environ.get(template_env_key) or None
+    await _wa_notify(
+        order.get("customer_phone") or "", body,
+        user_id=order.get("customer_id"), event=status, order_id=order.get("id"),
+        content_sid=content_sid,
+        content_variables={"1": short} if content_sid else None,
+    )
+
+
 async def update_order_status(order_id: str, status: str, request: Request):
     """Update order status — broken into small steps: auth → timestamps → side-effects → notify."""
     current_user = await get_current_user_from_request(request)
@@ -2013,6 +2252,9 @@ async def update_order_status(order_id: str, status: str, request: Request):
         f"/order/{order_id}",
     )
 
+    # Best-effort WhatsApp update on key milestones (fire-and-forget).
+    asyncio.create_task(_notify_order_whatsapp(order, status))
+
     return {"message": f"Order status updated to {status}"}
 
 # Enhanced Order Management Routes
@@ -2050,8 +2292,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         await manager.send_personal_message(
             json.dumps({
                 "type": "new_order",
-                "order": order.dict()
-            }),
+                "order": prepare_for_mongo(order.dict())
+            }, default=str),
             order.restaurant_id
         )
     
@@ -2060,8 +2302,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         await manager.send_personal_message(
             json.dumps({
                 "type": "new_assignment",
-                "order": order.dict()
-            }),
+                "order": prepare_for_mongo(order.dict())
+            }, default=str),
             order.driver_id
         )
     
@@ -2533,26 +2775,321 @@ async def confirm_payment(
         raise HTTPException(status_code=400, detail=str(e))
 
 # Driver Management Routes
-@api_router.post("/drivers", response_model=Driver)
-async def create_driver(driver: Driver, request: Request):
-    """Create driver profile"""
+ALLOWED_DOC_TYPES = {
+    "driversLicense", "vehicleRegistration", "insurance",
+    "certificateOfCharacter", "profilePhoto",
+}
+MAX_DOC_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@api_router.post("/drivers/documents")
+async def upload_driver_document(
+    request: Request,
+    doc_type: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Securely upload one driver identity document to private object storage.
+
+    Returns a document_id that the applicant attaches to their driver application.
+    """
     current_user = await get_current_user_from_request(request)
-    driver.user_id = current_user.id
-    
+    if doc_type not in ALLOWED_DOC_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid doc_type. Allowed: {sorted(ALLOWED_DOC_TYPES)}")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_DOC_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    ext = (file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "bin")
+    content_type = file.content_type or storage_client.MIME_TYPES.get(ext, "application/octet-stream")
+    if ext not in storage_client.MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Use PDF, JPG, PNG, or WEBP.")
+
+    document_id = str(uuid.uuid4())
+    storage_path = f"{storage_client.APP_NAME}/driver-docs/{current_user.id}/{document_id}.{ext}"
+    try:
+        result = await asyncio.to_thread(storage_client.put_object, storage_path, data, content_type)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Driver document upload failed for {current_user.id}/{doc_type}: {e}")
+        raise HTTPException(status_code=502, detail="Document storage failed. Please try again.")
+
+    await db.driver_documents.insert_one({
+        "id": document_id,
+        "user_id": current_user.id,
+        "doc_type": doc_type,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"document_id": document_id, "doc_type": doc_type, "filename": file.filename}
+
+
+@api_router.get("/drivers/documents/{document_id}/download")
+async def download_driver_document(document_id: str, request: Request, auth: Optional[str] = Query(None)):
+    """Stream a driver document. Accessible only to the owner or an admin.
+
+    Supports `?auth=<jwt>` so <img>/<iframe> tags (which can't send headers) work.
+    """
+    # Auth: header Bearer OR ?auth= query param (for img/iframe tags)
+    if auth and not request.headers.get("Authorization"):
+        request.scope.setdefault("headers", [])
+        request.scope["headers"].append((b"authorization", f"Bearer {auth}".encode()))
+    current_user = await get_current_user_from_request(request)
+
+    record = await db.driver_documents.find_one({"id": document_id, "is_deleted": False}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if current_user.user_type != "admin" and record["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this document")
+
+    try:
+        data, content_type = await asyncio.to_thread(storage_client.get_object, record["storage_path"])
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Driver document fetch failed for {document_id}: {e}")
+        raise HTTPException(status_code=502, detail="Could not retrieve document")
+    return Response(content=data, media_type=record.get("content_type", content_type))
+
+
+class DriverApplicationCreate(BaseModel):
+    license_number: str
+    vehicle_type: str
+    vehicle_plate: str
+    documents: Optional[Dict[str, str]] = None
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
+@api_router.post("/drivers", response_model=Driver)
+async def create_driver(application: DriverApplicationCreate, request: Request):
+    """Create a driver application. New applicants are 'pending' until an admin
+    approves them — they cannot go online or operate until then."""
+    current_user = await get_current_user_from_request(request)
+
+    # Prevent duplicate applications
+    existing = await db.drivers.find_one({"user_id": current_user.id})
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have a driver application on file.")
+
+    driver = Driver(
+        user_id=current_user.id,
+        license_number=application.license_number,
+        vehicle_type=application.vehicle_type,
+        vehicle_plate=application.vehicle_plate,
+        documents=application.documents,
+        personal_info=application.personal_info,
+        vehicle_info=application.vehicle_info,
+        banking_info=application.banking_info,
+        status="pending",  # awaiting admin identity review
+    )
+
     driver_dict = prepare_for_mongo(driver.dict())
     await db.drivers.insert_one(driver_dict)
-    
+
     # Create driver wallet
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
-    
-    # Update user type
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$set": {"user_type": "driver"}}
-    )
-    
+
+    # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
+    # account restricted (still a customer) while the application is reviewed.
     return driver
+
+
+# ---------------------------------------------------------------------------
+# Automated KYC — Stripe Identity (document + selfie/liveness)
+# Model: automated-first with admin fallback. A 'verified' result auto-approves
+# the driver; any other outcome leaves them pending for manual admin review.
+# ---------------------------------------------------------------------------
+async def _notify_driver_status(user_id: str, decision: str, notes: Optional[str] = None):
+    """Best-effort email to a driver applicant on a KYC/approval decision.
+    Sent via the M365 support mailbox. Never raises (won't block the flow)."""
+    try:
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+        if not user or not user.get("email"):
+            return
+        name = user.get("name") or "there"
+        templates = {
+            "approved": (
+                "You're approved to drive with IslandHop! 🎉",
+                f"<p>Hi {name},</p><p>Great news — your identity has been verified and your driver "
+                f"application is <strong>approved</strong>. You can now log in, go online, and start "
+                f"accepting trips.</p><p>Welcome to the IslandHop driver community!</p>",
+            ),
+            "rejected": (
+                "Update on your IslandHop driver application",
+                f"<p>Hi {name},</p><p>Thank you for applying to drive with IslandHop. After review, we're "
+                f"unable to approve your application at this time."
+                + (f"<br/><br/><strong>Reason:</strong> {notes}" if notes else "")
+                + "</p><p>If you believe this was a mistake or want to reapply, please reply to this email "
+                "or contact support.</p>",
+            ),
+            "review": (
+                "Your IslandHop verification needs a quick review",
+                f"<p>Hi {name},</p><p>We couldn't automatically verify your identity, so our team is now "
+                f"reviewing your application manually. No action is needed right now — we'll be in touch "
+                f"within 24–48 hours.</p>",
+            ),
+        }
+        subject, body = templates.get(decision, (None, None))
+        if not subject:
+            return
+        html = (
+            f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>{body}"
+            "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+        )
+        await graph_mail.send_mail(user["email"], subject, html)
+    except Exception as exc:  # noqa: BLE001 — notifications must never break the flow
+        logging.warning(f"Driver notification ({decision}) failed for {user_id}: {exc}")
+
+    # WhatsApp-first notification (Tracy's "WhatsApp-Only" policy).
+    try:
+        driver = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "phone": 1})
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "phone": 1, "name": 1})
+        phone = (driver or {}).get("phone") or (user or {}).get("phone")
+        name = (user or {}).get("name") or "there"
+        wa_bodies = {
+            "approved": (f"🎉 Hi {name}, you're APPROVED to drive with IslandHop! Log in to go online and start "
+                         f"accepting trips. Reply to this WhatsApp to stay connected for future updates. 🌴"),
+            "rejected": (f"Hi {name}, an update on your IslandHop driver application: we're unable to approve it at "
+                         f"this time." + (f" Reason: {notes}" if notes else "") + " Reply here if you'd like to reapply."),
+            "review": (f"Hi {name}, your IslandHop driver verification needs a quick manual review. No action needed — "
+                       f"we'll be in touch within 24–48 hours. Reply to this WhatsApp to stay connected."),
+        }
+        wa_body = wa_bodies.get(decision)
+        if phone and wa_body:
+            await _wa_notify(phone, wa_body, user_id=user_id, event=f"driver_{decision}")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Driver WhatsApp notification ({decision}) failed for {user_id}: {exc}")
+
+
+async def _apply_identity_result(driver: dict, session) -> str:
+    """Reconcile a Stripe Identity session onto a driver record. Auto-approves
+    the driver when the session is verified. Returns the session status."""
+    status = session.get("status") if isinstance(session, dict) else session.status
+    last_error = session.get("last_error") if isinstance(session, dict) else getattr(session, "last_error", None)
+    session_id = session.get("id") if isinstance(session, dict) else session.id
+
+    iv = {
+        "provider": "stripe_identity",
+        "session_id": session_id,
+        "status": status,
+        "last_error": last_error,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    update = {"identity_verification": iv}
+
+    if status == "verified":
+        iv["verified_at"] = datetime.now(timezone.utc).isoformat()
+        # Auto-approve: identity confirmed → activate driver & promote user.
+        newly_approved = driver.get("status") in ("pending", "pending_approval", None)
+        if newly_approved:
+            update["status"] = "active"
+            update["approval_method"] = "auto_kyc"
+        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+
+    await db.drivers.update_one({"id": driver["id"]}, {"$set": update})
+
+    if status == "verified":
+        await _notify_driver_status(driver["user_id"], "approved")
+    elif status in ("requires_input", "processing", "canceled"):
+        # Only notify once when it first lands in manual-review territory.
+        if (driver.get("identity_verification") or {}).get("status") != status:
+            await _notify_driver_status(driver["user_id"], "review")
+    return status
+
+
+@api_router.post("/drivers/identity/start")
+async def start_identity_verification(request: Request):
+    """Create a Stripe Identity verification session (document + selfie) for the
+    current driver applicant. Returns the hosted verification URL."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=400, detail="Submit your driver application before verifying your identity.")
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=503, detail="Identity verification is not configured")
+
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    try:
+        session = await asyncio.to_thread(
+            lambda: stripe.identity.VerificationSession.create(
+                type="document",
+                options={"document": {"require_matching_selfie": True}},
+                metadata={"driver_id": driver["id"], "user_id": current_user.id},
+                return_url=f"{frontend_url}/driver/verification/callback",
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Stripe Identity session create failed for {current_user.id}: {e}")
+        raise HTTPException(status_code=502, detail="Could not start identity verification")
+
+    await db.drivers.update_one(
+        {"id": driver["id"]},
+        {"$set": {"identity_verification": {
+            "provider": "stripe_identity",
+            "session_id": session.id,
+            "status": session.status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}},
+    )
+    return {"session_id": session.id, "url": session.url, "status": session.status}
+
+
+@api_router.get("/drivers/identity/status")
+async def get_identity_status(request: Request):
+    """Return the current driver's identity-verification status. Reconciles with
+    Stripe (so it works even if the webhook hasn't been configured)."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver application not found")
+
+    iv = driver.get("identity_verification") or {}
+    session_id = iv.get("session_id")
+    if session_id and iv.get("status") != "verified" and STRIPE_API_KEY:
+        try:
+            session = await asyncio.to_thread(stripe.identity.VerificationSession.retrieve, session_id)
+            await _apply_identity_result(driver, session)
+            iv = {**iv, "status": session.status}
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"Identity status retrieve failed for {session_id}: {e}")
+
+    return {
+        "status": iv.get("status", "unstarted"),
+        "session_id": session_id,
+        "verified": iv.get("status") == "verified",
+        "last_error": iv.get("last_error"),
+    }
+
+
+@api_router.post("/webhook/stripe/identity")
+async def stripe_identity_webhook(request: Request):
+    """Production real-time Identity webhook. Requires STRIPE_WEBHOOK_SECRET_IDENTITY.
+    The /drivers/identity/status endpoint reconciles regardless, so this is an
+    optimization for instant updates in production."""
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET_IDENTITY")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Identity webhook not configured")
+    payload = await request.body()
+    sig = request.headers.get("Stripe-Signature")
+    try:
+        event = stripe.Webhook.construct_event(payload=payload, sig_header=sig, secret=secret)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Webhook verification failed: {e}")
+
+    if event["type"] in ("identity.verification_session.verified", "identity.verification_session.requires_input"):
+        session_obj = event["data"]["object"]
+        driver_id = (session_obj.get("metadata") or {}).get("driver_id")
+        if driver_id:
+            driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+            if driver:
+                await _apply_identity_result(driver, session_obj)
+    return {"status": "ok"}
 
 @api_router.get("/drivers/leaderboard")
 async def get_driver_leaderboard(limit: int = 10):
@@ -2628,7 +3165,7 @@ async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/da
     """Fire a web push to every device the user has subscribed. Best-effort; never raises."""
     if not user_id:
         return
-    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(length=None)
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).limit(50).to_list(length=50)
     if not subs:
         return
     payload = {"title": title, "body": body, "url": url}
@@ -2649,6 +3186,198 @@ async def _require_admin(request: Request):
     return current_user
 
 
+# ---------------------------------------------------------------------------
+# Admin team management (owner-seeded super admin + promote/invite/revoke)
+# ---------------------------------------------------------------------------
+VALID_TEAM_ROLES = ("admin", "agent")
+
+
+async def _log_admin_action(actor_id, actor_email, action, target_email=None, role=None, details=None):
+    """Append an entry to the admin team audit log (best-effort)."""
+    try:
+        await db.admin_audit_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "action": action,
+            "actor_id": actor_id,
+            "actor_email": actor_email,
+            "target_email": target_email,
+            "role": role,
+            "details": details,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Audit log write failed ({action}): {exc}")
+
+
+async def seed_owner_admin():
+    """Idempotently create the owner/super-admin from env. Never demotes an
+    existing owner; updates the password only if the env value changed."""
+    email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not email or not password:
+        print("⚠️ ADMIN_EMAIL/ADMIN_PASSWORD not set — skipping owner admin seed")
+        return
+    existing = await db.users.find_one({"email": email})
+    if existing is None:
+        owner = User(email=email, name="IslandHop Owner", user_type="admin")
+        owner_dict = prepare_for_mongo(owner.dict())
+        owner_dict["hashed_password"] = get_password_hash(password)
+        owner_dict["is_owner"] = True
+        await db.users.insert_one(owner_dict)
+        print(f"✅ Owner admin seeded: {email}")
+    else:
+        updates = {"user_type": "admin", "is_owner": True}
+        if not verify_password(password, existing.get("hashed_password", "")):
+            updates["hashed_password"] = get_password_hash(password)
+        await db.users.update_one({"email": email}, {"$set": updates})
+        print(f"✅ Owner admin ensured: {email}")
+
+
+@api_router.get("/admin/team/audit")
+async def team_audit_log(request: Request):
+    """Recent admin team actions (promote/revoke/invite/accept)."""
+    await _require_admin(request)
+    entries = await db.admin_audit_log.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(length=100)
+    return {"entries": entries}
+
+
+@api_router.get("/admin/team")
+async def list_team(request: Request):
+    """List all admins and support agents."""
+    await _require_admin(request)
+    members = await db.users.find(
+        {"user_type": {"$in": list(VALID_TEAM_ROLES)}},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "user_type": 1, "is_owner": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(200).to_list(length=200)
+    return {"team": members}
+
+
+@api_router.post("/admin/team/promote")
+async def promote_team_member(payload: TeamPromote, request: Request):
+    """Grant admin/agent role to an EXISTING registered user."""
+    admin = await _require_admin(request)
+    if payload.role not in VALID_TEAM_ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {VALID_TEAM_ROLES}")
+    target = await db.users.find_one({"email": payload.email.strip().lower()})
+    if not target:
+        raise HTTPException(status_code=404, detail="No registered user with that email. Ask them to sign up first, or send an invite.")
+    await db.users.update_one({"id": target["id"]}, {"$set": {"user_type": payload.role}})
+    await _log_admin_action(admin.id, admin.email, "promote", payload.email, payload.role)
+    return {"success": True, "email": payload.email, "role": payload.role}
+
+
+@api_router.post("/admin/team/revoke")
+async def revoke_team_member(payload: Dict[str, str], request: Request):
+    """Revoke a team member's role (back to customer)."""
+    admin = await _require_admin(request)
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("is_owner"):
+        raise HTTPException(status_code=403, detail="The owner account cannot be revoked.")
+    if target["id"] == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot revoke your own access.")
+    await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
+    await _log_admin_action(admin.id, admin.email, "revoke", target.get("email"), "customer")
+    return {"success": True, "user_id": user_id}
+
+
+@api_router.post("/admin/team/invite")
+async def invite_team_member(payload: TeamInvite, request: Request):
+    """Create an invite for a new admin/agent and email them a link to set a password."""
+    admin = await _require_admin(request)
+    if payload.role not in VALID_TEAM_ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {VALID_TEAM_ROLES}")
+    email = payload.email.strip().lower()
+
+    token = secrets.token_urlsafe(32)
+    await db.admin_invites.insert_one({
+        "token": token,
+        "email": email,
+        "role": payload.role,
+        "invited_by": admin.id,
+        "used": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+    })
+
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    invite_link = f"{frontend_url}/admin/invite/{token}"
+    try:
+        html = (
+            f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>"
+            f"<p>You've been invited to join the IslandHop team as <strong>{payload.role}</strong>.</p>"
+            f"<p>Click below to set your password and activate your account (link expires in 7 days):</p>"
+            f"<p><a href='{invite_link}'>{invite_link}</a></p>"
+            f"<p style='margin-top:24px;color:#888;font-size:12px'>— IslandHop</p></div>"
+        )
+        await graph_mail.send_mail(email, "You're invited to the IslandHop team", html)
+        emailed = True
+    except Exception as exc:  # noqa: BLE001 — invite still works via the returned link
+        logging.warning(f"Team invite email failed for {email}: {exc}")
+        emailed = False
+    await _log_admin_action(admin.id, admin.email, "invite", email, payload.role)
+    return {"success": True, "email": email, "role": payload.role, "invite_link": invite_link, "emailed": emailed}
+
+
+@api_router.get("/auth/invite/{token}")
+async def get_invite(token: str):
+    """Validate an invite token (public) — returns the email + role if valid."""
+    invite = await db.admin_invites.find_one({"token": token, "used": False}, {"_id": 0})
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found or already used")
+    if invite["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="This invite has expired")
+    return {"email": invite["email"], "role": invite["role"]}
+
+
+@api_router.post("/auth/invite/accept", response_model=Token)
+async def accept_invite(payload: InviteAccept):
+    """Accept an invite (public): create or promote the account with the invited role."""
+    invite = await db.admin_invites.find_one({"token": payload.token, "used": False})
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found or already used")
+    if invite["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=410, detail="This invite has expired")
+
+    email = invite["email"]
+    role = invite["role"]
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        await db.users.update_one(
+            {"id": existing["id"]},
+            {"$set": {"user_type": role, "hashed_password": get_password_hash(payload.password)}},
+        )
+        user = User(**{k: v for k, v in existing.items() if k != "_id"})
+        user.user_type = role
+    else:
+        user = User(email=email, name=payload.name, user_type=role)
+        user_dict = prepare_for_mongo(user.dict())
+        user_dict["hashed_password"] = get_password_hash(payload.password)
+        await db.users.insert_one(user_dict)
+
+    await db.admin_invites.update_one({"token": payload.token}, {"$set": {"used": True}})
+    await _log_admin_action(user.id, user.email, "invite_accepted", email, role)
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
+
+
+@api_router.post("/auth/change-password")
+async def change_password(payload: ChangePassword, request: Request):
+    """Change the authenticated user's password."""
+    current_user = await get_current_user_from_request(request)
+    user_doc = await db.users.find_one({"id": current_user.id})
+    if not user_doc or not verify_password(payload.current_password, user_doc.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}})
+    return {"success": True}
+
+
 def _ensure_mailbox_allowed(mailbox: str):
     allowed = [m.lower() for m in graph_mail.get_support_mailboxes()]
     if mailbox.lower() not in allowed:
@@ -2657,31 +3386,50 @@ def _ensure_mailbox_allowed(mailbox: str):
 
 @api_router.get("/admin/mail/status")
 async def admin_mail_status(request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     return await asyncio.to_thread(graph_mail.graph_status)
 
 
 @api_router.get("/admin/mail/mailboxes")
 async def admin_mail_mailboxes(request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     return {"mailboxes": graph_mail.get_support_mailboxes()}
 
 
 @api_router.get("/admin/mail/mailboxes/{mailbox}/messages")
 async def admin_mail_list(mailbox: str, request: Request, top: int = 25, skiptoken: Optional[str] = None):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     try:
-        return await graph_mail.list_messages(mailbox, top=min(max(top, 1), 50), skip_token=skiptoken)
+        result = await graph_mail.list_messages(mailbox, top=min(max(top, 1), 50), skip_token=skiptoken)
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
     except graph_mail.GraphNotConfigured:
         raise HTTPException(status_code=503, detail="Microsoft 365 not configured")
+    # Enrich each message with its workflow ticket (auto-reply + assignment status)
+    msgs = result.get("value", [])
+    msg_ids = [m.get("id") for m in msgs if m.get("id")]
+    conv_ids = [m.get("conversationId") for m in msgs if m.get("conversationId")]
+    tickets = await db.mail_tickets.find(
+        {"mailbox": mailbox, "$or": [{"message_id": {"$in": msg_ids}}, {"conversation_id": {"$in": conv_ids}}]},
+        {"_id": 0},
+    ).limit(400).to_list(length=400)
+    by_msg = {t["message_id"]: t for t in tickets}
+    by_conv = {t["conversation_id"]: t for t in tickets if t.get("conversation_id")}
+    for m in msgs:
+        t = by_msg.get(m.get("id")) or by_conv.get(m.get("conversationId"))
+        m["ticket"] = {
+            "assigned_to": t.get("assigned_to"),
+            "assigned_to_name": t.get("assigned_to_name"),
+            "auto_replied": t.get("auto_replied", False),
+            "status": t.get("status", "new"),
+        } if t else None
+    return result
 
 
 @api_router.get("/admin/mail/mailboxes/{mailbox}/messages/{message_id}")
 async def admin_mail_get(mailbox: str, message_id: str, request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     try:
         return await graph_mail.get_message(mailbox, message_id)
@@ -2695,7 +3443,7 @@ class MailReplyRequest(BaseModel):
 
 @api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/reply")
 async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequest, request: Request):
-    await _require_admin(request)
+    await _require_admin_or_agent(request)
     _ensure_mailbox_allowed(mailbox)
     if not payload.body_html.strip():
         raise HTTPException(status_code=400, detail="Reply body cannot be empty")
@@ -2704,6 +3452,289 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
         return {"success": True}
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Support inbox workflow: instant auto-reply + assign-to-agent
+# ---------------------------------------------------------------------------
+DEFAULT_AUTOREPLY_SUBJECT = "Thanks for contacting IslandHop — we've received your message"
+DEFAULT_AUTOREPLY_HTML = (
+    "<p>Hi {name},</p>"
+    "<p>Thanks for reaching out to <strong>IslandHop</strong>! This is an automated confirmation "
+    "that we've received your message. A member of our support team will personally get back to you "
+    "shortly — typically within a few hours.</p>"
+    "<p>For anything urgent, you can also reach us through the Support section inside the IslandHop app.</p>"
+    "<p>Warm regards,<br/>The IslandHop Support Team 🌴</p>"
+)
+# Senders we must never auto-reply to (avoids loops with system/no-reply mailers)
+AUTOREPLY_SKIP_TOKENS = (
+    "no-reply", "noreply", "donotreply", "do-not-reply", "mailer-daemon",
+    "postmaster", "notifications@", "automated@", "bounce", "mailerdaemon",
+)
+
+
+async def _require_admin_or_agent(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin/agent access required")
+    return current_user
+
+
+async def _get_mail_autoreply_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "mail_autoreply"}, {"_id": 0})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if not doc:
+        doc = {
+            "id": "mail_autoreply",
+            "enabled": True,
+            "subject": DEFAULT_AUTOREPLY_SUBJECT,
+            "body_html": DEFAULT_AUTOREPLY_HTML,
+            # Watermark: only auto-reply to mail received AFTER this moment, so
+            # enabling the feature never blasts the existing mailbox backlog.
+            "autoreply_since": now_iso,
+            "updated_at": now_iso,
+        }
+        await db.app_settings.insert_one({**doc})
+        return doc
+    if not doc.get("autoreply_since"):
+        await db.app_settings.update_one({"id": "mail_autoreply"}, {"$set": {"autoreply_since": now_iso}})
+        doc["autoreply_since"] = now_iso
+    return doc
+
+
+def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _sender_should_get_autoreply(from_email: str) -> bool:
+    fe = (from_email or "").lower()
+    if not fe or "@" not in fe:
+        return False
+    if any(tok in fe for tok in AUTOREPLY_SKIP_TOKENS):
+        return False
+    if fe in [m.lower() for m in graph_mail.get_support_mailboxes()]:
+        return False  # never auto-reply to our own support mailboxes (loop guard)
+    return True
+
+
+async def _process_mailbox_autoreply(mailbox: str, settings: dict) -> int:
+    """Auto-reply once per conversation to new inbound client emails in a mailbox."""
+    sent = 0
+    since_dt = _parse_iso_dt(settings.get("autoreply_since"))
+    try:
+        data = await graph_mail.list_messages(mailbox, top=20)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"auto-reply list failed for {mailbox}: {exc}")
+        return 0
+    for msg in data.get("value", []):
+        try:
+            # Watermark: never auto-reply to mail that predates feature enablement
+            recv_dt = _parse_iso_dt(msg.get("receivedDateTime"))
+            if since_dt and recv_dt and recv_dt <= since_dt:
+                continue
+            frm = (msg.get("from") or {}).get("emailAddress", {})
+            from_email = frm.get("address", "")
+            from_name = frm.get("name") or (from_email.split("@")[0] if from_email else "there")
+            conv_id = msg.get("conversationId") or msg.get("id")
+            subject = (msg.get("subject") or "")
+            if subject.lower().startswith(("auto:", "automatic reply", "out of office", "undeliverable")):
+                continue
+            if not _sender_should_get_autoreply(from_email):
+                continue
+            existing = await db.mail_tickets.find_one({"mailbox": mailbox, "conversation_id": conv_id})
+            if existing and existing.get("auto_replied"):
+                continue  # idempotent — one auto-reply per conversation
+            html = (settings.get("body_html") or DEFAULT_AUTOREPLY_HTML).replace("{name}", from_name)
+            await graph_mail.reply_to_message(mailbox, msg["id"], html)
+            now = datetime.now(timezone.utc).isoformat()
+            if existing:
+                await db.mail_tickets.update_one(
+                    {"id": existing["id"]},
+                    {"$set": {"auto_replied": True, "auto_replied_at": now, "updated_at": now}},
+                )
+            else:
+                await db.mail_tickets.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "mailbox": mailbox,
+                    "message_id": msg["id"],
+                    "conversation_id": conv_id,
+                    "from_email": from_email,
+                    "from_name": from_name,
+                    "subject": subject,
+                    "received_at": msg.get("receivedDateTime"),
+                    "auto_replied": True,
+                    "auto_replied_at": now,
+                    "assigned_to": None,
+                    "assigned_to_name": None,
+                    "assigned_to_email": None,
+                    "status": "new",
+                    "created_at": now,
+                    "updated_at": now,
+                })
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"auto-reply send failed in {mailbox}: {exc}")
+            continue
+    return sent
+
+
+async def process_inbound_mail_autoreply() -> int:
+    """Poll all support mailboxes and instantly auto-reply to new client emails."""
+    settings = await _get_mail_autoreply_settings()
+    if not settings.get("enabled", True):
+        return 0
+    status = await asyncio.to_thread(graph_mail.graph_status)
+    if not status.get("consent_granted"):
+        return 0
+    total = 0
+    for mb in graph_mail.get_support_mailboxes():
+        total += await _process_mailbox_autoreply(mb, settings)
+    return total
+
+
+class MailAutoReplySettings(BaseModel):
+    enabled: bool
+    subject: Optional[str] = None
+    body_html: Optional[str] = None
+
+
+@api_router.get("/admin/mail/auto-reply/settings")
+async def get_mail_autoreply_settings(request: Request):
+    await _require_admin(request)
+    return await _get_mail_autoreply_settings()
+
+
+@api_router.put("/admin/mail/auto-reply/settings")
+async def update_mail_autoreply_settings(payload: MailAutoReplySettings, request: Request):
+    await _require_admin(request)
+    existing = await _get_mail_autoreply_settings()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    updates = {"enabled": payload.enabled, "updated_at": now_iso}
+    # Re-enabling resets the watermark so we don't blast mail that piled up while off
+    if payload.enabled and not existing.get("enabled"):
+        updates["autoreply_since"] = now_iso
+    if payload.subject is not None:
+        updates["subject"] = payload.subject
+    if payload.body_html is not None and payload.body_html.strip():
+        updates["body_html"] = payload.body_html
+    await db.app_settings.update_one({"id": "mail_autoreply"}, {"$set": updates}, upsert=True)
+    return await _get_mail_autoreply_settings()
+
+
+@api_router.post("/admin/mail/auto-reply/run")
+async def run_mail_autoreply(request: Request):
+    await _require_admin(request)
+    try:
+        n = await process_inbound_mail_autoreply()
+        return {"success": True, "auto_replies_sent": n}
+    except graph_mail.GraphNotConfigured:
+        raise HTTPException(status_code=503, detail="Microsoft 365 not configured")
+
+
+@api_router.get("/admin/mail/team")
+async def list_mail_assignees(request: Request):
+    await _require_admin_or_agent(request)
+    members = await db.users.find(
+        {"user_type": {"$in": ["admin", "agent"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1},
+    ).limit(100).to_list(length=100)
+    return {"members": members}
+
+
+@api_router.get("/admin/mail/tickets")
+async def list_mail_tickets(request: Request, mailbox: Optional[str] = None,
+                            status: Optional[str] = None, assigned: Optional[str] = None):
+    user = await _require_admin_or_agent(request)
+    query: Dict[str, Any] = {}
+    if mailbox:
+        query["mailbox"] = mailbox
+    if status:
+        query["status"] = status
+    if assigned == "me":
+        query["assigned_to"] = user.id
+    elif assigned == "unassigned":
+        query["assigned_to"] = None
+    tickets = await db.mail_tickets.find(query, {"_id": 0}).sort("received_at", -1).limit(200).to_list(length=200)
+    return {"tickets": tickets}
+
+
+class MailAssignRequest(BaseModel):
+    assignee_id: Optional[str] = None  # None = unassign
+
+
+@api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/assign")
+async def assign_mail_ticket(mailbox: str, message_id: str, payload: MailAssignRequest, request: Request):
+    user = await _require_admin_or_agent(request)
+    _ensure_mailbox_allowed(mailbox)
+    assignee_id = payload.assignee_id
+    if user.user_type == "agent" and assignee_id not in (None, user.id):
+        raise HTTPException(status_code=403, detail="Agents can only claim tickets to themselves")
+    assignee = None
+    if assignee_id:
+        assignee = await db.users.find_one(
+            {"id": assignee_id, "user_type": {"$in": ["admin", "agent"]}}, {"_id": 0})
+        if not assignee:
+            raise HTTPException(status_code=404, detail="Assignee must be an admin or agent")
+    now = datetime.now(timezone.utc).isoformat()
+    set_fields = {
+        "assigned_to": assignee_id,
+        "assigned_to_name": assignee.get("name") if assignee else None,
+        "assigned_to_email": assignee.get("email") if assignee else None,
+        "status": "assigned" if assignee_id else "new",
+        "updated_at": now,
+    }
+    existing = await db.mail_tickets.find_one({"mailbox": mailbox, "message_id": message_id})
+    if existing:
+        await db.mail_tickets.update_one({"id": existing["id"]}, {"$set": set_fields})
+        ticket_id = existing["id"]
+    else:
+        try:
+            msg = await graph_mail.get_message(mailbox, message_id)
+        except Exception:  # noqa: BLE001
+            msg = {}
+        frm = (msg.get("from") or {}).get("emailAddress", {})
+        ticket_id = str(uuid.uuid4())
+        await db.mail_tickets.insert_one({
+            "id": ticket_id,
+            "mailbox": mailbox,
+            "message_id": message_id,
+            "conversation_id": msg.get("conversationId") or message_id,
+            "from_email": frm.get("address", ""),
+            "from_name": frm.get("name", ""),
+            "subject": msg.get("subject", ""),
+            "received_at": msg.get("receivedDateTime"),
+            "auto_replied": False,
+            "auto_replied_at": None,
+            "created_at": now,
+            **set_fields,
+        })
+    await _log_admin_action(user.id, user.email, "mail_assign",
+                            target_email=set_fields["assigned_to_email"],
+                            details=f"msg {message_id[:12]} in {mailbox}")
+    doc = await db.mail_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    return {"success": True, "ticket": doc}
+
+
+@api_router.post("/admin/mail/mailboxes/{mailbox}/messages/{message_id}/resolve")
+async def resolve_mail_ticket(mailbox: str, message_id: str, request: Request):
+    user = await _require_admin_or_agent(request)
+    _ensure_mailbox_allowed(mailbox)
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.mail_tickets.update_one(
+        {"mailbox": mailbox, "message_id": message_id},
+        {"$set": {"status": "resolved", "updated_at": now}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="No ticket for this message yet")
+    doc = await db.mail_tickets.find_one({"mailbox": mailbox, "message_id": message_id}, {"_id": 0})
+    return {"success": True, "ticket": doc}
+
 
 
 # ---------------------------------------------------------------------------
@@ -2940,19 +3971,24 @@ async def get_driver_withdrawals(driver_id: str):
 async def get_current_driver(request: Request):
     """Get current driver profile"""
     current_user = await get_current_user_from_request(request)
-    driver = await db.drivers.find_one({"user_id": current_user.id})
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     return driver
 
 @api_router.put("/drivers/status")
 async def update_driver_status(status: str, request: Request):
-    """Update driver online/offline status"""
+    """Update driver online/offline status. Blocked until the driver is approved."""
     current_user = await get_current_user_from_request(request)
     driver = await db.drivers.find_one({"user_id": current_user.id})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
-    
+
+    if driver.get("status") in ("pending", "pending_approval"):
+        raise HTTPException(status_code=403, detail="Your driver application is pending admin approval. You cannot go online yet.")
+    if driver.get("status") == "rejected":
+        raise HTTPException(status_code=403, detail="Your driver application was rejected. Please contact support.")
+
     await db.drivers.update_one(
         {"id": driver["id"]},
         {"$set": {"status": status}}
@@ -3124,6 +4160,15 @@ async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n
             }),
             driver["user_id"],
         )
+        # WhatsApp-first alert so drivers react even with the app closed.
+        if driver.get("phone"):
+            earn = order.get("driver_earnings", 0)
+            await _wa_notify(
+                driver["phone"],
+                f"📦 New IslandHop delivery available (~{round(item['distance'], 1)}km, est. ${earn}). "
+                f"Open the app to accept. Reply here to stay connected.",
+                user_id=driver.get("user_id"), event="driver_new_order", order_id=order["id"],
+            )
         notified.append({"driver_id": driver["id"], "distance_km": round(item["distance"], 2)})
     return notified
 
@@ -3271,6 +4316,9 @@ async def create_rating(rating_data: RatingCreate, request: Request):
         driver_rating=rating_data.driver_rating,
         food_quality=rating_data.food_quality,
         delivery_speed=rating_data.delivery_speed,
+        driver_professionalism=rating_data.driver_professionalism,
+        driver_care=rating_data.driver_care,
+        driver_communication=rating_data.driver_communication,
         vendor_review=rating_data.vendor_review,
         driver_review=rating_data.driver_review,
     )
@@ -3380,6 +4428,196 @@ async def admin_run_weekly_driver_bonus(request: Request):
     return {"success": True, "drivers_awarded": n}
 
 
+
+# ---- Monthly driver-excellence incentives (multi-area, tiered top-3) ----
+MONTHLY_BONUS_TIERS = [200.0, 100.0, 50.0]   # 1st, 2nd, 3rd (USD)
+MONTHLY_MIN_DELIVERIES = 20
+MONTHLY_MIN_RATINGS = 10
+DRIVER_RATING_AREAS = {
+    "overall": "driver_rating",
+    "punctuality": "delivery_speed",
+    "professionalism": "driver_professionalism",
+    "care": "driver_care",
+    "communication": "driver_communication",
+}
+
+
+def _month_bounds(month: Optional[str]):
+    """Return (month_key 'YYYY-MM', start_iso, end_iso) for the given month (default current UTC)."""
+    now = datetime.now(timezone.utc)
+    if month:
+        try:
+            year, mon = int(month[:4]), int(month[5:7])
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="month must be 'YYYY-MM'")
+    else:
+        year, mon = now.year, now.month
+    start = datetime(year, mon, 1, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if mon == 12 else datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+    return f"{year:04d}-{mon:02d}", start.isoformat(), end.isoformat()
+
+
+async def _build_driver_leaderboard(month: Optional[str]):
+    month_key, start_iso, end_iso = _month_bounds(month)
+
+    # Ratings in window (only those carrying a driver score)
+    ratings = await db.ratings.find(
+        {"driver_id": {"$ne": None}, "driver_rating": {"$ne": None},
+         "created_at": {"$gte": start_iso, "$lt": end_iso}},
+        {"_id": 0},
+    ).to_list(length=None)
+
+    # Delivered orders in window → deliveries count per driver
+    delivered = await db.orders.find(
+        {"driver_id": {"$ne": None}, "status": "delivered"},
+        {"_id": 0, "driver_id": 1, "delivered_at": 1, "actual_delivery_time": 1, "updated_at": 1, "created_at": 1},
+    ).to_list(length=None)
+    deliveries_by_driver: dict = {}
+    for o in delivered:
+        ts = o.get("delivered_at") or o.get("actual_delivery_time") or o.get("updated_at") or o.get("created_at")
+        if ts and start_iso <= ts < end_iso:
+            deliveries_by_driver[o["driver_id"]] = deliveries_by_driver.get(o["driver_id"], 0) + 1
+
+    # Aggregate per driver
+    agg: dict = {}
+    for r in ratings:
+        d = agg.setdefault(r["driver_id"], {area: [] for area in DRIVER_RATING_AREAS})
+        for area, field in DRIVER_RATING_AREAS.items():
+            v = r.get(field)
+            if isinstance(v, (int, float)) and v:
+                d[area].append(float(v))
+
+    # Driver names (batch)
+    driver_ids = list(set(list(agg.keys()) + list(deliveries_by_driver.keys())))
+    name_by_driver: dict = {}
+    if driver_ids:
+        drivers = await db.drivers.find({"id": {"$in": driver_ids}}, {"_id": 0, "id": 1, "user_id": 1, "name": 1}).to_list(length=None)
+        user_ids = [d["user_id"] for d in drivers if d.get("user_id")]
+        user_name: dict = {}
+        if user_ids:
+            async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+                user_name[u["id"]] = u.get("name")
+        for d in drivers:
+            name_by_driver[d["id"]] = d.get("name") or user_name.get(d.get("user_id")) or "Driver"
+
+    rows = []
+    for driver_id in driver_ids:
+        area_avgs = {}
+        present = []
+        for area in DRIVER_RATING_AREAS:
+            vals = agg.get(driver_id, {}).get(area, [])
+            if vals:
+                avg = round(sum(vals) / len(vals), 2)
+                area_avgs[area] = avg
+                present.append(avg)
+            else:
+                area_avgs[area] = None
+        ratings_count = len(agg.get(driver_id, {}).get("overall", []))
+        deliveries = deliveries_by_driver.get(driver_id, 0)
+        composite = round(sum(present) / len(present), 2) if present else 0
+        qualified = deliveries >= MONTHLY_MIN_DELIVERIES and ratings_count >= MONTHLY_MIN_RATINGS
+        rows.append({
+            "driver_id": driver_id,
+            "name": name_by_driver.get(driver_id, "Driver"),
+            "areas": area_avgs,
+            "composite": composite,
+            "ratings_count": ratings_count,
+            "deliveries": deliveries,
+            "qualified": qualified,
+        })
+
+    # Rank qualified drivers by composite, tiebreak ratings_count
+    qualified_rows = sorted(
+        [r for r in rows if r["qualified"]],
+        key=lambda r: (r["composite"], r["ratings_count"]),
+        reverse=True,
+    )
+    for i, r in enumerate(qualified_rows):
+        r["rank"] = i + 1
+    # Unqualified rows shown below, no rank
+    rows_sorted = qualified_rows + sorted(
+        [r for r in rows if not r["qualified"]],
+        key=lambda r: (r["composite"], r["ratings_count"]), reverse=True,
+    )
+
+    awarded = await db.driver_incentives.find(
+        {"type": "monthly_top_driver", "period": month_key}, {"_id": 0},
+    ).to_list(length=None)
+
+    return {
+        "month": month_key,
+        "thresholds": {"min_deliveries": MONTHLY_MIN_DELIVERIES, "min_ratings": MONTHLY_MIN_RATINGS},
+        "tiers": MONTHLY_BONUS_TIERS,
+        "currency": "USD",
+        "areas": list(DRIVER_RATING_AREAS.keys()),
+        "drivers": rows_sorted,
+        "already_awarded": awarded,
+    }
+
+
+@api_router.get("/admin/driver-incentives/leaderboard")
+async def admin_driver_leaderboard(request: Request, month: Optional[str] = None):
+    """Admin: monthly driver leaderboard with per-area scores."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return await _build_driver_leaderboard(month)
+
+
+@api_router.post("/admin/driver-incentives/run-monthly")
+async def admin_run_monthly_driver_bonus(request: Request):
+    """Admin: pay the tiered top-3 drivers for a month. Idempotent per month."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    body = await request.json()
+    month = body.get("month")
+
+    board = await _build_driver_leaderboard(month)
+    month_key = board["month"]
+
+    if board["already_awarded"]:
+        return {"success": False, "already_awarded": True, "month": month_key,
+                "awarded": board["already_awarded"]}
+
+    top = [d for d in board["drivers"] if d.get("qualified")][:len(MONTHLY_BONUS_TIERS)]
+    if not top:
+        return {"success": False, "month": month_key, "awarded": [],
+                "message": "No drivers met the qualifying thresholds this month."}
+
+    now = datetime.now(timezone.utc).isoformat()
+    awarded = []
+    for idx, d in enumerate(top):
+        amount = MONTHLY_BONUS_TIERS[idx]
+        driver_row = await db.drivers.find_one({"id": d["driver_id"]}, {"_id": 0, "user_id": 1})
+        user_id = (driver_row or {}).get("user_id")
+        if not user_id:
+            continue
+        await _credit_wallet_with_txn(
+            user_id, amount, "USD", txn_type="payout_in",
+            note=f"Monthly driver excellence bonus — #{idx + 1} ({month_key}), composite {d['composite']}",
+        )
+        rec = {
+            "id": str(uuid.uuid4()),
+            "driver_id": d["driver_id"],
+            "type": "monthly_top_driver",
+            "period": month_key,
+            "rank": idx + 1,
+            "amount": amount,
+            "currency": "USD",
+            "composite": d["composite"],
+            "deliveries": d["deliveries"],
+            "ratings_count": d["ratings_count"],
+            "awarded_at": now,
+        }
+        await db.driver_incentives.insert_one(rec)
+        rec.pop("_id", None)
+        awarded.append(rec)
+
+    return {"success": True, "month": month_key, "awarded": awarded}
+
+
+
 @api_router.get("/vendors/{vendor_id}/ratings")
 async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
     """Get ratings for a vendor (batched customer lookup; avoids N+1)."""
@@ -3398,6 +4636,135 @@ async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
         rating["customer_name"] = name_by_id.get(rating.get("customer_id"), "Anonymous")
 
     return ratings
+
+
+# ---- Merchant reviews (Google-style: rating + comment + merchant reply) ----
+class MerchantReviewCreate(BaseModel):
+    rating: int
+    comment: Optional[str] = None
+
+
+class MerchantReviewReply(BaseModel):
+    reply: str
+
+
+async def _is_merchant_owner(merchant_id: str, user: User) -> bool:
+    """True if the user is an admin or owns the restaurant/business/rental for this id."""
+    if user.user_type == "admin":
+        return True
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": merchant_id, "user_id": user.id}, {"_id": 0, "id": 1})
+        if doc:
+            return True
+    return False
+
+
+@api_router.get("/merchants/{merchant_id}/reviews")
+async def get_merchant_reviews(merchant_id: str, request: Request, limit: int = 50, offset: int = 0):
+    """Public: list reviews for a merchant + an aggregate summary (Google-style)."""
+    limit = min(max(limit, 1), 100)
+    reviews = await db.merchant_reviews.find(
+        {"merchant_id": merchant_id}, {"_id": 0}
+    ).sort("created_at", -1).skip(max(offset, 0)).limit(limit).to_list(length=None)
+
+    all_rows = await db.merchant_reviews.find(
+        {"merchant_id": merchant_id}, {"_id": 0, "rating": 1}
+    ).to_list(length=None)
+    count = len(all_rows)
+    distribution = {str(i): 0 for i in range(1, 6)}
+    total = 0
+    for r in all_rows:
+        rt = int(r.get("rating") or 0)
+        if 1 <= rt <= 5:
+            distribution[str(rt)] += 1
+            total += rt
+    average = round(total / count, 1) if count else 0
+
+    # Optional auth → tell the client whether this viewer may reply.
+    can_reply = False
+    try:
+        viewer = await get_current_user_from_request(request)
+        can_reply = await _is_merchant_owner(merchant_id, viewer)
+    except Exception:
+        can_reply = False
+
+    return {
+        "merchant_id": merchant_id,
+        "summary": {"average": average, "count": count, "distribution": distribution},
+        "reviews": reviews,
+        "can_reply": can_reply,
+    }
+
+
+@api_router.post("/merchants/{merchant_id}/reviews")
+async def create_merchant_review(
+    merchant_id: str,
+    payload: MerchantReviewCreate,
+    current_user: User = Depends(get_current_user),
+):
+    """Create or update the current customer's review for a merchant."""
+    if not 1 <= payload.rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    comment = (payload.comment or "").strip()
+    if len(comment) > 2000:
+        raise HTTPException(status_code=400, detail="Comment too long (max 2000 chars)")
+    now = datetime.now(timezone.utc).isoformat()
+
+    existing = await db.merchant_reviews.find_one(
+        {"merchant_id": merchant_id, "customer_id": current_user.id}, {"_id": 0}
+    )
+    if existing:
+        await db.merchant_reviews.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "rating": payload.rating,
+                "comment": comment,
+                "customer_name": current_user.name,
+                "customer_picture": current_user.picture,
+                "updated_at": now,
+            }},
+        )
+        review_id = existing["id"]
+    else:
+        review_id = str(uuid.uuid4())
+        await db.merchant_reviews.insert_one({
+            "id": review_id,
+            "merchant_id": merchant_id,
+            "customer_id": current_user.id,
+            "customer_name": current_user.name,
+            "customer_picture": current_user.picture,
+            "rating": payload.rating,
+            "comment": comment,
+            "reply": None,
+            "reply_at": None,
+            "created_at": now,
+        })
+    return await db.merchant_reviews.find_one({"id": review_id}, {"_id": 0})
+
+
+@api_router.post("/merchants/{merchant_id}/reviews/{review_id}/reply")
+async def reply_merchant_review(
+    merchant_id: str,
+    review_id: str,
+    payload: MerchantReviewReply,
+    current_user: User = Depends(get_current_user),
+):
+    """Merchant owner (or admin) replies to a review."""
+    if not await _is_merchant_owner(merchant_id, current_user):
+        raise HTTPException(status_code=403, detail="Only the merchant or an admin can reply")
+    review = await db.merchant_reviews.find_one({"id": review_id, "merchant_id": merchant_id}, {"_id": 0})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    reply = (payload.reply or "").strip()
+    if not reply:
+        raise HTTPException(status_code=400, detail="Reply cannot be empty")
+    await db.merchant_reviews.update_one(
+        {"id": review_id},
+        {"$set": {"reply": reply, "reply_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return await db.merchant_reviews.find_one({"id": review_id}, {"_id": 0})
+
+
 
 @api_router.get("/drivers/{driver_id}/ratings")
 async def get_driver_ratings(driver_id: str, limit: int = 20):
@@ -4252,6 +5619,309 @@ async def get_checkout_status(session_id: str):
     }
 
 
+# ============================================================
+# WiPay Caribbean hosted checkout (sandbox) — alternative to Stripe
+# Customer is redirected to WiPay's hosted page; on return we verify the
+# md5(transaction_id + total + api_key) hash and mark the order paid.
+# ============================================================
+class WiPayCheckoutRequest(BaseModel):
+    order_id: str
+    origin_url: str  # window.location.origin from frontend
+
+
+@api_router.post("/payments/wipay/checkout/session")
+async def create_wipay_checkout_session(payload: WiPayCheckoutRequest, request: Request):
+    """Create a WiPay hosted payment request for an EXISTING order (amount from DB)."""
+    current_user = await get_current_user_from_request(request)
+
+    order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Order is already paid")
+
+    amount = float(order.get("total") or 0.0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order total")
+
+    host_url = str(request.base_url).rstrip('/')
+    response_url = f"{host_url}/api/payments/wipay/callback?origin={payload.origin_url.rstrip('/')}"
+
+    result = await wipay_client.create_payment_request(
+        order_id=payload.order_id, amount=amount, response_url=response_url,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"WiPay request failed: {result.get('error')}")
+
+    payment = PaymentTransaction(
+        session_id=result.get("transaction_id") or f"wipay_{uuid.uuid4().hex[:16]}",
+        user_id=current_user.id,
+        email=current_user.email,
+        amount=amount,
+        currency=wipay_client._cfg()["currency"].lower(),
+        payment_status="initiated",
+        metadata={"order_id": payload.order_id, "user_id": current_user.id, "provider": "wipay"},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+
+    return {"url": result["url"], "transaction_id": result.get("transaction_id"),
+            "environment": wipay_client.environment()}
+
+
+@api_router.get("/payments/wipay/callback")
+async def wipay_callback(request: Request):
+    """Public callback hit by WiPay after the customer pays. Verifies hash, marks
+    the order paid, then redirects the customer to the frontend result page."""
+    params = dict(request.query_params)
+    origin = (params.get("origin") or os.environ.get("FRONTEND_URL", "")).rstrip('/')
+    status = (params.get("status") or "").lower()
+    transaction_id = params.get("transaction_id")
+    order_id = params.get("order_id")
+    total = params.get("total")
+    received_hash = params.get("hash")
+
+    verified = wipay_client.verify_hash(transaction_id or "", total or "", received_hash or "")
+    is_sandbox = wipay_client.environment() == "sandbox"
+    success = status == "success" and (verified or is_sandbox)
+
+    await db.wipay_callbacks.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "transaction_id": transaction_id,
+        "status": status,
+        "total": total,
+        "hash": received_hash,
+        "verified": verified,
+        "raw_params": params,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    if order_id:
+        txn = await db.payment_transactions.find_one(
+            {"metadata.order_id": order_id, "metadata.provider": "wipay"}, {"_id": 0})
+        already_paid = bool(txn and txn.get("payment_status") == "paid")
+        await db.payment_transactions.update_one(
+            {"metadata.order_id": order_id, "metadata.provider": "wipay"},
+            {"$set": {"payment_status": "paid" if success else "failed",
+                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        if success and not already_paid:
+            await db.orders.update_one(
+                {"id": order_id, "payment_status": {"$ne": "paid"}},
+                {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            try:
+                if txn and txn.get("user_id"):
+                    await _maybe_complete_referral(txn["user_id"])
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed for WiPay order {order_id}: {ref_exc}")
+
+    result_status = "paid" if success else "failed"
+    redirect_url = f"{origin}/payment/success?order_id={order_id or ''}&via=wipay&status={result_status}"
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+# ============================================================
+# PayPal Checkout (Orders v2) + Payouts (v1) + Webhooks
+# Mode is driven by PAYPAL_MODE (sandbox|live). Used for wallet top-ups
+# (deposit) and automatic withdrawals (payouts).
+# ============================================================
+class PayPalCreateOrderRequest(BaseModel):
+    amount: float
+    currency: str = "USD"
+    purpose: str = "wallet_deposit"   # 'wallet_deposit' | 'order'
+    order_id: Optional[str] = None     # when purpose == 'order'
+    origin_url: str                    # window.location.origin
+
+
+@api_router.post("/payments/paypal/create-order")
+async def paypal_create_order(payload: PayPalCreateOrderRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if not paypal_client.is_configured():
+        raise HTTPException(status_code=503, detail="PayPal is not configured")
+
+    amount = _round_money(payload.amount)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    currency = (payload.currency or "USD").upper()
+
+    reference_id = str(uuid.uuid4())
+    origin = payload.origin_url.rstrip('/')
+    return_url = f"{origin}/payment/success?via=paypal&ref={reference_id}"
+    cancel_url = f"{origin}/wallet?paypal=cancelled"
+
+    result = await paypal_client.create_order(
+        amount=amount, currency=currency, reference_id=reference_id,
+        return_url=return_url, cancel_url=cancel_url,
+        description=f"IslandHop {payload.purpose}",
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal order creation failed: {result.get('error')}")
+
+    await db.paypal_orders.insert_one({
+        "id": result["id"],
+        "reference_id": reference_id,
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "amount": amount,
+        "currency": currency,
+        "purpose": payload.purpose,
+        "linked_order_id": payload.order_id,
+        "status": result.get("status", "CREATED"),
+        "mode": paypal_client.mode(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": None,
+    })
+    return {"order_id": result["id"], "approve_url": result.get("approve_url"),
+            "status": result.get("status"), "mode": paypal_client.mode()}
+
+
+async def _settle_paypal_order(order_id: str, capture: dict, current_user_id: Optional[str] = None) -> dict:
+    """Credit the wallet / mark order paid for a COMPLETED PayPal capture. Idempotent."""
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec:
+        return {"success": False, "error": "PayPal order not tracked"}
+    if rec.get("status") == "COMPLETED":
+        return {"success": True, "already": True, "purpose": rec.get("purpose")}
+
+    amount = float(capture.get("amount") or rec["amount"])
+    currency = (capture.get("currency") or rec["currency"]).upper()
+    await db.paypal_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": "COMPLETED", "capture_id": capture.get("capture_id"),
+                  "captured_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    if rec.get("purpose") == "wallet_deposit":
+        await _credit_wallet_with_txn(
+            rec["user_id"], amount, currency, txn_type="deposit",
+            external_transfer_id=capture.get("capture_id"),
+            note=f"PayPal deposit ({paypal_client.mode()})",
+        )
+    elif rec.get("purpose") == "order" and rec.get("linked_order_id"):
+        await db.orders.update_one(
+            {"id": rec["linked_order_id"], "payment_status": {"$ne": "paid"}},
+            {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return {"success": True, "purpose": rec.get("purpose"), "amount": amount, "currency": currency}
+
+
+@api_router.post("/payments/paypal/capture-order")
+async def paypal_capture_order(request: Request):
+    current_user = await get_current_user_from_request(request)
+    body = await request.json()
+    order_id = body.get("order_id")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id is required")
+
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec or rec.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="PayPal order not found")
+
+    result = await paypal_client.capture_order(order_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal capture failed: {result.get('error') or result.get('status')}")
+
+    settle = await _settle_paypal_order(order_id, result, current_user.id)
+    return {"success": True, "status": result.get("status"), "purpose": settle.get("purpose"),
+            "amount": result.get("amount"), "currency": result.get("currency")}
+
+
+@api_router.get("/payments/paypal/order-status/{order_id}")
+async def paypal_order_status(order_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec or rec.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="PayPal order not found")
+    live = await paypal_client.get_order(order_id)
+    return {"order_id": order_id, "local_status": rec.get("status"),
+            "paypal_status": live.get("status") if live.get("success") else None,
+            "purpose": rec.get("purpose"), "amount": rec.get("amount"), "currency": rec.get("currency")}
+
+
+class PayPalPayoutRequest(BaseModel):
+    email: str
+    amount: float
+    currency: str = "USD"
+    note: Optional[str] = None
+    funding_request_id: Optional[str] = None
+
+
+@api_router.post("/admin/paypal/payout")
+async def admin_paypal_payout(payload: PayPalPayoutRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not paypal_client.is_configured():
+        raise HTTPException(status_code=503, detail="PayPal is not configured")
+    amount = _round_money(payload.amount)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payout amount")
+
+    batch_id = f"ih_{uuid.uuid4().hex[:18]}"
+    result = await paypal_client.create_payout(
+        email=payload.email, amount=amount, currency=(payload.currency or "USD").upper(),
+        note=payload.note or "IslandHop withdrawal", sender_batch_id=batch_id,
+    )
+    await db.paypal_payouts.insert_one({
+        "id": batch_id,
+        "payout_batch_id": result.get("batch_id"),
+        "email": payload.email,
+        "amount": amount,
+        "currency": (payload.currency or "USD").upper(),
+        "funding_request_id": payload.funding_request_id,
+        "status": result.get("status") if result.get("success") else "FAILED",
+        "error": result.get("error"),
+        "initiated_by": current_user.id,
+        "mode": paypal_client.mode(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal payout failed: {result.get('error')}")
+    return {"success": True, "payout_batch_id": result.get("batch_id"), "status": result.get("status")}
+
+
+@api_router.post("/webhooks/paypal")
+async def paypal_webhook(request: Request):
+    body = await request.json()
+    event_type = body.get("event_type")
+    verified = await paypal_client.verify_webhook(dict(request.headers), body)
+
+    await db.paypal_webhooks.insert_one({
+        "id": str(uuid.uuid4()),
+        "event_type": event_type,
+        "verified": verified,
+        "resource_id": (body.get("resource") or {}).get("id"),
+        "raw": body,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Only act on verified events (when PAYPAL_WEBHOOK_ID is configured).
+    if not verified:
+        return {"received": True, "verified": False}
+
+    resource = body.get("resource") or {}
+    if event_type == "PAYMENT.CAPTURE.COMPLETED":
+        order_id = None
+        try:
+            order_id = resource["supplementary_data"]["related_ids"]["order_id"]
+        except (KeyError, TypeError):
+            pass
+        if order_id:
+            cap = {"capture_id": resource.get("id"),
+                   "amount": float((resource.get("amount") or {}).get("value", 0) or 0),
+                   "currency": (resource.get("amount") or {}).get("currency_code")}
+            await _settle_paypal_order(order_id, cap)
+    elif event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+        batch_id = resource.get("payout_batch_id")
+        if batch_id:
+            await db.paypal_payouts.update_one(
+                {"payout_batch_id": batch_id},
+                {"$set": {"item_status": resource.get("transaction_status") or event_type}},
+            )
+    return {"received": True, "verified": True}
+
+
+
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     """Phase A: Stripe webhook receiver (canonical path)."""
@@ -4886,6 +6556,168 @@ async def wallet_withdraw(payload: WalletAmountRequest, request: Request):
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
 
 
+# ---------------------------------------------------------------------------
+# Customer payment methods + bank/PayPal deposit & withdrawal requests
+# (admin-approved real-money workflow; automated PayPal/WiPay added later)
+# ---------------------------------------------------------------------------
+FUNDING_METHODS = {"bank", "paypal", "card", "wipay"}
+
+
+class PaymentMethodRequest(BaseModel):
+    type: str                      # 'bank_account' | 'paypal'
+    label: Optional[str] = None
+    details: Dict[str, str] = {}   # bank: bank_name/account_name/account_number/branch ; paypal: {email}
+
+
+class FundingRequestBody(BaseModel):
+    direction: str                 # 'deposit' | 'withdraw'
+    method: str                    # 'bank' | 'paypal' | 'wipay'
+    amount: float
+    currency: str = "USD"
+    reference: Optional[str] = None        # deposit: transfer ref / proof
+    payment_method_id: Optional[str] = None  # withdraw: where to send
+    destination: Optional[str] = None        # withdraw: free-text (e.g. paypal email)
+    note: Optional[str] = None
+
+
+@api_router.get("/wallet/payment-methods")
+async def list_payment_methods(request: Request):
+    current_user = await get_current_user_from_request(request)
+    methods = await db.wallet_payment_methods.find(
+        {"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=50)
+    return {"payment_methods": methods}
+
+
+@api_router.post("/wallet/payment-methods")
+async def add_payment_method(payload: PaymentMethodRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if payload.type not in {"bank_account", "paypal"}:
+        raise HTTPException(status_code=400, detail="type must be 'bank_account' or 'paypal'")
+    if payload.type == "paypal" and not payload.details.get("email"):
+        raise HTTPException(status_code=400, detail="PayPal email is required")
+    if payload.type == "bank_account" and not payload.details.get("account_number"):
+        raise HTTPException(status_code=400, detail="Bank account number is required")
+    now = datetime.now(timezone.utc).isoformat()
+    label = payload.label or (
+        payload.details.get("email") if payload.type == "paypal"
+        else f"{payload.details.get('bank_name','Bank')} ••••{payload.details.get('account_number','')[-4:]}")
+    doc = {"id": str(uuid.uuid4()), "user_id": current_user.id, "type": payload.type,
+           "label": label, "details": payload.details, "created_at": now}
+    await db.wallet_payment_methods.insert_one({**doc})
+    doc.pop("_id", None)
+    return {"success": True, "payment_method": doc}
+
+
+@api_router.delete("/wallet/payment-methods/{method_id}")
+async def delete_payment_method(method_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    res = await db.wallet_payment_methods.delete_one({"id": method_id, "user_id": current_user.id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return {"success": True}
+
+
+@api_router.post("/wallet/funding-request")
+async def create_funding_request(payload: FundingRequestBody, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if payload.direction not in {"deposit", "withdraw"}:
+        raise HTTPException(status_code=400, detail="direction must be 'deposit' or 'withdraw'")
+    if payload.method not in FUNDING_METHODS:
+        raise HTTPException(status_code=400, detail=f"method must be one of {sorted(FUNDING_METHODS)}")
+    amount = _round_money(payload.amount)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    currency = (payload.currency or "USD").upper()
+    if currency not in SUPPORTED_WALLET_CURRENCIES:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    wallet = await _get_or_create_wallet(current_user.id)
+    if payload.direction == "withdraw":
+        if float(wallet.get("balances", {}).get(currency, 0)) < amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance for this withdrawal")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "user_name": getattr(current_user, "name", None),
+        "direction": payload.direction,
+        "method": payload.method,
+        "amount": amount,
+        "currency": currency,
+        "status": "pending",
+        "reference": payload.reference,
+        "payment_method_id": payload.payment_method_id,
+        "destination": payload.destination,
+        "note": payload.note,
+        "created_at": now,
+        "processed_at": None,
+        "processed_by": None,
+    }
+    await db.wallet_funding_requests.insert_one({**doc})
+    doc.pop("_id", None)
+    return {"success": True, "request": doc,
+            "message": "Your request was submitted and is pending review by our team."}
+
+
+@api_router.get("/wallet/funding-requests")
+async def my_funding_requests(request: Request):
+    current_user = await get_current_user_from_request(request)
+    reqs = await db.wallet_funding_requests.find(
+        {"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(length=100)
+    return {"requests": reqs}
+
+
+@api_router.get("/admin/wallet/funding-requests")
+async def admin_list_funding_requests(request: Request, status: Optional[str] = "pending"):
+    await _require_admin(request)
+    query = {} if status in (None, "all") else {"status": status}
+    reqs = await db.wallet_funding_requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
+    return {"requests": reqs}
+
+
+@api_router.post("/admin/wallet/funding-requests/{request_id}/approve")
+async def admin_approve_funding_request(request_id: str, request: Request):
+    admin = await _require_admin(request)
+    fr = await db.wallet_funding_requests.find_one({"id": request_id}, {"_id": 0})
+    if not fr:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if fr["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {fr['status']}")
+    wallet = await _get_or_create_wallet(fr["user_id"])
+    amount, currency = fr["amount"], fr["currency"]
+    if fr["direction"] == "deposit":
+        await _credit_wallet(fr["user_id"], amount, currency)
+        txn_type = "deposit"
+    else:  # withdraw — re-check balance then debit
+        if float(wallet.get("balances", {}).get(currency, 0)) < amount:
+            raise HTTPException(status_code=400, detail="User no longer has sufficient balance")
+        await _debit_wallet(fr["user_id"], amount, currency)
+        txn_type = "withdraw"
+    await _record_txn(user_id=fr["user_id"], wallet_id=wallet["id"], type=txn_type,
+                      amount=amount, currency=currency, status="completed",
+                      note=f"{fr['method']} {fr['direction']} (admin-approved)")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.wallet_funding_requests.update_one(
+        {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
+    new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
+    return {"success": True, "status": "approved", "balance": new_bal}
+
+
+@api_router.post("/admin/wallet/funding-requests/{request_id}/reject")
+async def admin_reject_funding_request(request_id: str, request: Request):
+    admin = await _require_admin(request)
+    fr = await db.wallet_funding_requests.find_one({"id": request_id}, {"_id": 0})
+    if not fr:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if fr["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {fr['status']}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.wallet_funding_requests.update_one(
+        {"id": request_id}, {"$set": {"status": "rejected", "processed_at": now, "processed_by": admin.email}})
+    return {"success": True, "status": "rejected"}
+
+
+
 class WalletSendRequest(BaseModel):
     recipient_email: str  # IslandHop user's email
     amount: float
@@ -5431,10 +7263,24 @@ class OTPVerifyRequest(BaseModel):
 
 
 def _normalize_phone(p: str) -> str:
-    """Strip spaces/dashes/parens; keep leading +."""
+    """Normalize to E.164. Defaults bare local numbers to Trinidad & Tobago (+1868)."""
     if not p:
         return ""
-    return re.sub(r"[\s\-\(\)]", "", p.strip())
+    p = p.strip()
+    had_plus = p.startswith("+")
+    digits = re.sub(r"\D", "", p)
+    if not digits:
+        return ""
+    if had_plus:
+        return "+" + digits
+    # No '+' provided — infer country code for the Caribbean (NANP)
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits                 # 1XXXXXXXXXX → +1XXXXXXXXXX
+    if len(digits) == 10:
+        return "+1" + digits                # NANP 10-digit (incl. +1868/+1868) → +1XXXXXXXXXX
+    if len(digits) == 7:
+        return "+1868" + digits             # bare TT local 7-digit → +1868XXXXXXX
+    return "+" + digits                      # best effort
 
 
 @api_router.post("/otp/send")
@@ -5470,15 +7316,29 @@ async def otp_send(payload: OTPSendRequest):
 
     body = f"Your IslandHop verification code is {code}. It expires in {expires_in} minutes."
     send_result = twilio_client.send_sms(phone, body)
+    dev_return = os.environ.get("OTP_DEV_RETURN_CODE", "true").lower() in {"1", "true", "yes"}
+
+    if not send_result.get("success"):
+        logger.warning(f"OTP SMS send failed for {phone}: {send_result.get('error')} (code={send_result.get('error_code')})")
+        # In dev/preview we still return the code so testing isn't blocked.
+        if not dev_return:
+            raise HTTPException(
+                status_code=400,
+                detail="We couldn't send your code by SMS right now. Please double-check the phone number (include the country code, e.g. +1868…) and try again.",
+            )
 
     response = {
         "success": True,
         "expires_at": expires_at.isoformat(),
         "channel": "sms",
         "mock": send_result.get("mock", False),
+        "phone": phone,
     }
+    if not send_result.get("success"):
+        response["sms_delivered"] = False
+        response["warning"] = send_result.get("error")
     # In dev/mock mode return the code so test flows + the UI can show it.
-    if os.environ.get("OTP_DEV_RETURN_CODE", "true").lower() in {"1", "true", "yes"}:
+    if dev_return:
         response["dev_code"] = code
     return response
 
@@ -5883,6 +7743,9 @@ async def whatsapp_send(payload: WhatsAppSendRequest, request: Request):
         raise HTTPException(status_code=400, detail="to and body are required")
 
     send_result = twilio_client.send_whatsapp(to, payload.body)
+    if not send_result.get("success"):
+        logger.warning(f"WhatsApp send failed for {to}: {send_result.get('error')}")
+        raise HTTPException(status_code=400, detail=send_result.get("error", "Could not send WhatsApp message."))
     msg_doc = {
         "id": str(uuid.uuid4()),
         "user_id": payload.user_id,
@@ -5992,6 +7855,8 @@ def _flatten_pending(items: List[dict], kind: str) -> List[dict]:
             "phone": item.get("phone") or item.get("contact_info", {}).get("phone") or item.get("business_owner", {}).get("phone"),
             "status": item.get("status") or item.get("verification_status"),
             "user_id": item.get("user_id"),
+            "source": item.get("source"),
+            "is_external_lead": item.get("is_external_lead", False),
             "created_at": item.get("created_at") or item.get("application_date"),
             "raw": item,
         })
@@ -6036,7 +7901,13 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("drivers", driver_id, "active", current_user.id, payload.notes)
+    result = await _set_partner_status("drivers", driver_id, "active", current_user.id, payload.notes)
+    # Promote the user to a driver now that identity has been reviewed & approved.
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and driver.get("user_id"):
+        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+        await _notify_driver_status(driver["user_id"], "approved")
+    return result
 
 
 @api_router.post("/admin/drivers/{driver_id}/reject")
@@ -6044,7 +7915,11 @@ async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: 
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("drivers", driver_id, "rejected", current_user.id, payload.notes)
+    result = await _set_partner_status("drivers", driver_id, "rejected", current_user.id, payload.notes)
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and driver.get("user_id"):
+        await _notify_driver_status(driver["user_id"], "rejected", payload.notes)
+    return result
 
 
 @api_router.post("/admin/restaurants/{restaurant_id}/approve")
@@ -6084,7 +7959,9 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
+    result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
+    await _notify_merchant_status(application_id, "verified", payload.notes)
+    return result
 
 
 @api_router.post("/admin/businesses/{application_id}/reject")
@@ -6092,7 +7969,237 @@ async def admin_reject_business(application_id: str, payload: ApprovalAction, re
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+    result = await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+    await _notify_merchant_status(application_id, "rejected", payload.notes)
+    return result
+
+
+async def _notify_merchant_status(application_id: str, decision: str, notes: Optional[str] = None):
+    """WhatsApp-first notification to a merchant on an application decision. Never raises."""
+    try:
+        app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+        if not app_doc:
+            return
+        phone = app_doc.get("phone") or app_doc.get("business_owner", {}).get("phone")
+        biz = app_doc.get("business_name") or app_doc.get("name") or "your business"
+        bodies = {
+            "verified": (f"🎉 Great news! {biz} is now APPROVED on IslandHop. You can log in to manage your menu/listings "
+                         f"and receive orders. Reply to this WhatsApp to stay connected for future updates. 🌴"),
+            "rejected": (f"Update on your IslandHop application for {biz}: we're unable to approve it at this time."
+                         + (f" Reason: {notes}" if notes else "") + " Reply here if you'd like to reapply."),
+        }
+        body = bodies.get(decision)
+        if phone and body:
+            await _wa_notify(phone, body, user_id=app_doc.get("user_id"), event=f"merchant_{decision}")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Merchant WhatsApp notification ({decision}) failed for {application_id}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# PUBLIC application intake (from external marketing site islandhoptt.com)
+# Unauthenticated; protected by rate-limit + honeypot + optional X-API-Key.
+# Leads land in the SAME collections as in-app applications (status=pending),
+# so they appear in Admin → Pending Approvals, tagged with source.
+# ---------------------------------------------------------------------------
+PUBLIC_APP_RATE_LIMIT = 5
+PUBLIC_APP_RATE_WINDOW_MIN = 60
+
+
+class PublicDriverApplication(BaseModel):
+    full_name: str
+    email: str
+    phone: str
+    vehicle_type: str
+    license_number: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+
+class PublicMerchantApplication(BaseModel):
+    business_name: str
+    owner_name: str
+    email: str
+    phone: str
+    business_type: str
+    category: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def _check_public_app_guard(request: Request) -> str:
+    """Optional API key + per-IP rate limiting. Returns the client IP."""
+    configured_key = os.environ.get("PUBLIC_APPLICATIONS_API_KEY")
+    provided = request.headers.get("x-api-key")
+    if provided and configured_key and provided != configured_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    ip = _client_ip(request)
+    since = (datetime.now(timezone.utc) - timedelta(minutes=PUBLIC_APP_RATE_WINDOW_MIN)).isoformat()
+    recent = await db.public_application_log.count_documents({"ip": ip, "created_at": {"$gte": since}})
+    if recent >= PUBLIC_APP_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many applications from this network. Please try again later.")
+    return ip
+
+
+async def _log_public_app(ip: str, kind: str):
+    await db.public_application_log.insert_one({
+        "ip": ip, "kind": kind, "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def _notify_new_application(kind: str, doc: dict):
+    """Email an internal alert (to the admin/team mailbox) + an acknowledgement to
+    the applicant when a public application lands. Never raises — best effort."""
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    if kind == "driver":
+        inbox = os.environ.get("DRIVER_NOTIFY_MAILBOX") or "drivers@islandhoptt.com"
+        label = "driver"
+        summary = (
+            f"<li><b>Name:</b> {doc.get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Vehicle:</b> {doc.get('vehicle_type','')}</li>"
+            f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        )
+    else:
+        inbox = os.environ.get("MERCHANT_NOTIFY_MAILBOX") or "partner@islandhoptt.com"
+        label = "merchant"
+        summary = (
+            f"<li><b>Business:</b> {doc.get('business_name','')}</li>"
+            f"<li><b>Owner:</b> {doc.get('business_owner',{}).get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Type:</b> {doc.get('business_details',{}).get('business_type','')}</li>"
+        )
+
+    internal_html = (
+        f"<h2>New {label} application from {doc.get('source','the website')}</h2>"
+        f"<p>A new {label} lead just came in. Review it in Admin → Approvals.</p>"
+        f"<ul>{summary}</ul>"
+        f"<p style='color:#888'>Application ID: {doc.get('id')}</p>"
+    )
+    ack_html = (
+        f"<h2>Thanks for applying to IslandHop 🌴</h2>"
+        f"<p>We've received your {label} application and our team will review it shortly. "
+        f"You'll hear from us at <b>{doc.get('email','')}</b>.</p>"
+        f"<p>— The IslandHop Team</p>"
+    )
+
+    # Internal alert → routed to the correct team inbox (drivers@ / partner@),
+    # sent from the admin mailbox so it lands cleanly in that inbox.
+    sender = admin_email or inbox
+    try:
+        await graph_mail.send_mail(
+            inbox,
+            f"New {label} application — {doc.get('name') or doc.get('business_name','')}",
+            internal_html, mailbox=sender)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"New-application internal alert email failed ({kind}): {exc}")
+    # Acknowledgement to the applicant, sent from the team inbox so replies route correctly.
+    try:
+        if doc.get("email"):
+            await graph_mail.send_mail(doc["email"], "We received your IslandHop application",
+                                       ack_html, mailbox=inbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"New-application ack email failed ({kind}): {exc}")
+
+    # WhatsApp-first alert to the ops/admin team (if an admin notify number is configured).
+    admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
+    if admin_phone:
+        who = doc.get("name") or doc.get("business_name", "")
+        await _wa_notify(
+            admin_phone,
+            f"🌐 New {label} application: {who} ({doc.get('phone','')}). Review it in Admin → Approvals.",
+            event=f"new_{label}_application",
+        )
+
+
+@api_router.post("/public/applications/driver")
+async def public_driver_application(payload: PublicDriverApplication, request: Request):
+    """Receive a driver application from the external site (islandhoptt.com)."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # bot tripped the honeypot — pretend success, store nothing
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        "name": payload.full_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "vehicle_type": payload.vehicle_type,
+        "license_number": payload.license_number,
+        "vehicle_plate": payload.vehicle_plate,
+        "city": payload.city,
+        "lead_notes": payload.notes,
+        "created_at": now,
+    }
+    await db.drivers.insert_one({**doc})
+    await _log_public_app(ip, "driver")
+    asyncio.create_task(_notify_new_application("driver", doc))
+    return {"success": True, "id": doc["id"], "message": "Driver application received — our team will review it shortly."}
+
+
+@api_router.post("/public/applications/merchant")
+async def public_merchant_application(payload: PublicMerchantApplication, request: Request):
+    """Receive a merchant/restaurant application from the external site (islandhoptt.com)."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # honeypot
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    address_obj = {"line1": payload.address or "", "city": payload.city or ""}
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "verification_status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        # top-level fields for admin list display
+        "business_name": payload.business_name,
+        "name": payload.business_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        # nested structures matching BusinessOnboarding shape
+        "business_owner": {
+            "name": payload.owner_name,
+            "email": payload.email,
+            "phone": payload.phone,
+            "address": address_obj,
+        },
+        "business_details": {
+            "business_name": payload.business_name,
+            "business_type": payload.business_type,
+            "category_id": payload.category or "",
+            "description": payload.description or "",
+            "address": address_obj,
+            "phone": payload.phone,
+            "email": payload.email,
+            "website": payload.website,
+        },
+        "lead_notes": payload.notes,
+        "application_date": now,
+        "created_at": now,
+    }
+    await db.business_applications.insert_one({**doc})
+    await _log_public_app(ip, "merchant")
+    asyncio.create_task(_notify_new_application("merchant", doc))
+    return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
+
 
 
 
@@ -6125,11 +8232,38 @@ async def initialize_data():
                     logger.error(f"❌ Weekly top-driver bonus failed: {e}")
 
             scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
+
+            from apscheduler.triggers.interval import IntervalTrigger
+
+            async def _poll_mail_autoreply():
+                try:
+                    n = await process_inbound_mail_autoreply()
+                    if n:
+                        logger.info(f"✉️ Auto-replied to {n} new client email(s)")
+                except Exception as e:
+                    logger.error(f"❌ Mail auto-reply poll failed: {e}")
+
+            # Background polling is gated by env so only ONE environment (production)
+            # auto-replies to the shared mailboxes. Manual "Run now" works everywhere.
+            if (os.environ.get("MAIL_AUTOREPLY_POLL_ENABLED", "false").lower() == "true"):
+                scheduler.add_job(_poll_mail_autoreply, IntervalTrigger(minutes=2), id="mail_autoreply_poll", replace_existing=True)
+                print("✅ Mail auto-reply background poller enabled (every 2 min)")
             scheduler.start()
             app.state.scheduler = scheduler
             print("✅ APScheduler started — nightly vendor payouts scheduled at 02:00 UTC")
     except Exception as e:
         print(f"⚠️ Could not start scheduler: {e}")
+
+    try:
+        await asyncio.to_thread(storage_client.init_storage)
+        print("✅ Object storage initialized")
+    except Exception as e:
+        print(f"⚠️ Could not initialize object storage: {e}")
+
+    try:
+        await seed_owner_admin()
+    except Exception as e:
+        print(f"⚠️ Could not seed owner admin: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)
@@ -6453,13 +8587,27 @@ async def initialize_data():
 # Include the router in the main app
 app.include_router(api_router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: when origins are wildcard we must use a reflecting regex instead of
+# allow_origins=["*"], because browsers forbid "*" together with credentials.
+# allow_origin_regex echoes the caller's exact origin + Allow-Credentials: true,
+# which is required for cross-origin (custom-domain) requests with withCredentials.
+_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '*').split(',') if o.strip()]
+if _cors_origins == ['*'] or not _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origin_regex=".*",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Configure logging
 logging.basicConfig(

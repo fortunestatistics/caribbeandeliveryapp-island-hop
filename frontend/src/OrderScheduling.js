@@ -47,7 +47,7 @@ const OrderScheduling = () => {
   const fetchScheduledOrders = async () => {
     try {
       const response = await axios.get(`${API}/scheduled-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setScheduledOrders(response.data);
       setLoading(false);
@@ -60,7 +60,7 @@ const OrderScheduling = () => {
   const fetchRecurringOrders = async () => {
     try {
       const response = await axios.get(`${API}/recurring-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setRecurringOrders(response.data);
     } catch (error) {
@@ -73,7 +73,7 @@ const OrderScheduling = () => {
 
     try {
       await axios.post(`${API}/scheduled-orders`, scheduleData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setShowScheduleModal(false);
@@ -93,7 +93,7 @@ const OrderScheduling = () => {
 
     try {
       await axios.delete(`${API}/scheduled-orders/${orderId}`, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchScheduledOrders();
     } catch (error) {
@@ -107,7 +107,7 @@ const OrderScheduling = () => {
 
     try {
       await axios.delete(`${API}/recurring-orders/${recurringId}`, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchRecurringOrders();
       fetchScheduledOrders();

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
+import WalletFunding from './WalletFunding';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -12,7 +13,7 @@ import {
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => {
-  const t = localStorage.getItem('access_token');
+  const t = localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
@@ -363,6 +364,12 @@ const WalletPage = () => {
             </CardContent>
           </Card>
         )}
+
+        {/* Add & Withdraw funds (bank / PayPal) */}
+        <WalletFunding
+          currencies={Object.keys(wallet?.balances || { USD: 0, TTD: 0 })}
+          onChanged={refresh}
+        />
 
         {/* History */}
         <Card>

@@ -126,7 +126,7 @@ async def list_messages(mailbox: str, top: int = 25, skip_token: Optional[str] =
                         folder: str = "inbox") -> Dict[str, Any]:
     params = {
         "$top": top,
-        "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments",
+        "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId",
         "$orderby": "receivedDateTime desc",
     }
     if skip_token:
@@ -163,3 +163,32 @@ async def reply_to_message(mailbox: str, message_id: str, reply_html: str) -> No
     """Send a threaded reply to the original sender using Graph's reply action."""
     body = {"message": {"body": {"contentType": "HTML", "content": reply_html}}}
     await _graph_post(f"/users/{mailbox}/messages/{message_id}/reply", body=body)
+
+
+def default_sender_mailbox() -> Optional[str]:
+    """Mailbox used as the From address for outbound notifications.
+
+    Prefers DRIVER_NOTIFY_MAILBOX, else the first configured support mailbox.
+    """
+    explicit = os.environ.get("DRIVER_NOTIFY_MAILBOX")
+    if explicit:
+        return explicit.strip()
+    boxes = get_support_mailboxes()
+    return boxes[0] if boxes else None
+
+
+async def send_mail(to_email: str, subject: str, html_body: str, mailbox: Optional[str] = None) -> None:
+    """Send a standalone email from one of the support mailboxes via Graph."""
+    sender = mailbox or default_sender_mailbox()
+    if not sender:
+        raise GraphNotConfigured("No sender mailbox configured (SUPPORT_MAILBOXES/DRIVER_NOTIFY_MAILBOX)")
+    body = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": html_body},
+            "toRecipients": [{"emailAddress": {"address": to_email}}],
+        },
+        "saveToSentItems": True,
+    }
+    await _graph_post(f"/users/{sender}/sendMail", body=body)
+

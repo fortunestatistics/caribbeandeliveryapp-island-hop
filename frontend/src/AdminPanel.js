@@ -33,11 +33,22 @@ import axios from 'axios';
 
 import AdminStatsCards from './AdminStatsCards';
 import AdminMailInbox from './AdminMailInbox';
+import AdminWalletRequests from './AdminWalletRequests';
 import AdminMercuryBanking from './AdminMercuryBanking';
+import AdminTeam from './AdminTeam';
+import AdminDriverIncentives from './AdminDriverIncentives';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+
+const DOC_LABELS = {
+  driversLicense: "Driver's License",
+  vehicleRegistration: 'Vehicle Registration',
+  insurance: 'Insurance',
+  certificateOfCharacter: 'Certificate of Character',
+  profilePhoto: 'Profile Photo',
+};
 
 const AdminPanel = () => {
   const [stats, setStats] = useState({
@@ -58,6 +69,10 @@ const AdminPanel = () => {
   const [whSelectedPhone, setWhSelectedPhone] = useState('');
   const [whMessages, setWhMessages] = useState([]);
   const [whReplyBody, setWhReplyBody] = useState('');
+  const [whComposePhone, setWhComposePhone] = useState('');
+  const [whComposeBody, setWhComposeBody] = useState('');
+  const [whComposeSending, setWhComposeSending] = useState(false);
+  const [whComposeFeedback, setWhComposeFeedback] = useState(null); // {type, text}
   const [fraudFlags, setFraudFlags] = useState([]);
   const [fraudOpenCount, setFraudOpenCount] = useState(0);
   const [fraudFilter, setFraudFilter] = useState('open');
@@ -65,6 +80,7 @@ const AdminPanel = () => {
   const [claimsFilter, setClaimsFilter] = useState('open');
   const [claimsOpenCount, setClaimsOpenCount] = useState(0);
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -91,6 +107,16 @@ const AdminPanel = () => {
     if (selectedTab === 'fraud') fetchFraudQueue();
     if (selectedTab === 'claims') fetchClaims();
   }, [selectedTab, fraudFilter, claimsFilter]);
+
+  useEffect(() => {
+    axios.get(`${API}/auth/me`, { headers: authHeaders() })
+      .then((r) => setMyRole(r.data.user_type))
+      .catch(() => {});
+  }, []);
+
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
+  const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
+  const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
 
   const fetchClaims = async () => {
     try {
@@ -172,6 +198,20 @@ const AdminPanel = () => {
     }
   };
 
+  const viewDocument = async (documentId) => {
+    try {
+      const res = await axios.get(`${API}/drivers/documents/${documentId}/download`, {
+        headers: authHeaders(),
+        responseType: 'blob',
+      });
+      const blobUrl = URL.createObjectURL(res.data);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Could not open document');
+    }
+  };
+
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API}/service-zones`, { headers: authHeaders() });
@@ -237,10 +277,24 @@ const AdminPanel = () => {
     } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
   };
 
+  const sendWhCompose = async () => {
+    if (!whComposePhone.trim() || !whComposeBody.trim()) return;
+    setWhComposeSending(true);
+    setWhComposeFeedback(null);
+    try {
+      await axios.post(`${API}/whatsapp/send`, { to: whComposePhone.trim(), body: whComposeBody.trim() }, { headers: authHeaders() });
+      setWhComposeFeedback({ type: 'success', text: `WhatsApp message queued to ${whComposePhone.trim()}` });
+      setWhComposeBody('');
+      fetchWhConvos();
+    } catch (e) {
+      setWhComposeFeedback({ type: 'error', text: e.response?.data?.detail || 'Failed to send WhatsApp message' });
+    } finally { setWhComposeSending(false); }
+  };
+
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setStats(response.data);
       setLoading(false);
@@ -253,7 +307,7 @@ const AdminPanel = () => {
   const fetchUsers = async () => {
     try {
       const response = await axios.get(`${API}/admin/users`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setUsers(response.data);
     } catch (error) {
@@ -264,7 +318,7 @@ const AdminPanel = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/admin/orders`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setOrders(response.data);
     } catch (error) {
@@ -275,7 +329,7 @@ const AdminPanel = () => {
   const fetchDisputes = async () => {
     try {
       const response = await axios.get(`${API}/admin/disputes`, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       setDisputes(response.data);
     } catch (error) {
@@ -286,7 +340,7 @@ const AdminPanel = () => {
   const handleUserAction = async (userId, action) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       fetchUsers();
     } catch (error) {
@@ -298,7 +352,7 @@ const AdminPanel = () => {
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: true
+        headers: authHeaders(), withCredentials: false
       });
       fetchOrders();
     } catch (error) {
@@ -355,12 +409,12 @@ const AdminPanel = () => {
           </div>
 
           {/* Stats Overview */}
-          <AdminStatsCards stats={stats} />
+          {myRole !== 'agent' && <AdminStatsCards stats={stats} />}
         </div>
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'mail', 'banking', 'zones', 'whatsapp', 'disputes', 'analytics'].map((tab) => (
+          {visibleTabs.map((tab) => (
             <Button
               key={tab}
               variant={selectedTab === tab ? 'default' : 'outline'}
@@ -604,20 +658,62 @@ const AdminPanel = () => {
                         <h3 className="font-semibold mb-3 text-gold-500">{label} ({approvals[key].length})</h3>
                         <div className="space-y-2">
                           {approvals[key].map((row) => (
-                            <div key={row.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
-                              <div>
-                                <p className="font-medium">{row.name || row.id}</p>
-                                <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
-                                {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
+                            <div key={row.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium">{row.name || row.id}</p>
+                                  <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
+                                  {row.source && (
+                                    <span data-testid={`lead-source-${row.id}`} className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                                      🌐 Lead from {row.source}
+                                    </span>
+                                  )}
+                                  {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
+                                    <CheckCircle className="h-4 w-4 mr-1" />Approve
+                                  </Button>
+                                  <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
+                                    <X className="h-4 w-4 mr-1" />Reject
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="flex gap-2">
-                                <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
-                                  <CheckCircle className="h-4 w-4 mr-1" />Approve
-                                </Button>
-                                <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
-                                  <X className="h-4 w-4 mr-1" />Reject
-                                </Button>
-                              </div>
+                              {kind === 'driver' && row.raw?.identity_verification && (
+                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-kyc-${row.id}`}>
+                                  <span className="text-xs font-semibold text-gold-500">Automated KYC (Stripe Identity): </span>
+                                  <Badge
+                                    className={row.raw.identity_verification.status === 'verified'
+                                      ? 'bg-green-600/20 text-green-400'
+                                      : 'bg-yellow-600/20 text-yellow-400'}
+                                  >
+                                    {row.raw.identity_verification.status || 'not started'}
+                                  </Badge>
+                                </div>
+                              )}
+                              {kind === 'driver' && row.raw?.documents && Object.keys(row.raw.documents).length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-docs-${row.id}`}>
+                                  <p className="text-xs font-semibold text-gold-500 mb-2">Identity Documents (click to review)</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {Object.entries(row.raw.documents).map(([docType, docId]) => (
+                                      <Button
+                                        key={docType}
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => viewDocument(docId)}
+                                        data-testid={`view-doc-${row.id}-${docType}`}
+                                      >
+                                        <FileText className="h-3.5 w-3.5 mr-1" />{DOC_LABELS[docType] || docType}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {kind === 'driver' && (!row.raw?.documents || Object.keys(row.raw.documents).length === 0) && (
+                                <p className="mt-3 pt-3 border-t border-border text-xs text-yellow-500" data-testid={`approval-nodocs-${row.id}`}>
+                                  ⚠ No identity documents were submitted with this application.
+                                </p>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -905,7 +1001,51 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'whatsapp' && (
-          <div className="grid md:grid-cols-3 gap-4" data-testid="admin-whatsapp-content">
+          <div className="space-y-4" data-testid="admin-whatsapp-content">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-gold-500" />Send a WhatsApp message</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <Input
+                    data-testid="wa-compose-phone"
+                    value={whComposePhone}
+                    onChange={(e) => setWhComposePhone(e.target.value)}
+                    placeholder="To: +1868… (driver/merchant)"
+                    className="sm:col-span-1"
+                  />
+                  <Input
+                    data-testid="wa-compose-body"
+                    value={whComposeBody}
+                    onChange={(e) => setWhComposeBody(e.target.value)}
+                    placeholder="Message…"
+                    onKeyDown={(e) => e.key === 'Enter' && sendWhCompose()}
+                    className="sm:col-span-2"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs text-muted-foreground">
+                    Note: Customers must message <span className="font-semibold">+1 (252) 374-6444</span> first to receive WhatsApp notifications (WhatsApp's 24h session rule). Once your message templates are approved by Meta, this restriction is lifted and notifications send freely.
+                  </p>
+                  <Button
+                    data-testid="wa-compose-send-btn"
+                    onClick={sendWhCompose}
+                    disabled={whComposeSending || !whComposePhone.trim() || !whComposeBody.trim()}
+                    className="bg-gold-gradient text-white"
+                  >
+                    {whComposeSending ? 'Sending…' : 'Send WhatsApp'}
+                  </Button>
+                </div>
+                {whComposeFeedback && (
+                  <p data-testid="wa-compose-feedback" className={`text-xs ${whComposeFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                    {whComposeFeedback.text}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="grid md:grid-cols-3 gap-4">
             <Card className="md:col-span-1">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-gold-500" />Conversations</CardTitle>
@@ -953,13 +1093,26 @@ const AdminPanel = () => {
               </CardContent>
             </Card>
           </div>
+          </div>
         )}
         {selectedTab === 'mail' && (
           <AdminMailInbox />
         )}
 
+        {selectedTab === 'wallet' && (
+          <AdminWalletRequests />
+        )}
+
         {selectedTab === 'banking' && (
           <AdminMercuryBanking />
+        )}
+
+        {selectedTab === 'team' && (
+          <AdminTeam />
+        )}
+
+        {selectedTab === 'incentives' && (
+          <AdminDriverIncentives />
         )}
 
 

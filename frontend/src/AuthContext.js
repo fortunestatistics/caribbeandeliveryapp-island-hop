@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
       const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('token') : null;
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const response = await axios.get(`${API}/auth/me`, {
-        withCredentials: true,
+        withCredentials: false,
         headers,
         validateStatus: (status) => status < 500,
       });
@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
+      await axios.post(`${API}/auth/logout`, {}, { withCredentials: false });
     } catch (error) {
       console.error('Logout request failed:', error);
     }

@@ -55,7 +55,7 @@ const VendorDashboard = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/vendors/my-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setOrders(response.data);
       setLoading(false);
@@ -68,7 +68,7 @@ const VendorDashboard = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/vendors/stats`, {
-        withCredentials: true
+        withCredentials: false
       });
       setStats(response.data);
     } catch (error) {
@@ -82,7 +82,7 @@ const VendorDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrders();

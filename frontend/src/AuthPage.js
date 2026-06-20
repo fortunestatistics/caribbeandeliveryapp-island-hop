@@ -19,6 +19,18 @@ import {
 } from 'lucide-react';
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
+import axios from 'axios';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const MicrosoftIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+    <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+    <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+    <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+  </svg>
+);
 
 const AuthPage = ({ mode = 'login' }) => {
   const navigate = useNavigate();
@@ -42,8 +54,10 @@ const AuthPage = ({ mode = 'login' }) => {
     address: '',
     referralCode: initialRef
   });
+  const [authError, setAuthError] = useState('');
 
   const handleInputChange = (e) => {
+    setAuthError('');
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
@@ -76,8 +90,9 @@ const AuthPage = ({ mode = 'login' }) => {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Login successful!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token
+        // (SPA navigate() leaves stale auth state and bounces back to /login).
+        window.location.href = '/dashboard';
       } else {
         const response = await authAPI.register({
           email: formData.email,
@@ -94,11 +109,17 @@ const AuthPage = ({ mode = 'login' }) => {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Account created successfully!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token.
+        window.location.href = '/dashboard';
       }
     } catch (error) {
-      alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
+      const detail = error.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d) => (d && typeof d.msg === 'string' ? d.msg : '')).filter(Boolean).join(' ')
+          : 'Authentication failed. Please try again.';
+      setAuthError(msg);
       console.error('Auth error:', error);
     }
   };
@@ -112,11 +133,28 @@ const AuthPage = ({ mode = 'login' }) => {
     }, 50);
   };
 
-  const handleSocialLogin = (provider) => {
+  const handleSocialLogin = async (provider) => {
     if (provider === 'Google') {
       // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
       const redirectUrl = window.location.origin + '/auth/callback';
       window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+      return;
+    }
+    if (provider === 'Microsoft') {
+      try {
+        const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('ms_oauth_state', state);
+        const redirectUri = window.location.origin + '/auth/microsoft/callback';
+        const res = await axios.get(`${API}/auth/social/microsoft/login-url`, {
+          params: { redirect_uri: redirectUri, state },
+        });
+        window.location.href = res.data.url;
+      } catch (err) {
+        const msg = err.response?.status === 503
+          ? 'Microsoft sign-in is not available in this environment yet.'
+          : 'Could not start Microsoft sign-in. Please try again.';
+        alert(msg);
+      }
       return;
     }
     alert(`${provider} login coming soon!`);
@@ -168,6 +206,16 @@ const AuthPage = ({ mode = 'login' }) => {
               >
                 <Chrome className="h-5 w-5 mr-2" />
                 Continue with Google
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => handleSocialLogin('Microsoft')}
+                data-testid="microsoft-login-btn"
+              >
+                <MicrosoftIcon className="h-5 w-5 mr-2" />
+                Continue with Microsoft
               </Button>
               <Button
                 type="button"
@@ -335,6 +383,17 @@ const AuthPage = ({ mode = 'login' }) => {
                   </button>
                 </div>
               )}
+
+              {authError && (
+                <div
+                  className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-300"
+                  data-testid="auth-error-message"
+                  role="alert"
+                >
+                  {authError}
+                </div>
+              )}
+
 
               <Button
                 id="auth-form-submit-btn"

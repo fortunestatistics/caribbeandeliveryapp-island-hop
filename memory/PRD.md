@@ -26,7 +26,176 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
-### Jun 2026 — Google Login fix, Onboarding enforcement, Mercury Banking
+### Jun 20, 2026 — Full PayPal integration (Checkout + Payouts + Webhooks), mode-driven
+- ⚠️ CREDENTIAL FINDING: the "LIVE" PayPal credentials provided are actually SANDBOX creds — verified: they 401 (invalid_client) on `api-m.paypal.com` (live) but return a valid token on `api-m.sandbox.paypal.com`. So `PAYPAL_MODE=sandbox` in .env (NOT live). Going truly live requires LIVE app credentials from the PayPal dashboard; then set PAYPAL_MODE=live + live client id/secret.
+- NEW `backend/paypal_client.py`: REST API v2 via httpx (no SDK). Token caching, create_order, capture_order, get_order, create_payout (Payouts v1), verify_webhook (needs PAYPAL_WEBHOOK_ID). `_base_url()` switches on PAYPAL_MODE.
+- NEW endpoints: `POST /api/payments/paypal/create-order` (wallet_deposit|order), `POST /api/payments/paypal/capture-order` (credits wallet via `_credit_wallet_with_txn`, idempotent via `_settle_paypal_order`), `GET /api/payments/paypal/order-status/{id}`, `POST /api/admin/paypal/payout` (admin), `POST /api/webhooks/paypal` (PAYMENT.CAPTURE.COMPLETED / PAYOUTS-ITEM.* — only acts on verified events). Collections: `paypal_orders`, `paypal_payouts`, `paypal_webhooks`.
+- Frontend: `PaymentMethodsSelector.js` PayPal `enabled:true`; `WalletFunding.js` PayPal deposit → calls create-order → redirects to PayPal approve_url; `CheckoutPage.js` PaymentSuccess handles `via=paypal` (reads `?token=` order id → capture-order).
+- Env added: PAYPAL_CLIENT_SECRET, PAYPAL_MODE=sandbox, PAYPAL_WEBHOOK_ID (empty — set after creating a webhook in PayPal dashboard pointing to /api/webhooks/paypal).
+- VERIFIED on sandbox: token OK, create-order returns real order id + approve_url, order-status reads live+local, admin payout returns real batch id (PENDING). Capture/webhook code in place (capture needs buyer approval to fully exercise). NEEDS REDEPLOY for production — and do NOT deploy as live until live creds work.
+
+
+### Jun 20, 2026 — WhatsApp-ONLY notification engine (Tracy's policy, bypasses A2P 10DLC)
+- NEW unified `twilio_client.send_notification(to, body, channel="whatsapp", content_sid=, content_variables=)`: WhatsApp-first. On send failure → if error 63005 (no 24h session) log + skip (NO SMS fallback); on any other (synchronous) error → SMS fallback. `channel="sms"` forces SMS (OTP/verification only). Note: 63005 is an async delivery failure (Twilio accepts/queues synchronously), so it naturally never triggers SMS fallback.
+- NEW reusable `_wa_notify(phone, body, ...)` in server.py: sends via send_notification + logs to `whatsapp_messages` (automated:true, event, channel_used, skipped). Never raises.
+- Converted to WhatsApp-first: order status → customer (confirmed/picked_up/out_for_delivery/delivered); driver application status (approved/rejected/review — WhatsApp added alongside existing email); driver new-order requests; merchant application status (verified/rejected, on `/admin/businesses/{id}/approve|reject` via new `_notify_merchant_status`); team/admin new-application alert (WhatsApp to `ADMIN_NOTIFY_PHONE` env if set).
+- OTP stays SMS (line ~7116). Manual admin WhatsApp compose unchanged.
+- Admin Panel WhatsApp note updated: "Customers must message +1 (252) 374-6444 first… lifted once templates approved by Meta."
+- Verified on preview: backend restarts clean, send_notification routes correctly (WhatsApp default, SMS forced for OTP), `_wa_notify` logs + Twilio 201. NEEDS REDEPLOY for production.
+
+
+### Jun 20, 2026 — Automatic WhatsApp order-status notifications
+- `update_order_status` now fires a best-effort WhatsApp message to the customer's `customer_phone` on key milestones: `confirmed`, `picked_up`, `out_for_delivery`, `delivered` (fire-and-forget, never blocks the status update). Logged to `whatsapp_messages` with `automated:true` + `event`.
+- `twilio_client.send_whatsapp(to, body, content_sid=None, content_variables=None)` is now TEMPLATE-CAPABLE (Twilio Content API). If env `WHATSAPP_TEMPLATE_CONFIRMED_SID` / `WHATSAPP_TEMPLATE_PICKED_UP_SID` / `WHATSAPP_TEMPLATE_DELIVERED_SID` are set, sends the approved template (delivers outside the 24h window); otherwise sends free-form (delivers only inside the 24h session window). Map in `ORDER_WHATSAPP_EVENTS`.
+- Verified on preview: helper builds the message, Twilio accepts (HTTP 201, real SID), DB logs it. Actual delivery still subject to WhatsApp's 24h/template rule (error 63005 for free-form outside window). PRODUCTION: redeploy + set `TWILIO_WHATSAPP_FROM` (and template SIDs once approved) in Deploy Panel.
+
+
+### Jun 20, 2026 — Twilio WhatsApp enabled + admin compose UI
+- Set `TWILIO_WHATSAPP_FROM=whatsapp:+12523746444` in backend/.env. `twilio_client.send_whatsapp()` (existing) uses the standard Twilio REST `Messages.json` with `whatsapp:` prefix on From/To.
+- Admin Panel → WhatsApp tab: added a "Send a WhatsApp message" compose card (phone + message → `POST /api/whatsapp/send`) so admins/agents can start outbound chats to any driver/merchant number, not just reply. Test IDs: `wa-compose-phone`, `wa-compose-body`, `wa-compose-send-btn`, `wa-compose-feedback`.
+- TEST RESULT (preview): Twilio ACCEPTED the test message to +15166057352 (status `queued`, `mock:false`, real SID) via both direct call and the API endpoint. BUT WhatsApp DELIVERY FAILED with **error 63005** (generic WhatsApp layer failure → maps to WhatsApp 1000). Cause: WhatsApp blocks business-initiated FREE-FORM messages outside the 24h customer-service window. To deliver: recipient must message the WhatsApp sender first (opens 24h session) OR use an approved WhatsApp template. Integration/config is correct; this is a WhatsApp policy rule, not a code bug.
+- PRODUCTION: needs redeploy + `TWILIO_WHATSAPP_FROM` set in Deploy Panel.
+
+
+### Jun 20, 2026 — Application email notifications + diagnosis of islandhoptt.com form
+- DIAGNOSIS: public intake API (`/api/public/applications/driver|merchant`), CORS/preflight, admin pending-approvals (with "🌐 Lead from islandhoptt.com" badge), and M365 mail are ALL working on PRODUCTION (verified live — a direct curl test landed in Admin → Approvals). Root cause of "applications not registering": the form on islandhoptt.com is a **website-builder native form** (item 2.b) that shows its own success message and does NOT POST to our API. Fix = embed the connect-kit form (raw HTML+JS fetch to `islandhopapp.com/api/...` with `X-API-Key`) on islandhoptt.com.
+- ADDED: `_notify_new_application()` — on every public application, emails an internal alert routed to the correct inbox (driver→`drivers@islandhoptt.com`, merchant→`partner@islandhoptt.com`) AND an acknowledgement to the applicant. Fire-and-forget (never blocks intake). Env-overridable via `DRIVER_NOTIFY_MAILBOX`/`MERCHANT_NOTIFY_MAILBOX`. Verified on preview (no errors). Needs redeploy for production.
+
+
+### Jun 20, 2026 — WiPay Caribbean sandbox checkout + auth-token-key bug fix
+- WiPay hosted checkout added as an alternative to Stripe. New `backend/wipay_client.py`; endpoints `POST /api/payments/wipay/checkout/session` and public `GET /api/payments/wipay/callback` (md5 hash verify, marks order paid, redirects to `/payment/success?via=wipay`). Env: `WIPAY_ACCOUNT_NUMBER/API_KEY/ENVIRONMENT/COUNTRY_CODE/CURRENCY` (sandbox: 1234567890 / 123). Frontend "Pay with WiPay" button on `CheckoutPage.js`. Verified end-to-end on preview against real tt.wipayfinancial.com sandbox.
+- FIXED (P0): `WalletPage.js`, `CheckoutPage.js`, `VendorStripeConnect.js` read `localStorage.access_token` (never set) → sent no auth header → false "Not authenticated / Failed to load wallet" banner. Now read `localStorage.token`. Root cause of the long-standing wallet error banner. Verified: wallet + checkout load cleanly, no banner.
+- Twilio SMS confirmed LIVE on preview (real SID returned via `twilio_client.send_sms` and `/api/otp/send`).
+
+
+### Jun 2026 — Fixed Twilio "failed to send" (uncaught errors + phone format)
+- ROOT CAUSE: with `MOCK_TWILIO=false`, `twilio_client._real_send_sms/_real_send_whatsapp` RAISED on any failure → uncaught 500 "failed to send". WhatsApp always crashed (no `TWILIO_WHATSAPP_FROM`). Also `_normalize_phone` didn't add a country code, so bare local numbers (e.g. `7654321`) were rejected by Twilio.
+- FIX: twilio_client now RETURNS `{success:False, error, error_code}` (never raises) + same-number guard. `_normalize_phone` now produces E.164, defaulting bare 7-digit numbers to Trinidad `+1868`, 10-digit→`+1`, 11-digit→`+`. OTP endpoint handles send failure gracefully (preview still returns dev_code; prod raises a friendly 400). WhatsApp endpoint returns clean 400 when no WA sender. Used **400 not 502** because Cloudflare masks origin 5xx with its own error page.
+- SMS itself works (Twilio 201). Tests: `tests/test_twilio_graceful.py` 5/5. NOTE: A2P 10DLC still recommended for US-destination delivery; WhatsApp stays disabled until a WA sender is provisioned.
+
+
+### Jun 2026 — Twilio SMS went LIVE (OTP)
+- Flipped `MOCK_TWILIO=false`; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM=+12523746444` in backend/.env. Installed `twilio==9.10.9` (in requirements.txt). Account validated via REST API: status=active, type=Full (paid), number +12523746444 is SMS-capable. Live path confirmed (Twilio auth succeeded; only rejected a same-number self-test). `twilio_client.py` already used the correct env var names + `messages.create(from_=...)`.
+- WhatsApp left OFF (`TWILIO_WHATSAPP_FROM` empty) — needs a separate WhatsApp-enabled sender. CAVEAT: US long-code (+1252) A2P 10DLC registration recommended for reliable US-destination SMS; T&T (+1868) is international. PREVIEW now sends REAL SMS on phone signups. PRODUCTION: add the 3 TWILIO_* vars + MOCK_TWILIO=false to the Deploy panel + redeploy.
+
+
+### Jun 2026 — Public application intake from islandhoptt.com (external leads)
+- New UNAUTHENTICATED endpoints so the external marketing site submits partner applications that land in Admin → Pending Approvals: `POST /api/public/applications/driver` and `POST /api/public/applications/merchant`.
+- Leads insert into existing `drivers` (status=pending) / `business_applications` (verification_status=pending) with `source:"islandhoptt.com"` + `is_external_lead:true`, `user_id:null` — appear alongside in-app applications, reuse existing approve/reject. `_flatten_pending` returns `source`; AdminPanel shows a "🌐 Lead from islandhoptt.com" badge.
+- Spam protection: per-IP **rate limit 5/hr** (`public_application_log`, X-Forwarded-For aware)→429; **honeypot** `hp` field (silently accepted, not stored); **optional `X-API-Key`** vs `PUBLIC_APPLICATIONS_API_KEY` (backend/.env). CORS wildcard already allows islandhoptt.com.
+- Tested: `tests/test_public_applications.py` 4/4 + curl rate-limit verified; test data cleaned. PRODUCTION: add `PUBLIC_APPLICATIONS_API_KEY` to Deploy panel + redeploy.
+
+### Jun 2026 — Facebook Login config staged (App ID 2180974786018435 in FB_APP_ID/REACT_APP_FB_APP_ID; awaiting App Secret before building the button).
+
+
+### Jun 2026 — Support inbox workflow: instant auto-reply + assign-to-agent
+- New workflow on the Admin → Mail tab (`AdminMailInbox.js`): (1) **instant auto-reply** to NEW inbound client emails with admin-editable template (subject + `{name}` placeholder body), enable/disable toggle, and a manual **"Run now"**; (2) **assign-to-agent** per email (admin assigns any admin/agent; agent self-claims) with assigned/auto-replied/resolved **badges** + **Mark resolved**.
+- Safety: a **watermark** (`autoreply_since`) means enabling NEVER blasts the existing mailbox backlog (only mail received after enablement); **one auto-reply per conversationId** (idempotent); skip rules for no-reply/notification/mailer-daemon senders + "Auto:"/"Automatic reply" subjects to prevent loops.
+- Backend (`server.py`): `/api/admin/mail/auto-reply/settings` GET/PUT, `/auto-reply/run` POST, `/team` GET, `/tickets` GET, `messages/{id}/assign` POST, `messages/{id}/resolve` POST; message-list endpoint now enriches each message with a `.ticket` (auto_replied/assignment/status). Mail read/reply endpoints opened to `admin`+`agent`. New collection `mail_tickets`; settings in `app_settings` doc `mail_autoreply`. `graph_mail.list_messages` now selects `conversationId`.
+- Background poller (every 2 min) is **gated by env `MAIL_AUTOREPLY_POLL_ENABLED` (default off)** so only ONE environment auto-replies to the shared mailboxes. **PRODUCTION must set `MAIL_AUTOREPLY_POLL_ENABLED=true`** in the Deploy panel for fully-automatic instant replies; otherwise admins use "Run now". Preview intentionally leaves it off.
+- Tested: `test_mail_autoreply_workflow.py` 10/10 pytest + full frontend QA (iteration_16) = 100%, zero bugs. Auto-reply template restored to production default after QA.
+
+### Jun 2026 — M365 Mail production fix + deployment blockers
+- **Root cause of "approval pending" on live site:** production ran with PLACEHOLDER M365 creds (`M365_TENANT_ID=logistics-island`). Admin consent was NOT the issue (already granted in Azure). Corrected `backend/.env` to the verified-working app: tenant `2c1ceb20-5931-4915-8876-ce77f7b4152b`, client `3547d007-5f7f-49e0-8400-c531e9ff1824`, secret `X9e8Q~...`. Verified on preview: `consent_granted:true`, 19 Graph roles, real emails load from all 7 mailboxes; admins can reply via Admin → Mail tab.
+- **IMPORTANT for production:** backend loads `.env` WITHOUT override (`dotenv_override_detected:false`), so Deploy-panel env vars win. To go live the user must (a) update any M365_* Deploy-panel vars from `logistics-island` to the real values above, and (b) redeploy. If no Deploy-panel M365 overrides exist, a plain redeploy picks up the corrected committed `.env`.
+- Tracy explored a second app `84d3c4ea-...` but only ever provided GUID IDs (Secret ID / Object ID), never the actual Client Secret VALUE → AADSTS7000215. Decision: stay on the working `3547d007-...` app (Option A). `84d3c4ea-...` historically lacked Mail permissions/consent.
+- **Deployment readiness: PASS (0 blockers).** Fixed 4 unbounded Mongo queries flagged by deploy scan: `get_user_orders` (customer/restaurant/driver order lists → `.sort(created_at desc).limit(200)`) and `push_subscriptions` fetch (`.limit(50)`).
+
+### Jun 2026 — "Midnight Tropical" theme re-skin (whole app)
+- Re-themed the entire app from the old Matte-Black/Gold/Cyan look to **Midnight Tropical**: deep navy/charcoal base + **sunset-orange** primary + **teal** secondary accent. User-requested, mobile-first marketplace direction (Uber/DoorDash-style but dark).
+- Done centrally via design tokens (no per-component churn): `tailwind.config.js` repurposed `matte`→navy scale (`#0A1824/#102433/#1C3A52`), `gold`→sunset-orange (`#FDBA74/#F97316/#EA580C`), `neon.cyan`→teal (`#2DD4BF`); updated `gold-gradient` bg images, `gold-glow`/`cyan-pulse` shadows. `index.css` `:root`+`.dark` CSS vars now midnight (bg `hsl(207 56% 9%)`, primary orange `hsl(25 95% 53%)`, accent teal `hsl(172 66% 50%)`), plus `.text-gold`/`.text-gold-gradient`/selection/scrollbar. Literal hex updated in `LiveOrderMapPreview.js` + `celebrate.js`; orange radial-glow in `App.js`.
+- NOTE: legacy token names (`matte`/`gold`/`neon.cyan`, `.text-gold`, `bg-gold-gradient`, `shadow-gold-glow`) are intentionally reused for the re-skin — they now render navy/orange/teal. Comment added in tailwind.config.js. Future refactor could rename to `navy-/sunset-/teal-`.
+- Preview-only page `/theme-preview` (and `?opt=3`) added earlier for palette comparison (light Option 2/3); left in place, harmless.
+- Verified: frontend compiles clean; testing agent iteration_15 = 100% visual readability across Landing, Login, Dashboard, Admin (Overview/Users/Orders/Approvals), Restaurants, shadcn popover/dialog/dropdown. No JS errors or contrast regressions from the theme.
+
+
+- Verified "hardcoded secrets" findings are FALSE POSITIVES (throwaway test passwords like `Test1234!` for ephemeral runtime accounts; `graph_mail.py:139` is OData `$skiptoken=` pagination parsing). Real secrets remain in `.env`.
+- `pyflakes` on all backend modules = **0 undefined names** → the "18 undefined variables" are false positives (analyzer can't resolve dynamic/imported names). No crash risk.
+- Fixed the one in-scope item: empty error handler in `AdminTeam.js` audit-log loader now logs at debug level.
+- DEFERRED (high-risk on a LIVE app, need a dedicated tested phase): localStorage→httpOnly cookie auth migration (~20 files); adding the intentionally-suppressed React hook deps (suppressed to prevent infinite render loops); splitting large components (AdminPanel 1022 lines, BusinessOnboarding 1211); backend high-complexity refactors; wholesale console-statement removal.
+
+### Jun 2026 — OAuth-account login crash fix + login error UX + production www-URL diagnosis
+- **Login 500 crash fixed**: OAuth-only users (Google/Microsoft, no `hashed_password`) attempting email/password login crashed `pwd_context.verify` (empty hash). Now `verify_password` defensively returns False on empty/invalid hashes, and `/auth/login` returns a clear 401: "This account uses Google/Microsoft sign-in. Please use the Continue with {provider} button." (provider-aware via `auth_provider`).
+- **Login error UX bug fixed**: `api.js` response interceptor redirected to `/login` on ANY 401 — including the login call itself — so failed logins silently reloaded and NEVER showed an error. Now skips redirect for `/auth/login` & `/auth/register`. AuthPage shows an inline red error banner (`data-testid="auth-error-message"`) instead of `alert()`; handles string + array(422) details.
+- Tests: `tests/test_oauth_login_guard.py` (4 passing). Verified banner in-browser.
+- **withCredentials → false** across all 57 frontend call sites (auth is Bearer-token; avoids cross-origin credentialed-CORS blocks).
+- **PRODUCTION login still broken — platform/domain issue (NOT code)**: deployed frontend bundle is built with `REACT_APP_BACKEND_URL=https://www.islandhopapp.com` (www), which 308-redirects to the apex, blocking browser API calls. Backend at apex `islandhopapp.com` is healthy (register/login return 200 directly; CORS correct). `REACT_APP_BACKEND_URL` is auto-set by the platform and not user-editable; re-link+redeploy did not regenerate the bundle. ESCALATED to support@emergent.sh: need canonical domain set to apex `islandhopapp.com` + forced clean frontend rebuild. Deployment health check: PASS (0 blockers).
+
+
+**Merchant reviews (Google-style, on RestaurantMenu `/restaurant/:id`):**
+- New collection `merchant_reviews`. Endpoints: `GET /api/merchants/{id}/reviews` (public: returns `{summary:{average,count,distribution}, reviews, can_reply}`; optional auth sets can_reply), `POST /api/merchants/{id}/reviews` (auth; upsert one review per customer; rating 1-5 + comment), `POST /api/merchants/{id}/reviews/{review_id}/reply` (merchant owner via restaurants/businesses/car_rental_companies.user_id, or admin).
+- Frontend `MerchantReviews.js`: avg + star-distribution bars, write-review form (StarPicker + comment), review cards (avatar/name/stars/date/comment), nested merchant reply, owner-only reply form. Mounted at bottom of RestaurantMenu.
+- Tests: `tests/test_merchant_reviews.py` (5 passing).
+
+**Driver multi-area reviews + MONTHLY tiered incentives:**
+- 5 rating areas (customer rates post-delivery): Overall(`driver_rating`), Punctuality/Speed(`delivery_speed`), Professionalism(`driver_professionalism`), Care(`driver_care`), Communication(`driver_communication`). Added 3 new fields to Rating + RatingCreate models and `create_rating`. `ReviewForm.js` extended with the 4 sub-area star rows (also fixed token-key bug: `access_token`→`token`).
+- Monthly engine: `GET /api/admin/driver-incentives/leaderboard?month=YYYY-MM` (per-area avgs, composite, deliveries, ratings_count, qualified flag, ranked) and `POST /api/admin/driver-incentives/run-monthly` (pays tiered top-3, idempotent per month). Config: tiers $200/$100/$50 USD; qualify ≥20 deliveries AND ≥10 ratings/month. Writes `driver_incentives` docs type `monthly_top_driver`. (Existing weekly bonus untouched.)
+- Frontend: new Admin tab "Incentives" (`AdminDriverIncentives.js`) — month picker, tier/threshold banner, leaderboard table with per-area scores + medals for top-3, "Run payout" button (disabled when 0 qualified or already paid), awarded banner.
+- Tests: `tests/test_driver_monthly_incentives.py` (2 passing — seeds qualifying driver via fresh Motor client, verifies rank/payout/idempotency via HTTP).
+
+**Compact footer:** `Footer.js` condensed from a large 3-col block (5 big email cards) into a slim single row (brand + Instagram + 5 inline contact pills + thin copyright/website/About row). `mt-20`→`mt-12`, `py-12`→`py-7`.
+
+All verified: 16 new backend tests pass; merchant-reviews UI, admin incentives tab, and tracking map confirmed in-browser.
+
+
+- **OrderTrackingPageWithMaps.js bug FIXED**: page crashed with `Cannot read properties of undefined (reading 'maps')` because `new window.google.maps.Size(40,40)` was evaluated inline in Marker icon JSX BEFORE LoadScript injected `window.google` → the whole tracking page went blank ("Oops! Something went wrong"). Fix: removed the redundant `scaledSize` (the SVG markers are already 40×40). Verified in-browser: map tiles + delivery marker render, no crash overlay. (This was the real cause of the grey map — NOT the API key.)
+- **Full E2E run (iteration_14, PREVIEW)**: restaurant onboarding + menu → driver KYC + admin approval + go-online → customer order → Stripe TEST checkout (paid) → driver assignment → delivery lifecycle → POD upload → driver wallet credit. ALL PASS. Backend 29/29 (20 E2E + 4 profile + 5 Microsoft). Login→dashboard + profile flows verified.
+- `test_e2e_dryrun_iter12.py` updated by testing agent: logs in as the seeded owner admin (post registration-lockdown, /auth/register always returns customer).
+- Driver doc upload `doc_type` values are camelCase: `driversLicense`, `vehicleRegistration`, `insurance`, `certificateOfCharacter`, `profilePhoto`.
+
+
+- **LOGIN BUG FIXED**: email/password login stored the JWT but used `navigate('/dashboard')` (SPA nav). `AuthContext` only runs `checkAuth()` once on mount and exposes no refresh, so it stayed logged-out and `ProtectedRoute` bounced the user back to `/login` (showed generic "Authentication failed"). Fix: `AuthPage.js` now does `window.location.href = '/dashboard'` after login/signup (matches the Google/Microsoft callback pattern → forces AuthContext re-hydration). Verified end-to-end in browser.
+- **CORS FIX** (earlier this session, related): `allow_credentials=True` + `allow_origins=["*"]` is forbidden by browsers for credentialed requests → blocked cross-origin (custom-domain) calls. `server.py` now uses `allow_origin_regex=".*"` when origins are wildcard (reflects exact origin + Allow-Credentials). Requires redeploy for production.
+- **Customer profile**: new `PUT /api/users/me` (UserProfileUpdate: name/phone/picture/address; ~2MB base64 picture guard). New `ProfilePage.js` at `/profile` (ProtectedRoute) — avatar upload (client-side canvas resize to 400px → base64 jpeg), name/phone, address (street/city/country); required picture+address before save. Dashboard shows a "Complete your profile" banner when picture/address missing, an "Edit Profile" button, and the address on the Profile card.
+- Tests: `tests/test_profile_update.py` (4), `tests/test_microsoft_social_login.py` (5) — all passing.
+- Google Maps: user moved to a billing-enabled key `AIzaSyC4-...` (swapped into both .env). Maps JS + Directions APIs verified working via live browser render. Map displays. (Production needs the same key set in Deploy env + redeploy.)
+
+
+- **"Continue with Microsoft"** added to AuthPage (between Google & Apple, with the 4-square MS logo). Reuses the existing **M365 Azure app registration** (`M365_CLIENT_ID`/`M365_TENANT_ID`/`M365_CLIENT_SECRET`) — no new secrets.
+- Flow (mirrors Google, frontend-centric + backend code exchange): frontend gets authorize URL from `GET /api/auth/social/microsoft/login-url?redirect_uri=&state=` → redirects browser to Microsoft → returns `code` to frontend route `/auth/microsoft/callback` (`MicrosoftAuthCallback.js`, verifies `state` from sessionStorage) → posts `{code, redirect_uri}` to `POST /api/auth/social/microsoft` → backend exchanges code for tokens, **verifies the ID token via JWKS** (signature/issuer/audience), create-or-links the user by email (`auth_provider="microsoft"`), mints our existing JWT.
+- **Preview vs prod**: preview `M365_*` are placeholders (`logistics-island`), so both endpoints return **503 "not configured"** gracefully; the button shows a friendly alert. In **production** the real Azure creds make it live — BUT the user must add **Web platform redirect URIs** to the Azure app: `https://islandhopapp.com/auth/microsoft/callback` (and the preview URL if testing there) + ensure delegated scopes `openid profile email`.
+- Tests: `tests/test_microsoft_social_login.py` (5 passing — 503 paths via HTTP + mocked configured happy-path via asyncio.run).
+- Apple sign-in still "coming soon" (needs paid Apple Developer account + Service ID/Team ID/Key ID/.p8).
+
+### Jun 2026 — Production config alignment
+- `backend/.env`: `FRONTEND_URL` and `CARIPAY_API_BASE_URL` updated from `www.islandhoptt.com` → **`islandhopapp.com`** (the live production domain). NOTE: production env vars are separate — user must also set `FRONTEND_URL=https://islandhopapp.com` in the Deploy panel + redeploy.
+- Stripe confirmed in TEST mode (`sk_test...`/`pk_test...`, same account). Deployment health check: PASS (0 blockers).
+
+
+- **Owner/super-admin seeded** from env (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) idempotently on startup; marked `is_owner` (can't be revoked/demoted).
+- **SECURITY FIX**: public `POST /api/auth/register` now always creates `user_type=customer` (ignores any `user_type` in the body) — admins/agents can no longer self-register.
+- **Roles**: `admin` (full access) + `agent` (support agent — only overview/claims/mail/disputes tabs; admin-only endpoints 403). `/admin` route allows both; tabs gated by `myRole`; stats hidden for agents.
+- **Team management** (admin-only): `GET/POST /api/admin/team`, `/promote`, `/revoke` (owner & self protected), `/invite` (emails link via M365, returns invite_link). Invite accept (public): `GET /api/auth/invite/{token}`, `POST /api/auth/invite/accept`. Change password: `POST /api/auth/change-password`.
+- **Frontend**: Admin Panel → "Team" tab (`AdminTeam.js`); invite-accept page `/admin/invite/:token` (`AdminInviteAccept.js`).
+- Tests: `tests/test_admin_team.py` (7). Verified iteration_13 (100% — 12 backend + 12 frontend).
+- PRODUCTION: set `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars in the deployed app + redeploy so the owner seeds there too.
+
+### Jun 2026 — Full E2E dry-run (preview, Stripe test mode) — ALL GREEN
+- Verified the complete chain (iteration_12, 20/20 pytest): restaurant onboarding + menu → driver onboarding + admin approval + go-online → customer order → Stripe TEST-card (4242) checkout captured (payment_status=paid) → driver assignment → delivery lifecycle + proof upload → driver wallet/earnings credited.
+- Fixed en route: ObjectId leak on `GET /api/restaurants/{id}/menu`; datetime JSON-serialization in `/orders/create` WebSocket broadcast (added `prepare_for_mongo` + `default=str`).
+- Removed `ProtectedRoute` gate on `/payment/success` & `/payment/cancel` so the Stripe-redirect confirmation always renders (polls by session_id; status endpoint is unauthenticated).
+- KYC decision emails (M365) wired into approve/reject + auto-KYC outcomes (best-effort; preview has placeholder M365 creds so they only send in production). Tests: `tests/test_driver_notifications.py`.
+- Known/parked: auto-driver assignment on `/orders/create` picks first online driver (no geo filter) — use `/find-driver`+`/accept-driver` for production; `paid_at` not surfaced on Order model (cosmetic).
+
+### Jun 2026 — Automated KYC (Stripe Identity) for drivers
+- **Stripe Identity** integration (reuses existing `STRIPE_API_KEY`): document authenticity + selfie/liveness. Model = automated-first with admin fallback.
+- Endpoints: `POST /api/drivers/identity/start` (creates hosted verification session), `GET /api/drivers/identity/status` (retrieves + reconciles from Stripe; auto-approves on `verified`), `POST /api/webhook/stripe/identity` (production real-time, needs `STRIPE_WEBHOOK_SECRET_IDENTITY`). On `verified`: driver → active + user_type → driver automatically; any other outcome stays pending for manual admin review.
+- Frontend: onboarding submit auto-launches the Stripe hosted flow; returns to `/driver/verification/callback` (`IdentityVerificationCallback.js`) which polls status. Admin Approvals shows a per-driver KYC badge.
+- Tests: `tests/test_identity_kyc.py` (3) + testing-agent `test_identity_kyc_review.py` (7). Verified iteration_11 (100% backend + frontend).
+- To go LIVE: enable the Identity product in the Stripe Dashboard + switch to live key + set `STRIPE_WEBHOOK_SECRET_IDENTITY`.
+- NEXT: extend secure ID upload + (optionally Identity) verification to **customers** (user requested).
+
+### Jun 2026 — Driver KYC document upload + admin identity review (manual)
+- **Secure ID document storage**: new `storage_client.py` integrates Emergent **Object Storage** (private; uses `EMERGENT_LLM_KEY`). Driver docs (License, Registration, Insurance, Certificate of Character, Profile Photo) upload via `POST /api/drivers/documents` and are retrievable only by the owner or an admin via `GET /api/drivers/documents/{id}/download` (others 403). Files are never public.
+- **Application flow fixed**: `POST /api/drivers` previously 422'd (required `user_id` in body) — replaced with `DriverApplicationCreate`. New applicants are `status="pending"`, store `documents`/`personal_info`/`vehicle_info`/`banking_info`, and are NOT promoted to `user_type=driver` until approved. `PUT /api/drivers/status` is blocked (403) while pending/rejected.
+- **Admin review UI**: Approvals tab shows each driver's identity documents with "View" buttons (blob fetch). `POST /api/admin/drivers/{id}/approve` flips status→active AND user_type→driver; `/reject` sets rejected.
+- **Frontend** (`DriverOnboarding.js`): uploads each file immediately with Bearer auth, shows "✓ Securely uploaded", gates Next/Submit until all 5 docs uploaded.
+- **Fixes**: `/api/drivers/me`, `/api/admin/users`, `/api/admin/orders` ObjectId-serialization 500s.
+- **Deployment hardening**: added `.limit()` to 5 unbounded queries (vendor orders, addresses, support tickets, claims, restaurant menu) to prevent Atlas memory/timeout pod restarts.
+- Tests: `backend/tests/test_driver_onboarding_kyc.py` (3), verified via testing agent iteration_10 (100% backend + frontend).
+- NEXT: extend the same secure ID-upload + review to **customers** (user requested).
+
+
 - **Fixed Google Social Login 401**: root cause was a stale global `AuthHandler` in `App.js` that consumed the single-use OAuth `session_id` (POSTing to legacy `/api/auth/session`) before `SocialAuthCallback` (`/auth/callback`) could exchange it via `/api/auth/social/google`. Removed `AuthHandler`. Added diagnostic logging to the backend endpoint.
 - **Driver Onboarding required-document enforcement** (`DriverOnboarding.js`): `validateStep`/`getMissingDocuments` block "Next" on the Documents step with a destructive toast; "Submit Application" is disabled until all 5 required docs (License, Registration, Insurance, Certificate of Character, Profile Photo) are uploaded.
 - **Mercury Business Banking (read-only)** — reconcile Stripe payouts vs Mercury deposits. New `mercury_client.py` (LIVE production token in `.env`, 3 real accounts). Admin endpoints: `/api/admin/mercury/status|accounts|reconciliation?days=N`. New Admin Panel "Banking" tab (`AdminMercuryBanking.js`). Matching heuristic: amount within $0.01 + posting date within ±4 days of payout arrival. 5 unit tests in `tests/test_mercury_reconciliation.py`.

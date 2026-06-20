@@ -61,7 +61,7 @@ const DriverDashboard = () => {
   const fetchDriverData = async () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
-        withCredentials: true
+        withCredentials: false
       });
       setDriver(response.data);
       setIsOnline(response.data.status === 'online');
@@ -75,7 +75,7 @@ const DriverDashboard = () => {
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
-        withCredentials: true
+        withCredentials: false
       });
       setOrderRequests(response.data);
     } catch (error) {
@@ -86,7 +86,7 @@ const DriverDashboard = () => {
   const fetchActiveOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/active-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setActiveOrders(response.data);
     } catch (error) {
@@ -97,7 +97,7 @@ const DriverDashboard = () => {
   const fetchEarnings = async () => {
     try {
       const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
-        withCredentials: true
+        withCredentials: false
       });
       setEarnings({
         today: response.data.today_earnings || 0,
@@ -107,7 +107,7 @@ const DriverDashboard = () => {
       });
       // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
       try {
-        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
+        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: false });
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
       } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
@@ -121,7 +121,7 @@ const DriverDashboard = () => {
       await axios.put(`${API}/drivers/status`, {
         status: newStatus
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       setIsOnline(!isOnline);
     } catch (error) {
@@ -176,7 +176,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/accept-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrderRequests();
@@ -192,7 +192,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/reject-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrderRequests();
@@ -207,7 +207,7 @@ const DriverDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchActiveOrders();
