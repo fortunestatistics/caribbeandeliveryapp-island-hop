@@ -26,6 +26,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — Application email notifications + diagnosis of islandhoptt.com form
+- DIAGNOSIS: public intake API (`/api/public/applications/driver|merchant`), CORS/preflight, admin pending-approvals (with "🌐 Lead from islandhoptt.com" badge), and M365 mail are ALL working on PRODUCTION (verified live — a direct curl test landed in Admin → Approvals). Root cause of "applications not registering": the form on islandhoptt.com is a **website-builder native form** (item 2.b) that shows its own success message and does NOT POST to our API. Fix = embed the connect-kit form (raw HTML+JS fetch to `islandhopapp.com/api/...` with `X-API-Key`) on islandhoptt.com.
+- ADDED: `_notify_new_application()` — on every public application, emails an internal alert routed to the correct inbox (driver→`drivers@islandhoptt.com`, merchant→`partner@islandhoptt.com`) AND an acknowledgement to the applicant. Fire-and-forget (never blocks intake). Env-overridable via `DRIVER_NOTIFY_MAILBOX`/`MERCHANT_NOTIFY_MAILBOX`. Verified on preview (no errors). Needs redeploy for production.
+
+
 ### Jun 20, 2026 — WiPay Caribbean sandbox checkout + auth-token-key bug fix
 - WiPay hosted checkout added as an alternative to Stripe. New `backend/wipay_client.py`; endpoints `POST /api/payments/wipay/checkout/session` and public `GET /api/payments/wipay/callback` (md5 hash verify, marks order paid, redirects to `/payment/success?via=wipay`). Env: `WIPAY_ACCOUNT_NUMBER/API_KEY/ENVIRONMENT/COUNTRY_CODE/CURRENCY` (sandbox: 1234567890 / 123). Frontend "Pay with WiPay" button on `CheckoutPage.js`. Verified end-to-end on preview against real tt.wipayfinancial.com sandbox.
 - FIXED (P0): `WalletPage.js`, `CheckoutPage.js`, `VendorStripeConnect.js` read `localStorage.access_token` (never set) → sent no auth header → false "Not authenticated / Failed to load wallet" banner. Now read `localStorage.token`. Root cause of the long-standing wallet error banner. Verified: wallet + checkout load cleanly, no banner.

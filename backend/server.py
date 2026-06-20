@@ -7737,7 +7737,7 @@ async def _notify_new_application(kind: str, doc: dict):
     the applicant when a public application lands. Never raises — best effort."""
     admin_email = os.environ.get("ADMIN_EMAIL")
     if kind == "driver":
-        team_mailbox = os.environ.get("DRIVER_NOTIFY_MAILBOX") or os.environ.get("ADMIN_EMAIL")
+        inbox = os.environ.get("DRIVER_NOTIFY_MAILBOX") or "drivers@islandhoptt.com"
         label = "driver"
         summary = (
             f"<li><b>Name:</b> {doc.get('name','')}</li>"
@@ -7747,7 +7747,7 @@ async def _notify_new_application(kind: str, doc: dict):
             f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
         )
     else:
-        team_mailbox = "partner@islandhoptt.com"
+        inbox = os.environ.get("MERCHANT_NOTIFY_MAILBOX") or "partner@islandhoptt.com"
         label = "merchant"
         summary = (
             f"<li><b>Business:</b> {doc.get('business_name','')}</li>"
@@ -7770,18 +7770,21 @@ async def _notify_new_application(kind: str, doc: dict):
         f"<p>— The IslandHop Team</p>"
     )
 
-    # Internal alert (sent from the team mailbox to the admin inbox)
+    # Internal alert → routed to the correct team inbox (drivers@ / partner@),
+    # sent from the admin mailbox so it lands cleanly in that inbox.
+    sender = admin_email or inbox
     try:
-        if admin_email:
-            await graph_mail.send_mail(admin_email, f"New {label} application — {doc.get('name') or doc.get('business_name','')}",
-                                       internal_html, mailbox=team_mailbox)
+        await graph_mail.send_mail(
+            inbox,
+            f"New {label} application — {doc.get('name') or doc.get('business_name','')}",
+            internal_html, mailbox=sender)
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"New-application internal alert email failed ({kind}): {exc}")
-    # Acknowledgement to the applicant
+    # Acknowledgement to the applicant, sent from the team inbox so replies route correctly.
     try:
         if doc.get("email"):
             await graph_mail.send_mail(doc["email"], "We received your IslandHop application",
-                                       ack_html, mailbox=team_mailbox)
+                                       ack_html, mailbox=inbox)
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"New-application ack email failed ({kind}): {exc}")
 
