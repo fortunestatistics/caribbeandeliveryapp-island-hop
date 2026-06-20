@@ -2141,6 +2141,46 @@ async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
     return {"driver_payout_status": "accumulated"}
 
 
+async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
+                     event: Optional[str] = None, order_id: Optional[str] = None,
+                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None):
+    """Send a WhatsApp-first notification and log it to whatsapp_messages. Never raises.
+
+    Uses the unified WhatsApp-first engine: on 63005 (no 24h session) it logs and skips,
+    on other errors it falls back to SMS. Returns the send result (or None if no phone)."""
+    norm = _normalize_phone(phone or "")
+    if not norm:
+        return None
+    try:
+        result = twilio_client.send_notification(
+            norm, body, channel="whatsapp",
+            content_sid=content_sid, content_variables=content_variables,
+        )
+        await db.whatsapp_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "order_id": order_id,
+            "phone": norm,
+            "direction": "outbound",
+            "body": body,
+            "status": result.get("status", "failed" if not result.get("success") else "queued"),
+            "twilio_sid": result.get("sid"),
+            "automated": True,
+            "event": event,
+            "channel_used": result.get("channel_used", "whatsapp"),
+            "skipped": result.get("skipped", False),
+            "mock": result.get("mock", False),
+            "error": result.get("error"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        if not result.get("success") and not result.get("skipped"):
+            logging.warning(f"WA notify ({event}) to {norm} failed: {result.get('error')} ({result.get('error_code')})")
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"WA notify ({event}) crashed: {exc}")
+        return None
+
+
 # Map order status → WhatsApp message + optional approved-template env key.
 # Template SIDs are required to message customers outside WhatsApp's 24h window;
 # if unset, we send free-form (delivers only within the 24h session window).
@@ -2157,38 +2197,16 @@ async def _notify_order_whatsapp(order: dict, status: str):
     cfg = ORDER_WHATSAPP_EVENTS.get(status)
     if not cfg:
         return
-    phone = _normalize_phone(order.get("customer_phone") or "")
-    if not phone:
-        return
     msg_template, template_env_key = cfg
     short = str(order.get("id", ""))[:8]
     body = msg_template.format(short=short)
     content_sid = os.environ.get(template_env_key) or None
-    try:
-        result = twilio_client.send_whatsapp(
-            phone, body,
-            content_sid=content_sid,
-            content_variables={"1": short} if content_sid else None,
-        )
-        await db.whatsapp_messages.insert_one({
-            "id": str(uuid.uuid4()),
-            "user_id": order.get("customer_id"),
-            "order_id": order.get("id"),
-            "phone": phone,
-            "direction": "outbound",
-            "body": body,
-            "status": result.get("status", "failed" if not result.get("success") else "queued"),
-            "twilio_sid": result.get("sid"),
-            "automated": True,
-            "event": status,
-            "mock": result.get("mock", False),
-            "error": result.get("error"),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        if not result.get("success"):
-            logging.warning(f"Order WhatsApp ({status}) to {phone} failed: {result.get('error')} ({result.get('error_code')})")
-    except Exception as exc:  # noqa: BLE001
-        logging.warning(f"Order WhatsApp ({status}) crashed: {exc}")
+    await _wa_notify(
+        order.get("customer_phone") or "", body,
+        user_id=order.get("customer_id"), event=status, order_id=order.get("id"),
+        content_sid=content_sid,
+        content_variables={"1": short} if content_sid else None,
+    )
 
 
 async def update_order_status(order_id: str, status: str, request: Request):
@@ -2926,6 +2944,26 @@ async def _notify_driver_status(user_id: str, decision: str, notes: Optional[str
         await graph_mail.send_mail(user["email"], subject, html)
     except Exception as exc:  # noqa: BLE001 — notifications must never break the flow
         logging.warning(f"Driver notification ({decision}) failed for {user_id}: {exc}")
+
+    # WhatsApp-first notification (Tracy's "WhatsApp-Only" policy).
+    try:
+        driver = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "phone": 1})
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "phone": 1, "name": 1})
+        phone = (driver or {}).get("phone") or (user or {}).get("phone")
+        name = (user or {}).get("name") or "there"
+        wa_bodies = {
+            "approved": (f"🎉 Hi {name}, you're APPROVED to drive with IslandHop! Log in to go online and start "
+                         f"accepting trips. Reply to this WhatsApp to stay connected for future updates. 🌴"),
+            "rejected": (f"Hi {name}, an update on your IslandHop driver application: we're unable to approve it at "
+                         f"this time." + (f" Reason: {notes}" if notes else "") + " Reply here if you'd like to reapply."),
+            "review": (f"Hi {name}, your IslandHop driver verification needs a quick manual review. No action needed — "
+                       f"we'll be in touch within 24–48 hours. Reply to this WhatsApp to stay connected."),
+        }
+        wa_body = wa_bodies.get(decision)
+        if phone and wa_body:
+            await _wa_notify(phone, wa_body, user_id=user_id, event=f"driver_{decision}")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Driver WhatsApp notification ({decision}) failed for {user_id}: {exc}")
 
 
 async def _apply_identity_result(driver: dict, session) -> str:
@@ -4121,6 +4159,15 @@ async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n
             }),
             driver["user_id"],
         )
+        # WhatsApp-first alert so drivers react even with the app closed.
+        if driver.get("phone"):
+            earn = order.get("driver_earnings", 0)
+            await _wa_notify(
+                driver["phone"],
+                f"📦 New IslandHop delivery available (~{round(item['distance'], 1)}km, est. ${earn}). "
+                f"Open the app to accept. Reply here to stay connected.",
+                user_id=driver.get("user_id"), event="driver_new_order", order_id=order["id"],
+            )
         notified.append({"driver_id": driver["id"], "distance_km": round(item["distance"], 2)})
     return notified
 
@@ -7710,7 +7757,9 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
+    result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
+    await _notify_merchant_status(application_id, "verified", payload.notes)
+    return result
 
 
 @api_router.post("/admin/businesses/{application_id}/reject")
@@ -7718,7 +7767,30 @@ async def admin_reject_business(application_id: str, payload: ApprovalAction, re
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+    result = await _set_partner_status("business_applications", application_id, "rejected", current_user.id, payload.notes, status_field="verification_status")
+    await _notify_merchant_status(application_id, "rejected", payload.notes)
+    return result
+
+
+async def _notify_merchant_status(application_id: str, decision: str, notes: Optional[str] = None):
+    """WhatsApp-first notification to a merchant on an application decision. Never raises."""
+    try:
+        app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+        if not app_doc:
+            return
+        phone = app_doc.get("phone") or app_doc.get("business_owner", {}).get("phone")
+        biz = app_doc.get("business_name") or app_doc.get("name") or "your business"
+        bodies = {
+            "verified": (f"🎉 Great news! {biz} is now APPROVED on IslandHop. You can log in to manage your menu/listings "
+                         f"and receive orders. Reply to this WhatsApp to stay connected for future updates. 🌴"),
+            "rejected": (f"Update on your IslandHop application for {biz}: we're unable to approve it at this time."
+                         + (f" Reason: {notes}" if notes else "") + " Reply here if you'd like to reapply."),
+        }
+        body = bodies.get(decision)
+        if phone and body:
+            await _wa_notify(phone, body, user_id=app_doc.get("user_id"), event=f"merchant_{decision}")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Merchant WhatsApp notification ({decision}) failed for {application_id}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -7840,6 +7912,16 @@ async def _notify_new_application(kind: str, doc: dict):
                                        ack_html, mailbox=inbox)
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"New-application ack email failed ({kind}): {exc}")
+
+    # WhatsApp-first alert to the ops/admin team (if an admin notify number is configured).
+    admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
+    if admin_phone:
+        who = doc.get("name") or doc.get("business_name", "")
+        await _wa_notify(
+            admin_phone,
+            f"🌐 New {label} application: {who} ({doc.get('phone','')}). Review it in Admin → Approvals.",
+            event=f"new_{label}_application",
+        )
 
 
 @api_router.post("/public/applications/driver")

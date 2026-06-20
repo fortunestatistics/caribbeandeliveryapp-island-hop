@@ -26,6 +26,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — WhatsApp-ONLY notification engine (Tracy's policy, bypasses A2P 10DLC)
+- NEW unified `twilio_client.send_notification(to, body, channel="whatsapp", content_sid=, content_variables=)`: WhatsApp-first. On send failure → if error 63005 (no 24h session) log + skip (NO SMS fallback); on any other (synchronous) error → SMS fallback. `channel="sms"` forces SMS (OTP/verification only). Note: 63005 is an async delivery failure (Twilio accepts/queues synchronously), so it naturally never triggers SMS fallback.
+- NEW reusable `_wa_notify(phone, body, ...)` in server.py: sends via send_notification + logs to `whatsapp_messages` (automated:true, event, channel_used, skipped). Never raises.
+- Converted to WhatsApp-first: order status → customer (confirmed/picked_up/out_for_delivery/delivered); driver application status (approved/rejected/review — WhatsApp added alongside existing email); driver new-order requests; merchant application status (verified/rejected, on `/admin/businesses/{id}/approve|reject` via new `_notify_merchant_status`); team/admin new-application alert (WhatsApp to `ADMIN_NOTIFY_PHONE` env if set).
+- OTP stays SMS (line ~7116). Manual admin WhatsApp compose unchanged.
+- Admin Panel WhatsApp note updated: "Customers must message +1 (252) 374-6444 first… lifted once templates approved by Meta."
+- Verified on preview: backend restarts clean, send_notification routes correctly (WhatsApp default, SMS forced for OTP), `_wa_notify` logs + Twilio 201. NEEDS REDEPLOY for production.
+
+
 ### Jun 20, 2026 — Automatic WhatsApp order-status notifications
 - `update_order_status` now fires a best-effort WhatsApp message to the customer's `customer_phone` on key milestones: `confirmed`, `picked_up`, `out_for_delivery`, `delivered` (fire-and-forget, never blocks the status update). Logged to `whatsapp_messages` with `automated:true` + `event`.
 - `twilio_client.send_whatsapp(to, body, content_sid=None, content_variables=None)` is now TEMPLATE-CAPABLE (Twilio Content API). If env `WHATSAPP_TEMPLATE_CONFIRMED_SID` / `WHATSAPP_TEMPLATE_PICKED_UP_SID` / `WHATSAPP_TEMPLATE_DELIVERED_SID` are set, sends the approved template (delivers outside the 24h window); otherwise sends free-form (delivers only inside the 24h session window). Map in `ORDER_WHATSAPP_EVENTS`.

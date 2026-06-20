@@ -1026,7 +1026,7 @@ const AdminPanel = () => {
                 </div>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="text-xs text-muted-foreground">
-                    Note: WhatsApp only delivers free-form messages within 24h of the recipient's last reply. To start a fresh chat, the recipient must message your WhatsApp number first, or use an approved WhatsApp template.
+                    Note: Customers must message <span className="font-semibold">+1 (252) 374-6444</span> first to receive WhatsApp notifications (WhatsApp's 24h session rule). Once your message templates are approved by Meta, this restriction is lifted and notifications send freely.
                   </p>
                   <Button
                     data-testid="wa-compose-send-btn"

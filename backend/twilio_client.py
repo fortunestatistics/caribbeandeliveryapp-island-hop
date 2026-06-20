@@ -15,9 +15,12 @@ Surface:
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import uuid
+
+_log = logging.getLogger(__name__)
 
 
 def _mock_enabled() -> bool:
@@ -84,6 +87,40 @@ def _real_send_sms(to: str, body: str) -> dict:
     except Exception as exc:  # noqa: BLE001 — surface a clean error, never crash the request
         return {"success": False, "error": str(getattr(exc, "msg", exc)),
                 "error_code": getattr(exc, "code", None), "channel": "sms", "to": to}
+
+
+def send_notification(to: str, body: str, channel: str = "whatsapp",
+                      content_sid: str | None = None, content_variables: dict | None = None) -> dict:
+    """Unified WhatsApp-first notification sender.
+
+    channel="whatsapp" (default): send via WhatsApp. On failure:
+      - error_code 63005 (no open 24h session window): log + return gracefully, NO SMS fallback.
+      - any other error: fall back to SMS.
+    channel="sms": send SMS directly (use for OTP/verification only).
+
+    Returns the underlying send result plus `channel_used`.
+    """
+    if channel == "sms":
+        res = send_sms(to, body)
+        res["channel_used"] = "sms"
+        return res
+
+    res = send_whatsapp(to, body, content_sid=content_sid, content_variables=content_variables)
+    if res.get("success"):
+        res["channel_used"] = "whatsapp"
+        return res
+
+    if str(res.get("error_code")) == "63005":
+        _log.info(f"WhatsApp session not open for {to} (63005) — skipping, no SMS fallback.")
+        res["channel_used"] = "whatsapp"
+        res["skipped"] = True
+        return res
+
+    _log.warning(f"WhatsApp send to {to} failed ({res.get('error_code')}): {res.get('error')} — falling back to SMS.")
+    sms_res = send_sms(to, body)
+    sms_res["channel_used"] = "sms"
+    sms_res["whatsapp_error"] = res.get("error")
+    return sms_res
 
 
 def _real_send_whatsapp(to: str, body: str, content_sid: str | None = None,
