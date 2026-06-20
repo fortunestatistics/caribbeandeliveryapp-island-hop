@@ -472,6 +472,18 @@ export const PaymentSuccess = () => {
   const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
+    // PayPal: on return, capture the approved order, then show result.
+    if (via === 'paypal') {
+      let cancelled = false;
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const ppOrderId = params.get('token'); // PayPal appends ?token={orderID}
+      if (!ppOrderId) { setStatus('failed'); return; }
+      axios.post(`${API}/payments/paypal/capture-order`, { order_id: ppOrderId }, { headers })
+        .then((r) => { if (!cancelled) setStatus(r.data?.status === 'COMPLETED' ? 'paid' : 'failed'); })
+        .catch(() => { if (!cancelled) setStatus('failed'); });
+      return () => { cancelled = true; };
+    }
     // WiPay / wallet: callback already settled the order server-side. Confirm by reading the order.
     if (via === 'wipay' || via === 'wallet') {
       let cancelled = false;
@@ -517,7 +529,6 @@ export const PaymentSuccess = () => {
     poll(0);
     return () => { cancelled = true; };
   }, [sessionId, via, orderId]);
-
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-teal-50 to-blue-50">
       <Card className="max-w-md w-full">

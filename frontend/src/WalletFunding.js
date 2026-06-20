@@ -61,6 +61,22 @@ export const WalletFunding = ({ currencies = ['USD', 'TTD'], onChanged }) => {
   const submitRequest = async () => {
     const amount = parseFloat(form.amount);
     if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
+    // PayPal deposits go through real PayPal Checkout (not manual review).
+    if (tab === 'deposit' && form.method === 'paypal') {
+      setBusy(true);
+      try {
+        const res = await axios.post(`${API}/payments/paypal/create-order`, {
+          amount, currency: form.currency, purpose: 'wallet_deposit', origin_url: window.location.origin,
+        }, { headers: authHeaders() });
+        if (res.data.approve_url) {
+          window.location.href = res.data.approve_url;
+          return;
+        }
+        toast.error('Could not start PayPal checkout');
+      } catch (e) { toast.error(e?.response?.data?.detail || 'PayPal checkout failed'); }
+      finally { setBusy(false); }
+      return;
+    }
     setBusy(true);
     try {
       const res = await axios.post(`${API}/wallet/funding-request`, {
@@ -126,12 +142,16 @@ export const WalletFunding = ({ currencies = ['USD', 'TTD'], onChanged }) => {
         </div>
         <p className="text-xs text-muted-foreground">
           {tab === 'deposit'
-            ? 'Submit your deposit and our team verifies it before crediting your wallet.'
+            ? (form.method === 'paypal'
+                ? "You'll be redirected to PayPal to pay securely. Your wallet is credited instantly once payment completes."
+                : 'Submit your deposit and our team verifies it before crediting your wallet.')
             : 'Withdrawals are reviewed by our team and paid out to your bank/PayPal.'}
         </p>
         <Button onClick={submitRequest} disabled={busy} data-testid="funding-submit-btn">
           {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          {tab === 'deposit' ? 'Submit deposit' : 'Request withdrawal'}
+          {tab === 'deposit'
+            ? (form.method === 'paypal' ? 'Continue to PayPal' : 'Submit deposit')
+            : 'Request withdrawal'}
         </Button>
 
         {/* Saved payment methods */}

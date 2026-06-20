@@ -26,6 +26,7 @@ import graph_mail
 import mercury_client
 import storage_client
 import wipay_client
+import paypal_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -5718,6 +5719,207 @@ async def wipay_callback(request: Request):
     result_status = "paid" if success else "failed"
     redirect_url = f"{origin}/payment/success?order_id={order_id or ''}&via=wipay&status={result_status}"
     return RedirectResponse(url=redirect_url, status_code=303)
+
+
+# ============================================================
+# PayPal Checkout (Orders v2) + Payouts (v1) + Webhooks
+# Mode is driven by PAYPAL_MODE (sandbox|live). Used for wallet top-ups
+# (deposit) and automatic withdrawals (payouts).
+# ============================================================
+class PayPalCreateOrderRequest(BaseModel):
+    amount: float
+    currency: str = "USD"
+    purpose: str = "wallet_deposit"   # 'wallet_deposit' | 'order'
+    order_id: Optional[str] = None     # when purpose == 'order'
+    origin_url: str                    # window.location.origin
+
+
+@api_router.post("/payments/paypal/create-order")
+async def paypal_create_order(payload: PayPalCreateOrderRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if not paypal_client.is_configured():
+        raise HTTPException(status_code=503, detail="PayPal is not configured")
+
+    amount = _round_money(payload.amount)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    currency = (payload.currency or "USD").upper()
+
+    reference_id = str(uuid.uuid4())
+    origin = payload.origin_url.rstrip('/')
+    return_url = f"{origin}/payment/success?via=paypal&ref={reference_id}"
+    cancel_url = f"{origin}/wallet?paypal=cancelled"
+
+    result = await paypal_client.create_order(
+        amount=amount, currency=currency, reference_id=reference_id,
+        return_url=return_url, cancel_url=cancel_url,
+        description=f"IslandHop {payload.purpose}",
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal order creation failed: {result.get('error')}")
+
+    await db.paypal_orders.insert_one({
+        "id": result["id"],
+        "reference_id": reference_id,
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "amount": amount,
+        "currency": currency,
+        "purpose": payload.purpose,
+        "linked_order_id": payload.order_id,
+        "status": result.get("status", "CREATED"),
+        "mode": paypal_client.mode(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": None,
+    })
+    return {"order_id": result["id"], "approve_url": result.get("approve_url"),
+            "status": result.get("status"), "mode": paypal_client.mode()}
+
+
+async def _settle_paypal_order(order_id: str, capture: dict, current_user_id: Optional[str] = None) -> dict:
+    """Credit the wallet / mark order paid for a COMPLETED PayPal capture. Idempotent."""
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec:
+        return {"success": False, "error": "PayPal order not tracked"}
+    if rec.get("status") == "COMPLETED":
+        return {"success": True, "already": True, "purpose": rec.get("purpose")}
+
+    amount = float(capture.get("amount") or rec["amount"])
+    currency = (capture.get("currency") or rec["currency"]).upper()
+    await db.paypal_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": "COMPLETED", "capture_id": capture.get("capture_id"),
+                  "captured_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    if rec.get("purpose") == "wallet_deposit":
+        await _credit_wallet_with_txn(
+            rec["user_id"], amount, currency, txn_type="deposit",
+            external_transfer_id=capture.get("capture_id"),
+            note=f"PayPal deposit ({paypal_client.mode()})",
+        )
+    elif rec.get("purpose") == "order" and rec.get("linked_order_id"):
+        await db.orders.update_one(
+            {"id": rec["linked_order_id"], "payment_status": {"$ne": "paid"}},
+            {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return {"success": True, "purpose": rec.get("purpose"), "amount": amount, "currency": currency}
+
+
+@api_router.post("/payments/paypal/capture-order")
+async def paypal_capture_order(request: Request):
+    current_user = await get_current_user_from_request(request)
+    body = await request.json()
+    order_id = body.get("order_id")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id is required")
+
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec or rec.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="PayPal order not found")
+
+    result = await paypal_client.capture_order(order_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal capture failed: {result.get('error') or result.get('status')}")
+
+    settle = await _settle_paypal_order(order_id, result, current_user.id)
+    return {"success": True, "status": result.get("status"), "purpose": settle.get("purpose"),
+            "amount": result.get("amount"), "currency": result.get("currency")}
+
+
+@api_router.get("/payments/paypal/order-status/{order_id}")
+async def paypal_order_status(order_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    rec = await db.paypal_orders.find_one({"id": order_id}, {"_id": 0})
+    if not rec or rec.get("user_id") != current_user.id:
+        raise HTTPException(status_code=404, detail="PayPal order not found")
+    live = await paypal_client.get_order(order_id)
+    return {"order_id": order_id, "local_status": rec.get("status"),
+            "paypal_status": live.get("status") if live.get("success") else None,
+            "purpose": rec.get("purpose"), "amount": rec.get("amount"), "currency": rec.get("currency")}
+
+
+class PayPalPayoutRequest(BaseModel):
+    email: str
+    amount: float
+    currency: str = "USD"
+    note: Optional[str] = None
+    funding_request_id: Optional[str] = None
+
+
+@api_router.post("/admin/paypal/payout")
+async def admin_paypal_payout(payload: PayPalPayoutRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not paypal_client.is_configured():
+        raise HTTPException(status_code=503, detail="PayPal is not configured")
+    amount = _round_money(payload.amount)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payout amount")
+
+    batch_id = f"ih_{uuid.uuid4().hex[:18]}"
+    result = await paypal_client.create_payout(
+        email=payload.email, amount=amount, currency=(payload.currency or "USD").upper(),
+        note=payload.note or "IslandHop withdrawal", sender_batch_id=batch_id,
+    )
+    await db.paypal_payouts.insert_one({
+        "id": batch_id,
+        "payout_batch_id": result.get("batch_id"),
+        "email": payload.email,
+        "amount": amount,
+        "currency": (payload.currency or "USD").upper(),
+        "funding_request_id": payload.funding_request_id,
+        "status": result.get("status") if result.get("success") else "FAILED",
+        "error": result.get("error"),
+        "initiated_by": current_user.id,
+        "mode": paypal_client.mode(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"PayPal payout failed: {result.get('error')}")
+    return {"success": True, "payout_batch_id": result.get("batch_id"), "status": result.get("status")}
+
+
+@api_router.post("/webhooks/paypal")
+async def paypal_webhook(request: Request):
+    body = await request.json()
+    event_type = body.get("event_type")
+    verified = await paypal_client.verify_webhook(dict(request.headers), body)
+
+    await db.paypal_webhooks.insert_one({
+        "id": str(uuid.uuid4()),
+        "event_type": event_type,
+        "verified": verified,
+        "resource_id": (body.get("resource") or {}).get("id"),
+        "raw": body,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Only act on verified events (when PAYPAL_WEBHOOK_ID is configured).
+    if not verified:
+        return {"received": True, "verified": False}
+
+    resource = body.get("resource") or {}
+    if event_type == "PAYMENT.CAPTURE.COMPLETED":
+        order_id = None
+        try:
+            order_id = resource["supplementary_data"]["related_ids"]["order_id"]
+        except (KeyError, TypeError):
+            pass
+        if order_id:
+            cap = {"capture_id": resource.get("id"),
+                   "amount": float((resource.get("amount") or {}).get("value", 0) or 0),
+                   "currency": (resource.get("amount") or {}).get("currency_code")}
+            await _settle_paypal_order(order_id, cap)
+    elif event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+        batch_id = resource.get("payout_batch_id")
+        if batch_id:
+            await db.paypal_payouts.update_one(
+                {"payout_batch_id": batch_id},
+                {"$set": {"item_status": resource.get("transaction_status") or event_type}},
+            )
+    return {"received": True, "verified": True}
+
 
 
 @api_router.post("/webhook/stripe")

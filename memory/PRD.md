@@ -26,6 +26,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — Full PayPal integration (Checkout + Payouts + Webhooks), mode-driven
+- ⚠️ CREDENTIAL FINDING: the "LIVE" PayPal credentials provided are actually SANDBOX creds — verified: they 401 (invalid_client) on `api-m.paypal.com` (live) but return a valid token on `api-m.sandbox.paypal.com`. So `PAYPAL_MODE=sandbox` in .env (NOT live). Going truly live requires LIVE app credentials from the PayPal dashboard; then set PAYPAL_MODE=live + live client id/secret.
+- NEW `backend/paypal_client.py`: REST API v2 via httpx (no SDK). Token caching, create_order, capture_order, get_order, create_payout (Payouts v1), verify_webhook (needs PAYPAL_WEBHOOK_ID). `_base_url()` switches on PAYPAL_MODE.
+- NEW endpoints: `POST /api/payments/paypal/create-order` (wallet_deposit|order), `POST /api/payments/paypal/capture-order` (credits wallet via `_credit_wallet_with_txn`, idempotent via `_settle_paypal_order`), `GET /api/payments/paypal/order-status/{id}`, `POST /api/admin/paypal/payout` (admin), `POST /api/webhooks/paypal` (PAYMENT.CAPTURE.COMPLETED / PAYOUTS-ITEM.* — only acts on verified events). Collections: `paypal_orders`, `paypal_payouts`, `paypal_webhooks`.
+- Frontend: `PaymentMethodsSelector.js` PayPal `enabled:true`; `WalletFunding.js` PayPal deposit → calls create-order → redirects to PayPal approve_url; `CheckoutPage.js` PaymentSuccess handles `via=paypal` (reads `?token=` order id → capture-order).
+- Env added: PAYPAL_CLIENT_SECRET, PAYPAL_MODE=sandbox, PAYPAL_WEBHOOK_ID (empty — set after creating a webhook in PayPal dashboard pointing to /api/webhooks/paypal).
+- VERIFIED on sandbox: token OK, create-order returns real order id + approve_url, order-status reads live+local, admin payout returns real batch id (PENDING). Capture/webhook code in place (capture needs buyer approval to fully exercise). NEEDS REDEPLOY for production — and do NOT deploy as live until live creds work.
+
+
 ### Jun 20, 2026 — WhatsApp-ONLY notification engine (Tracy's policy, bypasses A2P 10DLC)
 - NEW unified `twilio_client.send_notification(to, body, channel="whatsapp", content_sid=, content_variables=)`: WhatsApp-first. On send failure → if error 63005 (no 24h session) log + skip (NO SMS fallback); on any other (synchronous) error → SMS fallback. `channel="sms"` forces SMS (OTP/verification only). Note: 63005 is an async delivery failure (Twilio accepts/queues synchronously), so it naturally never triggers SMS fallback.
 - NEW reusable `_wa_notify(phone, body, ...)` in server.py: sends via send_notification + logs to `whatsapp_messages` (automated:true, event, channel_used, skipped). Never raises.

@@ -103,6 +103,12 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 - App stores JWT in `localStorage.token` (set by `AuthPage.js`, `SocialAuthCallback.js`, etc.) and `AuthContext` reads `token`.
 - BUG (fixed): `WalletPage.js`, `CheckoutPage.js`, `VendorStripeConnect.js` were reading `localStorage.getItem('access_token')` (never set) → sent NO auth header → 401 "Not authenticated" / "Failed to load wallet" red banner. All three now read `'token'`. This was the root cause of the false wallet error banner. For UI auth testing, set `localStorage.setItem('token', <jwt>)`.
 
+## PayPal integration (Jun 2026) — sandbox (creds provided are SANDBOX, not live)
+- Env: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_MODE=sandbox`, `PAYPAL_WEBHOOK_ID` (empty). The provided "live" creds 401 on api-m.paypal.com but auth OK on sandbox → mode=sandbox.
+- Module `backend/paypal_client.py` (REST v2 via httpx). Endpoints: `POST /api/payments/paypal/create-order` (auth; body {amount,currency,purpose:wallet_deposit|order,order_id?,origin_url}), `POST /api/payments/paypal/capture-order` (auth; body {order_id}), `GET /api/payments/paypal/order-status/{id}` (auth), `POST /api/admin/paypal/payout` (admin; {email,amount,currency,note}), `POST /api/webhooks/paypal` (public; only acts on verified events when PAYPAL_WEBHOOK_ID set).
+- Wallet deposit via PayPal: WalletFunding select method=PayPal + Deposit → create-order → redirect to PayPal approve_url → return to /payment/success?via=paypal&token={orderId} → capture-order credits wallet. Collections: paypal_orders, paypal_payouts, paypal_webhooks.
+- Capture requires a sandbox buyer login on PayPal's hosted page (can't fully automate headlessly). Verified: token, create-order, order-status, payout (real sandbox batch) all work.
+
 ## Notes for testing agent
 - Customer endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`, `/api/wallet/*`, `/api/referrals/*`.
 - Driver-only: `/api/orders/{id}/proof` (POD upload).
