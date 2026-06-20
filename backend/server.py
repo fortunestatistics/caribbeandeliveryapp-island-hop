@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -25,6 +25,7 @@ import push_client
 import graph_mail
 import mercury_client
 import storage_client
+import wipay_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -5515,6 +5516,108 @@ async def get_checkout_status(session_id: str):
         "currency": status.currency,
         "metadata": status.metadata,
     }
+
+
+# ============================================================
+# WiPay Caribbean hosted checkout (sandbox) — alternative to Stripe
+# Customer is redirected to WiPay's hosted page; on return we verify the
+# md5(transaction_id + total + api_key) hash and mark the order paid.
+# ============================================================
+class WiPayCheckoutRequest(BaseModel):
+    order_id: str
+    origin_url: str  # window.location.origin from frontend
+
+
+@api_router.post("/payments/wipay/checkout/session")
+async def create_wipay_checkout_session(payload: WiPayCheckoutRequest, request: Request):
+    """Create a WiPay hosted payment request for an EXISTING order (amount from DB)."""
+    current_user = await get_current_user_from_request(request)
+
+    order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Order is already paid")
+
+    amount = float(order.get("total") or 0.0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order total")
+
+    host_url = str(request.base_url).rstrip('/')
+    response_url = f"{host_url}/api/payments/wipay/callback?origin={payload.origin_url.rstrip('/')}"
+
+    result = await wipay_client.create_payment_request(
+        order_id=payload.order_id, amount=amount, response_url=response_url,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=f"WiPay request failed: {result.get('error')}")
+
+    payment = PaymentTransaction(
+        session_id=result.get("transaction_id") or f"wipay_{uuid.uuid4().hex[:16]}",
+        user_id=current_user.id,
+        email=current_user.email,
+        amount=amount,
+        currency=wipay_client._cfg()["currency"].lower(),
+        payment_status="initiated",
+        metadata={"order_id": payload.order_id, "user_id": current_user.id, "provider": "wipay"},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+
+    return {"url": result["url"], "transaction_id": result.get("transaction_id"),
+            "environment": wipay_client.environment()}
+
+
+@api_router.get("/payments/wipay/callback")
+async def wipay_callback(request: Request):
+    """Public callback hit by WiPay after the customer pays. Verifies hash, marks
+    the order paid, then redirects the customer to the frontend result page."""
+    params = dict(request.query_params)
+    origin = (params.get("origin") or os.environ.get("FRONTEND_URL", "")).rstrip('/')
+    status = (params.get("status") or "").lower()
+    transaction_id = params.get("transaction_id")
+    order_id = params.get("order_id")
+    total = params.get("total")
+    received_hash = params.get("hash")
+
+    verified = wipay_client.verify_hash(transaction_id or "", total or "", received_hash or "")
+    is_sandbox = wipay_client.environment() == "sandbox"
+    success = status == "success" and (verified or is_sandbox)
+
+    await db.wipay_callbacks.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "transaction_id": transaction_id,
+        "status": status,
+        "total": total,
+        "hash": received_hash,
+        "verified": verified,
+        "raw_params": params,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    if order_id:
+        txn = await db.payment_transactions.find_one(
+            {"metadata.order_id": order_id, "metadata.provider": "wipay"}, {"_id": 0})
+        already_paid = bool(txn and txn.get("payment_status") == "paid")
+        await db.payment_transactions.update_one(
+            {"metadata.order_id": order_id, "metadata.provider": "wipay"},
+            {"$set": {"payment_status": "paid" if success else "failed",
+                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        if success and not already_paid:
+            await db.orders.update_one(
+                {"id": order_id, "payment_status": {"$ne": "paid"}},
+                {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            try:
+                if txn and txn.get("user_id"):
+                    await _maybe_complete_referral(txn["user_id"])
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed for WiPay order {order_id}: {ref_exc}")
+
+    result_status = "paid" if success else "failed"
+    redirect_url = f"{origin}/payment/success?order_id={order_id or ''}&via=wipay&status={result_status}"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @api_router.post("/webhook/stripe")

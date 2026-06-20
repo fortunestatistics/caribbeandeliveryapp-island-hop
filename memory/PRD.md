@@ -26,6 +26,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — WiPay Caribbean sandbox checkout + auth-token-key bug fix
+- WiPay hosted checkout added as an alternative to Stripe. New `backend/wipay_client.py`; endpoints `POST /api/payments/wipay/checkout/session` and public `GET /api/payments/wipay/callback` (md5 hash verify, marks order paid, redirects to `/payment/success?via=wipay`). Env: `WIPAY_ACCOUNT_NUMBER/API_KEY/ENVIRONMENT/COUNTRY_CODE/CURRENCY` (sandbox: 1234567890 / 123). Frontend "Pay with WiPay" button on `CheckoutPage.js`. Verified end-to-end on preview against real tt.wipayfinancial.com sandbox.
+- FIXED (P0): `WalletPage.js`, `CheckoutPage.js`, `VendorStripeConnect.js` read `localStorage.access_token` (never set) → sent no auth header → false "Not authenticated / Failed to load wallet" banner. Now read `localStorage.token`. Root cause of the long-standing wallet error banner. Verified: wallet + checkout load cleanly, no banner.
+- Twilio SMS confirmed LIVE on preview (real SID returned via `twilio_client.send_sms` and `/api/otp/send`).
+
+
 ### Jun 2026 — Fixed Twilio "failed to send" (uncaught errors + phone format)
 - ROOT CAUSE: with `MOCK_TWILIO=false`, `twilio_client._real_send_sms/_real_send_whatsapp` RAISED on any failure → uncaught 500 "failed to send". WhatsApp always crashed (no `TWILIO_WHATSAPP_FROM`). Also `_normalize_phone` didn't add a country code, so bare local numbers (e.g. `7654321`) were rejected by Twilio.
 - FIX: twilio_client now RETURNS `{success:False, error, error_code}` (never raises) + same-number guard. `_normalize_phone` now produces E.164, defaulting bare 7-digit numbers to Trinidad `+1868`, 10-digit→`+1`, 11-digit→`+`. OTP endpoint handles send failure gracefully (preview still returns dev_code; prod raises a friendly 400). WhatsApp endpoint returns clean 400 when no WA sender. Used **400 not 502** because Cloudflare masks origin 5xx with its own error page.

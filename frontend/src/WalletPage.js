@@ -13,7 +13,7 @@ import {
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => {
-  const t = localStorage.getItem('access_token');
+  const t = localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 

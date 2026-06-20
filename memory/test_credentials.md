@@ -92,6 +92,17 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 - Admin endpoints: `GET /api/admin/mercury/status`, `GET /api/admin/mercury/accounts`, `GET /api/admin/mercury/reconciliation?days=30` (matches Stripe payouts to Mercury deposits). Admin JWT required.
 - Frontend: Admin Panel → "Banking" tab (`AdminMercuryBanking.js`).
 
+## WiPay Caribbean hosted checkout (sandbox — Jun 2026)
+- Alternative to Stripe at checkout. Env (backend/.env): `WIPAY_ACCOUNT_NUMBER=1234567890`, `WIPAY_API_KEY=123`, `WIPAY_ENVIRONMENT=sandbox`, `WIPAY_COUNTRY_CODE=TT`, `WIPAY_CURRENCY=USD`. These are WiPay's official documented sandbox creds; code defaults to them if env is unset.
+- Endpoints: `POST /api/payments/wipay/checkout/session` {order_id, origin_url} (auth; amount read from order in DB) → returns real WiPay hosted `url` + `transaction_id`. `GET /api/payments/wipay/callback` (public; hit by WiPay after payment) → verifies `md5(transaction_id+total+api_key)` hash, marks order paid (sandbox honors `status=success` even if hash differs), redirects to `{origin}/payment/success?order_id=&via=wipay&status=paid`.
+- Module: `backend/wipay_client.py`. Frontend: `CheckoutPage.js` "Pay with WiPay" button (`checkout-pay-wipay-btn`); `PaymentSuccess` handles `via=wipay`/`via=wallet` by reading order status.
+- Verified on preview: session returns live sandbox URL (tt.wipayfinancial.com), callback marks order `payment_status=paid`. Completing the hosted card page on tt.wipayfinancial.com cannot be automated.
+- PRODUCTION: works after redeploy (defaults are sandbox). The pre-existing apex/www POST-redirect blocker may still break the session POST on live until Emergent Support fixes the domain bundle.
+
+## AUTH TOKEN KEY FIX (Jun 2026) — IMPORTANT
+- App stores JWT in `localStorage.token` (set by `AuthPage.js`, `SocialAuthCallback.js`, etc.) and `AuthContext` reads `token`.
+- BUG (fixed): `WalletPage.js`, `CheckoutPage.js`, `VendorStripeConnect.js` were reading `localStorage.getItem('access_token')` (never set) → sent NO auth header → 401 "Not authenticated" / "Failed to load wallet" red banner. All three now read `'token'`. This was the root cause of the false wallet error banner. For UI auth testing, set `localStorage.setItem('token', <jwt>)`.
+
 ## Notes for testing agent
 - Customer endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`, `/api/wallet/*`, `/api/referrals/*`.
 - Driver-only: `/api/orders/{id}/proof` (POD upload).
