@@ -49,11 +49,16 @@ def send_sms(to: str, body: str) -> dict:
     return _real_send_sms(to, body)
 
 
-def send_whatsapp(to: str, body: str) -> dict:
-    """Send a WhatsApp message. Returns {success, sid, status, ...}."""
+def send_whatsapp(to: str, body: str, content_sid: str | None = None,
+                  content_variables: dict | None = None) -> dict:
+    """Send a WhatsApp message. Returns {success, sid, status, ...}.
+
+    If `content_sid` is given, sends an approved WhatsApp template (required for
+    business-initiated messages outside the 24h window); otherwise sends free-form `body`.
+    """
     if _mock_enabled():
         return _mock_send("whatsapp", to, body)
-    return _real_send_whatsapp(to, body)
+    return _real_send_whatsapp(to, body, content_sid=content_sid, content_variables=content_variables)
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +86,8 @@ def _real_send_sms(to: str, body: str) -> dict:
                 "error_code": getattr(exc, "code", None), "channel": "sms", "to": to}
 
 
-def _real_send_whatsapp(to: str, body: str) -> dict:
+def _real_send_whatsapp(to: str, body: str, content_sid: str | None = None,
+                        content_variables: dict | None = None) -> dict:
     try:
         from twilio.rest import Client  # type: ignore
     except ImportError:
@@ -93,9 +99,17 @@ def _real_send_whatsapp(to: str, body: str) -> dict:
         return {"success": False, "error": "WhatsApp is not configured on the server (no WhatsApp sender set up).",
                 "channel": "whatsapp", "to": to}
     try:
+        import json as _json
         client = Client(sid, token)
         to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
-        msg = client.messages.create(from_=from_number, to=to_addr, body=body)
+        kwargs = {"from_": from_number, "to": to_addr}
+        if content_sid:
+            kwargs["content_sid"] = content_sid
+            if content_variables:
+                kwargs["content_variables"] = _json.dumps(content_variables)
+        else:
+            kwargs["body"] = body
+        msg = client.messages.create(**kwargs)
         return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "whatsapp", "to": to, "body": body}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(getattr(exc, "msg", exc)),

@@ -26,6 +26,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — Automatic WhatsApp order-status notifications
+- `update_order_status` now fires a best-effort WhatsApp message to the customer's `customer_phone` on key milestones: `confirmed`, `picked_up`, `out_for_delivery`, `delivered` (fire-and-forget, never blocks the status update). Logged to `whatsapp_messages` with `automated:true` + `event`.
+- `twilio_client.send_whatsapp(to, body, content_sid=None, content_variables=None)` is now TEMPLATE-CAPABLE (Twilio Content API). If env `WHATSAPP_TEMPLATE_CONFIRMED_SID` / `WHATSAPP_TEMPLATE_PICKED_UP_SID` / `WHATSAPP_TEMPLATE_DELIVERED_SID` are set, sends the approved template (delivers outside the 24h window); otherwise sends free-form (delivers only inside the 24h session window). Map in `ORDER_WHATSAPP_EVENTS`.
+- Verified on preview: helper builds the message, Twilio accepts (HTTP 201, real SID), DB logs it. Actual delivery still subject to WhatsApp's 24h/template rule (error 63005 for free-form outside window). PRODUCTION: redeploy + set `TWILIO_WHATSAPP_FROM` (and template SIDs once approved) in Deploy Panel.
+
+
 ### Jun 20, 2026 — Twilio WhatsApp enabled + admin compose UI
 - Set `TWILIO_WHATSAPP_FROM=whatsapp:+12523746444` in backend/.env. `twilio_client.send_whatsapp()` (existing) uses the standard Twilio REST `Messages.json` with `whatsapp:` prefix on From/To.
 - Admin Panel → WhatsApp tab: added a "Send a WhatsApp message" compose card (phone + message → `POST /api/whatsapp/send`) so admins/agents can start outbound chats to any driver/merchant number, not just reply. Test IDs: `wa-compose-phone`, `wa-compose-body`, `wa-compose-send-btn`, `wa-compose-feedback`.

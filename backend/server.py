@@ -2141,6 +2141,56 @@ async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
     return {"driver_payout_status": "accumulated"}
 
 
+# Map order status → WhatsApp message + optional approved-template env key.
+# Template SIDs are required to message customers outside WhatsApp's 24h window;
+# if unset, we send free-form (delivers only within the 24h session window).
+ORDER_WHATSAPP_EVENTS = {
+    "confirmed": ("✅ Your IslandHop order #{short} is confirmed and being prepared.", "WHATSAPP_TEMPLATE_CONFIRMED_SID"),
+    "picked_up": ("🛵 Your IslandHop order #{short} has been picked up and is on the way!", "WHATSAPP_TEMPLATE_PICKED_UP_SID"),
+    "out_for_delivery": ("🛵 Your IslandHop order #{short} is out for delivery!", "WHATSAPP_TEMPLATE_PICKED_UP_SID"),
+    "delivered": ("🎉 Your IslandHop order #{short} has been delivered. Enjoy! 🌴", "WHATSAPP_TEMPLATE_DELIVERED_SID"),
+}
+
+
+async def _notify_order_whatsapp(order: dict, status: str):
+    """Best-effort WhatsApp order-status update to the customer. Never raises."""
+    cfg = ORDER_WHATSAPP_EVENTS.get(status)
+    if not cfg:
+        return
+    phone = _normalize_phone(order.get("customer_phone") or "")
+    if not phone:
+        return
+    msg_template, template_env_key = cfg
+    short = str(order.get("id", ""))[:8]
+    body = msg_template.format(short=short)
+    content_sid = os.environ.get(template_env_key) or None
+    try:
+        result = twilio_client.send_whatsapp(
+            phone, body,
+            content_sid=content_sid,
+            content_variables={"1": short} if content_sid else None,
+        )
+        await db.whatsapp_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": order.get("customer_id"),
+            "order_id": order.get("id"),
+            "phone": phone,
+            "direction": "outbound",
+            "body": body,
+            "status": result.get("status", "failed" if not result.get("success") else "queued"),
+            "twilio_sid": result.get("sid"),
+            "automated": True,
+            "event": status,
+            "mock": result.get("mock", False),
+            "error": result.get("error"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        if not result.get("success"):
+            logging.warning(f"Order WhatsApp ({status}) to {phone} failed: {result.get('error')} ({result.get('error_code')})")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Order WhatsApp ({status}) crashed: {exc}")
+
+
 async def update_order_status(order_id: str, status: str, request: Request):
     """Update order status — broken into small steps: auth → timestamps → side-effects → notify."""
     current_user = await get_current_user_from_request(request)
@@ -2182,6 +2232,9 @@ async def update_order_status(order_id: str, status: str, request: Request):
         f"Your IslandHop order is now {status_label.lower()}.",
         f"/order/{order_id}",
     )
+
+    # Best-effort WhatsApp update on key milestones (fire-and-forget).
+    asyncio.create_task(_notify_order_whatsapp(order, status))
 
     return {"message": f"Order status updated to {status}"}
 
