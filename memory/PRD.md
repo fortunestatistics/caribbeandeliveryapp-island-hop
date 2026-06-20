@@ -26,6 +26,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 20, 2026 — Twilio WhatsApp enabled + admin compose UI
+- Set `TWILIO_WHATSAPP_FROM=whatsapp:+12523746444` in backend/.env. `twilio_client.send_whatsapp()` (existing) uses the standard Twilio REST `Messages.json` with `whatsapp:` prefix on From/To.
+- Admin Panel → WhatsApp tab: added a "Send a WhatsApp message" compose card (phone + message → `POST /api/whatsapp/send`) so admins/agents can start outbound chats to any driver/merchant number, not just reply. Test IDs: `wa-compose-phone`, `wa-compose-body`, `wa-compose-send-btn`, `wa-compose-feedback`.
+- TEST RESULT (preview): Twilio ACCEPTED the test message to +15166057352 (status `queued`, `mock:false`, real SID) via both direct call and the API endpoint. BUT WhatsApp DELIVERY FAILED with **error 63005** (generic WhatsApp layer failure → maps to WhatsApp 1000). Cause: WhatsApp blocks business-initiated FREE-FORM messages outside the 24h customer-service window. To deliver: recipient must message the WhatsApp sender first (opens 24h session) OR use an approved WhatsApp template. Integration/config is correct; this is a WhatsApp policy rule, not a code bug.
+- PRODUCTION: needs redeploy + `TWILIO_WHATSAPP_FROM` set in Deploy Panel.
+
+
 ### Jun 20, 2026 — Application email notifications + diagnosis of islandhoptt.com form
 - DIAGNOSIS: public intake API (`/api/public/applications/driver|merchant`), CORS/preflight, admin pending-approvals (with "🌐 Lead from islandhoptt.com" badge), and M365 mail are ALL working on PRODUCTION (verified live — a direct curl test landed in Admin → Approvals). Root cause of "applications not registering": the form on islandhoptt.com is a **website-builder native form** (item 2.b) that shows its own success message and does NOT POST to our API. Fix = embed the connect-kit form (raw HTML+JS fetch to `islandhopapp.com/api/...` with `X-API-Key`) on islandhoptt.com.
 - ADDED: `_notify_new_application()` — on every public application, emails an internal alert routed to the correct inbox (driver→`drivers@islandhoptt.com`, merchant→`partner@islandhoptt.com`) AND an acknowledgement to the applicant. Fire-and-forget (never blocks intake). Env-overridable via `DRIVER_NOTIFY_MAILBOX`/`MERCHANT_NOTIFY_MAILBOX`. Verified on preview (no errors). Needs redeploy for production.

@@ -69,6 +69,10 @@ const AdminPanel = () => {
   const [whSelectedPhone, setWhSelectedPhone] = useState('');
   const [whMessages, setWhMessages] = useState([]);
   const [whReplyBody, setWhReplyBody] = useState('');
+  const [whComposePhone, setWhComposePhone] = useState('');
+  const [whComposeBody, setWhComposeBody] = useState('');
+  const [whComposeSending, setWhComposeSending] = useState(false);
+  const [whComposeFeedback, setWhComposeFeedback] = useState(null); // {type, text}
   const [fraudFlags, setFraudFlags] = useState([]);
   const [fraudOpenCount, setFraudOpenCount] = useState(0);
   const [fraudFilter, setFraudFilter] = useState('open');
@@ -271,6 +275,20 @@ const AdminPanel = () => {
       openWhConvo(whSelectedPhone);
       fetchWhConvos();
     } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
+  };
+
+  const sendWhCompose = async () => {
+    if (!whComposePhone.trim() || !whComposeBody.trim()) return;
+    setWhComposeSending(true);
+    setWhComposeFeedback(null);
+    try {
+      await axios.post(`${API}/whatsapp/send`, { to: whComposePhone.trim(), body: whComposeBody.trim() }, { headers: authHeaders() });
+      setWhComposeFeedback({ type: 'success', text: `WhatsApp message queued to ${whComposePhone.trim()}` });
+      setWhComposeBody('');
+      fetchWhConvos();
+    } catch (e) {
+      setWhComposeFeedback({ type: 'error', text: e.response?.data?.detail || 'Failed to send WhatsApp message' });
+    } finally { setWhComposeSending(false); }
   };
 
   const fetchStats = async () => {
@@ -983,7 +1001,51 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'whatsapp' && (
-          <div className="grid md:grid-cols-3 gap-4" data-testid="admin-whatsapp-content">
+          <div className="space-y-4" data-testid="admin-whatsapp-content">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-gold-500" />Send a WhatsApp message</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <Input
+                    data-testid="wa-compose-phone"
+                    value={whComposePhone}
+                    onChange={(e) => setWhComposePhone(e.target.value)}
+                    placeholder="To: +1868… (driver/merchant)"
+                    className="sm:col-span-1"
+                  />
+                  <Input
+                    data-testid="wa-compose-body"
+                    value={whComposeBody}
+                    onChange={(e) => setWhComposeBody(e.target.value)}
+                    placeholder="Message…"
+                    onKeyDown={(e) => e.key === 'Enter' && sendWhCompose()}
+                    className="sm:col-span-2"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs text-muted-foreground">
+                    Note: WhatsApp only delivers free-form messages within 24h of the recipient's last reply. To start a fresh chat, the recipient must message your WhatsApp number first, or use an approved WhatsApp template.
+                  </p>
+                  <Button
+                    data-testid="wa-compose-send-btn"
+                    onClick={sendWhCompose}
+                    disabled={whComposeSending || !whComposePhone.trim() || !whComposeBody.trim()}
+                    className="bg-gold-gradient text-white"
+                  >
+                    {whComposeSending ? 'Sending…' : 'Send WhatsApp'}
+                  </Button>
+                </div>
+                {whComposeFeedback && (
+                  <p data-testid="wa-compose-feedback" className={`text-xs ${whComposeFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                    {whComposeFeedback.text}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="grid md:grid-cols-3 gap-4">
             <Card className="md:col-span-1">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-gold-500" />Conversations</CardTitle>
@@ -1030,6 +1092,7 @@ const AdminPanel = () => {
                 )}
               </CardContent>
             </Card>
+          </div>
           </div>
         )}
         {selectedTab === 'mail' && (
