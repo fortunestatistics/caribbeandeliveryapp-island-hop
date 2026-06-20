@@ -33,6 +33,7 @@ import axios from 'axios';
 
 import AdminStatsCards from './AdminStatsCards';
 import AdminMailInbox from './AdminMailInbox';
+import AdminWalletRequests from './AdminWalletRequests';
 import AdminMercuryBanking from './AdminMercuryBanking';
 import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
@@ -109,7 +110,7 @@ const AdminPanel = () => {
       .catch(() => {});
   }, []);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'fraud', 'claims', 'incentives', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
   const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
 
@@ -1033,6 +1034,10 @@ const AdminPanel = () => {
         )}
         {selectedTab === 'mail' && (
           <AdminMailInbox />
+        )}
+
+        {selectedTab === 'wallet' && (
+          <AdminWalletRequests />
         )}
 
         {selectedTab === 'banking' && (

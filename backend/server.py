@@ -6151,6 +6151,168 @@ async def wallet_withdraw(payload: WalletAmountRequest, request: Request):
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
 
 
+# ---------------------------------------------------------------------------
+# Customer payment methods + bank/PayPal deposit & withdrawal requests
+# (admin-approved real-money workflow; automated PayPal/WiPay added later)
+# ---------------------------------------------------------------------------
+FUNDING_METHODS = {"bank", "paypal", "card", "wipay"}
+
+
+class PaymentMethodRequest(BaseModel):
+    type: str                      # 'bank_account' | 'paypal'
+    label: Optional[str] = None
+    details: Dict[str, str] = {}   # bank: bank_name/account_name/account_number/branch ; paypal: {email}
+
+
+class FundingRequestBody(BaseModel):
+    direction: str                 # 'deposit' | 'withdraw'
+    method: str                    # 'bank' | 'paypal' | 'wipay'
+    amount: float
+    currency: str = "USD"
+    reference: Optional[str] = None        # deposit: transfer ref / proof
+    payment_method_id: Optional[str] = None  # withdraw: where to send
+    destination: Optional[str] = None        # withdraw: free-text (e.g. paypal email)
+    note: Optional[str] = None
+
+
+@api_router.get("/wallet/payment-methods")
+async def list_payment_methods(request: Request):
+    current_user = await get_current_user_from_request(request)
+    methods = await db.wallet_payment_methods.find(
+        {"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=50)
+    return {"payment_methods": methods}
+
+
+@api_router.post("/wallet/payment-methods")
+async def add_payment_method(payload: PaymentMethodRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if payload.type not in {"bank_account", "paypal"}:
+        raise HTTPException(status_code=400, detail="type must be 'bank_account' or 'paypal'")
+    if payload.type == "paypal" and not payload.details.get("email"):
+        raise HTTPException(status_code=400, detail="PayPal email is required")
+    if payload.type == "bank_account" and not payload.details.get("account_number"):
+        raise HTTPException(status_code=400, detail="Bank account number is required")
+    now = datetime.now(timezone.utc).isoformat()
+    label = payload.label or (
+        payload.details.get("email") if payload.type == "paypal"
+        else f"{payload.details.get('bank_name','Bank')} ••••{payload.details.get('account_number','')[-4:]}")
+    doc = {"id": str(uuid.uuid4()), "user_id": current_user.id, "type": payload.type,
+           "label": label, "details": payload.details, "created_at": now}
+    await db.wallet_payment_methods.insert_one({**doc})
+    doc.pop("_id", None)
+    return {"success": True, "payment_method": doc}
+
+
+@api_router.delete("/wallet/payment-methods/{method_id}")
+async def delete_payment_method(method_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    res = await db.wallet_payment_methods.delete_one({"id": method_id, "user_id": current_user.id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    return {"success": True}
+
+
+@api_router.post("/wallet/funding-request")
+async def create_funding_request(payload: FundingRequestBody, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if payload.direction not in {"deposit", "withdraw"}:
+        raise HTTPException(status_code=400, detail="direction must be 'deposit' or 'withdraw'")
+    if payload.method not in FUNDING_METHODS:
+        raise HTTPException(status_code=400, detail=f"method must be one of {sorted(FUNDING_METHODS)}")
+    amount = _round_money(payload.amount)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    currency = (payload.currency or "USD").upper()
+    if currency not in SUPPORTED_WALLET_CURRENCIES:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    wallet = await _get_or_create_wallet(current_user.id)
+    if payload.direction == "withdraw":
+        if float(wallet.get("balances", {}).get(currency, 0)) < amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance for this withdrawal")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "user_name": getattr(current_user, "name", None),
+        "direction": payload.direction,
+        "method": payload.method,
+        "amount": amount,
+        "currency": currency,
+        "status": "pending",
+        "reference": payload.reference,
+        "payment_method_id": payload.payment_method_id,
+        "destination": payload.destination,
+        "note": payload.note,
+        "created_at": now,
+        "processed_at": None,
+        "processed_by": None,
+    }
+    await db.wallet_funding_requests.insert_one({**doc})
+    doc.pop("_id", None)
+    return {"success": True, "request": doc,
+            "message": "Your request was submitted and is pending review by our team."}
+
+
+@api_router.get("/wallet/funding-requests")
+async def my_funding_requests(request: Request):
+    current_user = await get_current_user_from_request(request)
+    reqs = await db.wallet_funding_requests.find(
+        {"user_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(length=100)
+    return {"requests": reqs}
+
+
+@api_router.get("/admin/wallet/funding-requests")
+async def admin_list_funding_requests(request: Request, status: Optional[str] = "pending"):
+    await _require_admin(request)
+    query = {} if status in (None, "all") else {"status": status}
+    reqs = await db.wallet_funding_requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
+    return {"requests": reqs}
+
+
+@api_router.post("/admin/wallet/funding-requests/{request_id}/approve")
+async def admin_approve_funding_request(request_id: str, request: Request):
+    admin = await _require_admin(request)
+    fr = await db.wallet_funding_requests.find_one({"id": request_id}, {"_id": 0})
+    if not fr:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if fr["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {fr['status']}")
+    wallet = await _get_or_create_wallet(fr["user_id"])
+    amount, currency = fr["amount"], fr["currency"]
+    if fr["direction"] == "deposit":
+        await _credit_wallet(fr["user_id"], amount, currency)
+        txn_type = "deposit"
+    else:  # withdraw — re-check balance then debit
+        if float(wallet.get("balances", {}).get(currency, 0)) < amount:
+            raise HTTPException(status_code=400, detail="User no longer has sufficient balance")
+        await _debit_wallet(fr["user_id"], amount, currency)
+        txn_type = "withdraw"
+    await _record_txn(user_id=fr["user_id"], wallet_id=wallet["id"], type=txn_type,
+                      amount=amount, currency=currency, status="completed",
+                      note=f"{fr['method']} {fr['direction']} (admin-approved)")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.wallet_funding_requests.update_one(
+        {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
+    new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
+    return {"success": True, "status": "approved", "balance": new_bal}
+
+
+@api_router.post("/admin/wallet/funding-requests/{request_id}/reject")
+async def admin_reject_funding_request(request_id: str, request: Request):
+    admin = await _require_admin(request)
+    fr = await db.wallet_funding_requests.find_one({"id": request_id}, {"_id": 0})
+    if not fr:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if fr["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {fr['status']}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.wallet_funding_requests.update_one(
+        {"id": request_id}, {"$set": {"status": "rejected", "processed_at": now, "processed_by": admin.email}})
+    return {"success": True, "status": "rejected"}
+
+
+
 class WalletSendRequest(BaseModel):
     recipient_email: str  # IslandHop user's email
     amount: float
