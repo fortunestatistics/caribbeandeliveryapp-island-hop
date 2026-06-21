@@ -738,6 +738,53 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* Latest News & Our Vision */}
+      <section className="relative overflow-hidden bg-matte-900 py-24" data-testid="news-vision-section">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(249,115,22,0.14),transparent_60%)]"></div>
+        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-neon-cyan/5 blur-3xl"></div>
+        <div className="relative container mx-auto px-4">
+          <div className="text-center mb-14">
+            <div className="inline-block mb-4 px-5 py-1.5 bg-gold-500/15 border border-gold-500/30 backdrop-blur-sm rounded-full">
+              <span className="text-sm font-semibold text-gold-300">🇹🇹 Latest from IslandHop</span>
+            </div>
+            <h2 className="font-heading text-4xl md:text-5xl font-extrabold text-white tracking-tight">
+              News &amp; <span className="text-gold-gradient">Our Vision</span>
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl mx-auto">
+            {/* Latest News */}
+            <div className="group relative rounded-2xl border border-gold-500/20 bg-white/[0.03] backdrop-blur-sm p-8 hover:border-gold-500/50 transition-all duration-300 hover:-translate-y-1" data-testid="news-block">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-xl bg-gold-500/15 border border-gold-500/30 flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-gold-400" />
+                </div>
+                <span className="text-xs font-bold uppercase tracking-widest text-gold-400">Now Expanding</span>
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">Officially expanding across Trinidad &amp; Tobago</h3>
+              <p className="text-white/75 leading-relaxed text-lg">
+                IslandHop is officially expanding its footprint across Trinidad &amp; Tobago! We are currently onboarding our first wave of logistics partners and service professionals to bring you the best on-demand experience in the Caribbean. Stay tuned for our live launch!
+              </p>
+            </div>
+
+            {/* Our Vision */}
+            <div className="group relative rounded-2xl border border-neon-cyan/20 bg-white/[0.03] backdrop-blur-sm p-8 hover:border-neon-cyan/50 transition-all duration-300 hover:-translate-y-1" data-testid="vision-block">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center">
+                  <Heart className="h-6 w-6 text-neon-cyan" />
+                </div>
+                <span className="text-xs font-bold uppercase tracking-widest text-neon-cyan">Why IslandHop</span>
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">Community-first, built for the T&amp;T landscape</h3>
+              <p className="text-white/75 leading-relaxed text-lg">
+                We&apos;re more than just delivery; we&apos;re a community-first platform designed to empower local artisans, technicians, and drivers. Delivering anything, anytime, anywhere—built specifically for the T&amp;T landscape.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
       {/* App Download Section */}
       <section className="py-20 bg-gold-gradient">
         <div className="container mx-auto px-4">
