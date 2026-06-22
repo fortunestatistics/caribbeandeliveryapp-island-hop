@@ -19,32 +19,34 @@ code {
 
 @layer base {
   :root {
-    /* Midnight Tropical — deep navy/charcoal base, sunset-orange primary, teal accent */
-    --background: 207 56% 9%;
-    --foreground: 0 0% 100%;
-    --card: 205 52% 13%;
-    --card-foreground: 0 0% 100%;
-    --popover: 205 52% 13%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 25 95% 53%;
+    /* Caribbean Sunshine — bright sand/white base, sunset-orange primary, navy text, turquoise accent */
+    --background: 210 17% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 21 100% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 205 40% 18%;
+    --secondary: 222 47% 11%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 205 40% 18%;
-    --muted-foreground: 210 16% 72%;
-    --accent: 172 66% 50%;
-    --accent-foreground: 207 56% 9%;
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 205 35% 22%;
-    --input: 205 35% 22%;
-    --ring: 25 95% 53%;
-    --chart-1: 25 95% 53%;
-    --chart-2: 172 66% 50%;
-    --chart-3: 210 16% 60%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 21 100% 50%;
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+    --chart-1: 21 100% 50%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 160 84% 39%;
     --chart-4: 32 90% 60%;
-    --chart-5: 188 80% 45%;
-    --radius: 0.5rem;
+    --chart-5: 222 47% 11%;
+    --radius: 1rem;
   }
   .dark {
     --background: 207 56% 9%;

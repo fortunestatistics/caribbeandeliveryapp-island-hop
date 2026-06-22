@@ -334,7 +334,7 @@ const Header = () => {
 
   return (
     <>
-      <header className="bg-matte-900/90 backdrop-blur-xl border-b border-gold-500/20 sticky top-0 z-50">
+      <header className="bg-card/90 backdrop-blur-xl border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             {/* Brand + Sub-Apps Dropdown */}
@@ -386,7 +386,7 @@ const Header = () => {
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2 rounded-lg hover:bg-matte-800 transition-colors"
+              className="md:hidden p-2 rounded-lg hover:bg-muted transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               data-testid="mobile-menu-btn"
             >
@@ -400,7 +400,7 @@ const Header = () => {
 
           {/* Mobile Navigation Menu */}
           {mobileMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 border-t border-border bg-matte-900/95 backdrop-blur-md">
+            <div className="md:hidden mt-4 pb-4 border-t border-border bg-card/95 backdrop-blur-md">
               {/* Mobile Search */}
               <div className="px-4 py-3">
                 <GlobalSearch />
@@ -589,32 +589,32 @@ const LandingPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Section - Premium Matte Black + Gold */}
-      <section className="relative overflow-hidden bg-matte-900 pt-20 pb-32">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.18),transparent_60%)]"></div>
-        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-gold-500/10 blur-3xl"></div>
-        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-neon-cyan/5 blur-3xl"></div>
+      {/* Hero Section - Caribbean Sunshine (light) */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-orange-50 via-background to-background pt-20 pb-32">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,90,0,0.10),transparent_60%)]"></div>
+        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl"></div>
+        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-accent/10 blur-3xl"></div>
         
         <div className="relative container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center text-white">
-            <div className="inline-block mb-6 px-6 py-2 bg-gold-500/15 border border-gold-500/30 backdrop-blur-sm rounded-full">
-              <span className="text-sm font-semibold text-gold-300">🏝️ Caribbean&apos;s #1 Delivery Platform</span>
+          <div className="max-w-4xl mx-auto text-center text-secondary">
+            <div className="inline-block mb-6 px-6 py-2 bg-primary/10 border border-primary/20 backdrop-blur-sm rounded-full">
+              <span className="text-sm font-semibold text-primary">🏝️ Caribbean&apos;s #1 Delivery Platform</span>
             </div>
             
-            <h1 className="font-heading text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight">
+            <h1 className="font-heading text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight text-secondary">
               Everything you need,
               <br />
-              <span className="text-gold-gradient">delivered instantly</span>
+              <span className="text-primary">delivered instantly</span>
             </h1>
             
-            <p className="text-xl md:text-2xl mb-10 text-white/80 font-light max-w-2xl mx-auto">
+            <p className="text-xl md:text-2xl mb-10 text-muted-foreground font-light max-w-2xl mx-auto">
               From fresh meals to everyday essentials. Fast, reliable delivery across the Caribbean islands.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Button 
                 size="lg" 
-                className="px-10 py-7 text-lg"
+                className="rounded-full px-10 py-7 text-lg shadow-[0_4px_14px_0_rgba(255,90,0,0.39)] hover:shadow-lg active:scale-95 transition-all"
                 onClick={() => {
                   const servicesSection = document.getElementById('services');
                   servicesSection?.scrollIntoView({ behavior: 'smooth' });
@@ -626,7 +626,7 @@ const LandingPage = () => {
               <Button 
                 size="lg" 
                 variant="outline"
-                className="border-gold-500/40 text-white hover:border-gold-500 hover:bg-gold-500/10 px-10 py-7 text-lg backdrop-blur-sm transition-all"
+                className="rounded-full border-2 border-slate-200 text-secondary hover:border-primary hover:bg-primary/5 px-10 py-7 text-lg transition-all"
                 onClick={() => navigate('/partner')}
               >
                 Become a Partner
@@ -652,10 +652,10 @@ const LandingPage = () => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center">
-                  <div className="text-4xl md:text-5xl font-bold mb-2" data-testid={`stat-${stat.label.replace(/\s+/g, '-').toLowerCase()}`}>
+                  <div className="text-4xl md:text-5xl font-bold mb-2 text-secondary" data-testid={`stat-${stat.label.replace(/\s+/g, '-').toLowerCase()}`}>
                     {stat.fixed ? stat.value.toFixed(1) : <AnimatedCounter value={stat.value} suffix={stat.suffix} />}
                   </div>
-                  <div className="text-sm md:text-base text-white/80">{stat.label}</div>
+                  <div className="text-sm md:text-base text-muted-foreground">{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -741,44 +741,44 @@ const LandingPage = () => {
       </section>
 
       {/* Latest News & Our Vision */}
-      <section className="relative overflow-hidden bg-matte-900 py-24" data-testid="news-vision-section">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(249,115,22,0.14),transparent_60%)]"></div>
-        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-neon-cyan/5 blur-3xl"></div>
+      <section className="relative overflow-hidden bg-muted py-24" data-testid="news-vision-section">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,90,0,0.06),transparent_60%)]"></div>
+        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-accent/5 blur-3xl"></div>
         <div className="relative container mx-auto px-4">
           <div className="text-center mb-14">
-            <div className="inline-block mb-4 px-5 py-1.5 bg-gold-500/15 border border-gold-500/30 backdrop-blur-sm rounded-full">
-              <span className="text-sm font-semibold text-gold-300">🇹🇹 Latest from IslandHop</span>
+            <div className="inline-block mb-4 px-5 py-1.5 bg-primary/10 border border-primary/20 rounded-full">
+              <span className="text-sm font-semibold text-primary">🇹🇹 Latest from IslandHop</span>
             </div>
-            <h2 className="font-heading text-4xl md:text-5xl font-extrabold text-white tracking-tight">
-              News &amp; <span className="text-gold-gradient">Our Vision</span>
+            <h2 className="font-heading text-4xl md:text-5xl font-extrabold text-secondary tracking-tight">
+              News &amp; <span className="text-primary">Our Vision</span>
             </h2>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl mx-auto">
             {/* Latest News */}
-            <div className="group relative rounded-2xl border border-gold-500/20 bg-white/[0.03] backdrop-blur-sm p-8 hover:border-gold-500/50 transition-all duration-300 hover:-translate-y-1" data-testid="news-block">
+            <div className="group relative rounded-2xl border border-slate-100 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] p-8 hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-1" data-testid="news-block">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-xl bg-gold-500/15 border border-gold-500/30 flex items-center justify-center">
-                  <TrendingUp className="h-6 w-6 text-gold-400" />
+                <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-primary" />
                 </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-gold-400">Now Expanding</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-primary">Now Expanding</span>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Officially expanding across Trinidad &amp; Tobago</h3>
-              <p className="text-white/75 leading-relaxed text-lg">
+              <h3 className="text-2xl font-bold text-secondary mb-3">Officially expanding across Trinidad &amp; Tobago</h3>
+              <p className="text-muted-foreground leading-relaxed text-lg">
                 IslandHop is officially expanding its footprint across Trinidad &amp; Tobago! We are currently onboarding our first wave of logistics partners and service professionals to bring you the best on-demand experience in the Caribbean. Stay tuned for our live launch!
               </p>
             </div>
 
             {/* Our Vision */}
-            <div className="group relative rounded-2xl border border-neon-cyan/20 bg-white/[0.03] backdrop-blur-sm p-8 hover:border-neon-cyan/50 transition-all duration-300 hover:-translate-y-1" data-testid="vision-block">
+            <div className="group relative rounded-2xl border border-slate-100 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] p-8 hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-1" data-testid="vision-block">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center">
-                  <Heart className="h-6 w-6 text-neon-cyan" />
+                <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+                  <Heart className="h-6 w-6 text-accent" />
                 </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-neon-cyan">Why IslandHop</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-accent">Why IslandHop</span>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Community-first, built for the T&amp;T landscape</h3>
-              <p className="text-white/75 leading-relaxed text-lg">
+              <h3 className="text-2xl font-bold text-secondary mb-3">Community-first, built for the T&amp;T landscape</h3>
+              <p className="text-muted-foreground leading-relaxed text-lg">
                 We&apos;re more than just delivery; we&apos;re a community-first platform designed to empower local artisans, technicians, and drivers. Delivering anything, anytime, anywhere—built specifically for the T&amp;T landscape.
               </p>
             </div>
@@ -1713,7 +1713,7 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <Router>
-          <div className="min-h-screen bg-matte-900">
+          <div className="min-h-screen bg-background">
             <Header />
 
           <Routes>
