@@ -141,7 +141,7 @@ const PharmacyOrderForm = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-3xl flex items-center">
-              <Pill className="h-8 w-8 mr-3 text-neon-cyan" />
+              <Pill className="h-8 w-8 mr-3 text-teal-700" />
               Pharmacy Delivery
             </CardTitle>
             <p className="text-muted-foreground mt-2">Order medications and health products with prescription or over-the-counter</p>
@@ -185,7 +185,7 @@ const PharmacyOrderForm = () => {
               {orderType === 'prescription' && (
                 <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-neon-cyan/10">
                   <div className="flex items-start space-x-3">
-                    <ShieldCheck className="h-6 w-6 text-neon-cyan flex-shrink-0 mt-1" />
+                    <ShieldCheck className="h-6 w-6 text-teal-700 flex-shrink-0 mt-1" />
                     <div className="flex-1">
                       <h3 className="font-semibold text-foreground mb-2">Upload Prescription</h3>
                       <p className="text-sm text-muted-foreground mb-4">
@@ -194,8 +194,8 @@ const PharmacyOrderForm = () => {
                       
                       <Label htmlFor="prescription-upload" className="cursor-pointer">
                         <div className="flex items-center justify-center w-full py-4 px-4 border-2 border-blue-400 border-dashed rounded-lg hover:bg-neon-cyan/15 transition-colors">
-                          <Upload className="h-5 w-5 mr-2 text-neon-cyan" />
-                          <span className="text-neon-cyan font-semibold">Choose Files</span>
+                          <Upload className="h-5 w-5 mr-2 text-teal-700" />
+                          <span className="text-teal-700 font-semibold">Choose Files</span>
                           <Input
                             id="prescription-upload"
                             type="file"
@@ -243,9 +243,9 @@ const PharmacyOrderForm = () => {
                         <CardContent className="p-4">
                           <div className="text-center mb-3">
                             <div className="text-4xl mb-2">{med.image}</div>
-                            <Badge className="mb-2 bg-neon-cyan/15 text-neon-cyan">{med.category}</Badge>
+                            <Badge className="mb-2 bg-neon-cyan/15 text-teal-700">{med.category}</Badge>
                             <h4 className="font-semibold text-sm text-foreground">{med.name}</h4>
-                            <p className="text-lg font-bold text-neon-cyan mt-2">${med.price.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-teal-700 mt-2">${med.price.toFixed(2)}</p>
                           </div>
                           <Button
                             type="button"
@@ -324,7 +324,7 @@ const PharmacyOrderForm = () => {
               {/* Delivery Details */}
               <div>
                 <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-                  <MapPin className="h-5 w-5 mr-2 text-neon-cyan" />
+                  <MapPin className="h-5 w-5 mr-2 text-teal-700" />
                   Delivery Information
                 </h3>
                 <div className="space-y-4">
@@ -372,7 +372,7 @@ const PharmacyOrderForm = () => {
                           <CardContent className="p-4 text-center">
                             <h4 className="font-semibold text-foreground">{option.name}</h4>
                             <p className="text-sm text-muted-foreground mt-1">{option.time}</p>
-                            <p className="text-sm font-semibold text-neon-cyan mt-2">+${option.fee.toFixed(2)}</p>
+                            <p className="text-sm font-semibold text-teal-700 mt-2">+${option.fee.toFixed(2)}</p>
                           </CardContent>
                         </Card>
                       ))}

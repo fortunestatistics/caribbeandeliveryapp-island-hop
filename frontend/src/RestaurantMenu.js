@@ -254,7 +254,7 @@ const RestaurantMenu = () => {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Badge className="bg-gold-500/15 text-gold-300">{restaurant.cuisine}</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-700">{restaurant.cuisine}</Badge>
                   <Badge variant="outline">Delivery ${restaurant.deliveryFee.toFixed(2)}</Badge>
                   <Badge variant="outline">Min ${restaurant.minOrder.toFixed(2)}</Badge>
                 </div>

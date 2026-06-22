@@ -381,7 +381,7 @@ const AdminPanel = () => {
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800',
     };
-    return map[status] || 'bg-neon-cyan/15 text-neon-cyan';
+    return map[status] || 'bg-neon-cyan/15 text-teal-700';
   };
 
   if (loading) {
@@ -970,7 +970,7 @@ const AdminPanel = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-neon-cyan" />Active Zones ({zones.length})</CardTitle>
+                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-teal-700" />Active Zones ({zones.length})</CardTitle>
               </CardHeader>
               <CardContent>
                 {zones.length === 0 ? (

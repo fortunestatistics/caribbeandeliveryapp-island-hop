@@ -141,7 +141,7 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
 
       {/* Security Notice */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground bg-neon-cyan/10 p-3 rounded-lg">
-        <AlertCircle className="h-5 w-5 text-neon-cyan" />
+        <AlertCircle className="h-5 w-5 text-teal-700" />
         <p>
           Your payment information is encrypted and secure. We never store your card details.
         </p>

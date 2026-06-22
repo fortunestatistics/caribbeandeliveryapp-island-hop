@@ -529,7 +529,7 @@ const DriverOnboarding = () => {
             {currentStep === 3 && (
               <div className="space-y-6" data-testid="documents-step">
                 <div className="text-center mb-6">
-                  <FileText className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <FileText className="h-12 w-12 text-teal-700 mx-auto mb-4" />
                   <h3 className="text-2xl font-bold text-foreground mb-2">Documents Upload</h3>
                   <p className="text-muted-foreground">Upload required documents for verification</p>
                 </div>

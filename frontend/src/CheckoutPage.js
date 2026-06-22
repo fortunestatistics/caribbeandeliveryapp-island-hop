@@ -202,7 +202,7 @@ export const CheckoutPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Complete payment</span>
-              <Badge className={isPaid ? 'bg-green-100 text-green-800' : 'bg-gold-500/15 text-gold-300'}>
+              <Badge className={isPaid ? 'bg-green-100 text-green-800' : 'bg-gold-500/15 text-gold-700'}>
                 {isPaid ? 'Paid' : 'Pending'}
               </Badge>
             </CardTitle>

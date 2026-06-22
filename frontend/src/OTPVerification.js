@@ -83,7 +83,7 @@ const OTPVerification = ({ phone, purpose = 'signup', onVerified, onCancel }) =>
         ) : (
           <>
             {devCode && (
-              <div className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan text-xs rounded-md p-3" data-testid="otp-dev-banner">
+              <div className="bg-neon-cyan/10 border border-neon-cyan/30 text-teal-700 text-xs rounded-md p-3" data-testid="otp-dev-banner">
                 Dev mode: your code is <strong>{devCode}</strong> (auto-filled)
               </div>
             )}

@@ -953,7 +953,7 @@ const BusinessOnboarding = () => {
                 <Card className="bg-neon-cyan/10">
                   <CardHeader>
                     <CardTitle className="flex items-center">
-                      <CreditCard className="h-5 w-5 mr-2 text-neon-cyan" />
+                      <CreditCard className="h-5 w-5 mr-2 text-teal-700" />
                       Banking Information
                     </CardTitle>
                   </CardHeader>

@@ -301,7 +301,7 @@ const WalletPage = () => {
             className="h-auto py-4 flex-col gap-2"
             data-testid="wallet-request-btn"
           >
-            <HandCoins className="h-6 w-6 text-neon-cyan" />
+            <HandCoins className="h-6 w-6 text-teal-700" />
             <span className="text-sm font-semibold">Request</span>
             <span className="text-xs text-muted-foreground">Ask for money</span>
           </Button>
@@ -312,7 +312,7 @@ const WalletPage = () => {
           <Card className="mb-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <HandCoins className="h-5 w-5 text-neon-cyan" /> Money requests
+                <HandCoins className="h-5 w-5 text-teal-700" /> Money requests
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -397,7 +397,7 @@ const WalletPage = () => {
                       <p className={`font-semibold ${TXN_COLOR[t.type] || 'text-foreground/90'}`}>
                         {TXN_SIGN[t.type] || ''}${formatAmt(t.amount)} {t.currency}
                       </p>
-                      <Badge className={t.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gold-500/15 text-gold-300'}>
+                      <Badge className={t.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gold-500/15 text-gold-700'}>
                         {t.status}
                       </Badge>
                     </div>

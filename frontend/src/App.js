@@ -940,7 +940,7 @@ const PartnerSelection = () => {
                   </div>
                   <div>
                     <h3 className="font-heading text-2xl font-bold text-secondary">{partner.name}</h3>
-                    <Badge className="mt-1 bg-gold-500/15 text-gold-300 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
+                    <Badge className="mt-1 bg-gold-500/15 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
                   </div>
                 </div>
 

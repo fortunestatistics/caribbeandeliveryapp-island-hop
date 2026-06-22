@@ -442,3 +442,12 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - `/app/frontend/src/OTPVerification.js`, `ReferralPage.js`, `DeliveryProofUpload.js`.
 - `/app/frontend/src/AdminPanel.js` — admin UI with new approvals/zones/whatsapp tabs.
 - `/app/design_guidelines.json` — Matte Black + Metallic Gold + Neon Cyan tokens.
+
+## CHANGELOG — 2026-06-22: Vibrant "Caribbean Sunshine" Light Theme (global)
+- Migrated the ENTIRE app from dark "Midnight Tropical" to a VIBRANT light theme matching user's reference screenshots (warm off-white bg, white cards, deep navy headings/text, bright teal accents, vivid orange CTAs).
+- Mechanism (avoids touching 130+ files): legacy Tailwind tokens remapped in `tailwind.config.js` — `matte-900=#FFFCF9` (page bg), `matte-800=#FFFFFF` (cards), `matte-700=#EEF2F7`; `gold-500=#FF6A00` (vivid orange), `gold-700=#E85D00`, `gold-300=#FFB37A`, `gold-400=#FF8A3D`; `neon.cyan=#06D6BE` (bright teal); new `navy` palette (#0B2C54). Gradients/glows refreshed.
+- `public/index.html`: removed forced `class="dark"`. `src/index.css`: `:root` semantic vars → primary=orange `25 100% 50%`, accent=teal `173 94% 43%`, secondary=navy `211 77% 19%`, foreground=navy, light scrollbar/selection.
+- Contrast sweep: converted misused `text-white` text labels (PartnerSelection, ReviewForm, order-form Totals, Terms/Privacy headers) to `text-secondary`/`text-foreground`; renamed `text-neon-cyan`→`text-teal-700` across 19 files; pale `bg-gold-500/15 text-gold-300` badges → `text-gold-700`.
+- Verified: testing agent iteration_18 (95% → contrast bugs fixed) + screenshots on Home, Partner, Car Rentals, Login, Pharmacy, and authed Dashboard/Admin/Wallet.
+- DEPLOY: live on preview. Production (islandhopapp.com) requires the user to trigger the Deploy panel manually. (Note: pre-existing apex/www POST-redirect blocker may still affect production until Emergent Support rebuilds the apex bundle.)
+- Pre-existing unrelated: `/dashboard` applications fetch returns 500 (console error only, page still renders) — NOT caused by theme.

@@ -73,9 +73,9 @@ const VendorStripeConnect = () => {
                 payoutsEnabled ? (
                   <Badge className="bg-green-100 text-green-800" data-testid="connect-status-active">Active</Badge>
                 ) : onboardingComplete ? (
-                  <Badge className="bg-gold-500/15 text-gold-300" data-testid="connect-status-pending">Pending review</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-700" data-testid="connect-status-pending">Pending review</Badge>
                 ) : (
-                  <Badge className="bg-gold-500/15 text-gold-300" data-testid="connect-status-incomplete">Incomplete</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-700" data-testid="connect-status-incomplete">Incomplete</Badge>
                 )
               ) : (
                 <Badge className="bg-matte-800 text-foreground" data-testid="connect-status-disconnected">Not connected</Badge>
@@ -94,8 +94,8 @@ const VendorStripeConnect = () => {
               </div>
             </div>
 
-            <div className="flex items-start gap-2 bg-neon-cyan/10 border border-neon-cyan/30 rounded-lg p-4 text-sm text-neon-cyan">
-              <ShieldCheck className="h-5 w-5 text-neon-cyan flex-shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 bg-neon-cyan/10 border border-neon-cyan/30 rounded-lg p-4 text-sm text-teal-700">
+              <ShieldCheck className="h-5 w-5 text-teal-700 flex-shrink-0 mt-0.5" />
               <p>
                 You enter your bank details on Stripe&apos;s secure hosted page — IslandHop never sees or stores them.
                 Stripe handles KYC, compliance, and the actual money movement.

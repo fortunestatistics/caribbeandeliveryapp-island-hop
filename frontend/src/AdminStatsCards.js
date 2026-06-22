@@ -10,7 +10,7 @@ const AdminStatsCards = ({ stats }) => {
   if (!stats) return null;
 
   const items = [
-    { label: 'Total Users', value: stats.total_users, Icon: Users, color: 'text-neon-cyan' },
+    { label: 'Total Users', value: stats.total_users, Icon: Users, color: 'text-teal-700' },
     { label: 'Total Orders', value: stats.total_orders, Icon: Package, color: 'text-purple-600' },
     { label: 'Total Revenue', value: `$${(stats.total_revenue || 0).toFixed(0)}`, Icon: DollarSign, color: 'text-green-600' },
     { label: 'Active Drivers', value: stats.active_drivers, Icon: Truck, color: 'text-indigo-600' },

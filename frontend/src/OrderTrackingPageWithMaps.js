@@ -251,11 +251,11 @@ const OrderTrackingPageWithMaps = () => {
   const getStatusColor = (status) => {
     const colors = {
       pending: 'bg-gold-500/15 text-yellow-800',
-      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
+      confirmed: 'bg-neon-cyan/15 text-teal-700',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
+      in_transit: 'bg-neon-cyan/15 text-teal-700',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };

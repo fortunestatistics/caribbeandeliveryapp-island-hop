@@ -182,7 +182,7 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
 
               {error && <p className="text-xs text-red-400" data-testid="review-error">{error}</p>}
 
-              <div className="bg-gold-500/10 border border-gold-500/20 rounded-md px-3 py-2 text-xs text-gold-300">
+              <div className="bg-gold-500/10 border border-gold-500/20 rounded-md px-3 py-2 text-xs text-gold-700">
                 ⭐ Drivers earn a $1.00 wallet bonus for every 5-star review.
               </div>
 
