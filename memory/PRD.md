@@ -451,3 +451,11 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - Verified: testing agent iteration_18 (95% → contrast bugs fixed) + screenshots on Home, Partner, Car Rentals, Login, Pharmacy, and authed Dashboard/Admin/Wallet.
 - DEPLOY: live on preview. Production (islandhopapp.com) requires the user to trigger the Deploy panel manually. (Note: pre-existing apex/www POST-redirect blocker may still affect production until Emergent Support rebuilds the apex bundle.)
 - Pre-existing unrelated: `/dashboard` applications fetch returns 500 (console error only, page still renders) — NOT caused by theme.
+
+## CHANGELOG — 2026-06-22 (code review fixes, safe subset)
+- Fixed 3 empty catch blocks to log errors: WalletFunding.js, MerchantReviews.js, AdminTeam.js.
+- wipay_client.py: marked protocol-mandated MD5 hash `usedforsecurity=False` (WiPay API requires md5(transaction_id+total+api_key); cannot change algorithm without breaking payment verification).
+- FALSE POSITIVES (no change): server.py:5627 is a comment (only real hash is sha256 HMAC @7811); graph_mail.py:139 is `$skiptoken` URL parsing; test-file "secrets" are pytest fixtures.
+- Hook-dependency warnings: this CRA project does NOT enable the `react-hooks/exhaustive-deps` rule, so there are no such warnings in the actual build. Attempted eslint-disable comments broke compilation (rule undefined) and were reverted. App behavior already correct; no change needed. NOTE: required `rm -rf node_modules/.cache` + frontend restart to clear stale eslint cache.
+- Backend verified healthy (curl 200); frontend "webpack compiled successfully"; homepage smoke screenshot OK.
+- DEFERRED (high-risk, need dedicated effort + testing): localStorage→httpOnly cookie auth migration (P1 security), splitting BusinessOnboarding/AdminPanel/server.py, backend complexity reduction, type hints, console-statement stripping, nested-ternary cleanup.
