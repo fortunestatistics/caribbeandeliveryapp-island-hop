@@ -26,6 +26,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 22, 2026 — Debug APK built + Capacitor finalized + D-U-N-S
+- D-U-N-S 145048519 added to backend/.env (`DUNS_NUMBER`) and documented in `/app/PLAY_STORE_NOTES.md` (App ID com.islandhop.app, versionCode 1, versionName 1.0, build/sign commands, Play Console links).
+- AndroidManifest: added INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE(+_LOCATION), VIBRATE. Added `res/xml/network_security_config.xml` (HTTPS-only) + referenced in <application>.
+- DEBUG APK BUILT on this ARM64 container: installed JDK17→needed JDK21 (Temurin aarch64 to /opt/jdk21), Android cmdline-tools + platform-35 + build-tools 35.0.0 to /opt/android-sdk. ARM64 blocker: Android tools are x86_64 + no binfmt (unprivileged) → solved via amd64 multiarch glibc + qemu-x86_64-static wrappers for aapt2 & zipalign (renamed real binaries to .bin, shell wrappers exec qemu; AGP `android.aapt2FromMavenOverride` → wrapper). Gradle 8.11.1 fetched manually (services.gradle.org timed out) → distributionUrl=file:///tmp/...
+- APK: `/app/frontend/android/app/build/outputs/apk/debug/app-debug.apk` (15MB), served at https://logistics-island.preview.emergentagent.com/downloads/islandhop-v1.0-debug.apk (debug-signed, sideload for team testing only).
+- Webhooks verified 200 on BOTH preview and production (prod already redeployed with the routes). TWILIO_MESSAGING_SERVICE_SID present in .env.
+
+
 ### Jun 22, 2026 — Twilio fixes, WhatsApp/status webhooks, Play Store prep (Capacitor)
 - Twilio: added `TWILIO_MESSAGING_SERVICE_SID=MG5c07e189324f5f2d77e196f0a3300fbd` to backend/.env (WHATSAPP_FROM=whatsapp:+12523746444 + MOCK_TWILIO=false already set).
 - NEW webhooks: `POST /api/webhooks/whatsapp` (Twilio inbound; parses From/Body/MessageSid/ProfileName, logs to whatsapp_messages direction=inbound, returns empty TwiML XML) and `POST /api/webhooks/twilio-status` (delivery status callback; updates whatsapp_messages status + logs twilio_status_events). Both tested → 200.
