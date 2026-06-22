@@ -93,13 +93,19 @@ export default function PrivacyPolicy() {
           or by email. Continued use of the Service after changes constitutes acceptance.</p>
         </Section>
 
-        <Section title="10. Contact Us">
+        <Section title="10. SMS, WhatsApp &amp; Mobile Information">
+          <p className="font-semibold text-foreground">No mobile information will be shared with third parties/affiliates for marketing/promotional purposes. All other categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties.</p>
+          <p>With your consent, IslandHop uses Twilio to send transactional and service messages by SMS and WhatsApp — including one-time passcodes (OTP), order confirmations, driver and delivery status updates, and account alerts. Consent to receive these messages is collected when you provide your mobile number at sign-up or in your profile.</p>
+          <p>Message and data rates may apply and message frequency varies. You can opt out of text messages at any time by replying <strong>STOP</strong>; reply <strong>HELP</strong> for assistance. Opting out may limit service notifications such as delivery tracking. See our <Link to="/terms-and-conditions" className="text-gold-500 hover:underline">Terms &amp; Conditions</Link> for full messaging terms.</p>
+        </Section>
+
+        <Section title="11. Contact Us">
           <p>For privacy questions or requests, contact <a className="text-gold-500 hover:underline" href="mailto:support@islandhoptt.com">support@islandhoptt.com</a>.
           IslandHop is operated under the laws of Trinidad &amp; Tobago.</p>
         </Section>
 
         <p className="text-xs text-muted-foreground border-t border-border pt-6">
-          See also our <Link to="/terms" className="text-gold-500 hover:underline">Terms of Service</Link>.
+          See also our <Link to="/terms-and-conditions" className="text-gold-500 hover:underline">Terms &amp; Conditions</Link>.
         </p>
       </main>
     </div>

@@ -25,7 +25,8 @@ export default function Terms() {
       </header>
 
       <main className="container mx-auto px-4 py-12 max-w-3xl">
-        <h1 className="font-heading text-4xl md:text-5xl font-extrabold text-foreground mb-2">Terms of Service</h1>
+        <h1 className="font-heading text-4xl md:text-5xl font-extrabold text-foreground mb-2">Terms &amp; Conditions</h1>
+        <p className="text-muted-foreground mb-1 text-sm">IslandHop Technologies · Trinidad &amp; Tobago</p>
         <p className="text-muted-foreground mb-10 text-sm">Last updated: June 2026</p>
 
         <Section title="1. Acceptance of Terms">
@@ -108,7 +109,17 @@ export default function Terms() {
           jurisdiction of its courts.</p>
         </Section>
 
-        <Section title="14. Contact">
+        <Section title="14. SMS &amp; WhatsApp Communications">
+          <p>By providing your mobile number and opting in, you agree to receive transactional and service
+          messages from IslandHop via SMS and WhatsApp (sent through Twilio), including one-time passcodes,
+          order confirmations, delivery and driver status updates, and account notifications.</p>
+          <p className="font-semibold text-foreground">Reply STOP to opt-out of text messages at any time. Message and data rates may apply. Message frequency varies.</p>
+          <p>Reply <strong>HELP</strong> for help. Opting out may disable order-tracking and security notifications.
+          For details on how we collect, use, and protect your mobile information, see our
+          <Link to="/privacy-policy" className="text-gold-500 hover:underline"> Privacy Policy</Link>.</p>
+        </Section>
+
+        <Section title="15. Contact">
           <p>Questions about these Terms? Contact <a className="text-gold-500 hover:underline" href="mailto:support@islandhoptt.com">support@islandhoptt.com</a>.</p>
         </Section>
 

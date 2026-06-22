@@ -1739,6 +1739,7 @@ function App() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/terms-and-conditions" element={<Terms />} />
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 
