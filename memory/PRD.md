@@ -26,6 +26,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 22, 2026 — Twilio fixes, WhatsApp/status webhooks, Play Store prep (Capacitor)
+- Twilio: added `TWILIO_MESSAGING_SERVICE_SID=MG5c07e189324f5f2d77e196f0a3300fbd` to backend/.env (WHATSAPP_FROM=whatsapp:+12523746444 + MOCK_TWILIO=false already set).
+- NEW webhooks: `POST /api/webhooks/whatsapp` (Twilio inbound; parses From/Body/MessageSid/ProfileName, logs to whatsapp_messages direction=inbound, returns empty TwiML XML) and `POST /api/webhooks/twilio-status` (delivery status callback; updates whatsapp_messages status + logs twilio_status_events). Both tested → 200.
+- Play Store: wired `/privacy-policy` (PrivacyPolicy.js) and `/terms` (Terms.js) routes in App.js + footer links (footer-privacy, footer-terms). Real logistics-platform legal copy (data/location/driver/merchant terms, T&T jurisdiction). Added manifest.json + icon/apple-touch links in index.html.
+- App assets: branded icons generated (public/icons: 16–512 + maskable 192/512 + adaptive fg/bg; public/splash). Master icon via image gen (gold parcel+palm on matte black).
+- Capacitor 7 (Node 20 compatible; v8 needs Node 22) installed + configured: appId `com.islandhop.app`, appName `IslandHop`, webDir `build`. Android platform added; `@capacitor/assets` generated 74 native android assets (all densities + adaptive + splash light/dark). versionCode 1, versionName 1.0.
+- ⚠️ NO .aab built — container has no Java/Gradle/Android SDK. Build on a machine with Android Studio: `cd /app/frontend && yarn build && npx cap sync android && cd android && ./gradlew bundleRelease` (then sign).
+- ⚠️ Production: redeploy + add TWILIO_MESSAGING_SERVICE_SID to Deploy Panel; configure Twilio webhook URLs to https://islandhopapp.com/api/webhooks/whatsapp and /api/webhooks/twilio-status.
+
+
 ### Jun 20, 2026 — Full PayPal integration (Checkout + Payouts + Webhooks), mode-driven
 - ⚠️ CREDENTIAL FINDING: the "LIVE" PayPal credentials provided are actually SANDBOX creds — verified: they 401 (invalid_client) on `api-m.paypal.com` (live) but return a valid token on `api-m.sandbox.paypal.com`. So `PAYPAL_MODE=sandbox` in .env (NOT live). Going truly live requires LIVE app credentials from the PayPal dashboard; then set PAYPAL_MODE=live + live client id/secret.
 - NEW `backend/paypal_client.py`: REST API v2 via httpx (no SDK). Token caching, create_order, capture_order, get_order, create_payout (Payouts v1), verify_webhook (needs PAYPAL_WEBHOOK_ID). `_base_url()` switches on PAYPAL_MODE.

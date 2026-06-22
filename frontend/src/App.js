@@ -12,6 +12,8 @@ import AdminPanel from './AdminPanel';
 import AdminInviteAccept from './AdminInviteAccept';
 import PromoCodeManagement from './PromoCodeManagement';
 import AddressManagement from './AddressManagement';
+import PrivacyPolicy from './PrivacyPolicy';
+import Terms from './Terms';
 import OrderScheduling from './OrderScheduling';
 import { CheckoutPage, PaymentSuccess, PaymentCancel } from './CheckoutPage';
 import VendorStripeConnect from './VendorStripeConnect';
@@ -1735,6 +1737,8 @@ function App() {
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
             <Route path="/support" element={<AISupport />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 

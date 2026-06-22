@@ -100,6 +100,20 @@ const Footer = () => {
             >
               About
             </a>
+            <a
+              href="/privacy-policy"
+              data-testid="footer-privacy"
+              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
+            >
+              Privacy Policy
+            </a>
+            <a
+              href="/terms"
+              data-testid="footer-terms"
+              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
+            >
+              Terms
+            </a>
           </div>
         </div>
       </div>

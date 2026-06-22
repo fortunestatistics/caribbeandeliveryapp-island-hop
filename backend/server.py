@@ -7800,6 +7800,76 @@ async def whatsapp_webhook(request: Request):
     return {"success": True, "received": True, "message": msg_doc}
 
 
+@api_router.post("/webhooks/whatsapp")
+async def whatsapp_webhook_inbound(request: Request):
+    """Inbound WhatsApp webhook for Twilio (form-encoded). Logs the message and
+    returns an empty TwiML <Response> so Twilio doesn't auto-reply."""
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+
+    from_raw = form.get("From") or form.get("from") or ""
+    body_text = form.get("Body") or form.get("body") or ""
+    twilio_sid = form.get("MessageSid") or form.get("SmsMessageSid") or form.get("sid")
+    profile_name = form.get("ProfileName")
+    phone = _normalize_phone(str(from_raw).replace("whatsapp:", ""))
+
+    if phone:
+        user = await db.users.find_one({"phone": phone}, {"_id": 0})
+        await db.whatsapp_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"] if user else None,
+            "phone": phone,
+            "profile_name": profile_name,
+            "direction": "inbound",
+            "body": body_text,
+            "status": "received",
+            "twilio_sid": twilio_sid,
+            "num_media": form.get("NumMedia"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Inbound WhatsApp from {phone}: {body_text[:120]}")
+
+    return Response(content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
+                    media_type="application/xml")
+
+
+@api_router.post("/webhooks/twilio-status")
+async def twilio_status_callback(request: Request):
+    """Delivery status callback for Twilio messages (SMS + WhatsApp).
+    Updates the matching whatsapp_messages row with the latest delivery status."""
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+
+    message_sid = form.get("MessageSid") or form.get("SmsSid")
+    message_status = form.get("MessageStatus") or form.get("SmsStatus")
+    error_code = form.get("ErrorCode")
+
+    if message_sid:
+        await db.whatsapp_messages.update_one(
+            {"twilio_sid": message_sid},
+            {"$set": {"status": message_status, "error_code": error_code,
+                      "status_updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await db.twilio_status_events.insert_one({
+            "id": str(uuid.uuid4()),
+            "message_sid": message_sid,
+            "status": message_status,
+            "error_code": error_code,
+            "raw": form,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Twilio status callback: {message_sid} → {message_status}"
+                    + (f" (error {error_code})" if error_code else ""))
+
+    return Response(content="", media_type="text/plain")
+
+
+
+
 @api_router.get("/whatsapp/messages")
 async def list_whatsapp_messages(request: Request, phone: Optional[str] = None, limit: int = 100):
     """Admin/agent: list WhatsApp messages, optionally filtered by phone."""

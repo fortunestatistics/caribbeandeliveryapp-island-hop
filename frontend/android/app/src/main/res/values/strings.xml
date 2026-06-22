@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IslandHop</string>
+    <string name="title_activity_main">IslandHop</string>
+    <string name="package_name">com.islandhop.app</string>
+    <string name="custom_url_scheme">com.islandhop.app</string>
+</resources>
