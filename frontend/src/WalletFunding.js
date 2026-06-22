@@ -34,7 +34,7 @@ export const WalletFunding = ({ currencies = ['USD', 'TTD'], onChanged }) => {
       ]);
       setMethods(m.data.payment_methods || []);
       setReqs(r.data.requests || []);
-    } catch { /* silent */ }
+    } catch (e) { console.error('Failed to load wallet funding data:', e); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
