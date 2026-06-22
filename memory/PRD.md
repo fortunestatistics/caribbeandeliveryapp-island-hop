@@ -26,6 +26,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 22, 2026 — Meta App Secret + webhook signature verification + 5 WhatsApp templates
+- Added `META_APP_SECRET` and `META_APP_ID=2180974786018435` to backend/.env.
+- Re-created + submitted 5 WhatsApp templates via Twilio Content API (twilio/text, en, with {{n}} vars), all status=received: driver_welcome HX5b8d8946381d2c4b602d95e8cf8b5efa (MKT), merchant_welcome HXca1f02f37f64791bb1fe071517db5c83 (MKT), order_update HXb5b4f7aef8a67074fde372c65d57309b (UTIL), delivery_assigned HX2bd3767066c14a25dd297f7f9c8e92f0 (UTIL), pickup_ready HXfbda51c375e45b319b5ec171c7f3de0d (UTIL).
+- `/api/webhooks/whatsapp` upgraded: now verifies Meta `X-Hub-Signature-256` (HMAC-SHA256 w/ META_APP_SECRET) → 403 on mismatch; parses BOTH Twilio form + Meta Cloud API JSON; logs signature_verified. Added GET `/api/webhooks/whatsapp` Meta verification handshake (echoes hub.challenge if hub.verify_token == META_WEBHOOK_VERIFY_TOKEN env). Backward-compatible: no-signature (Twilio) requests still 200.
+- Verified preview: no-sig→200 TwiML, invalid Meta sig→403, valid Meta sig→200. Production no-sig→200 (old handler; needs redeploy for sig-verify + Meta parsing + META envs).
+
+
 ### Jun 22, 2026 — Debug APK built + Capacitor finalized + D-U-N-S
 - D-U-N-S 145048519 added to backend/.env (`DUNS_NUMBER`) and documented in `/app/PLAY_STORE_NOTES.md` (App ID com.islandhop.app, versionCode 1, versionName 1.0, build/sign commands, Play Console links).
 - AndroidManifest: added INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE(+_LOCATION), VIBRATE. Added `res/xml/network_security_config.xml` (HTTPS-only) + referenced in <application>.

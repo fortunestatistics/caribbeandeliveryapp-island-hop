@@ -16,6 +16,8 @@ from datetime import datetime, timezone, timedelta
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 import json
+import hmac
+import hashlib
 import re
 from passlib.context import CryptContext
 import secrets
@@ -7800,14 +7802,62 @@ async def whatsapp_webhook(request: Request):
     return {"success": True, "received": True, "message": msg_doc}
 
 
+def _verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
+    """Verify Meta WhatsApp Cloud API webhook signature (X-Hub-Signature-256)
+    = 'sha256=' + HMAC-SHA256(raw_body, META_APP_SECRET). Returns True if valid."""
+    secret = os.environ.get("META_APP_SECRET")
+    if not (secret and signature_header):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+
+@api_router.get("/webhooks/whatsapp")
+async def whatsapp_webhook_verify(request: Request):
+    """Meta Cloud API webhook verification handshake (GET). Echoes hub.challenge
+    when hub.verify_token matches META_WEBHOOK_VERIFY_TOKEN."""
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+    expected = os.environ.get("META_WEBHOOK_VERIFY_TOKEN")
+    if mode == "subscribe" and expected and token == expected:
+        return Response(content=challenge or "", media_type="text/plain")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
 @api_router.post("/webhooks/whatsapp")
 async def whatsapp_webhook_inbound(request: Request):
-    """Inbound WhatsApp webhook for Twilio (form-encoded). Logs the message and
-    returns an empty TwiML <Response> so Twilio doesn't auto-reply."""
+    """Inbound WhatsApp webhook. Supports Twilio (form-encoded) and Meta Cloud API (JSON).
+
+    Security: if an X-Hub-Signature-256 header is present (Meta), the request body is
+    validated against META_APP_SECRET and rejected (403) on mismatch. Requests without
+    that header (e.g. Twilio) are processed as before."""
+    raw_body = await request.body()
+    meta_sig = request.headers.get("X-Hub-Signature-256")
+    if meta_sig is not None and not _verify_meta_signature(raw_body, meta_sig):
+        logger.warning("WhatsApp webhook: invalid X-Hub-Signature-256 — rejected.")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
     try:
         form = dict(await request.form())
     except Exception:
         form = {}
+
+    # Meta Cloud API delivers JSON (no form fields) — extract the first message if present.
+    if not form and raw_body:
+        try:
+            payload = json.loads(raw_body)
+            change = payload["entry"][0]["changes"][0]["value"]
+            msg = (change.get("messages") or [{}])[0]
+            form = {
+                "From": msg.get("from", ""),
+                "Body": (msg.get("text") or {}).get("body", ""),
+                "MessageSid": msg.get("id"),
+                "ProfileName": (((change.get("contacts") or [{}])[0]).get("profile") or {}).get("name"),
+            }
+        except (KeyError, IndexError, ValueError, TypeError):
+            pass
 
     from_raw = form.get("From") or form.get("from") or ""
     body_text = form.get("Body") or form.get("body") or ""
@@ -7827,6 +7877,7 @@ async def whatsapp_webhook_inbound(request: Request):
             "status": "received",
             "twilio_sid": twilio_sid,
             "num_media": form.get("NumMedia"),
+            "signature_verified": meta_sig is not None,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info(f"Inbound WhatsApp from {phone}: {body_text[:120]}")
