@@ -482,7 +482,7 @@ const CarRentalPage = () => {
                                   </div>
                                 )}
                                 <div className="flex justify-between items-center pt-3 mt-2 border-t border-gold-500/30 gap-3 flex-wrap">
-                                  <span className="font-semibold text-white">Total</span>
+                                  <span className="font-semibold text-foreground">Total</span>
                                   <CurrencyConverter
                                     amountUSD={((selectedVehicle?.daily_rate || 0) + (bookingForm.insuranceSelected ? 15 : 0)) *
                                       Math.max(1, bookingForm.pickupDate && bookingForm.dropoffDate ?

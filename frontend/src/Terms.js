@@ -14,11 +14,11 @@ export default function Terms() {
     <div className="min-h-screen bg-background" data-testid="terms-page">
       <header className="border-b border-border bg-matte-900">
         <div className="container mx-auto px-4 py-5 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-white" data-testid="terms-home-link">
+          <Link to="/" className="flex items-center gap-2 text-secondary" data-testid="terms-home-link">
             <Package className="h-6 w-6 text-gold-500" />
             <span className="font-heading text-xl font-bold">IslandHop</span>
           </Link>
-          <Link to="/" className="text-sm text-white/70 hover:text-gold-400 flex items-center gap-1">
+          <Link to="/" className="text-sm text-muted-foreground hover:text-gold-500 flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Home
           </Link>
         </div>

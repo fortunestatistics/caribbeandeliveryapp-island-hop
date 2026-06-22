@@ -409,7 +409,7 @@ const PharmacyOrderForm = () => {
                   </div>
                   <Separator className="bg-gold-500/30" />
                   <div className="flex justify-between items-center pt-1 gap-3 flex-wrap">
-                    <span className="text-lg font-semibold text-white">Total</span>
+                    <span className="text-lg font-semibold text-foreground">Total</span>
                     <CurrencyConverter amountUSD={calculateTotal()} size="lg" />
                   </div>
                 </div>

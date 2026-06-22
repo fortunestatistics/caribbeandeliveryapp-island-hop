@@ -414,7 +414,7 @@ const CourierOrderForm = () => {
               <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Total Delivery Cost</h3>
+                    <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
                   <CurrencyConverter amountUSD={parseFloat(calculateFare()) || 0} size="lg" />

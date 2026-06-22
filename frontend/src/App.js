@@ -917,7 +917,7 @@ const PartnerSelection = () => {
 
       <div className="relative container mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="font-heading text-4xl lg:text-5xl font-bold text-white mb-6">
+          <h1 className="font-heading text-4xl lg:text-5xl font-bold text-secondary mb-6">
             Become a <span className="text-gold-gradient">Partner</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
@@ -939,7 +939,7 @@ const PartnerSelection = () => {
                     <partner.icon className="h-8 w-8 text-matte-900" />
                   </div>
                   <div>
-                    <h3 className="font-heading text-2xl font-bold text-white">{partner.name}</h3>
+                    <h3 className="font-heading text-2xl font-bold text-secondary">{partner.name}</h3>
                     <Badge className="mt-1 bg-gold-500/15 text-gold-300 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
                   </div>
                 </div>
@@ -949,7 +949,7 @@ const PartnerSelection = () => {
                 </p>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold text-white mb-3">Key Benefits:</h4>
+                  <h4 className="font-semibold text-secondary mb-3">Key Benefits:</h4>
                   <ul className="space-y-2">
                     {partner.benefits.map((benefit) => (
                       <li key={benefit} className="flex items-center text-sm text-muted-foreground">
@@ -975,7 +975,7 @@ const PartnerSelection = () => {
         <div className="mt-16 text-center">
           <Card className="max-w-4xl mx-auto bg-matte-800 border border-gold-500/30 shadow-gold-glow">
             <CardContent className="p-8">
-              <h3 className="font-heading text-2xl font-bold mb-6 text-white">Why Partner with <span className="text-gold-gradient">IslandHop?</span></h3>
+              <h3 className="font-heading text-2xl font-bold mb-6 text-secondary">Why Partner with <span className="text-gold-gradient">IslandHop?</span></h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
                   <div className="text-3xl font-bold mb-2 text-gold-gradient">10K+</div>
