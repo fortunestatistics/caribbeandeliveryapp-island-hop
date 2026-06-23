@@ -1,5 +1,11 @@
 # IslandHop Test Credentials
 
+## Admin (for UI / admin-endpoint testing) — Jun 2026
+- **Email:** `admin.qa@islandhop-demo.com`
+- **Password:** `AdminQA1234!`
+- Role: `admin` (registered as customer then promoted in DB; public register only ever creates customers).
+- A seeded placeholder user `id_start_demo_qa@gmail.com` exists in the Users tab to verify the "No valid email" badge + disabled message button.
+
 ## Authentication
 - **JWT Bearer** (primary): from `/api/auth/register` or `/api/auth/login` → `access_token` field.
 - **Session cookie** (`session_token`): legacy OAuth flow.

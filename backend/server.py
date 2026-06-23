@@ -1371,6 +1371,52 @@ async def activate_user(user_id: str, request: Request):
     
     return {"success": True}
 
+
+class AdminUserMessage(BaseModel):
+    subject: str
+    body: str
+
+
+@api_router.post("/admin/users/{user_id}/message")
+async def message_user(user_id: str, payload: AdminUserMessage, request: Request):
+    """Admin: send a direct email to a user. Blocks placeholder/QA addresses."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    subject = (payload.subject or "").strip()
+    body = (payload.body or "").strip()
+    if not subject or not body:
+        raise HTTPException(status_code=400, detail="Subject and message body are required")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = user.get("email")
+    if not graph_mail.is_real_email(email):
+        raise HTTPException(
+            status_code=400,
+            detail="This user has no valid email address on file (placeholder/test account). Message not sent.",
+        )
+
+    name = user.get("name") or "there"
+    safe_body = body.replace("\n", "<br/>")
+    html = (
+        f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>"
+        f"<p>Hi {name},</p><p>{safe_body}</p>"
+        "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+    )
+    try:
+        await graph_mail.send_mail(email, subject, html)
+    except graph_mail.InvalidRecipientEmail:
+        raise HTTPException(status_code=400, detail="This user has no valid email address on file. Message not sent.")
+    except graph_mail.GraphNotConfigured:
+        raise HTTPException(status_code=503, detail="Email service is not configured.")
+    except graph_mail.GraphConsentMissing:
+        raise HTTPException(status_code=503, detail="Email admin consent not granted yet.")
+    return {"success": True, "sent_to": email}
+
 @api_router.post("/admin/orders/{order_id}/cancel")
 async def admin_cancel_order(order_id: str, request: Request):
     """Admin cancel an order"""

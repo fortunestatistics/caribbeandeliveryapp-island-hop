@@ -5,6 +5,7 @@ import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './components/ui/dialog';
 import AnalyticsPromotions from './AnalyticsPromotions';
 import { 
   Users, 
@@ -28,6 +29,10 @@ import {
   Send,
   Trash2,
   FileText,
+  Mail,
+  User as UserIcon,
+  CreditCard,
+  AlertTriangle,
   Plus
 } from 'lucide-react';
 import axios from 'axios';
@@ -43,6 +48,20 @@ import AdminPromoters from './AdminPromoters';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+
+// Mirrors backend graph_mail.is_real_email — flags system/QA placeholder addresses.
+const PLACEHOLDER_PREFIXES = ['id_start_', 'id_noapp_', 'id_session_', 'id_kyc_', 'sched_test_', 'resto_test_', 'driver_test_', 'qa_test_'];
+const PLACEHOLDER_DOMAINS = ['test.com', 'example.com', 'example.org', 'example.net', 'test.test'];
+const isPlaceholderEmail = (email) => {
+  if (!email || typeof email !== 'string') return true;
+  const addr = email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return true;
+  const [local, domain] = addr.split('@');
+  if (PLACEHOLDER_DOMAINS.includes(domain)) return true;
+  return PLACEHOLDER_PREFIXES.some((p) => local.startsWith(p));
+};
+
+const money = (v) => `$${Number(v || 0).toFixed(2)}`;
 
 const DOC_LABELS = {
   driversLicense: "Driver's License",
@@ -85,6 +104,16 @@ const AdminPanel = () => {
   const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Message-a-user dialog
+  const [msgUser, setMsgUser] = useState(null);
+  const [msgSubject, setMsgSubject] = useState('');
+  const [msgBody, setMsgBody] = useState('');
+  const [msgSending, setMsgSending] = useState(false);
+  const [msgFeedback, setMsgFeedback] = useState(null); // {type, text}
+  // Order detail + approval detail dialogs
+  const [detailOrder, setDetailOrder] = useState(null);
+  const [detailApproval, setDetailApproval] = useState(null);
 
   useEffect(() => {
     fetchStats();
@@ -351,6 +380,37 @@ const AdminPanel = () => {
     }
   };
 
+  const openMessageUser = (user) => {
+    setMsgUser(user);
+    setMsgSubject('');
+    setMsgBody('');
+    setMsgFeedback(null);
+  };
+
+  const sendUserMessage = async () => {
+    if (!msgUser || !msgSubject.trim() || !msgBody.trim()) return;
+    setMsgSending(true);
+    setMsgFeedback(null);
+    try {
+      const r = await axios.post(
+        `${API}/admin/users/${msgUser.id}/message`,
+        { subject: msgSubject.trim(), body: msgBody.trim() },
+        { headers: authHeaders(), withCredentials: false }
+      );
+      setMsgFeedback({ type: 'success', text: `Email sent to ${r.data.sent_to}` });
+      setMsgSubject('');
+      setMsgBody('');
+    } catch (e) {
+      setMsgFeedback({ type: 'error', text: e.response?.data?.detail || 'Failed to send message' });
+    } finally {
+      setMsgSending(false);
+    }
+  };
+
+  const userByEmail = (email) => users.find((u) => u.email && email && u.email.toLowerCase() === email.toLowerCase());
+  const customerForOrder = (order) => order && users.find((u) => u.id === order.customer_id);
+
+
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
@@ -541,7 +601,13 @@ const AdminPanel = () => {
                         <td className="p-3">
                           <div>
                             <p className="font-medium">{user.name || 'N/A'}</p>
-                            <p className="text-sm text-muted-foreground">{user.email}</p>
+                            {isPlaceholderEmail(user.email) ? (
+                              <Badge data-testid={`no-email-badge-${user.id}`} className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px] mt-0.5">
+                                <AlertTriangle className="h-3 w-3 mr-1" />No valid email
+                              </Badge>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">{user.email}</p>
+                            )}
                           </div>
                         </td>
                         <td className="p-3">
@@ -557,8 +623,15 @@ const AdminPanel = () => {
                         </td>
                         <td className="p-3">
                           <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline">
-                              <Eye className="h-4 w-4" />
+                            <Button
+                              data-testid={`message-user-btn-${user.id}`}
+                              size="sm"
+                              variant="outline"
+                              disabled={isPlaceholderEmail(user.email)}
+                              title={isPlaceholderEmail(user.email) ? 'No valid email on file' : 'Send email'}
+                              onClick={() => openMessageUser(user)}
+                            >
+                              <Mail className="h-4 w-4" />
                             </Button>
                             {user.status === 'active' ? (
                               <Button 
@@ -596,7 +669,7 @@ const AdminPanel = () => {
             <CardContent>
               <div className="space-y-3">
                 {filteredOrders.map((order) => (
-                  <Card key={order.id} className="hover:shadow-md transition-shadow">
+                  <Card key={order.id} data-testid={`admin-order-${order.id}`} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setDetailOrder(order)}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -614,17 +687,17 @@ const AdminPanel = () => {
                         </div>
                         <div className="text-right">
                           <p className="text-2xl font-bold text-gold-500">
-                            ${order.total?.toFixed(2)}
+                            {money(order.total)}
                           </p>
                           <div className="flex gap-2 mt-2">
-                            <Button size="sm" variant="outline">
+                            <Button data-testid={`view-order-btn-${order.id}`} size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setDetailOrder(order); }}>
                               <Eye className="h-4 w-4" />
                             </Button>
                             {order.status === 'pending' && (
                               <Button 
                                 size="sm" 
                                 variant="destructive"
-                                onClick={() => handleOrderAction(order.id, 'cancel')}
+                                onClick={(e) => { e.stopPropagation(); handleOrderAction(order.id, 'cancel'); }}
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -673,6 +746,9 @@ const AdminPanel = () => {
                                   {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
                                 </div>
                                 <div className="flex gap-2">
+                                  <Button data-testid={`view-applicant-btn-${row.id}`} size="sm" variant="outline" onClick={() => setDetailApproval({ ...row, kind })}>
+                                    <Eye className="h-4 w-4 mr-1" />View
+                                  </Button>
                                   <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
                                     <CheckCircle className="h-4 w-4 mr-1" />Approve
                                   </Button>
@@ -1173,6 +1249,173 @@ const AdminPanel = () => {
             <AnalyticsPromotions />
           </div>
         )}
+
+        {/* Message a user (email) */}
+        <Dialog open={!!msgUser} onOpenChange={(o) => { if (!o) setMsgUser(null); }}>
+          <DialogContent data-testid="message-user-dialog">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Mail className="h-5 w-5 text-gold-500" />Email {msgUser?.name || 'customer'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">To: <span className="font-medium text-foreground">{msgUser?.email}</span></p>
+              <Input
+                data-testid="message-subject-input"
+                placeholder="Subject"
+                value={msgSubject}
+                onChange={(e) => setMsgSubject(e.target.value)}
+              />
+              <Textarea
+                data-testid="message-body-input"
+                placeholder="Write your message…"
+                rows={6}
+                value={msgBody}
+                onChange={(e) => setMsgBody(e.target.value)}
+              />
+              {msgFeedback && (
+                <p data-testid="message-feedback" className={`text-sm ${msgFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                  {msgFeedback.text}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMsgUser(null)}>Close</Button>
+              <Button
+                data-testid="message-send-btn"
+                className="bg-gold-500 hover:bg-gold-600"
+                disabled={msgSending || !msgSubject.trim() || !msgBody.trim()}
+                onClick={sendUserMessage}
+              >
+                <Send className="h-4 w-4 mr-1" />{msgSending ? 'Sending…' : 'Send Email'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Order detail + transaction breakdown */}
+        <Dialog open={!!detailOrder} onOpenChange={(o) => { if (!o) setDetailOrder(null); }}>
+          <DialogContent data-testid="order-detail-dialog" className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            {detailOrder && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Package className="h-5 w-5 text-gold-500" />Order #{detailOrder.id?.substring(0, 8)}
+                    <Badge className={orderStatusBadgeCls(detailOrder.status)}>{detailOrder.status?.toUpperCase()}</Badge>
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Service</span><p className="font-medium capitalize">{detailOrder.service_type}</p></div>
+                    <div><span className="text-muted-foreground">Placed</span><p className="font-medium">{new Date(detailOrder.created_at).toLocaleString()}</p></div>
+                    <div><span className="text-muted-foreground">Payment</span><p className="font-medium capitalize">{detailOrder.payment_method} · {detailOrder.payment_status}</p></div>
+                    <div><span className="text-muted-foreground">Customer</span><p className="font-medium">{customerForOrder(detailOrder)?.name || detailOrder.customer_phone || detailOrder.customer_id?.substring(0,8)}</p></div>
+                  </div>
+
+                  {(detailOrder.pickup_address || detailOrder.delivery_address) && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><span className="text-muted-foreground">Pickup</span><p className="font-medium">{detailOrder.pickup_address?.street || detailOrder.pickup_address?.address || '—'}</p></div>
+                      <div><span className="text-muted-foreground">Drop-off</span><p className="font-medium">{detailOrder.delivery_address?.street || detailOrder.delivery_address?.address || '—'}</p></div>
+                    </div>
+                  )}
+
+                  {detailOrder.items?.length > 0 && (
+                    <div>
+                      <p className="font-semibold mb-1">Items</p>
+                      <div className="border rounded-lg divide-y">
+                        {detailOrder.items.map((it, i) => (
+                          <div key={i} className="flex justify-between p-2">
+                            <span>{it.quantity}× {it.name}</span>
+                            <span className="font-medium">{money(it.price * it.quantity)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="font-semibold mb-1 flex items-center gap-1"><CreditCard className="h-4 w-4 text-gold-500" />Transaction</p>
+                    <div className="border rounded-lg p-3 space-y-1">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{money(detailOrder.subtotal)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Delivery fee</span><span>{money(detailOrder.delivery_fee)}</span></div>
+                      {detailOrder.tip > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tip</span><span>{money(detailOrder.tip)}</span></div>}
+                      {detailOrder.tax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{money(detailOrder.tax)}</span></div>}
+                      {detailOrder.discount > 0 && <div className="flex justify-between text-green-600"><span>Discount{detailOrder.promo_code ? ` (${detailOrder.promo_code})` : ''}</span><span>-{money(detailOrder.discount)}</span></div>}
+                      <div className="flex justify-between font-bold pt-1 border-t"><span>Total</span><span className="text-gold-500">{money(detailOrder.total)}</span></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold mb-1">Payouts & Earnings</p>
+                    <div className="border rounded-lg p-3 space-y-1">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Commission ({detailOrder.commission_rate}%)</span><span>{money(detailOrder.commission_amount)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Vendor payout <Badge variant="outline" className="ml-1">{detailOrder.vendor_payout_status}</Badge></span><span>{money(detailOrder.vendor_payout)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Driver earnings <Badge variant="outline" className="ml-1">{detailOrder.driver_payout_status}</Badge></span><span>{money(detailOrder.driver_earnings)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Platform earnings</span><span>{money(detailOrder.platform_earnings)}</span></div>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDetailOrder(null)}>Close</Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Approval applicant / customer profile */}
+        <Dialog open={!!detailApproval} onOpenChange={(o) => { if (!o) setDetailApproval(null); }}>
+          <DialogContent data-testid="applicant-detail-dialog" className="max-w-lg max-h-[85vh] overflow-y-auto">
+            {detailApproval && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2"><UserIcon className="h-5 w-5 text-gold-500" />{detailApproval.name || 'Applicant'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Type</span><p className="font-medium capitalize">{detailApproval.kind?.replace('_', ' ')}</p></div>
+                    <div><span className="text-muted-foreground">Email</span>
+                      {isPlaceholderEmail(detailApproval.email)
+                        ? <p><Badge className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-1" />No valid email</Badge></p>
+                        : <p className="font-medium break-all">{detailApproval.email || '—'}</p>}
+                    </div>
+                    <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{detailApproval.phone || detailApproval.raw?.phone || '—'}</p></div>
+                    <div><span className="text-muted-foreground">Applied</span><p className="font-medium">{detailApproval.created_at ? new Date(detailApproval.created_at).toLocaleString() : '—'}</p></div>
+                  </div>
+                  {(() => {
+                    const acct = userByEmail(detailApproval.email);
+                    return acct ? (
+                      <div className="border rounded-lg p-3 space-y-1">
+                        <p className="font-semibold">Linked customer account</p>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span>{acct.name}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="capitalize">{acct.status || 'active'}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Member since</span><span>{new Date(acct.created_at).toLocaleDateString()}</span></div>
+                      </div>
+                    ) : null;
+                  })()}
+                  {detailApproval.raw && (
+                    <div>
+                      <p className="font-semibold mb-1">Application details</p>
+                      <div className="border rounded-lg p-3 space-y-1">
+                        {Object.entries(detailApproval.raw)
+                          .filter(([k, v]) => ['license_number', 'vehicle_type', 'vehicle_plate', 'business_name', 'category', 'address', 'description'].includes(k) && v)
+                          .map(([k, v]) => (
+                            <div key={k} className="flex justify-between gap-3">
+                              <span className="text-muted-foreground capitalize">{k.replace(/_/g, ' ')}</span>
+                              <span className="font-medium text-right break-all">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" onClick={() => setDetailApproval(null)}>Close</Button>
+                  <Button variant="destructive" onClick={() => { handleApproval(detailApproval.kind, detailApproval.id, 'reject'); setDetailApproval(null); }}>Reject</Button>
+                  <Button className="bg-green-600 hover:bg-green-700" onClick={() => { handleApproval(detailApproval.kind, detailApproval.id, 'approve'); setDetailApproval(null); }}>Approve</Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
