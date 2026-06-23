@@ -2247,7 +2247,6 @@ async def get_user_orders(request: Request):
     
     return [Order(**order) for order in orders]
 
-@api_router.put("/orders/{order_id}/status")
 def _status_timestamp_field(status: str) -> Optional[str]:
     """Map order status → the field to set with the current UTC timestamp."""
     return {
@@ -2260,6 +2259,8 @@ def _status_timestamp_field(status: str) -> Optional[str]:
 
 async def _authorize_order_status_change(current_user: User, order: dict) -> None:
     """Raise 403 if current_user cannot update this order's status."""
+    if current_user.user_type in ("admin", "agent"):
+        return
     if current_user.user_type == "restaurant":
         restaurant = await db.restaurants.find_one({"user_id": current_user.id})
         if restaurant and restaurant["id"] == order["restaurant_id"]:
@@ -2378,6 +2379,7 @@ async def _notify_order_whatsapp(order: dict, status: str):
     )
 
 
+@api_router.put("/orders/{order_id}/status")
 async def update_order_status(order_id: str, status: str, request: Request):
     """Update order status — broken into small steps: auth → timestamps → side-effects → notify."""
     current_user = await get_current_user_from_request(request)

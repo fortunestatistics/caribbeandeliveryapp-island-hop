@@ -26,6 +26,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 23, 2026 — CariPay removal + digital wallet hidden + COD checkout
+- **CariPay removed completely:** deleted `caripay_client.py`, removed all CariPay endpoints (`/wallet/link`, `/wallet/deposit`, `/wallet/withdraw`, `/webhook/caripay`), the `import caripay_client`, the `CARIPAY_*`/`MOCK_CARIPAY` env vars, and the `caripay_*` fields on the Wallet model. No CariPay reference remains in backend or frontend.
+- **Digital wallet hidden from users:** deleted `WalletPage.js` + `WalletFunding.js`, removed the `/wallet` nav link, `/wallet` route now redirects to `/dashboard`. No top-up / balance / wallet-pay UI anywhere. (Internal `_credit_wallet_with_txn` payout plumbing for driver earnings/referrals is retained but not user-facing.)
+- **Checkout pivoted to COD:** `POST /api/orders/{id}/confirm-cod` confirms an order with `payment_method=cash`, `payment_status=cod_pending`, `status=confirmed`, best-effort driver assignment, and a WhatsApp 'confirmed' notification. Checkout now offers ONLY **Cash on Delivery (primary)** + **WiPay (secondary, sandbox: API Key 123 / Account 1234567890)**. Stripe card button + the Stripe/Apple/Google-Pay footer removed. PaymentSuccess shows a COD 'Order placed!' screen.
+- **CRITICAL pre-existing bug fixed:** `PUT /api/orders/{id}/status` had its route decorator attached to a helper (`_status_timestamp_field`) instead of `update_order_status`, so status updates silently no-opped. Moved the decorator to the real handler and allowed `admin`/`agent` roles to update status. Verified full flow: confirmed → preparing → picked_up → delivered. This unblocks the whole logistics test loop.
+- **Verified:** testing_agent iter 24 (frontend 100%, backend 12/13 — the 1 failure was this decorator bug, now fixed & re-verified by direct test). Mail status, Privacy/Terms, WhatsApp code path intact.
+- **NOTE:** `Terms.js` still has one sentence mentioning "The IslandHop Wallet" — left unchanged per the explicit "do not change Privacy/Terms" instruction; flag for the user to update later.
+
+
 ### Jun 23, 2026 — Taxi fare engine (real distance + time)
 - **How delivery fees work (clarified):** delivery fee is a **flat rate each vendor sets** at onboarding — there is no distance engine for deliveries. Taxi, by contrast, now has a real metered fare.
 - **Backend (`taxi_pricing.py` + endpoints):** rate card in TT$ (Economy TT$16+1.70/km, Standard/Premium TT$22+2.15/km, Van TT$42+2.00/km; per-min, min-fare floor, higher per-km beyond 20km). `GET /api/taxi/rate-card` (public) and `POST /api/taxi/quote` compute fare from **real driving distance + time via Google Directions API** (Distance Matrix/Geocode are disabled on this key; Directions works). Fares are computed in TT$ then converted to USD for storage (app stores USD, displays TT$ ×6.78).
