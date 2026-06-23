@@ -484,3 +484,9 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 ### UX additions
 - Dashboard quick-action tile "Promote & Earn" (data-testid quick-action-promote) → /promote.
 - Signup: SMS consent line under Phone (data-testid sms-consent-text) for Twilio A2P. Fixed broken signup links /terms→/terms-and-conditions, /privacy→/privacy-policy.
+
+## CHANGELOG — 2026-06-23 (Business model explanations + analytics promotions + homepage incentives widget) — verified 100% (iteration_22)
+- BusinessOnboarding.js: 'Business Model' field now shows a description + an explanatory legend for each option (B2C, B2B, B2B2C, Marketplace, Subscription). renderField supports field.description + field.optionDescriptions generically.
+- AnalyticsPromotions.js: new card in Admin Panel Analytics tab — total paid to promoters, held, total onboards, approved ambassadors + Top Promoters list (pulls /api/admin/promoters + /api/promoter/leaderboard).
+- App.js homepage: new horizontal 'Earn with IslandHop' incentives widget (data-testid incentives-widget) on navy gradient with 4 cards (Promote & Earn → /promote highlighted, Refer Friends → /referrals, Drive & Earn → /partner, Partner Bonuses → /partner) + 'Get my QR code' CTA.
+- All live on PREVIEW only — redeploy via Deploy panel for production.
