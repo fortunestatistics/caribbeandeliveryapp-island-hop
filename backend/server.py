@@ -7533,6 +7533,232 @@ async def _maybe_complete_referral(referee_id: str):
         {"user_id": referrer_id},
         {"$inc": {"total_referrals": 1, "total_rewards": amount}},
     )
+    # Promoter (QR) compensation for the customer-onboarding milestone.
+    await _award_promo_reward(referee_id, "customer", "first_paid_order")
+
+
+# ============================================================
+# PROMOTER / AMBASSADOR QR SYSTEM
+# Each user has a referral code (reused) + QR. Promoters earn wallet
+# rewards when people they onboarded complete a qualifying action.
+# Paid immediately if the promoter is ELIGIBLE (admin-approved Ambassador
+# OR an active/approved account); otherwise HELD until they become eligible.
+# ============================================================
+PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
+PROMO_REWARDS = {
+    "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
+    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "25")),
+    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "40")),
+    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "40")),
+}
+PROMO_TYPE_LABEL = {
+    "customer": "Customer", "driver": "Driver",
+    "merchant": "Business/Merchant", "supplier": "Supplier",
+}
+
+
+async def _is_eligible_promoter(promoter: Optional[dict]) -> bool:
+    """Eligible = admin-approved Ambassador OR an active/approved account."""
+    if not promoter:
+        return False
+    if promoter.get("is_promoter"):
+        return True
+    if promoter.get("user_type") in ("driver", "restaurant", "business", "admin", "agent"):
+        return True
+    uid = promoter.get("id")
+    if uid:
+        if await db.drivers.find_one({"user_id": uid, "status": {"$in": ["active", "online", "busy"]}}, {"_id": 1}):
+            return True
+        if await db.restaurants.find_one({"user_id": uid, "status": {"$in": ["active", "approved"]}}, {"_id": 1}):
+            return True
+        if await db.car_rental_companies.find_one({"user_id": uid, "status": {"$in": ["active", "approved"]}}, {"_id": 1}):
+            return True
+        if await db.business_applications.find_one({"user_id": uid, "verification_status": "verified"}, {"_id": 1}):
+            return True
+    return False
+
+
+async def _release_held_promo_rewards(promoter_id: str) -> int:
+    """If the promoter is now eligible, credit any HELD rewards to their wallet."""
+    promoter = await db.users.find_one({"id": promoter_id}, {"_id": 0})
+    if not await _is_eligible_promoter(promoter):
+        return 0
+    held = await db.promo_rewards.find({"promoter_id": promoter_id, "status": "held"}).to_list(length=None)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for r in held:
+        await _credit_wallet_with_txn(
+            promoter_id, r["amount"], r.get("currency", PROMO_REWARD_CURRENCY),
+            txn_type="promoter_reward", counterparty_user_id=r.get("referred_user_id"),
+            note=f"Promoter reward: {PROMO_TYPE_LABEL.get(r.get('type'), r.get('type'))} onboarding",
+        )
+        await db.promo_rewards.update_one({"id": r["id"]}, {"$set": {"status": "paid", "paid_at": now_iso}})
+    return len(held)
+
+
+async def _award_promo_reward(referred_user_id: str, reward_type: str, qualifying_event: str) -> None:
+    """Grant the promoter (referred_user.referred_by) a reward for an onboarding milestone. Idempotent."""
+    user = await db.users.find_one({"id": referred_user_id}, {"_id": 0})
+    if not user or not user.get("referred_by") or user["referred_by"] == referred_user_id:
+        return
+    promoter_id = user["referred_by"]
+    if await db.promo_rewards.find_one(
+        {"promoter_id": promoter_id, "referred_user_id": referred_user_id, "type": reward_type}, {"_id": 1}
+    ):
+        return  # one reward per (promoter, referred_user, type)
+    amount = float(PROMO_REWARDS.get(reward_type, 0) or 0)
+    if amount <= 0:
+        return
+    promoter = await db.users.find_one({"id": promoter_id}, {"_id": 0})
+    eligible = await _is_eligible_promoter(promoter)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    reward = {
+        "id": str(uuid.uuid4()),
+        "promoter_id": promoter_id,
+        "referred_user_id": referred_user_id,
+        "referred_name": user.get("name"),
+        "type": reward_type,
+        "amount": amount,
+        "currency": PROMO_REWARD_CURRENCY,
+        "qualifying_event": qualifying_event,
+        "status": "paid" if eligible else "held",
+        "created_at": now_iso,
+        "paid_at": now_iso if eligible else None,
+    }
+    if eligible:
+        await _credit_wallet_with_txn(
+            promoter_id, amount, PROMO_REWARD_CURRENCY, txn_type="promoter_reward",
+            counterparty_user_id=referred_user_id,
+            note=f"Promoter reward: {PROMO_TYPE_LABEL.get(reward_type, reward_type)} onboarding",
+        )
+    await db.promo_rewards.insert_one(reward)
+
+
+@api_router.get("/promoter/me")
+async def get_promoter_me(request: Request):
+    """Promoter dashboard summary: code, eligibility, reward schedule, totals."""
+    current_user = await get_current_user_from_request(request)
+    code_doc = await _get_or_create_referral_code(current_user)
+    await _release_held_promo_rewards(current_user.id)
+    promoter = await db.users.find_one({"id": current_user.id}, {"_id": 0})
+    eligible = await _is_eligible_promoter(promoter)
+    rewards = await db.promo_rewards.find({"promoter_id": current_user.id}, {"_id": 0}).to_list(length=None)
+    paid = sum(r["amount"] for r in rewards if r.get("status") == "paid")
+    held = sum(r["amount"] for r in rewards if r.get("status") == "held")
+    by_type: dict = {}
+    for r in rewards:
+        by_type[r["type"]] = by_type.get(r["type"], 0) + 1
+    return {
+        "code": code_doc["code"],
+        "is_eligible": eligible,
+        "is_ambassador": bool((promoter or {}).get("is_promoter")),
+        "currency": PROMO_REWARD_CURRENCY,
+        "reward_schedule": PROMO_REWARDS,
+        "totals": {"paid": round(paid, 2), "held": round(held, 2), "count": len(rewards), "by_type": by_type},
+    }
+
+
+@api_router.get("/promoter/onboards")
+async def get_promoter_onboards(request: Request):
+    """List people this promoter onboarded, with status + rewards earned."""
+    current_user = await get_current_user_from_request(request)
+    referred = await db.users.find(
+        {"referred_by": current_user.id},
+        {"_id": 0, "id": 1, "name": 1, "user_type": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(length=500)
+    rewards = await db.promo_rewards.find({"promoter_id": current_user.id}, {"_id": 0}).to_list(length=None)
+    rewards_by_user: dict = {}
+    for r in rewards:
+        rewards_by_user.setdefault(r["referred_user_id"], []).append(
+            {"type": r["type"], "amount": r["amount"], "status": r["status"]}
+        )
+    out = [{
+        "user_id": u["id"], "name": u.get("name"), "role": u.get("user_type"),
+        "joined_at": u.get("created_at"), "rewards": rewards_by_user.get(u["id"], []),
+    } for u in referred]
+    return {"onboards": out, "count": len(out)}
+
+
+@api_router.get("/promoter/leaderboard")
+async def get_promoter_leaderboard(limit: int = 20):
+    """Top promoters by total PAID rewards (public, names only)."""
+    pipeline = [
+        {"$match": {"status": "paid"}},
+        {"$group": {"_id": "$promoter_id", "total": {"$sum": "$amount"}, "onboards": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+        {"$limit": int(limit)},
+    ]
+    rows = await db.promo_rewards.aggregate(pipeline).to_list(length=limit)
+    ids = [r["_id"] for r in rows]
+    names: dict = {}
+    if ids:
+        async for u in db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1}):
+            names[u["id"]] = u.get("name")
+    out = [{
+        "rank": i + 1, "name": names.get(r["_id"], "Promoter"),
+        "total": round(r["total"], 2), "onboards": r["onboards"],
+    } for i, r in enumerate(rows)]
+    return {"leaderboard": out, "currency": PROMO_REWARD_CURRENCY}
+
+
+@api_router.get("/promoter/resolve/{code}")
+async def resolve_promoter_code(code: str):
+    """Public: resolve a promoter code to a display name for the join landing page."""
+    code_doc = await db.referral_codes.find_one({"code": (code or "").strip().upper()}, {"_id": 0})
+    if not code_doc:
+        return {"valid": False}
+    promoter = await db.users.find_one({"id": code_doc["user_id"]}, {"_id": 0, "name": 1})
+    return {"valid": True, "code": code_doc["code"], "promoter_name": (promoter or {}).get("name", "an IslandHop promoter")}
+
+
+@api_router.get("/admin/promoters")
+async def admin_list_promoters(request: Request, limit: int = 200):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    promoter_ids = set()
+    async for u in db.users.find({"is_promoter": True}, {"_id": 0, "id": 1}):
+        promoter_ids.add(u["id"])
+    async for r in db.promo_rewards.find({}, {"_id": 0, "promoter_id": 1}):
+        promoter_ids.add(r["promoter_id"])
+    out = []
+    if promoter_ids:
+        rewards = await db.promo_rewards.find({"promoter_id": {"$in": list(promoter_ids)}}, {"_id": 0}).to_list(length=None)
+        by_promoter: dict = {}
+        for r in rewards:
+            d = by_promoter.setdefault(r["promoter_id"], {"paid": 0.0, "held": 0.0, "count": 0})
+            d["count"] += 1
+            d[r["status"]] = d.get(r["status"], 0) + r["amount"]
+        async for u in db.users.find(
+            {"id": {"$in": list(promoter_ids)}},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "is_promoter": 1, "user_type": 1},
+        ):
+            stats = by_promoter.get(u["id"], {})
+            out.append({**u, "paid": round(stats.get("paid", 0), 2), "held": round(stats.get("held", 0), 2), "onboards": stats.get("count", 0)})
+    out.sort(key=lambda x: x.get("paid", 0), reverse=True)
+    return {"promoters": out[:limit]}
+
+
+class PromoterApprove(BaseModel):
+    user_id: str
+
+
+@api_router.post("/admin/promoters/approve")
+async def admin_approve_promoter(payload: PromoterApprove, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await db.users.update_one({"id": payload.user_id}, {"$set": {"is_promoter": True}})
+    released = await _release_held_promo_rewards(payload.user_id)
+    return {"success": True, "released_rewards": released}
+
+
+@api_router.post("/admin/promoters/revoke")
+async def admin_revoke_promoter(payload: PromoterApprove, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await db.users.update_one({"id": payload.user_id}, {"$set": {"is_promoter": False}})
+    return {"success": True}
 
 
 # ============================================================
@@ -8028,6 +8254,8 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     if driver and driver.get("user_id"):
         await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
         await _notify_driver_status(driver["user_id"], "approved")
+        await _award_promo_reward(driver["user_id"], "driver", "driver_approved")
+        await _release_held_promo_rewards(driver["user_id"])
     return result
 
 
@@ -8082,6 +8310,12 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
         raise HTTPException(status_code=403, detail="Admin access required")
     result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
     await _notify_merchant_status(application_id, "verified", payload.notes)
+    app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    if app_doc and app_doc.get("user_id"):
+        btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
+        rtype = "supplier" if "supplier" in btype else "merchant"
+        await _award_promo_reward(app_doc["user_id"], rtype, "business_approved")
+        await _release_held_promo_rewards(app_doc["user_id"])
     return result
 
 

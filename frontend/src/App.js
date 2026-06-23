@@ -29,6 +29,8 @@ import ProfilePage from './ProfilePage';
 import IdentityVerificationCallback from './IdentityVerificationCallback';
 import BusinessOnboarding from './BusinessOnboarding';
 import ReferralPage from './ReferralPage';
+import PromoteEarn from './PromoteEarn';
+import JoinLanding from './JoinLanding';
 import ReferralBanner from './ReferralBanner';
 import ClaimsPage from './ClaimsPage';
 import UnreadChatBell from './UnreadChatBell';
@@ -105,6 +107,7 @@ import {
   Smartphone,
   ArrowRight,
   Search,
+  Megaphone,
   Wallet as WalletIcon
 } from 'lucide-react';
 import axios from 'axios';
@@ -316,6 +319,7 @@ const Header = () => {
     { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
     { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
     { to: "/wallet",            label: "Wallet",            icon: WalletIcon,  show: 'authed' },
+    { to: "/promote",           label: "Promote & Earn",    icon: Megaphone,   show: 'authed' },
     { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
     { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
     { to: "/partner",           label: "Become a Partner",  icon: Building2,   show: 'guest-or-customer' },
@@ -1741,6 +1745,7 @@ function App() {
             <Route path="/terms" element={<Terms />} />
             <Route path="/terms-and-conditions" element={<Terms />} />
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
+            <Route path="/join/:code" element={<JoinLanding />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 
             {/* Logged-in users (any role) */}

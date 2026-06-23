@@ -37,6 +37,7 @@ import AdminWalletRequests from './AdminWalletRequests';
 import AdminMercuryBanking from './AdminMercuryBanking';
 import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
+import AdminPromoters from './AdminPromoters';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -114,7 +115,7 @@ const AdminPanel = () => {
       .catch(() => {});
   }, []);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
   const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
 
@@ -1113,6 +1114,10 @@ const AdminPanel = () => {
 
         {selectedTab === 'incentives' && (
           <AdminDriverIncentives />
+        )}
+
+        {selectedTab === 'promoters' && (
+          <AdminPromoters />
         )}
 
 
