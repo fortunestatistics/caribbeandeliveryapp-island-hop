@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { QRCodeCanvas } from 'qrcode.react';
+import { useCurrency } from './CurrencyContext';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -22,6 +23,7 @@ const TYPE_META = {
 
 const PromoteEarn = () => {
   const navigate = useNavigate();
+  const { format } = useCurrency();
   const [me, setMe] = useState(null);
   const [onboards, setOnboards] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
@@ -86,6 +88,7 @@ const PromoteEarn = () => {
 
   const cur = me?.currency || 'USD';
   const schedule = me?.reward_schedule || {};
+  void cur;
 
   return (
     <div className="min-h-screen bg-background py-10" data-testid="promote-earn-page">
@@ -153,8 +156,8 @@ const PromoteEarn = () => {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Paid ({cur})</p>
-                      <p className="text-2xl font-bold text-green-600" data-testid="promoter-paid">{(me?.totals?.paid || 0).toFixed(2)}</p>
+                      <p className="text-sm text-muted-foreground">Paid</p>
+                      <p className="text-2xl font-bold text-green-600" data-testid="promoter-paid">{format(me?.totals?.paid || 0)}</p>
                     </div>
                     <Wallet className="h-7 w-7 text-green-600" />
                   </div>
@@ -164,8 +167,8 @@ const PromoteEarn = () => {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Held ({cur})</p>
-                      <p className="text-2xl font-bold text-gold-700" data-testid="promoter-held">{(me?.totals?.held || 0).toFixed(2)}</p>
+                      <p className="text-sm text-muted-foreground">Held</p>
+                      <p className="text-2xl font-bold text-gold-700" data-testid="promoter-held">{format(me?.totals?.held || 0)}</p>
                     </div>
                     <Clock className="h-7 w-7 text-gold-700" />
                   </div>
@@ -182,7 +185,7 @@ const PromoteEarn = () => {
                       <span className="flex items-center gap-2 text-sm text-foreground">
                         <Icon className={`h-4 w-4 ${M.color}`} />{M.label}
                       </span>
-                      <span className="font-semibold text-gold-700">+{schedule[t] ?? 0} {cur}</span>
+                      <span className="font-semibold text-gold-700">+{format(schedule[t] ?? 0)}</span>
                     </div>
                   );
                 })}
@@ -219,7 +222,7 @@ const PromoteEarn = () => {
                         <Badge key={i} className={r.status === 'paid'
                           ? 'bg-green-500/15 text-green-700 border-green-500/30'
                           : 'bg-gold-500/15 text-gold-700 border-gold-500/30'}>
-                          {TYPE_META[r.type]?.label || r.type} +{r.amount} {r.status === 'paid' ? '✓' : '⏳'}
+                          {TYPE_META[r.type]?.label || r.type} +{format(r.amount)} {r.status === 'paid' ? '✓' : '⏳'}
                         </Badge>
                       ))}
                     </div>
@@ -247,7 +250,7 @@ const PromoteEarn = () => {
                       <span className="font-medium text-foreground">{p.name}</span>
                     </span>
                     <span className="text-sm">
-                      <span className="font-semibold text-gold-700">{p.total} {me?.currency}</span>
+                      <span className="font-semibold text-gold-700">{format(p.total)}</span>
                       <span className="text-muted-foreground"> · {p.onboards} onboards</span>
                     </span>
                   </div>
@@ -262,3 +265,4 @@ const PromoteEarn = () => {
 };
 
 export default PromoteEarn;
+PromoteEarn;
