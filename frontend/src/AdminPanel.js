@@ -145,6 +145,13 @@ const AdminPanel = () => {
       .catch(() => {});
   }, []);
 
+  // Server-side user search (debounced) so admins can find any user, not just page 1.
+  useEffect(() => {
+    if (selectedTab !== 'users') return;
+    const t = setTimeout(() => fetchUsers(searchQuery), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery, selectedTab]);
+
   const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
   const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
@@ -335,9 +342,10 @@ const AdminPanel = () => {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (search) => {
     try {
-      const response = await axios.get(`${API}/admin/users`, {
+      const params = search && search.trim() ? `?q=${encodeURIComponent(search.trim())}` : '';
+      const response = await axios.get(`${API}/admin/users${params}`, {
         headers: authHeaders(), withCredentials: false
       });
       setUsers(response.data);
@@ -596,12 +604,14 @@ const AdminPanel = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredUsers.map((user) => (
+                    {filteredUsers.map((user) => {
+                      const emailInvalid = user.email_is_real === false || (user.email_is_real === undefined && isPlaceholderEmail(user.email));
+                      return (
                       <tr key={user.id} className="border-b hover:bg-background">
                         <td className="p-3">
                           <div>
                             <p className="font-medium">{user.name || 'N/A'}</p>
-                            {isPlaceholderEmail(user.email) ? (
+                            {emailInvalid ? (
                               <Badge data-testid={`no-email-badge-${user.id}`} className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px] mt-0.5">
                                 <AlertTriangle className="h-3 w-3 mr-1" />No valid email
                               </Badge>
@@ -627,8 +637,8 @@ const AdminPanel = () => {
                               data-testid={`message-user-btn-${user.id}`}
                               size="sm"
                               variant="outline"
-                              disabled={isPlaceholderEmail(user.email)}
-                              title={isPlaceholderEmail(user.email) ? 'No valid email on file' : 'Send email'}
+                              disabled={emailInvalid}
+                              title={emailInvalid ? 'No valid email on file' : 'Send email'}
                               onClick={() => openMessageUser(user)}
                             >
                               <Mail className="h-4 w-4" />
@@ -653,7 +663,7 @@ const AdminPanel = () => {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
@@ -1374,7 +1384,7 @@ const AdminPanel = () => {
                     <div><span className="text-muted-foreground">Type</span><p className="font-medium capitalize">{detailApproval.kind?.replace('_', ' ')}</p></div>
                     <div><span className="text-muted-foreground">Email</span>
                       {isPlaceholderEmail(detailApproval.email)
-                        ? <p><Badge className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-1" />No valid email</Badge></p>
+                        ? <div><Badge className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-1" />No valid email</Badge></div>
                         : <p className="font-medium break-all">{detailApproval.email || '—'}</p>}
                     </div>
                     <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{detailApproval.phone || detailApproval.raw?.phone || '—'}</p></div>

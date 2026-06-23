@@ -1308,14 +1308,26 @@ async def get_admin_stats(request: Request):
     }
 
 @api_router.get("/admin/users")
-async def get_all_users(request: Request, limit: int = 100):
-    """Get all users for admin"""
+async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = None):
+    """Get all users for admin. Supports case-insensitive search on name/email via `q`."""
     current_user = await get_current_user_from_request(request)
-    
+
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    users = await db.users.find({}, {"_id": 0}).limit(limit).to_list(length=None)
+
+    query: Dict[str, Any] = {}
+    if q and q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        query = {"$or": [{"email": rx}, {"name": rx}, {"phone": rx}]}
+
+    users = (
+        await db.users.find(query, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(max(1, min(limit, 2000)))
+        .to_list(length=None)
+    )
+    for u in users:
+        u["email_is_real"] = graph_mail.is_real_email(u.get("email"))
     return users
 
 @api_router.get("/admin/orders")

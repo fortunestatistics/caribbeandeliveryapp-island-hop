@@ -26,6 +26,17 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 23, 2026 — P0 fix: Admin "Message Customer" placeholder-email bug + admin detail modals
+- **Root cause:** Admin → Users "Message Customer" was emailing system/QA placeholder addresses (e.g. `id_start_..._...@gmail.com`, `*@test.com`) left behind by the backend test suite (`tests/test_identity_kyc.py`, `conftest.py`), causing bounces. No recipient validation existed before Microsoft Graph `sendMail`.
+- **Fix (backend):** `graph_mail.is_real_email()` rejects placeholder local-prefixes (`id_start_`, `id_noapp_`, `id_session_`, `id_kyc_`, `sched_test_`, `resto_test_`, `driver_test_`, `qa_test_`) + placeholder domains (`test.com`, `example.*`, `test.test`) + syntactic non-emails. Guard added inside `send_mail()` (raises `InvalidRecipientEmail`) AND at new endpoint `POST /api/admin/users/{user_id}/message` (returns 400/403/404). Defense in depth.
+- **Fix (DB):** `scripts/cleanup_test_users.py` deleted ~1788 placeholder/test users. `conftest.py` now has a session-scoped autouse teardown that purges test-pattern users after each run so they never leak into prod/preview again.
+- **Fix (frontend, AdminPanel.js):** Users tab shows amber "No valid email" badge + disabled message button for placeholder users (uses authoritative backend `email_is_real` flag). New email-compose dialog (`message-user-dialog`).
+- **New feature:** Admin → Orders cards are clickable → `order-detail-dialog` (service, customer, items, transaction breakdown subtotal/fee/tip/tax/discount/total, payouts & earnings). Admin → Approvals rows have a "View" button → `applicant-detail-dialog` (type/email/phone/applied + linked customer account + application details, with Approve/Reject).
+- **Backend improvement:** `GET /api/admin/users` now honours `?q=` (case-insensitive regex on name/email/phone), sorts by `created_at` desc, limit up to 2000, and returns derived `email_is_real` per user. Users-tab search box now does debounced server-side search.
+- **Tested:** testing_agent iteration_23 — backend 7/7 guard tests pass, all 3 dialogs render with testids. Self-verified search + badge + disabled button on preview.
+- **Admin test account:** `admin.qa@islandhop-demo.com` / `AdminQA1234!` (see test_credentials.md).
+
+
 ### Jun 22, 2026 — Meta App Secret + webhook signature verification + 5 WhatsApp templates
 - Added `META_APP_SECRET` and `META_APP_ID=2180974786018435` to backend/.env.
 - Re-created + submitted 5 WhatsApp templates via Twilio Content API (twilio/text, en, with {{n}} vars), all status=received: driver_welcome HX5b8d8946381d2c4b602d95e8cf8b5efa (MKT), merchant_welcome HXca1f02f37f64791bb1fe071517db5c83 (MKT), order_update HXb5b4f7aef8a67074fde372c65d57309b (UTIL), delivery_assigned HX2bd3767066c14a25dd297f7f9c8e92f0 (UTIL), pickup_ready HXfbda51c375e45b319b5ec171c7f3de0d (UTIL).
