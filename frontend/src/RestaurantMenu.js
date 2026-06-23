@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -18,6 +19,7 @@ import {
 import MerchantReviews from './MerchantReviews';
 
 const RestaurantMenu = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const { restaurantId } = useParams();
   const [cart, setCart] = useState([]);
@@ -255,8 +257,8 @@ const RestaurantMenu = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                   <Badge className="bg-gold-500/15 text-gold-700">{restaurant.cuisine}</Badge>
-                  <Badge variant="outline">Delivery ${restaurant.deliveryFee.toFixed(2)}</Badge>
-                  <Badge variant="outline">Min ${restaurant.minOrder.toFixed(2)}</Badge>
+                  <Badge variant="outline">Delivery {format(restaurant.deliveryFee)}</Badge>
+                  <Badge variant="outline">Min {format(restaurant.minOrder)}</Badge>
                 </div>
               </div>
             </div>
@@ -318,7 +320,7 @@ const RestaurantMenu = () => {
                             </h3>
                             <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
                           </div>
-                          <p className="text-xl font-bold text-foreground">${item.price.toFixed(2)}</p>
+                          <p className="text-xl font-bold text-foreground">{format(item.price)}</p>
                         </div>
                         <Button
                           className="bg-gold-gradient text-white"
@@ -374,7 +376,7 @@ const RestaurantMenu = () => {
                           <div className="text-3xl">{item.image}</div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold text-foreground truncate">{item.name}</h4>
-                            <p className="text-sm text-muted-foreground">${item.price.toFixed(2)}</p>
+                            <p className="text-sm text-muted-foreground">{format(item.price)}</p>
                             <div className="flex items-center space-x-2 mt-2">
                               <Button
                                 size="sm"
@@ -402,7 +404,7 @@ const RestaurantMenu = () => {
                             </div>
                           </div>
                           <div className="font-semibold text-foreground">
-                            ${(item.price * item.quantity).toFixed(2)}
+                            {format(item.price * item.quantity)}
                           </div>
                         </div>
                       ))}
@@ -411,21 +413,21 @@ const RestaurantMenu = () => {
                     <div className="space-y-2 mb-6">
                       <div className="flex justify-between text-muted-foreground">
                         <span>Subtotal</span>
-                        <span>${subtotal.toFixed(2)}</span>
+                        <span>{format(subtotal)}</span>
                       </div>
                       <div className="flex justify-between text-muted-foreground">
                         <span>Delivery Fee</span>
-                        <span>${restaurant.deliveryFee.toFixed(2)}</span>
+                        <span>{format(restaurant.deliveryFee)}</span>
                       </div>
                       <div className="flex justify-between text-xl font-bold text-foreground pt-2 border-t">
                         <span>Total</span>
-                        <span>${total.toFixed(2)}</span>
+                        <span>{format(total)}</span>
                       </div>
                     </div>
 
                     {subtotal < restaurant.minOrder && (
                       <div className="mb-4 p-3 bg-gold-500/10 rounded-lg text-sm text-yellow-800">
-                        Add ${(restaurant.minOrder - subtotal).toFixed(2)} more to reach minimum order
+                        Add {format(restaurant.minOrder - subtotal)} more to reach minimum order
                       </div>
                     )}
 

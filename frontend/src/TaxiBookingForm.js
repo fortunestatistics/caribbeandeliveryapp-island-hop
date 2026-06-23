@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 
 const TaxiBookingForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [bookingData, setBookingData] = useState({
     pickupLocation: '',
@@ -237,7 +239,7 @@ const TaxiBookingForm = () => {
                             <h4 className="font-semibold text-foreground">{vehicle.name}</h4>
                             <p className="text-sm text-muted-foreground">{vehicle.description}</p>
                             <p className="text-xs text-gold-500 mt-1">
-                              ${vehicle.baseFare} base + ${vehicle.perKm}/km
+                              {format(vehicle.baseFare)} base + {format(vehicle.perKm)}/km
                             </p>
                           </div>
                         </div>
@@ -301,7 +303,7 @@ const TaxiBookingForm = () => {
                     <p className="text-sm text-muted-foreground">Final fare may vary based on actual distance and traffic</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-3xl font-bold text-gold-500">${calculateFare()}</p>
+                    <p className="text-3xl font-bold text-gold-500">{format(parseFloat(calculateFare()))}</p>
                     <p className="text-sm text-muted-foreground">~10 km estimated</p>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -31,6 +32,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const CarRentalPage = () => {
+  const { format } = useCurrency();
   const [rentalCompanies, setRentalCompanies] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [availableVehicles, setAvailableVehicles] = useState([]);
@@ -370,7 +372,7 @@ const CarRentalPage = () => {
                       <div className="border-t pt-4">
                         <div className="flex items-center justify-between mb-4">
                           <span className="text-2xl font-bold text-gold-500">
-                            ${vehicle.daily_rate}/day
+                            {format(vehicle.daily_rate)}/day
                           </span>
                           <Badge 
                             variant="secondary"
@@ -466,19 +468,19 @@ const CarRentalPage = () => {
                                   data-testid="insurance-checkbox"
                                 />
                                 <Label htmlFor="insurance" className="text-sm">
-                                  Add Comprehensive Insurance (+$15/day)
+                                  Add Comprehensive Insurance (+{format(15)}/day)
                                 </Label>
                               </div>
 
                               <div className="border-t border-border pt-4">
                                 <div className="flex justify-between text-sm mb-2 text-muted-foreground">
                                   <span>Daily Rate:</span>
-                                  <span className="text-foreground">${selectedVehicle?.daily_rate || 0}</span>
+                                  <span className="text-foreground">{format(selectedVehicle?.daily_rate || 0)}</span>
                                 </div>
                                 {bookingForm.insuranceSelected && (
                                   <div className="flex justify-between text-sm mb-2 text-muted-foreground">
                                     <span>Insurance:</span>
-                                    <span className="text-foreground">$15/day</span>
+                                    <span className="text-foreground">{format(15)}/day</span>
                                   </div>
                                 )}
                                 <div className="flex justify-between items-center pt-3 mt-2 border-t border-gold-500/30 gap-3 flex-wrap">

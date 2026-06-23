@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import { useCurrency, Price } from './CurrencyContext';
 import { 
   Check, 
   X, 
@@ -18,6 +19,7 @@ const SubscriptionPlans = () => {
   const navigate = useNavigate();
   const [billingCycle, setBillingCycle] = useState('monthly'); // 'monthly' or 'yearly'
   const [userType, setUserType] = useState('business'); // 'business' or 'driver'
+  const { format } = useCurrency();
 
   const businessPlans = [
     {
@@ -230,7 +232,7 @@ const SubscriptionPlans = () => {
                 <p className="text-muted-foreground text-sm mb-4">{plan.description}</p>
                 <div className="mb-2">
                   <span className="text-5xl font-bold text-foreground">
-                    ${plan.price}
+                    {plan.price > 0 ? <Price usd={plan.price} decimals={0} /> : format(0, { decimals: 0 })}
                   </span>
                   {plan.price > 0 && (
                     <span className="text-muted-foreground">
@@ -240,7 +242,7 @@ const SubscriptionPlans = () => {
                 </div>
                 {billingCycle === 'yearly' && plan.price > 0 && (
                   <p className="text-sm text-green-600">
-                    Save ${(plan.price / 10).toFixed(0)} per month
+                    Save {format(plan.price / 10, { decimals: 0 })} per month
                   </p>
                 )}
               </CardHeader>

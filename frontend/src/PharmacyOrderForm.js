@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 
 const PharmacyOrderForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [orderType, setOrderType] = useState('otc'); // 'otc' or 'prescription'
   const [orderData, setOrderData] = useState({
@@ -245,7 +247,7 @@ const PharmacyOrderForm = () => {
                             <div className="text-4xl mb-2">{med.image}</div>
                             <Badge className="mb-2 bg-neon-cyan/15 text-teal-700">{med.category}</Badge>
                             <h4 className="font-semibold text-sm text-foreground">{med.name}</h4>
-                            <p className="text-lg font-bold text-teal-700 mt-2">${med.price.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-teal-700 mt-2">{format(med.price)}</p>
                           </div>
                           <Button
                             type="button"
@@ -275,7 +277,7 @@ const PharmacyOrderForm = () => {
                               <span className="text-2xl">{item.image}</span>
                               <div>
                                 <h4 className="font-semibold text-foreground">{item.name}</h4>
-                                <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
+                                <p className="text-sm text-muted-foreground">{format(item.price)} each</p>
                               </div>
                             </div>
                             <div className="flex items-center space-x-3">
@@ -299,7 +301,7 @@ const PharmacyOrderForm = () => {
                                 </Button>
                               </div>
                               <span className="font-bold text-foreground w-20 text-right">
-                                ${(item.price * item.quantity).toFixed(2)}
+                                {format(item.price * item.quantity)}
                               </span>
                               <Button
                                 type="button"
@@ -372,7 +374,7 @@ const PharmacyOrderForm = () => {
                           <CardContent className="p-4 text-center">
                             <h4 className="font-semibold text-foreground">{option.name}</h4>
                             <p className="text-sm text-muted-foreground mt-1">{option.time}</p>
-                            <p className="text-sm font-semibold text-teal-700 mt-2">+${option.fee.toFixed(2)}</p>
+                            <p className="text-sm font-semibold text-teal-700 mt-2">+{format(option.fee)}</p>
                           </CardContent>
                         </Card>
                       ))}
@@ -401,11 +403,11 @@ const PharmacyOrderForm = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between text-muted-foreground">
                     <span>Subtotal:</span>
-                    <span className="text-foreground">${calculateSubtotal().toFixed(2)}</span>
+                    <span className="text-foreground">{format(calculateSubtotal())}</span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
                     <span>Delivery Fee:</span>
-                    <span className="text-foreground">${calculateDeliveryFee().toFixed(2)}</span>
+                    <span className="text-foreground">{format(calculateDeliveryFee())}</span>
                   </div>
                   <Separator className="bg-gold-500/30" />
                   <div className="flex justify-between items-center pt-1 gap-3 flex-wrap">

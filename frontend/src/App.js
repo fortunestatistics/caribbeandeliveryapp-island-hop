@@ -44,8 +44,8 @@ import PromoSlides from './PromoSlides';
 import LiveOrderMapPreview from './LiveOrderMapPreview';
 import DriverLeaderboard from './DriverLeaderboard';
 import EnablePushButton from './EnablePushButton';
-import { ModeProvider } from './ModeContext';
-import ModeSwitcher from './ModeSwitcher';
+import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
+import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import SubscriptionPlans from './SubscriptionPlans';
 import RestaurantMenu from './RestaurantMenu';
 import TaxiBookingForm from './TaxiBookingForm';
@@ -367,6 +367,7 @@ const Header = () => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <UnreadChatBell />
+                  <CurrencySwitcher />
                   <ModeSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
@@ -378,6 +379,7 @@ const Header = () => {
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
+                  <CurrencySwitcher />
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
                   </Button>
@@ -1716,6 +1718,7 @@ function App() {
   return (
     <AuthProvider>
       <ModeProvider>
+        <CurrencyProvider>
         <Router>
           <div className="min-h-screen bg-background">
             <Header />
@@ -1788,6 +1791,7 @@ function App() {
           <Toaster />
         </div>
       </Router>
+      </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>
   );

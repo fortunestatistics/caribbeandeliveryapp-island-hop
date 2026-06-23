@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
@@ -16,6 +17,7 @@ const authHeaders = () => {
 };
 
 export const CheckoutPage = () => {
+  const { format } = useCurrency();
   const { orderId } = useParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
@@ -274,20 +276,20 @@ export const CheckoutPage = () => {
             <div className="bg-background rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Order ID</span><span className="font-mono text-xs" data-testid="checkout-order-id">{order.id}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Service</span><span className="capitalize">{order.service_type}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>${(order.subtotal || 0).toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{format(order.subtotal || 0)}</span></div>
               {order.delivery_fee != null && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Delivery fee</span><span>${(order.delivery_fee || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Delivery fee</span><span>{format(order.delivery_fee || 0)}</span></div>
               )}
               {order.tax != null && order.tax > 0 && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>${(order.tax || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{format(order.tax || 0)}</span></div>
               )}
               {(order.tip || 0) > 0 && (
-                <div className="flex justify-between text-gold-300"><span>Driver tip</span><span data-testid="checkout-tip">+${(order.tip || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-gold-300"><span>Driver tip</span><span data-testid="checkout-tip">+{format(order.tip || 0)}</span></div>
               )}
               {(order.discount || 0) > 0 && (
                 <div className="flex justify-between text-rose-600">
                   <span>Discount {order.promo_code && <span className="text-xs">({order.promo_code})</span>}</span>
-                  <span data-testid="checkout-discount">−${(order.discount || 0).toFixed(2)}</span>
+                  <span data-testid="checkout-discount">−{format(order.discount || 0)}</span>
                 </div>
               )}
               <div className="flex justify-between border-t pt-2 mt-2 font-semibold items-center gap-3 flex-wrap">
@@ -307,7 +309,7 @@ export const CheckoutPage = () => {
                   <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
                     <div className="text-sm">
                       <span className="font-mono font-semibold text-rose-700" data-testid="checkout-applied-promo">{order.promo_code}</span>
-                      <span className="text-rose-600 ml-2">−${(order.discount || 0).toFixed(2)} applied</span>
+                      <span className="text-rose-600 ml-2">−{format(order.discount || 0)} applied</span>
                     </div>
                     <button
                       type="button"
@@ -412,7 +414,7 @@ export const CheckoutPage = () => {
               ) : isPaid ? (
                 <><CheckCircle2 className="h-4 w-4 mr-2" /> Already paid</>
               ) : (
-                <><CreditCard className="h-4 w-4 mr-2" /> Pay ${(order.total || 0).toFixed(2)}</>
+                <><CreditCard className="h-4 w-4 mr-2" /> Pay {format(order.total || 0)}</>
               )}
             </Button>
 
@@ -440,8 +442,8 @@ export const CheckoutPage = () => {
                 >
                   <Wallet className="h-4 w-4 mr-2" />
                   {walletBalance < (order.total || 0)
-                    ? `Wallet balance: $${walletBalance.toFixed(2)} (insufficient)`
-                    : `Pay with wallet (balance: $${walletBalance.toFixed(2)})`}
+                    ? `Wallet balance: ${format(walletBalance)} (insufficient)`
+                    : `Pay with wallet (balance: ${format(walletBalance)})`}
                 </Button>
                 {walletBalance < (order.total || 0) && (
                   <button
