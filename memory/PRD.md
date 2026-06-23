@@ -459,3 +459,18 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - Hook-dependency warnings: this CRA project does NOT enable the `react-hooks/exhaustive-deps` rule, so there are no such warnings in the actual build. Attempted eslint-disable comments broke compilation (rule undefined) and were reverted. App behavior already correct; no change needed. NOTE: required `rm -rf node_modules/.cache` + frontend restart to clear stale eslint cache.
 - Backend verified healthy (curl 200); frontend "webpack compiled successfully"; homepage smoke screenshot OK.
 - DEFERRED (high-risk, need dedicated effort + testing): localStorage→httpOnly cookie auth migration (P1 security), splitting BusinessOnboarding/AdminPanel/server.py, backend complexity reduction, type hints, console-statement stripping, nested-ternary cleanup.
+
+## CHANGELOG — 2026-06-23: Promoter QR System + Global TT$/US$ Currency Toggle
+### A) Promoter / Ambassador QR system (verified 100% — iteration_19/20)
+- Every user gets a personal QR + referral code; sharing onboards customers/drivers/businesses/suppliers.
+- Wallet rewards (USD base): customer $5 (on 1st paid order), driver $25, merchant $40, supplier $40 (on admin approval). Paid instantly if promoter eligible (admin-approved Ambassador OR active/approved account), else HELD and auto-released on eligibility.
+- Backend (server.py): GET /api/promoter/me, /onboards, /leaderboard, /resolve/{code}; GET /api/admin/promoters; POST /api/admin/promoters/approve|revoke. Reward hooks in _maybe_complete_referral, admin_approve_driver, admin_approve_business. New collection: promo_rewards. Reuses referral_codes + user.referred_by for attribution.
+- Frontend: PromoteEarn.js (/promote, QR + download PNG + share + totals + onboards + leaderboard), JoinLanding.js (/join/:code public invite, 4 onboarding paths → /signup?ref=CODE&intent=), AdminPromoters.js (admin 'Promoters' tab). Nav + footer links added.
+- Env tunables: PROMO_REWARD_CUSTOMER/DRIVER/MERCHANT/SUPPLIER, PROMO_REWARD_CURRENCY (default USD).
+
+### B) Global TT$ / US$ currency display toggle (verified 100%)
+- All catalog/order/subscription prices authored in USD; DISPLAY TT$ by default (rate 6.78), navbar switcher flips to US$, persisted in localStorage 'display_currency'.
+- CurrencyContext.js (CurrencyProvider, useCurrency, Price, CurrencySwitcher, RATE_TTD_PER_USD=6.78). Provider wraps app; switcher in navbar (authed + guest).
+- Converted: SubscriptionPlans, RestaurantMenu, Grocery/Pharmacy/Courier/CarRental/Taxi order forms, CheckoutPage, OrderTrackingPageWithMaps, PromoteEarn rewards.
+- Grand totals on grocery/pharmacy/checkout use existing CurrencyConverter widget (shows BOTH currencies). Wallet balances + driver/vendor EARNINGS dashboards intentionally kept in native currency (real settlement amounts) — out of scope.
+- DEPLOY: both features live on PREVIEW only; user must redeploy via Deploy panel for production (islandhopapp.com).
