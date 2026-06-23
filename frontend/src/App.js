@@ -746,6 +746,59 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* Earn With IslandHop — incentives horizontal widget */}
+      <section className="py-16 bg-background" data-testid="incentives-widget">
+        <div className="container mx-auto px-4">
+          <div className="rounded-3xl bg-navy-gradient p-8 md:p-10 shadow-card-hover">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-7">
+              <div>
+                <h2 className="font-heading text-2xl md:text-3xl font-bold text-white flex items-center gap-2">
+                  <Megaphone className="h-7 w-7 text-gold-400" /> Earn with IslandHop
+                </h2>
+                <p className="text-white/70 text-sm mt-1">Multiple ways to make money on the platform — start today.</p>
+              </div>
+              <Button
+                onClick={() => navigate('/promote')}
+                className="bg-gold-gradient text-white self-start md:self-auto"
+                data-testid="incentives-promote-cta"
+              >
+                Get my QR code <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
+              {[
+                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$271 per business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
+                { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn wallet rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
+                { icon: Truck, title: 'Drive & Earn', desc: 'Deliver across the islands on your own schedule with driver incentives.', to: '/partner', testid: 'incentive-drive' },
+                { icon: Building2, title: 'Partner Bonuses', desc: 'List your business and unlock onboarding bonuses and growth tools.', to: '/partner', testid: 'incentive-partner' },
+              ].map((it) => {
+                const Icon = it.icon;
+                return (
+                  <button
+                    key={it.title}
+                    onClick={() => navigate(it.to)}
+                    data-testid={it.testid}
+                    className={`group text-left min-w-[240px] md:min-w-0 rounded-2xl p-5 transition-all hover:-translate-y-1 ${
+                      it.highlight ? 'bg-gold-gradient text-white shadow-gold-glow' : 'bg-white/5 hover:bg-white/10 border border-white/10'
+                    }`}
+                  >
+                    <span className={`flex h-11 w-11 items-center justify-center rounded-xl mb-3 ${it.highlight ? 'bg-white/20' : 'bg-gold-gradient'}`}>
+                      <Icon className="h-6 w-6 text-white" />
+                    </span>
+                    <h3 className={`font-heading text-lg font-bold flex items-center gap-1 ${it.highlight ? 'text-white' : 'text-white'}`}>
+                      {it.title}
+                      <ArrowRight className="h-4 w-4 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                    </h3>
+                    <p className={`text-sm mt-1 ${it.highlight ? 'text-white/90' : 'text-white/70'}`}>{it.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+
       {/* Latest News & Our Vision */}
       <section className="relative overflow-hidden bg-muted py-24" data-testid="news-vision-section">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,90,0,0.06),transparent_60%)]"></div>

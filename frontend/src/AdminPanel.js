@@ -5,6 +5,7 @@ import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
+import AnalyticsPromotions from './AnalyticsPromotions';
 import { 
   Users, 
   DollarSign, 
@@ -1168,6 +1169,8 @@ const AdminPanel = () => {
                 </div>
               </CardContent>
             </Card>
+
+            <AnalyticsPromotions />
           </div>
         )}
       </div>
@@ -1176,4 +1179,3 @@ const AdminPanel = () => {
 };
 
 export default AdminPanel;
-
