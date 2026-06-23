@@ -7548,8 +7548,8 @@ PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
 PROMO_REWARDS = {
     "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
     "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "15")),
-    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "15")),
-    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "15")),
+    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "20")),
+    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "25")),
 }
 PROMO_TYPE_LABEL = {
     "customer": "Customer", "driver": "Driver",

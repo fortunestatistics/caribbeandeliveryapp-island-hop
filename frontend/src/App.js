@@ -769,7 +769,7 @@ const LandingPage = () => {
             </div>
             <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
               {[
-                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$102 for every business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
+                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$170 for every business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
                 { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn wallet rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
                 { icon: Truck, title: 'Drive & Earn', desc: 'Deliver across the islands on your own schedule with driver incentives.', to: '/partner', testid: 'incentive-drive' },
                 { icon: Building2, title: 'Partner Bonuses', desc: 'List your business and unlock onboarding bonuses and growth tools.', to: '/partner', testid: 'incentive-partner' },
