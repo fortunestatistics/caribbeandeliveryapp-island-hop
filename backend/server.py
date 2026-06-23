@@ -8080,38 +8080,10 @@ async def whatsapp_send(payload: WhatsAppSendRequest, request: Request):
 
 @api_router.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request):
-    """Inbound WhatsApp webhook (Twilio posts form-encoded fields like From, Body, MessageSid)."""
-    form = {}
-    try:
-        body = await request.form()
-        form = dict(body)
-    except Exception:
-        try:
-            form = await request.json()
-        except Exception:
-            form = {}
-
-    from_raw = form.get("From") or form.get("from") or ""
-    body_text = form.get("Body") or form.get("body") or ""
-    twilio_sid = form.get("MessageSid") or form.get("sid")
-    phone = _normalize_phone(str(from_raw).replace("whatsapp:", ""))
-    if not phone:
-        raise HTTPException(status_code=400, detail="Missing From")
-
-    user = await db.users.find_one({"phone": phone}, {"_id": 0})
-    msg_doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"] if user else None,
-        "phone": phone,
-        "direction": "inbound",
-        "body": body_text,
-        "status": "received",
-        "twilio_sid": twilio_sid,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.whatsapp_messages.insert_one(msg_doc)
-    msg_doc.pop("_id", None)
-    return {"success": True, "received": True, "message": msg_doc}
+    """Legacy inbound WhatsApp webhook path. Delegates to the canonical handler so
+    there is a SINGLE source of truth (prevents duplicate/divergent processing if
+    Twilio is configured to hit both /webhook/whatsapp and /webhooks/whatsapp)."""
+    return await whatsapp_webhook_inbound(request)
 
 
 def _verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
@@ -8178,6 +8150,20 @@ async def whatsapp_webhook_inbound(request: Request):
     phone = _normalize_phone(str(from_raw).replace("whatsapp:", ""))
 
     if phone:
+        # Idempotency: Twilio (or a double-registered webhook) may deliver the same
+        # inbound message more than once. Dedupe on MessageSid so a single incoming
+        # message is only ever recorded/processed ONCE.
+        if twilio_sid:
+            existing = await db.whatsapp_messages.find_one(
+                {"twilio_sid": twilio_sid, "direction": "inbound"}, {"_id": 1}
+            )
+            if existing:
+                logger.info(f"Duplicate inbound WhatsApp {twilio_sid} ignored (idempotent).")
+                return Response(
+                    content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
+                    media_type="application/xml",
+                )
+
         user = await db.users.find_one({"phone": phone}, {"_id": 0})
         await db.whatsapp_messages.insert_one({
             "id": str(uuid.uuid4()),
