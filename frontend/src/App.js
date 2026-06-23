@@ -17,7 +17,6 @@ import Terms from './Terms';
 import OrderScheduling from './OrderScheduling';
 import { CheckoutPage, PaymentSuccess, PaymentCancel } from './CheckoutPage';
 import VendorStripeConnect from './VendorStripeConnect';
-import WalletPage from './WalletPage';
 import OrderTrackingPage from './OrderTrackingPageWithMaps';
 import PaymentMethodsSelector from './PaymentMethodsSelector';
 import DriverEarningsDashboard from './DriverEarningsDashboard';
@@ -108,8 +107,7 @@ import {
   Smartphone,
   ArrowRight,
   Search,
-  Megaphone,
-  Wallet as WalletIcon
+  Megaphone
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -319,7 +317,6 @@ const Header = () => {
   const allNavigationItems = [
     { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
     { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
-    { to: "/wallet",            label: "Wallet",            icon: WalletIcon,  show: 'authed' },
     { to: "/promote",           label: "Promote & Earn",    icon: Megaphone,   show: 'authed' },
     { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
     { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
@@ -770,7 +767,7 @@ const LandingPage = () => {
             <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
               {[
                 { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$170 for every business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
-                { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn wallet rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
+                { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
                 { icon: Truck, title: 'Drive & Earn', desc: 'Deliver across the islands on your own schedule with driver incentives.', to: '/partner', testid: 'incentive-drive' },
                 { icon: Building2, title: 'Partner Bonuses', desc: 'List your business and unlock onboarding bonuses and growth tools.', to: '/partner', testid: 'incentive-partner' },
               ].map((it) => {
@@ -1830,7 +1827,7 @@ function App() {
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-            <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
+            <Route path="/wallet" element={<Navigate to="/dashboard" replace />} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/promote" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />

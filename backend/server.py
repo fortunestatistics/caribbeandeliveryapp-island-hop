@@ -2425,7 +2425,44 @@ async def update_order_status(order_id: str, status: str, request: Request):
 
     return {"message": f"Order status updated to {status}"}
 
-# Enhanced Order Management Routes
+
+@api_router.post("/orders/{order_id}/confirm-cod")
+async def confirm_order_cod(order_id: str, request: Request):
+    """Place an order as Cash on Delivery / Pay Later — no payment gateway needed.
+    Confirms the order so the logistics flow (assign driver → pickup → deliver) proceeds;
+    the customer pays the driver on delivery."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("customer_id") != current_user.id and current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized for this order")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Order is already paid")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "payment_method": "cash",
+            "payment_status": "cod_pending",
+            "status": "confirmed",
+            "confirmed_at": now_iso,
+            "updated_at": now_iso,
+        }},
+    )
+
+    # Best-effort driver assignment + customer WhatsApp confirmation.
+    try:
+        if not order.get("driver_id"):
+            await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"COD driver assignment skipped for {order_id}: {exc}")
+    asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
+
+    return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
+
+
 @api_router.post("/orders/create", response_model=Order)
 async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
     """Create new order with payment processing"""
@@ -6478,9 +6515,8 @@ async def process_driver_payout(driver_id: str, request: Request):
 
 
 # ============================================================
-# WALLET ROUTES — IslandHop in-app wallet + CariPay integration
+# WALLET ROUTES — IslandHop in-app wallet (internal credits only)
 # ============================================================
-import caripay_client  # noqa: E402
 
 
 async def _get_or_create_wallet(user_id: str) -> dict:
@@ -6598,141 +6634,10 @@ async def get_wallet_transactions(request: Request, limit: int = 50):
     return await cursor.to_list(length=limit)
 
 
-class LinkCaripayRequest(BaseModel):
-    handle: str  # phone, email, or CariPay account number
-    country: Optional[str] = None  # JM, TT, BB, GH, NG, ZA
-
-
-@api_router.post("/wallet/link")
-async def link_caripay(payload: LinkCaripayRequest, request: Request):
-    current_user = await get_current_user_from_request(request)
-    handle = (payload.handle or "").strip()
-    if not handle:
-        raise HTTPException(status_code=400, detail="CariPay handle is required")
-    await _get_or_create_wallet(current_user.id)
-    await db.wallets.update_one(
-        {"user_id": current_user.id},
-        {"$set": {
-            "caripay_handle": handle,
-            "caripay_country": payload.country,
-            "caripay_linked_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
-    )
-    return await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0})
-
-
-@api_router.delete("/wallet/link")
-async def unlink_caripay(request: Request):
-    current_user = await get_current_user_from_request(request)
-    await db.wallets.update_one(
-        {"user_id": current_user.id},
-        {"$set": {"caripay_handle": None, "caripay_country": None, "caripay_linked_at": None,
-                  "updated_at": datetime.now(timezone.utc).isoformat()}},
-    )
-    return {"success": True}
-
-
 class WalletAmountRequest(BaseModel):
     amount: float
     currency: str = "USD"
     note: Optional[str] = None
-
-
-@api_router.post("/wallet/deposit")
-async def wallet_deposit(payload: WalletAmountRequest, request: Request):
-    """Pull funds from the linked CariPay account into the user's IslandHop wallet."""
-    current_user = await get_current_user_from_request(request)
-    payload.amount = _round_money(payload.amount)
-    if payload.amount <= 0 or payload.amount > 10000:
-        raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
-    currency = (payload.currency or "USD").upper()
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        raise HTTPException(status_code=400, detail=f"Unsupported currency. Supported: {sorted(SUPPORTED_WALLET_CURRENCIES)}")
-
-    wallet = await _get_or_create_wallet(current_user.id)
-    if not wallet.get("caripay_handle"):
-        raise HTTPException(status_code=400, detail="Link your CariPay account first")
-
-    reference = f"deposit:{current_user.id}:{uuid.uuid4().hex[:8]}"
-    try:
-        cp_resp = await caripay_client.initiate_deposit(
-            handle=wallet["caripay_handle"],
-            amount=payload.amount,
-            currency=currency,
-            reference=reference,
-        )
-    except Exception as e:
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"), note=f"CariPay error: {e}")
-        raise HTTPException(status_code=502, detail=f"CariPay error: {e}")
-
-    if not cp_resp.get("success"):
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"))
-        raise HTTPException(status_code=502, detail="CariPay declined the deposit")
-
-    await _credit_wallet(current_user.id, payload.amount, currency)
-    txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                            amount=payload.amount, currency=currency, status="completed",
-                            counterparty_handle=wallet.get("caripay_handle"),
-                            external_transfer_id=cp_resp.get("transfer_id"),
-                            note=payload.note)
-    return {"success": True, "transaction": txn.dict(),
-            "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
-
-
-@api_router.post("/wallet/withdraw")
-async def wallet_withdraw(payload: WalletAmountRequest, request: Request):
-    """Push funds from the user's IslandHop wallet to their linked CariPay account."""
-    current_user = await get_current_user_from_request(request)
-    if payload.amount <= 0 or payload.amount > 10000:
-        raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
-    currency = (payload.currency or "USD").upper()
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        raise HTTPException(status_code=400, detail="Unsupported currency")
-
-    wallet = await _get_or_create_wallet(current_user.id)
-    if not wallet.get("caripay_handle"):
-        raise HTTPException(status_code=400, detail="Link your CariPay account first")
-    if float(wallet.get("balances", {}).get(currency, 0)) < payload.amount:
-        raise HTTPException(status_code=400, detail="Insufficient balance")
-
-    # Reserve the funds first (debit) — refund if CariPay fails
-    await _debit_wallet(current_user.id, payload.amount, currency)
-    reference = f"withdraw:{current_user.id}:{uuid.uuid4().hex[:8]}"
-    try:
-        cp_resp = await caripay_client.initiate_withdrawal(
-            handle=wallet["caripay_handle"],
-            amount=payload.amount,
-            currency=currency,
-            reference=reference,
-        )
-    except Exception as e:
-        # Reverse the debit
-        await _credit_wallet(current_user.id, payload.amount, currency)
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"),
-                          note=f"CariPay error: {e}")
-        raise HTTPException(status_code=502, detail=f"CariPay error: {e}")
-
-    if not cp_resp.get("success"):
-        await _credit_wallet(current_user.id, payload.amount, currency)
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"))
-        raise HTTPException(status_code=502, detail="CariPay declined the withdrawal")
-
-    txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                            amount=payload.amount, currency=currency, status="completed",
-                            counterparty_handle=wallet.get("caripay_handle"),
-                            external_transfer_id=cp_resp.get("transfer_id"),
-                            note=payload.note)
-    return {"success": True, "transaction": txn.dict(),
-            "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
 
 
 # ---------------------------------------------------------------------------
@@ -7156,61 +7061,6 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
                             order_id=payload.order_id, note="Paid order from wallet")
     return {"success": True, "transaction": txn.dict(),
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
-
-
-@api_router.post("/webhook/caripay")
-async def caripay_webhook(request: Request):
-    """
-    Receive webhook events from CariPay. Used when CariPay reconciles a transfer
-    asynchronously (e.g. user-initiated push from CariPay app → IslandHop wallet).
-    Verified via HMAC-SHA256 (header: X-CariPay-Signature: sha256=<hex>).
-    """
-    body = await request.body()
-    sig = request.headers.get("X-CariPay-Signature")
-    if not caripay_client.verify_webhook_signature(body, sig):
-        raise HTTPException(status_code=400, detail="Invalid CariPay webhook signature")
-    try:
-        event = json.loads(body.decode() or "{}")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
-    event_type = event.get("type") or event.get("event")
-    transfer_id = event.get("transfer_id") or event.get("id")
-    handle = event.get("handle")
-    amount = float(event.get("amount", 0) or 0)
-    currency = (event.get("currency") or "USD").upper()
-    status = (event.get("status") or "").lower()
-
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        return {"received": True, "ignored": True, "reason": f"unsupported_currency:{currency}"}
-
-    if not handle:
-        return {"received": True, "ignored": True, "reason": "no_handle"}
-
-    wallet = await db.wallets.find_one({"caripay_handle": handle}, {"_id": 0})
-    if not wallet:
-        return {"received": True, "ignored": True, "reason": "no_wallet_for_handle"}
-
-    # Idempotency — never process the same transfer twice
-    if transfer_id:
-        seen = await db.wallet_transactions.find_one(
-            {"external_transfer_id": transfer_id}, {"_id": 0}
-        )
-        if seen:
-            return {"received": True, "duplicate": True}
-
-    # Only honour completed deposit-style events here
-    if event_type in {"deposit.completed", "transfer.completed"} and status in {"", "completed", "succeeded"}:
-        await _credit_wallet(wallet["user_id"], amount, currency)
-        await _record_txn(
-            user_id=wallet["user_id"], wallet_id=wallet["id"], type="deposit",
-            amount=amount, currency=currency, status="completed",
-            counterparty_handle=handle, external_transfer_id=transfer_id,
-            note="CariPay webhook deposit",
-        )
-        return {"received": True, "credited": True}
-
-    return {"received": True, "ignored": True, "reason": f"unsupported_event:{event_type}"}
 
 
 # AI Chat Routes

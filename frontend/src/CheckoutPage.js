@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import CurrencyConverter from './CurrencyConverter';
-import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Wallet } from 'lucide-react';
+import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Banknote } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,7 +29,6 @@ export const CheckoutPage = () => {
   const [promoInput, setPromoInput] = useState('');
   const [promoSaving, setPromoSaving] = useState(false);
   const [promoFeedback, setPromoFeedback] = useState(null); // {type: 'success'|'error', text}
-  const [walletBalance, setWalletBalance] = useState(null); // USD number or null
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -48,10 +47,6 @@ export const CheckoutPage = () => {
       }
     };
     load();
-    // Try to fetch wallet balance for "Pay with wallet" UX
-    axios.get(`${API}/wallet`, { headers: authHeaders() })
-      .then((r) => setWalletBalance(Number(r.data?.balances?.USD || 0)))
-      .catch(() => setWalletBalance(null));
   }, [orderId]);
 
   const applyTip = async (tipValue) => {
@@ -120,22 +115,6 @@ export const CheckoutPage = () => {
     }
   };
 
-  const handlePay = async () => {
-    setCreating(true);
-    setError('');
-    try {
-      const res = await axios.post(
-        `${API}/payments/checkout/session`,
-        { order_id: orderId, origin_url: window.location.origin },
-        { headers: authHeaders() }
-      );
-      window.location.href = res.data.url;
-    } catch (e) {
-      setError(e?.response?.data?.detail || 'Failed to start checkout');
-      setCreating(false);
-    }
-  };
-
   const handleWiPay = async () => {
     setCreating(true);
     setError('');
@@ -152,14 +131,14 @@ export const CheckoutPage = () => {
     }
   };
 
-  const handlePayWithWallet = async () => {
+  const handleCOD = async () => {
     setCreating(true);
     setError('');
     try {
-      await axios.post(`${API}/wallet/pay-order`, { order_id: orderId }, { headers: authHeaders() });
-      navigate(`/payment/success?order_id=${orderId}&via=wallet`);
+      await axios.post(`${API}/orders/${orderId}/confirm-cod`, {}, { headers: authHeaders() });
+      navigate(`/payment/success?order_id=${orderId}&via=cod`);
     } catch (e) {
-      setError(e?.response?.data?.detail || 'Failed to pay from wallet');
+      setError(e?.response?.data?.detail || 'Failed to place order');
       setCreating(false);
     }
   };
@@ -359,106 +338,51 @@ export const CheckoutPage = () => {
             )}
 
             {/* Accepted payment methods */}
-            <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
+            <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between" data-testid="checkout-accepted-methods">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
-                Powered by Stripe
-              </div>
-              <div className="flex items-center gap-2" aria-label="Accepted payment methods" data-testid="checkout-accepted-methods">
-                {/* Visa */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border bg-card" aria-label="Visa">
-                  <rect width="34" height="22" rx="3" fill="#fff"/>
-                  <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="9" fill="#1A1F71" letterSpacing="0.5">VISA</text>
-                </svg>
-                {/* Mastercard */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border bg-card" aria-label="Mastercard">
-                  <rect width="34" height="22" rx="3" fill="#fff"/>
-                  <circle cx="14" cy="11" r="6" fill="#EB001B"/>
-                  <circle cx="20" cy="11" r="6" fill="#F79E1B" fillOpacity="0.9"/>
-                </svg>
-                {/* Amex */}
-                <svg width="34" height="22" viewBox="0 0 34 22" className="rounded-sm border border-border" aria-label="American Express">
-                  <rect width="34" height="22" rx="3" fill="#2E77BC"/>
-                  <text x="17" y="15" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="7" fill="#fff" letterSpacing="0.3">AMEX</text>
-                </svg>
-                {/* Apple Pay */}
-                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-border bg-black" aria-label="Apple Pay" data-testid="apple-pay-badge">
-                  <rect width="42" height="22" rx="3" fill="#000"/>
-                  <text x="6.5" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="600" fontSize="10" fill="#fff"></text>
-                  <text x="14" y="15.5" fontFamily="-apple-system, Helvetica, Arial, sans-serif" fontWeight="500" fontSize="9" fill="#fff">Pay</text>
-                </svg>
-                {/* Google Pay */}
-                <svg width="42" height="22" viewBox="0 0 42 22" className="rounded-sm border border-border bg-card" aria-label="Google Pay">
-                  <rect width="42" height="22" rx="3" fill="#fff"/>
-                  <text x="3" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#4285F4">G</text>
-                  <text x="8" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#EA4335">o</text>
-                  <text x="13" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#FBBC05">o</text>
-                  <text x="18" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#4285F4">g</text>
-                  <text x="23" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#34A853">l</text>
-                  <text x="26" y="15" fontFamily="Arial, sans-serif" fontWeight="700" fontSize="8" fill="#EA4335">e</text>
-                  <text x="32" y="15" fontFamily="Arial, sans-serif" fontWeight="500" fontSize="8" fill="#5F6368">Pay</text>
-                </svg>
+                Cash on Delivery &amp; secure WiPay checkout
               </div>
             </div>
-            <p className="text-xs text-muted-foreground/70 -mt-3">
-              Apple Pay & Google Pay appear automatically on supported devices (Safari/iOS, Chrome/Android).
-            </p>
 
             {error && <div className="text-sm text-red-600" data-testid="checkout-error">{error}</div>}
 
+            {/* Primary: Cash on Delivery / Pay Later */}
             <Button
-              onClick={handlePay}
+              onClick={handleCOD}
               disabled={creating || isPaid || tipSaving}
-              className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white"
-              data-testid="checkout-pay-btn"
+              className="w-full bg-gold-gradient hover:bg-gold-gradient-hover text-white text-base py-6"
+              data-testid="checkout-cod-btn"
             >
               {creating ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Redirecting to Stripe…</>
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Placing order…</>
               ) : isPaid ? (
                 <><CheckCircle2 className="h-4 w-4 mr-2" /> Already paid</>
               ) : (
-                <><CreditCard className="h-4 w-4 mr-2" /> Pay {format(order.total || 0)}</>
+                <><Banknote className="h-5 w-5 mr-2" /> Place order · Cash on Delivery</>
               )}
             </Button>
-
             {!isPaid && (
-              <Button
-                onClick={handleWiPay}
-                disabled={creating || tipSaving}
-                variant="outline"
-                className="w-full border-teal-500/50 text-teal-300 hover:bg-matte-800/40"
-                data-testid="checkout-pay-wipay-btn"
-              >
-                <CreditCard className="h-4 w-4 mr-2" />
-                Pay with WiPay (Caribbean cards · Sandbox)
-              </Button>
+              <p className="text-xs text-muted-foreground text-center -mt-2">
+                Pay the driver in cash when your order arrives. No card needed.
+              </p>
             )}
 
-            {!isPaid && walletBalance !== null && (
-              <>
+            {/* Secondary: pay online now (optional) */}
+            {!isPaid && (
+              <div className="pt-2 border-t border-border space-y-3">
+                <p className="text-xs text-muted-foreground text-center">Prefer to pay online now? (optional)</p>
                 <Button
-                  onClick={handlePayWithWallet}
-                  disabled={creating || tipSaving || walletBalance < (order.total || 0)}
+                  onClick={handleWiPay}
+                  disabled={creating || tipSaving}
                   variant="outline"
-                  className="w-full border-gold-500/50 text-gold-300 hover:bg-matte-800/40"
-                  data-testid="checkout-pay-wallet-btn"
+                  className="w-full"
+                  data-testid="checkout-pay-wipay-btn"
                 >
-                  <Wallet className="h-4 w-4 mr-2" />
-                  {walletBalance < (order.total || 0)
-                    ? `Wallet balance: ${format(walletBalance)} (insufficient)`
-                    : `Pay with wallet (balance: ${format(walletBalance)})`}
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Pay with WiPay (Caribbean cards · Sandbox)
                 </Button>
-                {walletBalance < (order.total || 0) && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/wallet')}
-                    className="w-full text-center text-xs text-gold-500 hover:text-gold-300 hover:underline"
-                    data-testid="checkout-topup-link"
-                  >
-                    Top up your wallet → goes to /wallet
-                  </button>
-                )}
-              </>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -477,6 +401,11 @@ export const PaymentSuccess = () => {
   const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
+    // Cash on Delivery / Pay Later — already confirmed server-side, just show success.
+    if (via === 'cod') {
+      setStatus('cod');
+      return;
+    }
     // PayPal: on return, capture the approved order, then show result.
     if (via === 'paypal') {
       let cancelled = false;
@@ -489,8 +418,8 @@ export const PaymentSuccess = () => {
         .catch(() => { if (!cancelled) setStatus('failed'); });
       return () => { cancelled = true; };
     }
-    // WiPay / wallet: callback already settled the order server-side. Confirm by reading the order.
-    if (via === 'wipay' || via === 'wallet') {
+    // WiPay: callback already settled the order server-side. Confirm by reading the order.
+    if (via === 'wipay') {
       let cancelled = false;
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -543,6 +472,21 @@ export const PaymentSuccess = () => {
               <Loader2 className="h-14 w-14 text-gold-500 mx-auto mb-4 animate-spin" />
               <h2 className="text-2xl font-semibold mb-2">Confirming your payment…</h2>
               <p className="text-sm text-muted-foreground">Polling Stripe ({attempts + 1}/8)</p>
+            </>
+          )}
+          {status === 'cod' && (
+            <>
+              <CheckCircle2 className="h-14 w-14 text-green-600 mx-auto mb-4" />
+              <h2 className="text-2xl font-semibold mb-2" data-testid="payment-cod-title">Order placed!</h2>
+              <p className="text-sm text-muted-foreground mb-6">Pay with cash when your order is delivered. We&apos;ll keep you updated on WhatsApp.</p>
+              <div className="flex gap-3">
+                <Button onClick={() => navigate(`/order/${orderId}`)} className="flex-1 bg-gold-gradient hover:bg-gold-gradient-hover text-white" data-testid="cod-track-btn">
+                  Track order
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/')} className="flex-1" data-testid="cod-home-btn">
+                  Home
+                </Button>
+              </div>
             </>
           )}
           {status === 'paid' && (

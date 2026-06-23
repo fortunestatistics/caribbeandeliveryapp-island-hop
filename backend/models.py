@@ -561,9 +561,6 @@ class Wallet(BaseModel):
     user_id: str
     balances: Dict[str, float] = Field(default_factory=lambda: {"USD": 0.0, "TTD": 0.0})
     default_currency: str = "USD"
-    caripay_handle: Optional[str] = None
-    caripay_country: Optional[str] = None
-    caripay_linked_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
