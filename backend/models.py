@@ -114,6 +114,7 @@ class Order(BaseModel):
     pickup_address: Dict[str, Any]
     delivery_address: Dict[str, Any]
     customer_phone: str
+    notes: Optional[str] = None
     payment_status: str = "pending"
     payment_method: str
     payment_intent_id: Optional[str] = None

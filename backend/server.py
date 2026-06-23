@@ -25,6 +25,7 @@ from jose import JWTError, jwt
 import stripe
 import push_client
 import graph_mail
+import taxi_pricing
 import mercury_client
 import storage_client
 import wipay_client
@@ -2136,11 +2137,59 @@ async def _maybe_flag_order(order_dict: dict, extra_signals: Optional[List[str]]
     return flag_doc
 
 
+class TaxiQuoteRequest(BaseModel):
+    pickup_lat: float
+    pickup_lng: float
+    dropoff_lat: float
+    dropoff_lng: float
+    vehicle_type: str = "standard"
+
+
+@api_router.get("/taxi/rate-card")
+async def taxi_rate_card():
+    """Public taxi rate card (TT$ + USD) for the booking UI."""
+    return {"vehicles": taxi_pricing.rate_card_public(), "rate_ttd_per_usd": taxi_pricing.TTD_PER_USD}
+
+
+@api_router.post("/taxi/quote")
+async def taxi_quote(payload: TaxiQuoteRequest):
+    """Estimate a taxi fare from real driving distance + time (Google Directions).
+    Fare is computed server-side so it can't be tampered with. Public (pre-login)."""
+    if payload.vehicle_type not in taxi_pricing.TAXI_RATE_CARD:
+        raise HTTPException(status_code=400, detail="Unknown vehicle type")
+    try:
+        distance_km, duration_min = await taxi_pricing.road_distance_duration(
+            (payload.pickup_lat, payload.pickup_lng),
+            (payload.dropoff_lat, payload.dropoff_lng),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Could not find a driving route between those points: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Taxi quote routing failed: {exc}")
+        raise HTTPException(status_code=503, detail="Fare estimate service is temporarily unavailable.")
+    return taxi_pricing.compute_fare(distance_km, duration_min, payload.vehicle_type)
+
+
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
     """Create new order with automatic commission calculation"""
     current_user = await get_current_user_from_request(request)
     order.customer_id = current_user.id
+
+    # Taxi: recompute the fare server-side from real driving distance so the
+    # delivery_fee (the ride fare) can't be tampered with by the client.
+    if order.service_type == "taxi":
+        pa, da = order.pickup_address or {}, order.delivery_address or {}
+        p_lat, p_lng = pa.get("latitude"), pa.get("longitude")
+        d_lat, d_lng = da.get("latitude"), da.get("longitude")
+        if None not in (p_lat, p_lng, d_lat, d_lng):
+            try:
+                dist_km, dur_min = await taxi_pricing.road_distance_duration((p_lat, p_lng), (d_lat, d_lng))
+                quote = taxi_pricing.compute_fare(dist_km, dur_min, pa.get("vehicle_type") or order.vendor_id or "standard")
+                order.subtotal = 0.0
+                order.delivery_fee = quote["fare_usd"]
+            except Exception as exc:  # noqa: BLE001 — fall back to client-provided fare
+                logging.warning(f"Taxi fare recompute failed for order {order.id}: {exc}")
     
     # Determine vendor ID and type
     vendor_id = order.restaurant_id or order.vendor_id

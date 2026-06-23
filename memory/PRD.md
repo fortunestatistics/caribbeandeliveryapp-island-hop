@@ -26,6 +26,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 23, 2026 — Taxi fare engine (real distance + time)
+- **How delivery fees work (clarified):** delivery fee is a **flat rate each vendor sets** at onboarding — there is no distance engine for deliveries. Taxi, by contrast, now has a real metered fare.
+- **Backend (`taxi_pricing.py` + endpoints):** rate card in TT$ (Economy TT$16+1.70/km, Standard/Premium TT$22+2.15/km, Van TT$42+2.00/km; per-min, min-fare floor, higher per-km beyond 20km). `GET /api/taxi/rate-card` (public) and `POST /api/taxi/quote` compute fare from **real driving distance + time via Google Directions API** (Distance Matrix/Geocode are disabled on this key; Directions works). Fares are computed in TT$ then converted to USD for storage (app stores USD, displays TT$ ×6.78).
+- **Anti-tamper:** `create_order` recomputes the taxi fare server-side from pickup/drop-off coords and overrides any client-sent `delivery_fee`. Verified: client sent 999 → backend stored real $16.57.
+- **Driver economics:** taxi fare flows through the same payout rules — driver keeps fare minus the 10% (subscriber) / 20% (non-subscriber) cut + 100% of tips; $3 service fee + the platform cut go to the platform. (commission = 0 since no merchant subtotal.)
+- **Frontend (`TaxiBookingForm.js`):** rewritten with Google Places **autocomplete** for pickup/drop-off, live fare quote (distance + ETA), currency-accurate rate labels, and real **order creation → `/checkout/:orderId`** (was previously a mock that navigated to a broken `/checkout`). Requires login to book (redirects to /login).
+- **Order model:** added optional `notes`.
+- **Verified:** quote math exact (PoS→Chaguanas 24km Standard = TT$112.32/$16.57; Van 44km = TT$279.82/$41.27); full taxi order creation with correct split; UI renders with exact TT$ rate labels. NOT yet automated end-to-end through Google Places autocomplete (recommend a quick manual booking test).
+
+
 ### Jun 23, 2026 — New approved fee/payout structure
 - **Merchant commission:** 15% of item subtotal (restaurant default; other vendor types keep their existing defaults).
 - **Customer Service Fee:** flat **$3.00** added to checkout total, **100% to platform** (env-overridable `PLATFORM_SERVICE_FEE`). Shown on the Customer Receipt (`checkout-service-fee`).
