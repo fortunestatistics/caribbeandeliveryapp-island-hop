@@ -15,23 +15,30 @@ const STATUS_BADGE_MAP = {
  * Single active-delivery card with status-driven action buttons + inline chat toggle.
  * Props: { order, onNavigate(address), onUpdateStatus(orderId, status), onView(orderId) }
  */
-const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView }) => {
+const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverCOD }) => {
   const badgeCls = STATUS_BADGE_MAP[order.status] || 'bg-green-500';
   const { user } = useAuth();
   const [chatOpen, setChatOpen] = useState(false);
+  const isCOD = order.payment_method === 'cash' && order.payment_status !== 'cod_collected';
+  const cashDue = Number(order.total || 0).toFixed(2);
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`active-order-${order.id}`}>
       <CardContent className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
               <h3 className="font-semibold text-lg">
                 Order #{order.id?.substring(0, 8)}
               </h3>
               <Badge className={badgeCls}>
                 {order.status?.toUpperCase()}
               </Badge>
+              {isCOD && (
+                <Badge data-testid={`cod-badge-${order.id}`} className="bg-amber-100 text-amber-800 border border-amber-300">
+                  COD · collect ${cashDue}
+                </Badge>
+              )}
             </div>
             <div className="text-sm text-muted-foreground">
               <p>Customer: {order.customer_phone || 'N/A'}</p>
@@ -97,14 +104,25 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView }) => {
           )}
 
           {order.status === 'in_transit' && (
-            <Button
-              onClick={() => onUpdateStatus(order.id, 'delivered')}
-              className="flex-1 bg-green-600 hover:bg-green-700"
-              data-testid={`mark-delivered-${order.id}`}
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Mark Delivered
-            </Button>
+            isCOD ? (
+              <Button
+                onClick={() => onDeliverCOD && onDeliverCOD(order)}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                data-testid={`deliver-cod-${order.id}`}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Delivered — Collect ${cashDue} cash
+              </Button>
+            ) : (
+              <Button
+                onClick={() => onUpdateStatus(order.id, 'delivered')}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                data-testid={`mark-delivered-${order.id}`}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Mark Delivered
+              </Button>
+            )
           )}
 
           <Button onClick={() => onView(order.id)} variant="outline" size="sm">

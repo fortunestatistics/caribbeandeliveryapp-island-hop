@@ -1498,6 +1498,49 @@ async def message_user(user_id: str, payload: AdminUserMessage, request: Request
         raise HTTPException(status_code=503, detail="Email admin consent not granted yet.")
     return {"success": True, "sent_to": email}
 
+
+@api_router.get("/admin/users/{user_id}/profile")
+async def get_user_profile(user_id: str, request: Request):
+    """Full customer profile for the admin Users tab: details + order stats + recent orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0, "session_token": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user["email_is_real"] = graph_mail.is_real_email(user.get("email"))
+
+    orders = await db.orders.find({"customer_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
+    paid_statuses = {"paid", "cod_pending", "cod_collected", "cod_paid"}
+    total_spent = round(sum(float(o.get("total", 0) or 0) for o in orders if o.get("payment_status") in paid_statuses), 2)
+    stats = {
+        "order_count": len(orders),
+        "total_spent": total_spent,
+        "delivered": sum(1 for o in orders if o.get("status") == "delivered"),
+        "active": sum(1 for o in orders if o.get("status") not in ("delivered", "cancelled")),
+    }
+    recent = [{
+        "id": o.get("id"), "service_type": o.get("service_type"), "status": o.get("status"),
+        "total": o.get("total"), "payment_method": o.get("payment_method"),
+        "payment_status": o.get("payment_status"), "created_at": o.get("created_at"),
+    } for o in orders[:5]]
+
+    # Role-specific record
+    role_record = None
+    if user.get("user_type") == "driver":
+        role_record = await db.drivers.find_one({"user_id": user_id}, {"_id": 0})
+    elif user.get("user_type") in ("restaurant", "business"):
+        role_record = await db.restaurants.find_one({"user_id": user_id}, {"_id": 0})
+
+    referrer = None
+    if user.get("referred_by"):
+        ref = await db.users.find_one({"id": user["referred_by"]}, {"_id": 0, "name": 1, "email": 1})
+        if ref:
+            referrer = {"name": ref.get("name"), "email": ref.get("email")}
+
+    return {"user": user, "stats": stats, "recent_orders": recent, "role_record": role_record, "referrer": referrer}
+
 @api_router.post("/admin/orders/{order_id}/cancel")
 async def admin_cancel_order(order_id: str, request: Request):
     """Admin cancel an order"""
@@ -2463,6 +2506,95 @@ async def confirm_order_cod(order_id: str, request: Request):
     asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
 
     return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
+
+
+@api_router.post("/orders/{order_id}/cash-collected")
+async def confirm_cash_collected(order_id: str, request: Request):
+    """Driver confirms cash collected for a COD order. Marks the order paid-by-cash and
+    tracks how much of that cash the driver owes the platform (total minus driver's earnings)."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Only the assigned driver (or admin) can confirm cash collection.
+    if current_user.user_type == "driver":
+        driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+        if not driver or driver["id"] != order.get("driver_id"):
+            raise HTTPException(status_code=403, detail="You are not assigned to this order")
+    elif current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Only the assigned driver or an admin can confirm cash")
+
+    if order.get("payment_method") != "cash":
+        raise HTTPException(status_code=400, detail="This is not a Cash on Delivery order")
+    if order.get("payment_status") == "cod_collected":
+        raise HTTPException(status_code=400, detail="Cash already marked as collected for this order")
+
+    total = float(order.get("total", 0) or 0)
+    driver_earnings = float(order.get("driver_earnings", 0) or 0)
+    platform_due = round(max(total - driver_earnings, 0.0), 2)  # cash the driver owes the platform
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "payment_status": "cod_collected",
+            "cash_collected_at": now_iso,
+            "cash_collected_by": order.get("driver_id"),
+            "cash_platform_due": platform_due,
+            "updated_at": now_iso,
+        }},
+    )
+    # Track outstanding cash the driver owes the platform.
+    if order.get("driver_id"):
+        await db.drivers.update_one(
+            {"id": order["driver_id"]},
+            {"$inc": {"cash_outstanding": platform_due, "cash_collected_total": total}, "$set": {"updated_at": now_iso}},
+        )
+
+    return {"success": True, "order_id": order_id, "cash_total": round(total, 2),
+            "driver_keeps": round(driver_earnings, 2), "platform_due": platform_due}
+
+
+@api_router.get("/admin/drivers/cash-outstanding")
+async def admin_drivers_cash_outstanding(request: Request):
+    """Per-driver outstanding cash owed to the platform from COD orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    drivers = await db.drivers.find({"cash_outstanding": {"$gt": 0}}, {"_id": 0}).to_list(length=None)
+    rows = []
+    for d in drivers:
+        u = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+        rows.append({
+            "driver_id": d.get("id"),
+            "name": (u or {}).get("name") or "Driver",
+            "phone": (u or {}).get("phone"),
+            "cash_outstanding": round(float(d.get("cash_outstanding", 0) or 0), 2),
+            "cash_collected_total": round(float(d.get("cash_collected_total", 0) or 0), 2),
+        })
+    rows.sort(key=lambda r: r["cash_outstanding"], reverse=True)
+    return {"drivers": rows, "total_outstanding": round(sum(r["cash_outstanding"] for r in rows), 2)}
+
+
+@api_router.post("/admin/drivers/{driver_id}/settle-cash")
+async def admin_settle_driver_cash(driver_id: str, request: Request):
+    """Admin records that a driver has remitted their outstanding cash (resets the balance)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "cash_outstanding": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    settled = round(float(driver.get("cash_outstanding", 0) or 0), 2)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.drivers.update_one({"id": driver_id}, {"$set": {"cash_outstanding": 0.0, "last_cash_settlement_at": now_iso}})
+    await db.driver_cash_settlements.insert_one({
+        "id": str(uuid.uuid4()), "driver_id": driver_id, "amount": settled,
+        "settled_by": current_user.id, "settled_at": now_iso,
+    })
+    return {"success": True, "settled_amount": settled}
 
 
 @api_router.post("/orders/create", response_model=Order)

@@ -32,6 +32,7 @@ import {
   Mail,
   User as UserIcon,
   CreditCard,
+  Banknote,
   AlertTriangle,
   Plus
 } from 'lucide-react';
@@ -114,6 +115,12 @@ const AdminPanel = () => {
   // Order detail + approval detail dialogs
   const [detailOrder, setDetailOrder] = useState(null);
   const [detailApproval, setDetailApproval] = useState(null);
+  // Customer profile dialog
+  const [profileUser, setProfileUser] = useState(null);
+  const [profileData, setProfileData] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  // Driver cash-outstanding (COD reconciliation)
+  const [cashOutstanding, setCashOutstanding] = useState(null);
 
   useEffect(() => {
     fetchStats();
@@ -137,7 +144,23 @@ const AdminPanel = () => {
     if (selectedTab === 'whatsapp') fetchWhConvos();
     if (selectedTab === 'fraud') fetchFraudQueue();
     if (selectedTab === 'claims') fetchClaims();
+    if (selectedTab === 'orders') fetchCashOutstanding();
   }, [selectedTab, fraudFilter, claimsFilter]);
+
+  const fetchCashOutstanding = async () => {
+    try {
+      const r = await axios.get(`${API}/admin/drivers/cash-outstanding`, { headers: authHeaders(), withCredentials: false });
+      setCashOutstanding(r.data);
+    } catch (e) { setCashOutstanding(null); }
+  };
+
+  const settleDriverCash = async (driverId) => {
+    if (!window.confirm('Mark this driver\'s outstanding cash as settled (remitted)?')) return;
+    try {
+      await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: false });
+      fetchCashOutstanding();
+    } catch (e) { alert(e.response?.data?.detail || 'Failed to settle'); }
+  };
 
   useEffect(() => {
     axios.get(`${API}/auth/me`, { headers: authHeaders() })
@@ -418,6 +441,20 @@ const AdminPanel = () => {
   const userByEmail = (email) => users.find((u) => u.email && email && u.email.toLowerCase() === email.toLowerCase());
   const customerForOrder = (order) => order && users.find((u) => u.id === order.customer_id);
 
+  const openUserProfile = async (user) => {
+    setProfileUser(user);
+    setProfileData(null);
+    setProfileLoading(true);
+    try {
+      const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: false });
+      setProfileData(r.data);
+    } catch (e) {
+      setProfileData({ error: e.response?.data?.detail || 'Failed to load profile' });
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
 
   const handleOrderAction = async (orderId, action) => {
     try {
@@ -607,7 +644,7 @@ const AdminPanel = () => {
                     {filteredUsers.map((user) => {
                       const emailInvalid = user.email_is_real === false || (user.email_is_real === undefined && isPlaceholderEmail(user.email));
                       return (
-                      <tr key={user.id} className="border-b hover:bg-background">
+                      <tr key={user.id} data-testid={`admin-user-row-${user.id}`} className="border-b hover:bg-background cursor-pointer" onClick={() => openUserProfile(user)}>
                         <td className="p-3">
                           <div>
                             <p className="font-medium">{user.name || 'N/A'}</p>
@@ -631,8 +668,17 @@ const AdminPanel = () => {
                         <td className="p-3 text-sm text-muted-foreground">
                           {new Date(user.created_at).toLocaleDateString()}
                         </td>
-                        <td className="p-3">
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex justify-end gap-2">
+                            <Button
+                              data-testid={`view-profile-btn-${user.id}`}
+                              size="sm"
+                              variant="outline"
+                              title="View profile"
+                              onClick={() => openUserProfile(user)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             <Button
                               data-testid={`message-user-btn-${user.id}`}
                               size="sm"
@@ -672,6 +718,35 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'orders' && (
+          <>
+            {cashOutstanding && cashOutstanding.drivers?.length > 0 && (
+              <Card className="mb-4 border-amber-300" data-testid="cash-outstanding-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2"><Banknote className="h-5 w-5 text-amber-600" />Driver Cash Outstanding (COD)</span>
+                    <Badge className="bg-amber-100 text-amber-800 border border-amber-300">{money(cashOutstanding.total_outstanding)} owed to platform</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="border rounded-lg divide-y">
+                    {cashOutstanding.drivers.map((d) => (
+                      <div key={d.driver_id} className="flex items-center justify-between p-3 text-sm" data-testid={`cash-driver-${d.driver_id}`}>
+                        <div>
+                          <p className="font-medium">{d.name}</p>
+                          <p className="text-xs text-muted-foreground">{d.phone || '—'} · collected {money(d.cash_collected_total)} total</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-amber-700">{money(d.cash_outstanding)}</span>
+                          <Button size="sm" variant="outline" data-testid={`settle-cash-${d.driver_id}`} onClick={() => settleDriverCash(d.driver_id)}>
+                            Mark settled
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           <Card>
             <CardHeader>
               <CardTitle>Orders Management ({filteredOrders.length})</CardTitle>
@@ -721,6 +796,7 @@ const AdminPanel = () => {
               </div>
             </CardContent>
           </Card>
+          </>
         )}
 
         {selectedTab === 'approvals' && (
@@ -1259,6 +1335,96 @@ const AdminPanel = () => {
             <AnalyticsPromotions />
           </div>
         )}
+
+        {/* Customer profile */}
+        <Dialog open={!!profileUser} onOpenChange={(o) => { if (!o) { setProfileUser(null); setProfileData(null); } }}>
+          <DialogContent data-testid="user-profile-dialog" className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            {profileUser && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <UserIcon className="h-5 w-5 text-gold-500" />{profileUser.name || 'Customer'}
+                    <Badge variant="outline" className="capitalize">{profileUser.user_type || 'customer'}</Badge>
+                  </DialogTitle>
+                </DialogHeader>
+                {profileLoading && <p className="text-sm text-muted-foreground py-6 text-center">Loading profile…</p>}
+                {!profileLoading && profileData?.error && <p className="text-sm text-red-600 py-4">{profileData.error}</p>}
+                {!profileLoading && profileData?.user && (
+                  <div className="space-y-4 text-sm">
+                    {/* Contact + account */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><span className="text-muted-foreground">Email</span>
+                        {profileData.user.email_is_real === false
+                          ? <div><Badge className="bg-amber-100 text-amber-800 border border-amber-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-1" />No valid email</Badge></div>
+                          : <p className="font-medium break-all" data-testid="profile-email">{profileData.user.email || '—'}</p>}
+                      </div>
+                      <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{profileData.user.phone || '—'}{profileData.user.phone_verified ? ' ✓' : ''}</p></div>
+                      <div><span className="text-muted-foreground">Status</span><p className="font-medium capitalize">{profileData.user.status || 'active'}</p></div>
+                      <div><span className="text-muted-foreground">Member since</span><p className="font-medium">{new Date(profileData.user.created_at).toLocaleString()}</p></div>
+                      <div className="col-span-2"><span className="text-muted-foreground">User ID</span><p className="font-mono text-xs break-all">{profileData.user.id}</p></div>
+                    </div>
+
+                    {profileData.user.address && (Object.values(profileData.user.address).some(Boolean)) && (
+                      <div><span className="text-muted-foreground">Address</span>
+                        <p className="font-medium">{Object.values(profileData.user.address).filter(Boolean).join(', ')}</p>
+                      </div>
+                    )}
+
+                    {profileData.referrer && (
+                      <p className="text-xs text-muted-foreground">Referred by <span className="font-medium text-foreground">{profileData.referrer.name || profileData.referrer.email}</span></p>
+                    )}
+
+                    {/* Order stats */}
+                    <div className="grid grid-cols-4 gap-2">
+                      {[['Orders', profileData.stats.order_count], ['Spent', money(profileData.stats.total_spent)], ['Delivered', profileData.stats.delivered], ['Active', profileData.stats.active]].map(([label, val]) => (
+                        <div key={label} className="rounded-lg border border-border p-2 text-center">
+                          <p className="text-lg font-bold text-gold-500">{val}</p>
+                          <p className="text-[11px] text-muted-foreground">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Recent orders */}
+                    <div>
+                      <p className="font-semibold mb-1">Recent orders</p>
+                      {profileData.recent_orders.length === 0 ? (
+                        <p className="text-muted-foreground text-xs">No orders yet.</p>
+                      ) : (
+                        <div className="border rounded-lg divide-y" data-testid="profile-recent-orders">
+                          {profileData.recent_orders.map((o) => (
+                            <div key={o.id} className="flex items-center justify-between p-2 text-xs">
+                              <div>
+                                <span className="font-medium capitalize">{o.service_type}</span>
+                                <span className="text-muted-foreground"> · #{o.id?.substring(0, 8)} · {o.created_at ? new Date(o.created_at).toLocaleDateString() : ''}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge className={orderStatusBadgeCls(o.status)}>{o.status}</Badge>
+                                <span className="font-medium">{money(o.total)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <DialogFooter className="gap-2">
+                  {profileData?.user && (
+                    <Button
+                      data-testid="profile-message-btn"
+                      variant="outline"
+                      disabled={profileData.user.email_is_real === false}
+                      onClick={() => { const u = profileData.user; setProfileUser(null); openMessageUser(u); }}
+                    >
+                      <Mail className="h-4 w-4 mr-1" />Email
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => { setProfileUser(null); setProfileData(null); }}>Close</Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Message a user (email) */}
         <Dialog open={!!msgUser} onOpenChange={(o) => { if (!o) setMsgUser(null); }}>
