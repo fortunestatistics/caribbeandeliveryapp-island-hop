@@ -968,15 +968,22 @@ const BusinessOnboarding = () => {
                 {/* Banking Information Section */}
                 <Card className="bg-neon-cyan/10">
                   <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <CreditCard className="h-5 w-5 mr-2 text-teal-700" />
-                      Banking Information
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center">
+                        <CreditCard className="h-5 w-5 mr-2 text-teal-700" />
+                        Banking Information <span className="ml-2 text-sm font-normal text-muted-foreground">(optional)</span>
+                      </span>
+                      <Button type="button" variant="outline" size="sm" data-testid="partner-skip-banking-btn"
+                        onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); nextStep(); }}>
+                        Skip for now
+                      </Button>
                     </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">You can add your payout details later from your profile. Not needed to submit your application.</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                        <Label htmlFor="accountHolderName">Account Holder Name</Label>
                         <Input
                           id="accountHolderName"
                           value={formData.accountHolderName || ''}
@@ -986,7 +993,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="bankName">Bank Name *</Label>
+                        <Label htmlFor="bankName">Bank Name</Label>
                         <Input
                           id="bankName"
                           value={formData.bankName || ''}
@@ -996,7 +1003,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="accountNumber">Account Number *</Label>
+                        <Label htmlFor="accountNumber">Account Number</Label>
                         <Input
                           id="accountNumber"
                           value={formData.accountNumber || ''}
@@ -1006,7 +1013,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="routingNumber">Routing Number *</Label>
+                        <Label htmlFor="routingNumber">Routing Number</Label>
                         <Input
                           id="routingNumber"
                           value={formData.routingNumber || ''}
@@ -1016,7 +1023,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <Label htmlFor="accountType">Account Type *</Label>
+                        <Label htmlFor="accountType">Account Type</Label>
                         <Select 
                           value={formData.accountType || ''} 
                           onValueChange={(value) => handleInputChange('accountType', value)}

@@ -143,7 +143,7 @@ from models import (
     ScheduledOrder, RecurringOrder,
     RentalVehicle, CarRentalCompany, RentalBooking,
     Wallet, WalletTransaction,
-    BusinessCategory, BusinessOnboarding,
+    BusinessCategory, BusinessOnboarding, BusinessOnboardingRequest,
     PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
     OrderChatMessage, OrderChatMessageCreate,
@@ -5663,35 +5663,71 @@ async def get_pricing_tiers():
     return [PricingTier(**tier) for tier in tiers]
 
 # Business Onboarding Routes
-@api_router.post("/business/onboarding", response_model=BusinessOnboarding)
-async def create_business_application(application: BusinessOnboarding, request: Request):
-    """Submit business onboarding application"""
+@api_router.post("/business/onboarding")
+async def create_business_application(application: BusinessOnboardingRequest, request: Request):
+    """Submit a partner/business onboarding application. Accepts partial data — bank
+    info and several details are optional so applicants can complete sign-up during
+    testing and add the rest later. Auth is optional (anonymous test submissions allowed)."""
     try:
-        # Get current user
-        current_user = await get_current_user(request)
-        application.user_id = current_user.id
-        
-        # Store application
-        app_dict = prepare_for_mongo(application.dict())
-        await db.business_applications.insert_one(app_dict)
-        
-        return application
-    
+        # Auth is best-effort — derive user_id if a valid session/token is present.
+        user_id = None
+        try:
+            current_user = await get_current_user_from_request(request)
+            user_id = current_user.id
+        except Exception:
+            user_id = None
+
+        owner = application.business_owner or {}
+        details = application.business_details or {}
+
+        # Normalise documents to a list of dicts regardless of how the form sent them.
+        docs = application.documents
+        if isinstance(docs, dict):
+            normalised_docs = [{"type": k, **(v if isinstance(v, dict) else {"value": v})} for k, v in docs.items()]
+        elif isinstance(docs, list):
+            normalised_docs = docs
+        else:
+            normalised_docs = []
+
+        app_doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "business_owner": owner,
+            "business_details": details,
+            "documents": normalised_docs,
+            "banking_info": application.banking_info,  # may be None — bank is optional
+            "verification_status": "pending",
+            "application_date": datetime.now(timezone.utc).isoformat(),
+            "reviewed_by": None,
+            "review_notes": None,
+            "approved_date": None,
+            # convenience fields for the admin approvals list
+            "name": owner.get("name"),
+            "email": owner.get("email"),
+            "phone": owner.get("phone"),
+            "business_name": details.get("business_name"),
+        }
+        await db.business_applications.insert_one(prepare_for_mongo(dict(app_doc)))
+        app_doc.pop("_id", None)
+        return {"success": True, "application": app_doc}
     except Exception as e:
+        logging.exception("Business onboarding submission failed")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/business/onboarding", response_model=List[BusinessOnboarding])
+@api_router.get("/business/onboarding")
 async def get_business_applications(request: Request):
     """Get business applications for current user"""
     try:
         current_user = await get_current_user(request)
-        applications = await db.business_applications.find({"user_id": current_user.id}).to_list(length=None)
-        return [BusinessOnboarding(**app) for app in applications]
+        applications = await db.business_applications.find(
+            {"user_id": current_user.id}, {"_id": 0}
+        ).to_list(length=None)
+        return applications
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/business/onboarding/{application_id}", response_model=BusinessOnboarding)
+@api_router.get("/business/onboarding/{application_id}")
 async def get_business_application(application_id: str, request: Request):
     """Get specific business application"""
     try:
@@ -5699,12 +5735,12 @@ async def get_business_application(application_id: str, request: Request):
         application = await db.business_applications.find_one({
             "id": application_id,
             "user_id": current_user.id
-        })
+        }, {"_id": 0})
         
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
         
-        return BusinessOnboarding(**application)
+        return application
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

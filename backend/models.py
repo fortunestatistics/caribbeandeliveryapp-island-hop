@@ -636,6 +636,15 @@ class BusinessOnboarding(BaseModel):
     approved_date: Optional[datetime] = None
 
 
+class BusinessOnboardingRequest(BaseModel):
+    """Lenient request body for partner sign-up — accepts partial data so applicants
+    can submit without every field (e.g. bank info is optional during onboarding)."""
+    business_owner: Dict[str, Any] = Field(default_factory=dict)
+    business_details: Dict[str, Any] = Field(default_factory=dict)
+    documents: Optional[Any] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
 # Pricing Models
 class PricingTier(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

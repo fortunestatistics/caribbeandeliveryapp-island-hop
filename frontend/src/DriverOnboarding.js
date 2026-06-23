@@ -604,13 +604,17 @@ const DriverOnboarding = () => {
               <div className="space-y-6" data-testid="banking-step">
                 <div className="text-center mb-6">
                   <CreditCard className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information</h3>
-                  <p className="text-muted-foreground">Secure account details for receiving your earnings</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information <span className="text-base font-normal text-muted-foreground">(optional)</span></h3>
+                  <p className="text-muted-foreground">Add your payout details now, or skip and add them later from your profile.</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" data-testid="driver-skip-banking-btn"
+                    onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); setCurrentStep((s) => Math.min(s + 1, 5)); }}>
+                    Skip for now
+                  </Button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                    <Label htmlFor="accountHolderName">Account Holder Name</Label>
                     <Input
                       id="accountHolderName"
                       value={formData.accountHolderName}
@@ -620,7 +624,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="bankName">Bank Name *</Label>
+                    <Label htmlFor="bankName">Bank Name</Label>
                     <Select value={formData.bankName} onValueChange={(value) => handleInputChange('bankName', value)}>
                       <SelectTrigger data-testid="bank-name-select">
                         <SelectValue placeholder="Select your bank" />
@@ -636,7 +640,7 @@ const DriverOnboarding = () => {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="accountNumber">Account Number *</Label>
+                    <Label htmlFor="accountNumber">Account Number</Label>
                     <Input
                       id="accountNumber"
                       value={formData.accountNumber}
@@ -656,7 +660,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <Label htmlFor="accountType">Account Type *</Label>
+                    <Label htmlFor="accountType">Account Type</Label>
                     <Select value={formData.accountType} onValueChange={(value) => handleInputChange('accountType', value)}>
                       <SelectTrigger data-testid="account-type-select">
                         <SelectValue placeholder="Select account type" />
