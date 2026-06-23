@@ -1292,6 +1292,16 @@ const Dashboard = () => {
                   <AlertCircle className="h-6 w-6" />
                   <span className="text-sm">My Claims</span>
                 </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col items-center justify-center space-y-2 border-gold-500/40 hover:border-gold-500"
+                  onClick={() => navigate('/promote')}
+                  data-testid="quick-action-promote"
+                >
+                  <Megaphone className="h-6 w-6 text-gold-500" />
+                  <span className="text-sm">Promote &amp; Earn</span>
+                </Button>
               </div>
             </CardContent>
           </Card>

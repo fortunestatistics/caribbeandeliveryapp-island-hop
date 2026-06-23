@@ -474,3 +474,13 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - Converted: SubscriptionPlans, RestaurantMenu, Grocery/Pharmacy/Courier/CarRental/Taxi order forms, CheckoutPage, OrderTrackingPageWithMaps, PromoteEarn rewards.
 - Grand totals on grocery/pharmacy/checkout use existing CurrencyConverter widget (shows BOTH currencies). Wallet balances + driver/vendor EARNINGS dashboards intentionally kept in native currency (real settlement amounts) — out of scope.
 - DEPLOY: both features live on PREVIEW only; user must redeploy via Deploy panel for production (islandhopapp.com).
+
+## CHANGELOG — 2026-06-23 (WhatsApp delivery visibility fix + UX additions)
+### WhatsApp dashboard "not connected" — ROOT CAUSE + FIX (verified 100%, iteration_21)
+- Diagnosed via Twilio API: outbound msgs reach Twilio (200/queued) then FAIL async with error 63005 (recipient outside WhatsApp's 24h customer-care window; business-initiated free-form requires an approved template). Dashboard never showed it because sends had no status_callback → stuck at "queued". Inbound works (webhook receives msgs).
+- FIX: twilio_client.py now passes status_callback on SMS + WhatsApp sends (_status_callback_url(): env TWILIO_STATUS_CALLBACK_URL, fallback FRONTEND_URL + /api/webhooks/twilio-status). Existing POST /api/webhooks/twilio-status updates whatsapp_messages status+error_code. AdminPanel whatsapp thread now shows per-message delivery status + a clear note when failed due to the 24h window.
+- .env (preview): added TWILIO_STATUS_CALLBACK_URL=<preview>/api/webhooks/twilio-status. PRODUCTION: falls back to FRONTEND_URL (islandhopapp.com) automatically.
+- IMPORTANT: WhatsApp 24h-window/template requirement is Meta/Twilio POLICY, not a bug. To message customers who haven't contacted you in 24h, approved Message Templates (Content API content_sid) are required — twilio_client.send_whatsapp already supports content_sid; map approved template SIDs to env once Meta approves them.
+### UX additions
+- Dashboard quick-action tile "Promote & Earn" (data-testid quick-action-promote) → /promote.
+- Signup: SMS consent line under Phone (data-testid sms-consent-text) for Twilio A2P. Fixed broken signup links /terms→/terms-and-conditions, /privacy→/privacy-policy.

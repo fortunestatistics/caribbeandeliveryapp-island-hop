@@ -289,6 +289,10 @@ const AuthPage = ({ mode = 'login' }) => {
                       required
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1.5" data-testid="sms-consent-text">
+                    By providing your number you agree to receive order &amp; account messages from IslandHop via SMS/WhatsApp.
+                    Reply STOP to opt out, HELP for help. Msg &amp; data rates may apply; message frequency varies.
+                  </p>
                 </div>
               )}
 
@@ -421,11 +425,11 @@ const AuthPage = ({ mode = 'login' }) => {
             {authMode === 'signup' && (
               <p className="mt-4 text-xs text-center text-muted-foreground">
                 By creating an account, you agree to our{' '}
-                <a href="/terms" className="text-gold-500 hover:underline">
-                  Terms of Service
+                <a href="/terms-and-conditions" className="text-gold-500 hover:underline">
+                  Terms &amp; Conditions
                 </a>{' '}
                 and{' '}
-                <a href="/privacy" className="text-gold-500 hover:underline">
+                <a href="/privacy-policy" className="text-gold-500 hover:underline">
                   Privacy Policy
                 </a>
               </p>
