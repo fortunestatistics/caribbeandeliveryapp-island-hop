@@ -7547,9 +7547,9 @@ async def _maybe_complete_referral(referee_id: str):
 PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
 PROMO_REWARDS = {
     "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
-    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "25")),
-    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "40")),
-    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "40")),
+    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "15")),
+    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "15")),
+    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "15")),
 }
 PROMO_TYPE_LABEL = {
     "customer": "Customer", "driver": "Driver",
@@ -7698,6 +7698,34 @@ async def get_promoter_leaderboard(limit: int = 20):
         "total": round(r["total"], 2), "onboards": r["onboards"],
     } for i, r in enumerate(rows)]
     return {"leaderboard": out, "currency": PROMO_REWARD_CURRENCY}
+
+
+@api_router.get("/promoter/social-proof")
+async def get_promoter_social_proof():
+    """Public: top promoter's earnings THIS MONTH for homepage social proof (first name only)."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    pipeline = [
+        {"$match": {"status": "paid", "paid_at": {"$gte": month_start}}},
+        {"$group": {"_id": "$promoter_id", "total": {"$sum": "$amount"}}},
+        {"$sort": {"total": -1}},
+        {"$limit": 1},
+    ]
+    rows = await db.promo_rewards.aggregate(pipeline).to_list(length=1)
+    onboards_this_month = await db.promo_rewards.count_documents({"status": "paid", "paid_at": {"$gte": month_start}})
+    if not rows:
+        return {"has_data": False, "currency": PROMO_REWARD_CURRENCY, "onboards_this_month": 0}
+    top = rows[0]
+    promoter = await db.users.find_one({"id": top["_id"]}, {"_id": 0, "name": 1})
+    full = (promoter or {}).get("name") or "A promoter"
+    first = full.split()[0] if full else "A promoter"
+    return {
+        "has_data": True,
+        "top_name": first,
+        "top_earnings": round(top["total"], 2),
+        "onboards_this_month": onboards_this_month,
+        "currency": PROMO_REWARD_CURRENCY,
+    }
 
 
 @api_router.get("/promoter/resolve/{code}")

@@ -490,3 +490,8 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - AnalyticsPromotions.js: new card in Admin Panel Analytics tab — total paid to promoters, held, total onboards, approved ambassadors + Top Promoters list (pulls /api/admin/promoters + /api/promoter/leaderboard).
 - App.js homepage: new horizontal 'Earn with IslandHop' incentives widget (data-testid incentives-widget) on navy gradient with 4 cards (Promote & Earn → /promote highlighted, Refer Friends → /referrals, Drive & Earn → /partner, Partner Bonuses → /partner) + 'Get my QR code' CTA.
 - All live on PREVIEW only — redeploy via Deploy panel for production.
+
+## CHANGELOG — 2026-06-23 (Dynamic homepage social proof)
+- New public endpoint GET /api/promoter/social-proof → top promoter's earnings THIS MONTH (first name only) + onboards_this_month. Verified with temp data (Tracy / 40 USD), test doc cleaned up.
+- New component PromoterSocialProof.js wired into the homepage incentives widget header — shows a live pulsing badge "<Name> earned <TT$ amount> this month · N new sign-ups" using the global currency formatter. Renders nothing (graceful) until there is real paid-this-month data.
+- PREVIEW only — redeploy for production.

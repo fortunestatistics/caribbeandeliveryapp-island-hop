@@ -46,6 +46,7 @@ import DriverLeaderboard from './DriverLeaderboard';
 import EnablePushButton from './EnablePushButton';
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
+import PromoterSocialProof from './PromoterSocialProof';
 import SubscriptionPlans from './SubscriptionPlans';
 import RestaurantMenu from './RestaurantMenu';
 import TaxiBookingForm from './TaxiBookingForm';
@@ -756,6 +757,7 @@ const LandingPage = () => {
                   <Megaphone className="h-7 w-7 text-gold-400" /> Earn with IslandHop
                 </h2>
                 <p className="text-white/70 text-sm mt-1">Multiple ways to make money on the platform — start today.</p>
+                <PromoterSocialProof />
               </div>
               <Button
                 onClick={() => navigate('/promote')}
@@ -767,7 +769,7 @@ const LandingPage = () => {
             </div>
             <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
               {[
-                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$271 per business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
+                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$102 for every business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
                 { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn wallet rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
                 { icon: Truck, title: 'Drive & Earn', desc: 'Deliver across the islands on your own schedule with driver incentives.', to: '/partner', testid: 'incentive-drive' },
                 { icon: Building2, title: 'Partner Bonuses', desc: 'List your business and unlock onboarding bonuses and growth tools.', to: '/partner', testid: 'incentive-partner' },
