@@ -1079,7 +1079,28 @@ const AdminPanel = () => {
                       {whMessages.map((m) => (
                         <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.direction === 'inbound' ? 'bg-matte-900/40 mr-auto' : 'bg-gold-500/15 ml-auto text-right'}`} data-testid={`wa-msg-${m.id}`}>
                           <p className="text-sm">{m.body}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{new Date(m.created_at).toLocaleTimeString()}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(m.created_at).toLocaleTimeString()}
+                            {m.direction === 'outbound' && m.status && (
+                              <span
+                                className={`ml-2 font-medium ${
+                                  ['delivered', 'read', 'sent'].includes(m.status) ? 'text-green-600'
+                                  : ['failed', 'undelivered'].includes(m.status) ? 'text-red-600'
+                                  : 'text-muted-foreground'
+                                }`}
+                                data-testid={`wa-status-${m.id}`}
+                              >
+                                · {m.status}
+                              </span>
+                            )}
+                          </p>
+                          {m.direction === 'outbound' && ['failed', 'undelivered'].includes(m.status) && (
+                            <p className="text-[11px] text-red-600 mt-1" data-testid={`wa-error-${m.id}`}>
+                              {String(m.error_code) === '63005' || String(m.error_code) === '63016'
+                                ? 'Not delivered — the customer is outside WhatsApp\u2019s 24-hour window. Business-initiated messages require an approved template.'
+                                : `Not delivered${m.error_code ? ` (error ${m.error_code})` : ''}.`}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
