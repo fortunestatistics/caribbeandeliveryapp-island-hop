@@ -26,6 +26,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+### Jun 23, 2026 — Admin customer profile + COD cash reconciliation
+- **Admin → Users customer profile:** clicking a user row (or the eye button) opens a full profile dialog — contact, status, address, member-since, user ID, order stats (count / total spent / delivered / active) and the 5 most recent orders, plus an Email action. New endpoint `GET /api/admin/users/{id}/profile` (admin-only). Row action buttons stopPropagation so they don't open the profile.
+- **COD cash reconciliation:** drivers delivering a Cash-on-Delivery order tap **"Delivered — Collect $X cash"** (ActiveOrderCard, shows a `COD · collect $X` badge). This marks the order delivered + `POST /api/orders/{id}/cash-collected` → `payment_status=cod_collected`, and tracks the cash the driver owes the platform (`platform_due = total − driver_earnings`) on the driver record (`cash_outstanding`). Admins see a **"Driver Cash Outstanding"** card in the Orders tab (`GET /api/admin/drivers/cash-outstanding`) and can **Mark settled** (`POST /api/admin/drivers/{id}/settle-cash`, writes a `driver_cash_settlements` audit row).
+- **Verified:** testing_agent iter 25 — backend 10/10 (RBAC, math, idempotency, 404s); frontend ~95% (all primary flows; the one miss was data-drift on the placeholder demo user, since re-seeded). Cash math example: total $53 − driver_keeps $8 = $45 platform_due.
+
+
 ### Jun 23, 2026 — CariPay removal + digital wallet hidden + COD checkout
 - **CariPay removed completely:** deleted `caripay_client.py`, removed all CariPay endpoints (`/wallet/link`, `/wallet/deposit`, `/wallet/withdraw`, `/webhook/caripay`), the `import caripay_client`, the `CARIPAY_*`/`MOCK_CARIPAY` env vars, and the `caripay_*` fields on the Wallet model. No CariPay reference remains in backend or frontend.
 - **Digital wallet hidden from users:** deleted `WalletPage.js` + `WalletFunding.js`, removed the `/wallet` nav link, `/wallet` route now redirects to `/dashboard`. No top-up / balance / wallet-pay UI anywhere. (Internal `_credit_wallet_with_txn` payout plumbing for driver earnings/referrals is retained but not user-facing.)
