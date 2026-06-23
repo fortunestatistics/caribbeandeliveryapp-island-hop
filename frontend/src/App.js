@@ -984,6 +984,17 @@ const PartnerSelection = () => {
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
             Join IslandHop&apos;s growing network of Caribbean businesses and reach more customers than ever before
           </p>
+          <div data-testid="partner-rate-highlight" className="mt-6 inline-flex flex-wrap items-center justify-center gap-3 max-w-3xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
+              Low 15% commission for restaurants
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
+              You keep 100% of your menu pricing power
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
+              Drivers keep up to 90% of delivery fees + 100% of tips
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">

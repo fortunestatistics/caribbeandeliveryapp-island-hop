@@ -268,6 +268,20 @@ const DriverOnboarding = () => {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">Become a Driver</h1>
           <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
+          <div data-testid="driver-rate-highlight" className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 max-w-2xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Keep up to 90% of every delivery fee
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />100% of your tips
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />+ monthly incentive bonuses
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
+            Subscribers pay just 10% on delivery fees (20% standard). Tips are always 100% yours.
+          </p>
         </div>
 
         {/* Progress Bar */}

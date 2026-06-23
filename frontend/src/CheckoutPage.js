@@ -280,6 +280,9 @@ export const CheckoutPage = () => {
               {order.delivery_fee != null && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Delivery fee</span><span>{format(order.delivery_fee || 0)}</span></div>
               )}
+              {(order.service_fee || 0) > 0 && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Service fee</span><span data-testid="checkout-service-fee">{format(order.service_fee || 0)}</span></div>
+              )}
               {order.tax != null && order.tax > 0 && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{format(order.tax || 0)}</span></div>
               )}

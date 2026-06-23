@@ -154,9 +154,64 @@ from models import (
 )
 
 # Helper function to calculate commission and split payments
+# ---------------------------------------------------------------------------
+# Fee structure (approved Jun 2026):
+#   • Merchant commission: 15% of the item subtotal (default; per vendor type / plan).
+#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform.
+#   • Delivery fee + tips: go to the driver, MINUS the platform's delivery-fee cut:
+#       - paying driver-subscriber: platform takes 10% of the delivery fee.
+#       - non-paying driver:        platform takes 20% of the delivery fee.
+#     (Drivers also receive monthly incentive payouts on top of this.)
+# ---------------------------------------------------------------------------
+PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
+DRIVER_FEE_RATE_SUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_SUBSCRIBER", "0.10"))
+DRIVER_FEE_RATE_NONSUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_NONSUBSCRIBER", "0.20"))
+
+
+def _derive_vendor_type(service_type: str) -> str:
+    return {
+        "food": "restaurant",
+        "pharmacy": "pharmacy",
+        "grocery": "grocery",
+        "car_rental": "car_rental",
+    }.get(service_type, "business")
+
+
+async def _driver_delivery_fee_rate(driver_user_id: Optional[str]) -> float:
+    """Platform's % cut of the delivery fee for the assigned driver.
+    Paying subscribers pay 10% of earnings; non-paying drivers pay 20%."""
+    if driver_user_id:
+        sub = await db.user_subscriptions.find_one({"user_id": driver_user_id, "status": "active"})
+        if sub:
+            return DRIVER_FEE_RATE_SUBSCRIBER
+    return DRIVER_FEE_RATE_NONSUBSCRIBER
+
+
+async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
+    """Re-split the delivery fee once the assigned driver is known (their
+    subscription status sets the 10% vs 20% platform cut). Idempotent."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return
+    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"))
+    delivery_fee = float(order.get("delivery_fee", 0) or 0)
+    tip = float(order.get("tip", 0) or 0)
+    commission = float(order.get("commission_amount", 0) or 0)
+    service_fee = float(order.get("service_fee", 0) or 0)
+    platform_delivery = round(delivery_fee * rate, 2)
+    driver_delivery = round(delivery_fee - platform_delivery, 2)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "driver_fee_rate": rate,
+        "platform_delivery_portion": platform_delivery,
+        "driver_delivery_portion": driver_delivery,
+        "driver_earnings": round(driver_delivery + tip, 2),
+        "platform_earnings": round(commission + platform_delivery + service_fee, 2),
+    }})
+
+
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
-    Calculate commission, vendor payout, platform earnings, and driver earnings
+    Calculate commission, vendor payout, platform earnings, and driver earnings.
     """
     # Get vendor's subscription plan to determine commission rate
     subscription = await db.user_subscriptions.find_one({"user_id": vendor_id, "status": "active"})
@@ -175,19 +230,32 @@ async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: 
         }
         commission_rate = default_rates.get(vendor_type, 15.0)
     
-    # Calculate commission
+    # Merchant commission on the item subtotal
     order.commission_rate = commission_rate
     order.commission_amount = round(order.subtotal * (commission_rate / 100), 2)
     order.vendor_payout = round(order.subtotal - order.commission_amount, 2)
-    
-    # Split delivery fee: 60% to driver, 40% to platform
-    order.driver_delivery_portion = round(order.delivery_fee * 0.6, 2)
-    order.platform_delivery_portion = round(order.delivery_fee * 0.4, 2)
-    
-    # Calculate total earnings
+
+    # Flat customer service fee → 100% platform
+    order.service_fee = PLATFORM_SERVICE_FEE
+
+    # Delivery-fee split. Driver isn't assigned at creation, so assume the
+    # non-subscriber rate (max platform cut); re-split via _finalize_driver_split
+    # once the assigned driver's subscription status is known.
+    rate = DRIVER_FEE_RATE_NONSUBSCRIBER
+    order.driver_fee_rate = rate
+    order.platform_delivery_portion = round(order.delivery_fee * rate, 2)
+    order.driver_delivery_portion = round(order.delivery_fee - order.platform_delivery_portion, 2)
+
+    # Driver keeps their delivery share + 100% of tips
     order.driver_earnings = round(order.driver_delivery_portion + order.tip, 2)
-    order.platform_earnings = round(order.commission_amount + order.platform_delivery_portion, 2)
-    
+    # Platform earns merchant commission + delivery-fee cut + service fee
+    order.platform_earnings = round(order.commission_amount + order.platform_delivery_portion + order.service_fee, 2)
+
+    # Total the customer pays includes the flat service fee
+    order.total = round(
+        order.subtotal + order.delivery_fee + order.tax + order.tip - order.discount + order.service_fee, 2
+    )
+
     return order
 
 # Helper functions
@@ -2076,16 +2144,7 @@ async def create_order(order: Order, request: Request):
     
     # Determine vendor ID and type
     vendor_id = order.restaurant_id or order.vendor_id
-    if order.service_type == "food":
-        vendor_type = "restaurant"
-    elif order.service_type == "pharmacy":
-        vendor_type = "pharmacy"
-    elif order.service_type == "grocery":
-        vendor_type = "grocery"
-    elif order.service_type == "car_rental":
-        vendor_type = "car_rental"
-    else:
-        vendor_type = "business"
+    vendor_type = _derive_vendor_type(order.service_type)
     
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)
@@ -2325,6 +2384,10 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         customer_id=current_user.id,
         **order_data.dict()
     )
+
+    # Apply the approved fee structure (commission + $3 service fee + delivery split)
+    vendor_id = order.restaurant_id or order.vendor_id
+    order = await calculate_order_financials(order, vendor_id, _derive_vendor_type(order.service_type))
     
     # Calculate estimated delivery time (30 mins from now)
     order.estimated_delivery_time = datetime.now(timezone.utc) + timedelta(minutes=30)
@@ -2341,6 +2404,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
                 {"id": order.id},
                 {"$set": {"driver_id": available_driver['id']}}
             )
+            # Finalize the delivery-fee split for this specific driver (10% vs 20%)
+            await _finalize_driver_split(order.id, available_driver)
             # Update driver status
             await db.drivers.update_one(
                 {"id": available_driver['id']},
@@ -4284,6 +4349,10 @@ async def driver_accept_order(order_id: str, driver_id: str):
             "status": "confirmed"
         }}
     )
+
+    # Finalize delivery-fee split based on this driver's subscription (10% vs 20%)
+    driver_doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    await _finalize_driver_split(order_id, driver_doc or {})
     
     # Update driver status
     await db.drivers.update_one(
@@ -5251,8 +5320,8 @@ async def get_driver_performance(driver_id: str, days: int = 7):
                 if delivery_time <= 30:
                     on_time_count += 1
                 
-                # Calculate driver earnings (80% of delivery fee)
-                earnings += order.get('delivery_fee', 0) * 0.8
+                # Driver earnings = stored payout (delivery share minus platform cut + tips)
+                earnings += order.get('driver_earnings', order.get('delivery_fee', 0) * 0.8)
         
         # Get driver ratings
         ratings = await db.customer_ratings.find({
@@ -5308,8 +5377,8 @@ async def get_financial_summary(start_date: str, end_date: str):
         delivery_fee_revenue = sum(o.get('delivery_fee', 0) for o in orders)
         tax_revenue = sum(o.get('tax', 0) for o in orders)
         
-        # Cost calculations (estimates)
-        driver_payouts = delivery_fee_revenue * 0.8  # Drivers get 80% of delivery fee
+        # Cost calculations
+        driver_payouts = sum(o.get('driver_earnings', o.get('delivery_fee', 0) * 0.8) for o in orders)
         payment_processing_fees = total_revenue * 0.029  # ~2.9% for payment processing
         operational_costs = len(orders) * 2.50  # Estimated operational cost per order
         
@@ -5437,12 +5506,13 @@ class ApplyPromoToOrderRequest(BaseModel):
 
 
 def _recompute_order_total(order_doc: dict) -> float:
-    """Compute total from order parts: subtotal + delivery_fee + tax + tip - discount."""
+    """Compute total from order parts: subtotal + delivery_fee + tax + tip + service_fee - discount."""
     return round(
         float(order_doc.get("subtotal", 0) or 0)
         + float(order_doc.get("delivery_fee", 0) or 0)
         + float(order_doc.get("tax", 0) or 0)
         + float(order_doc.get("tip", 0) or 0)
+        + float(order_doc.get("service_fee", 0) or 0)
         - float(order_doc.get("discount", 0) or 0),
         2,
     )

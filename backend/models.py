@@ -90,6 +90,7 @@ class Order(BaseModel):
     tip: float = 0.0
     tax: float = 0.0
     discount: float = 0.0
+    service_fee: float = 0.0  # Flat platform service fee charged to the customer (100% platform)
     promo_code: Optional[str] = None
     total: float
 
@@ -101,6 +102,7 @@ class Order(BaseModel):
     driver_earnings: float = 0.0
     driver_delivery_portion: float = 0.0
     platform_delivery_portion: float = 0.0
+    driver_fee_rate: float = 0.0  # Platform's % cut of the delivery fee for the assigned driver
 
     # Payout tracking
     vendor_payout_status: str = "pending"
