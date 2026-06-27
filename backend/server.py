@@ -1511,7 +1511,7 @@ async def get_user_profile(user_id: str, request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     user["email_is_real"] = graph_mail.is_real_email(user.get("email"))
 
-    orders = await db.orders.find({"customer_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
+    orders = await db.orders.find({"customer_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=500)
     paid_statuses = {"paid", "cod_pending", "cod_collected", "cod_paid"}
     total_spent = round(sum(float(o.get("total", 0) or 0) for o in orders if o.get("payment_status") in paid_statuses), 2)
     stats = {
@@ -8839,6 +8839,69 @@ async def initialize_data():
         # Create TTL index for driver location history (auto-delete after 1 hour)
         await db.driver_locations.create_index("timestamp", expireAfterSeconds=3600)
         print("✅ Created TTL index for driver location history")
+
+        # Performance indexes for high-traffic collections (idempotent; Mongo skips existing).
+        # The app uses a logical string `id` field as the primary key plus several FK/filter fields.
+        perf_indexes = {
+            "users": [[("email", 1)], [("id", 1)], [("user_type", 1)], [("session_token", 1)]],
+            "orders": [
+                [("id", 1)], [("customer_id", 1)], [("driver_id", 1)], [("restaurant_id", 1)],
+                [("vendor_id", 1)], [("status", 1)], [("service_type", 1)], [("payment_status", 1)],
+                [("created_at", -1)], [("customer_id", 1), ("created_at", -1)],
+                [("status", 1), ("created_at", -1)],
+            ],
+            "drivers": [[("id", 1)], [("user_id", 1)], [("status", 1)]],
+            "restaurants": [[("id", 1)], [("user_id", 1)], [("status", 1)]],
+            "businesses": [[("id", 1)], [("user_id", 1)], [("verification_status", 1)]],
+            "business_applications": [[("id", 1)], [("user_id", 1)], [("verification_status", 1)]],
+            "car_rental_companies": [[("id", 1)], [("user_id", 1)]],
+            "menu_items": [[("restaurant_id", 1)], [("id", 1)]],
+            "ratings": [[("order_id", 1)], [("vendor_id", 1)], [("driver_id", 1)]],
+            "merchant_reviews": [[("merchant_id", 1)], [("customer_id", 1)]],
+            "addresses": [[("user_id", 1)]],
+            "support_tickets": [[("user_id", 1)], [("status", 1)], [("assigned_to", 1)], [("created_at", -1)]],
+            "ticket_messages": [[("ticket_id", 1)]],
+            "order_chat_messages": [[("order_id", 1)], [("created_at", 1)]],
+            "substitution_proposals": [[("order_id", 1)]],
+            "whatsapp_messages": [[("MessageSid", 1)], [("direction", 1)], [("created_at", -1)]],
+            "notifications": [[("user_id", 1)], [("read", 1)]],
+            "wallets": [[("user_id", 1)]],
+            "wallet_transactions": [[("user_id", 1)], [("order_id", 1)], [("created_at", -1)]],
+            "driver_wallets": [[("driver_id", 1)]],
+            "driver_withdrawals": [[("driver_id", 1)]],
+            "driver_incentives": [[("driver_id", 1)], [("month", 1)]],
+            "fraud_flags": [[("status", 1)], [("order_id", 1)], [("created_at", -1)]],
+            "promo_codes": [[("code", 1)]],
+            "promo_rewards": [[("user_id", 1)]],
+            "referral_codes": [[("user_id", 1)], [("code", 1)]],
+            "referrals": [[("referrer_id", 1)], [("referred_user_id", 1)]],
+            "scheduled_orders": [[("user_id", 1)], [("scheduled_datetime", 1)]],
+            "recurring_orders": [[("user_id", 1)], [("next_occurrence", 1)]],
+            "rental_bookings": [[("customer_id", 1)], [("rental_company_id", 1)]],
+            "vendor_stripe_accounts": [[("vendor_id", 1)]],
+            "vendor_payouts": [[("vendor_id", 1)]],
+            "payment_transactions": [[("session_id", 1)], [("user_id", 1)]],
+            "paypal_orders": [[("order_id", 1)]],
+            "otp_codes": [[("phone", 1)], [("created_at", -1)]],
+            "push_subscriptions": [[("user_id", 1)]],
+            "money_requests": [[("requester_id", 1)], [("payer_id", 1)]],
+            "mail_tickets": [[("message_id", 1)], [("conversation_id", 1)]],
+            "admin_invites": [[("token", 1)]],
+            "user_subscriptions": [[("user_id", 1)], [("status", 1)]],
+            "service_zones": [[("active", 1)]],
+            "driver_documents": [[("id", 1)], [("driver_user_id", 1)]],
+            "public_application_log": [[("ip", 1)], [("created_at", -1)]],
+        }
+        idx_count = 0
+        for coll, keys_list in perf_indexes.items():
+            for keys in keys_list:
+                try:
+                    await db[coll].create_index(keys, background=True)
+                    idx_count += 1
+                except Exception as ie:
+                    print(f"⚠️ index {coll} {keys} skipped: {ie}")
+        print(f"✅ Ensured {idx_count} performance indexes across {len(perf_indexes)} collections")
+
         
         # Check if business categories exist
         existing_categories = await db.business_categories.count_documents({})

@@ -41,10 +41,9 @@ const DriverEarningsDashboard = () => {
     
     // Fee breakdown structure
     feeStructure: {
-      platformCommission: 15, // percentage
-      driverEarnings: 85, // percentage
-      serviceFee: 2.50, // fixed per delivery
-      description: 'IslandHop takes 15% commission + $2.50 service fee per delivery'
+      deliveryFeeShare: 100, // drivers keep 100% of delivery fees
+      tipShare: 100, // drivers keep 100% of tips
+      description: 'You keep 100% of every delivery fee and 100% of tips. IslandHop never deducts a fee from your earnings — the platform is funded by a flat $3.00 service fee charged to the customer at checkout.'
     },
     
     // Recent transactions
@@ -57,9 +56,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 68.00,
         deliveryFee: 12.00,
         tip: 5.00,
-        platformFee: -1.80,
-        serviceFee: -2.50,
-        yourEarnings: 12.70,
+        yourEarnings: 17.00,
         status: 'Completed'
       },
       {
@@ -70,9 +67,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 125.00,
         deliveryFee: 15.00,
         tip: 8.00,
-        platformFee: -2.25,
-        serviceFee: -2.50,
-        yourEarnings: 18.25,
+        yourEarnings: 23.00,
         status: 'Completed'
       },
       {
@@ -83,9 +78,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 45.00,
         fare: 45.00,
         tip: 7.00,
-        platformFee: -6.75,
-        serviceFee: -2.50,
-        yourEarnings: 42.75,
+        yourEarnings: 52.00,
         status: 'Completed'
       },
       {
@@ -96,9 +89,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 85.00,
         deliveryFee: 10.00,
         tip: 3.00,
-        platformFee: -1.50,
-        serviceFee: -2.50,
-        yourEarnings: 9.00,
+        yourEarnings: 13.00,
         status: 'Completed'
       },
       {
@@ -109,27 +100,11 @@ const DriverEarningsDashboard = () => {
         orderTotal: 92.00,
         deliveryFee: 14.00,
         tip: 10.00,
-        platformFee: -2.10,
-        serviceFee: -2.50,
-        yourEarnings: 19.40,
+        yourEarnings: 24.00,
         status: 'Pending',
         note: 'Payment processing - will be added to balance in 24h'
       }
     ]
-  };
-
-  const calculateEarningsBreakdown = (transaction) => {
-    const baseEarning = transaction.deliveryFee || transaction.fare;
-    const platformCommission = (baseEarning * earningsData.feeStructure.platformCommission) / 100;
-    const yourShare = baseEarning - platformCommission - earningsData.feeStructure.serviceFee + (transaction.tip || 0);
-    
-    return {
-      baseEarning,
-      platformCommission,
-      serviceFee: earningsData.feeStructure.serviceFee,
-      tip: transaction.tip || 0,
-      yourShare
-    };
   };
 
   return (
@@ -240,23 +215,9 @@ const DriverEarningsDashboard = () => {
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Your Earnings</span>
+                        <span className="text-foreground/90">Delivery Fee / Fare</span>
                       </div>
-                      <span className="font-semibold text-green-600">{earningsData.feeStructure.driverEarnings}%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gold-gradient rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Platform Commission</span>
-                      </div>
-                      <span className="font-semibold text-gold-500">{earningsData.feeStructure.platformCommission}%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gray-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Service Fee (per delivery)</span>
-                      </div>
-                      <span className="font-semibold text-muted-foreground">${earningsData.feeStructure.serviceFee.toFixed(2)}</span>
+                      <span className="font-semibold text-green-600">100% Yours</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
@@ -264,6 +225,13 @@ const DriverEarningsDashboard = () => {
                         <span className="text-foreground/90">Tips</span>
                       </div>
                       <span className="font-semibold text-yellow-600">100% Yours</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-gray-500 rounded-full mr-3"></div>
+                        <span className="text-foreground/90">Platform Fee Deducted From You</span>
+                      </div>
+                      <span className="font-semibold text-muted-foreground">$0.00</span>
                     </div>
                   </div>
                   <Separator className="my-3" />
@@ -285,17 +253,13 @@ const DriverEarningsDashboard = () => {
                       <span className="font-semibold">$5.00</span>
                     </div>
                     <div className="flex justify-between opacity-80">
-                      <span>- Platform Commission (15%):</span>
-                      <span>-$1.80</span>
-                    </div>
-                    <div className="flex justify-between opacity-80">
-                      <span>- Service Fee:</span>
-                      <span>-$2.50</span>
+                      <span>- Platform Deduction:</span>
+                      <span>$0.00</span>
                     </div>
                     <Separator className="my-2 opacity-50" />
                     <div className="flex justify-between text-base font-bold">
                       <span>You Earn:</span>
-                      <span>$12.70</span>
+                      <span>$17.00</span>
                     </div>
                   </div>
                 </div>
@@ -325,7 +289,6 @@ const DriverEarningsDashboard = () => {
               <CardContent>
                 <div className="space-y-4">
                   {earningsData.recentTransactions.map((transaction) => {
-                    const breakdown = calculateEarningsBreakdown(transaction);
                     return (
                       <div key={transaction.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-3">
@@ -361,15 +324,6 @@ const DriverEarningsDashboard = () => {
                               <span className="text-green-600">+${transaction.tip.toFixed(2)}</span>
                             </div>
                           )}
-                          <Separator />
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Platform Fee (15%):</span>
-                            <span className="text-red-600">{transaction.platformFee.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Service Fee:</span>
-                            <span className="text-red-600">{transaction.serviceFee.toFixed(2)}</span>
-                          </div>
                           <Separator />
                           <div className="flex justify-between font-semibold">
                             <span className="text-foreground">Net Earnings:</span>

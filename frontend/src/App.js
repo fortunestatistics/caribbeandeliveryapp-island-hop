@@ -1,57 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import KPIDashboard from './KPIDashboard';
-import ThemePreview from './ThemePreview';
-import CarRentalPage from './CarRentalPage';
-import DriverOnboarding from './DriverOnboarding';
-import RestaurantOnboarding from './RestaurantOnboarding';
-import RestaurantMenuManagement from './RestaurantMenuManagement';
-import VendorDashboard from './VendorDashboard';
-import DriverDashboard from './DriverDashboard';
-import AdminPanel from './AdminPanel';
-import AdminInviteAccept from './AdminInviteAccept';
-import PromoCodeManagement from './PromoCodeManagement';
-import AddressManagement from './AddressManagement';
-import PrivacyPolicy from './PrivacyPolicy';
-import Terms from './Terms';
-import OrderScheduling from './OrderScheduling';
-import { CheckoutPage, PaymentSuccess, PaymentCancel } from './CheckoutPage';
-import VendorStripeConnect from './VendorStripeConnect';
-import OrderTrackingPage from './OrderTrackingPageWithMaps';
-import PaymentMethodsSelector from './PaymentMethodsSelector';
-import DriverEarningsDashboard from './DriverEarningsDashboard';
-import BusinessEarningsDashboard from './BusinessEarningsDashboard';
-import AuthPage from './AuthPage';
-import SocialAuthCallback from './SocialAuthCallback';
-import MicrosoftAuthCallback from './MicrosoftAuthCallback';
-import ProfilePage from './ProfilePage';
-import IdentityVerificationCallback from './IdentityVerificationCallback';
-import BusinessOnboarding from './BusinessOnboarding';
-import ReferralPage from './ReferralPage';
-import PromoteEarn from './PromoteEarn';
-import JoinLanding from './JoinLanding';
+// Eagerly-loaded shared UI (used by landing/header/dashboard on first paint)
+import ProtectedRoute from './ProtectedRoute';
 import ReferralBanner from './ReferralBanner';
-import ClaimsPage from './ClaimsPage';
 import UnreadChatBell from './UnreadChatBell';
 import SubAppsDropdown from './SubAppsDropdown';
 import Footer from './Footer';
-import ProtectedRoute from './ProtectedRoute';
-import AboutPage from './AboutPage';
 import HotRightNow from './HotRightNow';
 import AnimatedCounter from './AnimatedCounter';
 import PromoSlides from './PromoSlides';
 import LiveOrderMapPreview from './LiveOrderMapPreview';
-import DriverLeaderboard from './DriverLeaderboard';
 import EnablePushButton from './EnablePushButton';
+// Route-level pages — lazy loaded for code splitting (keeps initial bundle small)
+const KPIDashboard = lazy(() => import('./KPIDashboard'));
+const ThemePreview = lazy(() => import('./ThemePreview'));
+const CarRentalPage = lazy(() => import('./CarRentalPage'));
+const DriverOnboarding = lazy(() => import('./DriverOnboarding'));
+const RestaurantOnboarding = lazy(() => import('./RestaurantOnboarding'));
+const RestaurantMenuManagement = lazy(() => import('./RestaurantMenuManagement'));
+const VendorDashboard = lazy(() => import('./VendorDashboard'));
+const DriverDashboard = lazy(() => import('./DriverDashboard'));
+const AdminPanel = lazy(() => import('./AdminPanel'));
+const AdminInviteAccept = lazy(() => import('./AdminInviteAccept'));
+const PromoCodeManagement = lazy(() => import('./PromoCodeManagement'));
+const AddressManagement = lazy(() => import('./AddressManagement'));
+const PrivacyPolicy = lazy(() => import('./PrivacyPolicy'));
+const Terms = lazy(() => import('./Terms'));
+const OrderScheduling = lazy(() => import('./OrderScheduling'));
+const CheckoutPage = lazy(() => import('./CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentSuccess })));
+const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
+const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
+const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
+const DriverEarningsDashboard = lazy(() => import('./DriverEarningsDashboard'));
+const BusinessEarningsDashboard = lazy(() => import('./BusinessEarningsDashboard'));
+const AuthPage = lazy(() => import('./AuthPage'));
+const SocialAuthCallback = lazy(() => import('./SocialAuthCallback'));
+const MicrosoftAuthCallback = lazy(() => import('./MicrosoftAuthCallback'));
+const ProfilePage = lazy(() => import('./ProfilePage'));
+const IdentityVerificationCallback = lazy(() => import('./IdentityVerificationCallback'));
+const BusinessOnboarding = lazy(() => import('./BusinessOnboarding'));
+const ReferralPage = lazy(() => import('./ReferralPage'));
+const PromoteEarn = lazy(() => import('./PromoteEarn'));
+const JoinLanding = lazy(() => import('./JoinLanding'));
+const ClaimsPage = lazy(() => import('./ClaimsPage'));
+const AboutPage = lazy(() => import('./AboutPage'));
+const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
-import SubscriptionPlans from './SubscriptionPlans';
-import RestaurantMenu from './RestaurantMenu';
-import TaxiBookingForm from './TaxiBookingForm';
-import CourierOrderForm from './CourierOrderForm';
-import PharmacyOrderForm from './PharmacyOrderForm';
-import GroceryOrderForm from './GroceryOrderForm';
+const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'));
+const RestaurantMenu = lazy(() => import('./RestaurantMenu'));
+const TaxiBookingForm = lazy(() => import('./TaxiBookingForm'));
+const CourierOrderForm = lazy(() => import('./CourierOrderForm'));
+const PharmacyOrderForm = lazy(() => import('./PharmacyOrderForm'));
+const GroceryOrderForm = lazy(() => import('./GroceryOrderForm'));
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
@@ -989,7 +992,7 @@ const PartnerSelection = () => {
               You keep 100% of your menu pricing power
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
-              Drivers keep up to 90% of delivery fees + 100% of tips
+              Drivers keep 100% of delivery fees + 100% of tips
             </span>
           </div>
         </div>
@@ -1796,6 +1799,7 @@ function App() {
           <div className="min-h-screen bg-background">
             <Header />
 
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[60vh]" data-testid="route-loading"><div className="h-10 w-10 rounded-full border-4 border-gold-500/30 border-t-gold-500 animate-spin" /></div>}>
           <Routes>
             <Route path="/theme-preview" element={<ThemePreview />} />
             {/* Public routes */}
@@ -1860,6 +1864,7 @@ function App() {
 
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          </Suspense>
 
           <Footer />
           <Toaster />
