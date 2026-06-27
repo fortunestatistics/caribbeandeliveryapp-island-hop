@@ -19,32 +19,34 @@ code {
 
 @layer base {
   :root {
-    /* Midnight Tropical — deep navy/charcoal base, sunset-orange primary, teal accent */
-    --background: 207 56% 9%;
-    --foreground: 0 0% 100%;
-    --card: 205 52% 13%;
-    --card-foreground: 0 0% 100%;
-    --popover: 205 52% 13%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 25 95% 53%;
+    /* Caribbean Sunshine — warm off-white base, VIVID sunset-orange primary, rich navy text, bright teal accent */
+    --background: 36 100% 99%;
+    --foreground: 211 70% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 211 70% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 211 70% 16%;
+    --primary: 25 100% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 205 40% 18%;
+    --secondary: 211 77% 19%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 205 40% 18%;
-    --muted-foreground: 210 16% 72%;
-    --accent: 172 66% 50%;
-    --accent-foreground: 207 56% 9%;
-    --destructive: 0 72% 51%;
+    --muted: 210 30% 96%;
+    --muted-foreground: 215 20% 42%;
+    --accent: 173 94% 43%;
+    --accent-foreground: 211 77% 12%;
+    --destructive: 0 78% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 205 35% 22%;
-    --input: 205 35% 22%;
-    --ring: 25 95% 53%;
-    --chart-1: 25 95% 53%;
-    --chart-2: 172 66% 50%;
-    --chart-3: 210 16% 60%;
-    --chart-4: 32 90% 60%;
-    --chart-5: 188 80% 45%;
-    --radius: 0.5rem;
+    --border: 214 30% 89%;
+    --input: 214 30% 89%;
+    --ring: 25 100% 50%;
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+    --chart-1: 25 100% 50%;
+    --chart-2: 173 94% 43%;
+    --chart-3: 211 77% 19%;
+    --chart-4: 32 95% 58%;
+    --chart-5: 199 89% 48%;
+    --radius: 1rem;
   }
   .dark {
     --background: 207 56% 9%;
@@ -87,31 +89,31 @@ code {
   }
 }
 
-/* Custom selection color — sunset orange */
+/* Custom selection color — vivid sunset orange */
 ::selection {
-  background: rgba(249, 115, 22, 0.35);
-  color: #ffffff;
+  background: rgba(255, 106, 0, 0.30);
+  color: #0B2C54;
 }
 
 /* Sunset-orange text utility (brand accent on primary CTAs) */
 .text-gold {
-  color: #F97316;
+  color: #FF6A00;
 }
 .text-gold-light {
-  color: #FDBA74;
+  color: #FFB37A;
 }
 
 /* Sunset-orange gradient text used for hero headings */
 .text-gold-gradient {
-  background: linear-gradient(135deg, #FDBA74 0%, #F97316 50%, #EA580C 100%);
+  background: linear-gradient(135deg, #FF8A3D 0%, #FF6A00 50%, #E85D00 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   color: transparent;
 }
 
-/* Premium scrollbar (midnight navy) */
-.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dark ::-webkit-scrollbar-track { background: #0A1824; }
-.dark ::-webkit-scrollbar-thumb { background: #1C3A52; border-radius: 5px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: #F97316; }
+/* Premium scrollbar (light) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #F1F5F9; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #FF6A00; }

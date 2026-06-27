@@ -1,0 +1,50 @@
+{
+  "summary": "Iter 29 — independent verification of DRIVER + MERCHANT 3-tier subscriptions. Backend pytest 7/7 PASS (driver plans catalogue, driver default tier, select pro→premium→standard persistence; merchant plans catalogue, merchant default tier, end-to-end commission integration across Standard 15% / Pro 10% / Premium 5% with fixed $3.00 service_fee and featured flag). Frontend: /driver/subscription, /merchant/subscription, /pricing 'Driver Plans' toggle, /partner, /driver-onboarding, plus DriverDashboard + VendorDashboard 'Subscription' header links all render the expected prices, percentages and 'Featured Partner' badges. No critical or minor bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/driver-onboarding",
+        "issues": [
+          "Only ONE element with data-testid='driver-rate-highlight' (a single combined banner) renders all three tier lines inside it. PRD wording said 'badges' (plural). Functionally it correctly shows 'Standard (Free): keep 80%', 'Pro (TT$700/mo): keep 90%', 'Premium (TT$1,400/mo): keep 100%'. Cosmetic only — does not break tests."
+        ]
+      },
+      {
+        "screen": "/pricing",
+        "issues": [
+          "Driver toggle button is labelled 'Driver Plans' (next to 'Business Plans'), not 'For Drivers' as written in the PRD. Functionally correct: clicking it displays Standard Free / Pro TT$700 / Premium TT$1,400 with keep-percentages in features."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_subscription_tiers_iter29.py",
+    "/app/test_reports/pytest/pytest_iter29.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend (server.py): DRIVER_PLAN_RATES (standard 0.20, pro 0.10, premium 0.00) and MERCHANT_PLAN_COMMISSION (pro 10, premium 5; standard falls back to 15% vendor-type default) are env-overridable and correctly applied by _driver_delivery_fee_rate and _merchant_commission_rate. Verified end-to-end: at $100 subtotal / $10 delivery / $3 service fee, Standard→commission_amount=$15 payout=$85, Pro→$10/$90, Premium→$5/$95, with service_fee constant at $3.00.",
+    "GET /merchant/subscription returns the 'featured' flag NESTED under .plan (not top-level). Test asserts plan.featured; the DriverSubscription/MerchantSubscription frontend pages handle this correctly. Consider mirroring 'featured' at the top level too for easier consumption — minor.",
+    "POST /api/drivers + POST /api/restaurants both promote a freshly-registered customer in-place; the user_type for new driver applications remains 'customer'/'pending' until admin approval — this is by design (see test_credentials.md). For UI testing of /driver/subscription this means admin or an already-approved driver token is required to land on the page. Admin token works fine.",
+    "Frontend routes are /driver-dashboard and /vendor-dashboard (NOT /driver, /vendor). The 'driver-subscription-link' on /driver-dashboard and 'vendor-subscription-link' on /vendor-dashboard correctly navigate to /driver/subscription and /merchant/subscription respectively.",
+    "MerchantSubscription page correctly shows 'Current Plan' on the selected tier after POST /merchant/subscription/select (verified in UI: Standard→Premium switch made 'Current Plan' badge appear on premium card)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_subscription_tiers_iter29.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 pytest)",
+    "frontend": "100% on all data-testid based verifications (driver-subscription-page, merchant-subscription-page, driver-plan-{standard,pro,premium}, merchant-plan-{standard,pro,premium}, driver-plan-price-*, merchant-plan-price-*, driver-subscription-link, vendor-subscription-link, partner-tier-{standard,pro,premium}, driver-rate-highlight, /pricing driver toggle)"
+  },
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (used to access /driver/subscription, /driver-dashboard, /vendor-dashboard since admin has all-role access). Fresh driver+merchant tokens were also provisioned (POST /api/auth/register → POST /api/drivers / POST /api/restaurants) and used for the API tests; their JWTs are at /tmp/iter29_tokens.json for re-use.",
+  "seed_data_creation": "Ephemeral: one fresh driver (qa_uidrv29_<ts>@test.com) and one fresh merchant (qa_uimrc29_<ts>@test.com) created during testing. Pytest spins up fresh accounts per run with timestamp+uuid suffixes — no cleanup required.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iter29 features (DRIVER + MERCHANT 3-tier subscription APIs, UI pages, dashboard links, public /pricing & /partner & /driver-onboarding tier displays) are functional. Re-run pytest with: `python -m pytest /app/backend/tests/test_subscription_tiers_iter29.py -v`. NOTE for UI: /driver/subscription requires either admin or an APPROVED driver (newly-registered driver applications stay user_type=customer until admin approves docs) — use admin token from /app/memory/test_credentials.md. Frontend dashboard routes are /driver-dashboard and /vendor-dashboard, NOT /driver and /vendor.",
+  "rca_of_the_issue": "N/A — no defects found in iter29 scope."
+}

@@ -66,6 +66,7 @@ const AdminTeam = () => {
           await navigator.clipboard?.writeText(r.data.invite_link);
         } catch (clipErr) {
           // Clipboard permission denied (preview/headless); still show the link in the toast description.
+          console.warn('Clipboard write failed; showing invite link in toast instead:', clipErr);
         }
         toast.success('Invite link copied (email not configured here)', { description: r.data.invite_link });
       }

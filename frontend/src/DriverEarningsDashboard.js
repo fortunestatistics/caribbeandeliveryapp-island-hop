@@ -39,12 +39,13 @@ const DriverEarningsDashboard = () => {
     },
     nextPayoutDate: '2024-10-20',
     
-    // Fee breakdown structure
+    // Fee breakdown structure (3-tier)
     feeStructure: {
-      platformCommission: 15, // percentage
-      driverEarnings: 85, // percentage
-      serviceFee: 2.50, // fixed per delivery
-      description: 'IslandHop takes 15% commission + $2.50 service fee per delivery'
+      standardDeliveryShare: 80, // Standard (Free): 20% platform cut
+      proDeliveryShare: 90,      // Pro ($700 TT/mo): 10% platform cut
+      premiumDeliveryShare: 100, // Premium ($1,400 TT/mo): 0% platform cut
+      tipShare: 100, // all drivers keep 100% of tips
+      description: 'Standard (Free) drivers keep 80% (20% platform cut). Pro ($700 TT/mo) drivers keep 90% (10% cut). Premium ($1,400 TT/mo) drivers keep 100% (0% cut). All tiers keep 100% of tips. The flat $3.00 service fee is paid by the customer and never deducted from you.'
     },
     
     // Recent transactions
@@ -57,9 +58,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 68.00,
         deliveryFee: 12.00,
         tip: 5.00,
-        platformFee: -1.80,
-        serviceFee: -2.50,
-        yourEarnings: 12.70,
+        yourEarnings: 17.00,
         status: 'Completed'
       },
       {
@@ -70,9 +69,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 125.00,
         deliveryFee: 15.00,
         tip: 8.00,
-        platformFee: -2.25,
-        serviceFee: -2.50,
-        yourEarnings: 18.25,
+        yourEarnings: 23.00,
         status: 'Completed'
       },
       {
@@ -83,9 +80,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 45.00,
         fare: 45.00,
         tip: 7.00,
-        platformFee: -6.75,
-        serviceFee: -2.50,
-        yourEarnings: 42.75,
+        yourEarnings: 52.00,
         status: 'Completed'
       },
       {
@@ -96,9 +91,7 @@ const DriverEarningsDashboard = () => {
         orderTotal: 85.00,
         deliveryFee: 10.00,
         tip: 3.00,
-        platformFee: -1.50,
-        serviceFee: -2.50,
-        yourEarnings: 9.00,
+        yourEarnings: 13.00,
         status: 'Completed'
       },
       {
@@ -109,27 +102,11 @@ const DriverEarningsDashboard = () => {
         orderTotal: 92.00,
         deliveryFee: 14.00,
         tip: 10.00,
-        platformFee: -2.10,
-        serviceFee: -2.50,
-        yourEarnings: 19.40,
+        yourEarnings: 24.00,
         status: 'Pending',
         note: 'Payment processing - will be added to balance in 24h'
       }
     ]
-  };
-
-  const calculateEarningsBreakdown = (transaction) => {
-    const baseEarning = transaction.deliveryFee || transaction.fare;
-    const platformCommission = (baseEarning * earningsData.feeStructure.platformCommission) / 100;
-    const yourShare = baseEarning - platformCommission - earningsData.feeStructure.serviceFee + (transaction.tip || 0);
-    
-    return {
-      baseEarning,
-      platformCommission,
-      serviceFee: earningsData.feeStructure.serviceFee,
-      tip: transaction.tip || 0,
-      yourShare
-    };
   };
 
   return (
@@ -235,35 +212,34 @@ const DriverEarningsDashboard = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="bg-card rounded-lg p-4">
-                  <h4 className="font-semibold text-foreground mb-3">Payment Breakdown Per Delivery:</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Your Earnings</span>
+                  <h4 className="font-semibold text-foreground mb-3">Three subscription tiers:</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                    <div className="rounded-lg border border-matte-700 p-3" data-testid="tier-standard">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-2.5 h-2.5 bg-gray-400 rounded-full"></span>
+                        <span className="font-semibold text-foreground">Standard</span>
                       </div>
-                      <span className="font-semibold text-green-600">{earningsData.feeStructure.driverEarnings}%</span>
+                      <p className="text-xs text-gold-600 font-semibold mb-1">Free</p>
+                      <p className="text-2xl font-bold text-green-600">80%</p>
+                      <p className="text-xs text-muted-foreground">of delivery fees (20% platform cut) + 100% of tips.</p>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gold-gradient rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Platform Commission</span>
+                    <div className="rounded-lg border-2 border-gold-500/40 bg-gold-500/10 p-3" data-testid="tier-pro">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-2.5 h-2.5 bg-gold-500 rounded-full"></span>
+                        <span className="font-semibold text-foreground">Pro</span>
                       </div>
-                      <span className="font-semibold text-gold-500">{earningsData.feeStructure.platformCommission}%</span>
+                      <p className="text-xs text-gold-600 font-semibold mb-1">TT$700/mo</p>
+                      <p className="text-2xl font-bold text-green-600">90%</p>
+                      <p className="text-xs text-muted-foreground">of delivery fees (10% platform cut) + 100% of tips.</p>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gray-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Service Fee (per delivery)</span>
+                    <div className="rounded-lg border-2 border-yellow-500/40 bg-yellow-500/10 p-3" data-testid="tier-premium">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></span>
+                        <span className="font-semibold text-foreground">Premium</span>
                       </div>
-                      <span className="font-semibold text-muted-foreground">${earningsData.feeStructure.serviceFee.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gold-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Tips</span>
-                      </div>
-                      <span className="font-semibold text-yellow-600">100% Yours</span>
+                      <p className="text-xs text-gold-600 font-semibold mb-1">TT$1,400/mo</p>
+                      <p className="text-2xl font-bold text-green-600">100%</p>
+                      <p className="text-xs text-muted-foreground">of delivery fees (0% platform cut) + 100% of tips.</p>
                     </div>
                   </div>
                   <Separator className="my-3" />
@@ -274,28 +250,28 @@ const DriverEarningsDashboard = () => {
 
                 {/* Example Calculation */}
                 <div className="bg-gold-gradient rounded-lg p-4 text-white">
-                  <h4 className="font-semibold mb-2">Example Calculation:</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span>Delivery Fee:</span>
-                      <span className="font-semibold">$12.00</span>
+                  <h4 className="font-semibold mb-2">Example: $12.00 delivery fee + $5.00 tip</h4>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div data-testid="example-standard">
+                      <p className="font-semibold mb-1 opacity-90">Standard</p>
+                      <div className="flex justify-between opacity-90"><span>Delivery (80%):</span><span>$9.60</span></div>
+                      <div className="flex justify-between opacity-90"><span>Tip (100%):</span><span>$5.00</span></div>
+                      <Separator className="my-1.5 opacity-40" />
+                      <div className="flex justify-between font-bold text-base"><span>You earn:</span><span>$14.60</span></div>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Customer Tip:</span>
-                      <span className="font-semibold">$5.00</span>
+                    <div data-testid="example-pro">
+                      <p className="font-semibold mb-1 opacity-90">Pro</p>
+                      <div className="flex justify-between opacity-90"><span>Delivery (90%):</span><span>$10.80</span></div>
+                      <div className="flex justify-between opacity-90"><span>Tip (100%):</span><span>$5.00</span></div>
+                      <Separator className="my-1.5 opacity-40" />
+                      <div className="flex justify-between font-bold text-base"><span>You earn:</span><span>$15.80</span></div>
                     </div>
-                    <div className="flex justify-between opacity-80">
-                      <span>- Platform Commission (15%):</span>
-                      <span>-$1.80</span>
-                    </div>
-                    <div className="flex justify-between opacity-80">
-                      <span>- Service Fee:</span>
-                      <span>-$2.50</span>
-                    </div>
-                    <Separator className="my-2 opacity-50" />
-                    <div className="flex justify-between text-base font-bold">
-                      <span>You Earn:</span>
-                      <span>$12.70</span>
+                    <div data-testid="example-premium">
+                      <p className="font-semibold mb-1 opacity-90">Premium</p>
+                      <div className="flex justify-between opacity-90"><span>Delivery (100%):</span><span>$12.00</span></div>
+                      <div className="flex justify-between opacity-90"><span>Tip (100%):</span><span>$5.00</span></div>
+                      <Separator className="my-1.5 opacity-40" />
+                      <div className="flex justify-between font-bold text-base"><span>You earn:</span><span>$17.00</span></div>
                     </div>
                   </div>
                 </div>
@@ -325,7 +301,6 @@ const DriverEarningsDashboard = () => {
               <CardContent>
                 <div className="space-y-4">
                   {earningsData.recentTransactions.map((transaction) => {
-                    const breakdown = calculateEarningsBreakdown(transaction);
                     return (
                       <div key={transaction.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-3">
@@ -361,15 +336,6 @@ const DriverEarningsDashboard = () => {
                               <span className="text-green-600">+${transaction.tip.toFixed(2)}</span>
                             </div>
                           )}
-                          <Separator />
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Platform Fee (15%):</span>
-                            <span className="text-red-600">{transaction.platformFee.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Service Fee:</span>
-                            <span className="text-red-600">{transaction.serviceFee.toFixed(2)}</span>
-                          </div>
                           <Separator />
                           <div className="flex justify-between font-semibold">
                             <span className="text-foreground">Net Earnings:</span>

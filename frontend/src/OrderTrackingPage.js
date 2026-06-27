@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -30,6 +31,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const OrderTrackingPage = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const { orderId } = useParams();
   const [searchParams] = useSearchParams();
@@ -350,7 +352,7 @@ const OrderTrackingPage = () => {
                               {item.quantity}x {item.name}
                             </span>
                             <span className="font-semibold text-foreground">
-                              ${item.price.toFixed(2)}
+                              {format(item.price)}
                             </span>
                           </div>
                         ))}
@@ -359,7 +361,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total</span>
-                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">{format(order.total)}</span>
                     </div>
                   </>
                 )}
@@ -369,7 +371,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Fare</span>
-                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">{format(order.total)}</span>
                     </div>
                   </>
                 )}

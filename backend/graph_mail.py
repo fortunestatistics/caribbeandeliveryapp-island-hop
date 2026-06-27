@@ -8,6 +8,7 @@ load_dotenv never matters):
   - SUPPORT_MAILBOXES (comma-separated list of mailbox addresses)
 """
 import os
+import re
 import base64
 import json
 import logging
@@ -19,6 +20,35 @@ import msal
 logger = logging.getLogger(__name__)
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+
+# --- Recipient validation -------------------------------------------------
+# Guards against emailing system-generated / QA placeholder addresses (e.g.
+# `id_start_..._...@gmail.com`, `sched_test_...@test.com`) that bounce.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PLACEHOLDER_LOCAL_PREFIXES = (
+    "id_start_", "id_noapp_", "id_session_", "id_kyc_",
+    "sched_test_", "resto_test_", "driver_test_", "qa_test_",
+)
+_PLACEHOLDER_DOMAINS = {"test.com", "example.com", "example.org", "example.net", "test.test"}
+
+
+class InvalidRecipientEmail(ValueError):
+    """Raised when a recipient address is a placeholder / non-deliverable address."""
+
+
+def is_real_email(email: Optional[str]) -> bool:
+    """Return True only for a syntactically valid, non-placeholder email."""
+    if not email or not isinstance(email, str):
+        return False
+    addr = email.strip().lower()
+    if not _EMAIL_RE.match(addr):
+        return False
+    local, _, domain = addr.partition("@")
+    if domain in _PLACEHOLDER_DOMAINS:
+        return False
+    if any(local.startswith(p) for p in _PLACEHOLDER_LOCAL_PREFIXES):
+        return False
+    return True
 
 # MSAL apps are cheap but we cache one per (tenant, client) so token caching works.
 _msal_app: Optional[msal.ConfidentialClientApplication] = None
@@ -179,6 +209,10 @@ def default_sender_mailbox() -> Optional[str]:
 
 async def send_mail(to_email: str, subject: str, html_body: str, mailbox: Optional[str] = None) -> None:
     """Send a standalone email from one of the support mailboxes via Graph."""
+    if not is_real_email(to_email):
+        raise InvalidRecipientEmail(
+            f"Refusing to send to placeholder/invalid address: {to_email!r}"
+        )
     sender = mailbox or default_sender_mailbox()
     if not sender:
         raise GraphNotConfigured("No sender mailbox configured (SUPPORT_MAILBOXES/DRIVER_NOTIFY_MAILBOX)")

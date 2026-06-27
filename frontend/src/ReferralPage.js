@@ -113,7 +113,7 @@ const ReferralPage = () => {
                   <p className="text-sm text-muted-foreground">Total Referrals</p>
                   <p className="text-2xl font-bold" data-testid="referrals-total">{data?.total_referrals || 0}</p>
                 </div>
-                <Users className="h-8 w-8 text-neon-cyan" />
+                <Users className="h-8 w-8 text-teal-700" />
               </div>
             </CardContent>
           </Card>

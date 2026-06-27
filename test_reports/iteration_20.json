@@ -1,0 +1,32 @@
+{
+  "summary": "Re-tested /promote route after main agent added <Route path='/promote'> + currency formatting fix. Found and FIXED a runtime ReferenceError ('useCurrency is not defined') in PromoteEarn.js — the hook was used at line 25 but never imported. After adding `import { useCurrency } from './CurrencyContext';` (line 5), /promote now renders cleanly. ALL acceptance criteria pass: promote-earn-page mounts, QR <canvas> rendered, promoter-code=ISLA5A5D, 3 buttons (copy/download/share), promoter-paid=TT$0.00, promoter-held=TT$0.00, four reward-row-* entries in TT$ default (+TT$33.90 / +TT$169.50 / +TT$271.20 / +TT$271.20 corresponding to 5/25/40/40 USD via RATE_TTD_PER_USD=6.78), no-onboards and no-leaderboard empty-state markers present. Currency toggle via [data-testid='currency-option-USD'] correctly flips ALL amounts to US$5.00 / US$25.00 / US$40.00 / US$40.00 and persists 'USD' in localStorage; toggling back to TTD restores TT$ values. Regressions still pass: /join/ISLA5A5D landing renders (heading + 'You're invited by IslandHop Owner' text), Admin Panel Promoters tab opens with no runtime errors.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "None blocking. Sanity recommendation: add a CI lint rule (no-undef ESLint) — the original useCurrency missing-import would have been caught statically. PromoteEarn.js had the same bug pattern slip past iteration 19.",
+    "Optional polish: PromoteEarn copy says 'reward straight to your IslandHop wallet' but rewards are simply '+TT$X' badges with no currency selector explanation; consider tooltip noting amounts follow navbar TT$/US$ toggle."
+  ],
+  "critical_code_review_comments": [
+    "BUG FIXED THIS RUN: /app/frontend/src/PromoteEarn.js was missing `import { useCurrency } from './CurrencyContext';` even though it called `const { format } = useCurrency();` on line 25. This caused an Uncaught ReferenceError that crashed the entire /promote page (empty body shell, no React tree mounted). Root cause: when main agent added the format() calls + Route registration, the import statement was not added. Added in this run.",
+    "PromoteEarn.js now properly formats all monetary values (rewards, paid total, held total, leaderboard entries) through useCurrency().format() — TT$ default and US$ toggle both verified live.",
+    "The CurrencySwitcher container has data-testid='currency-switcher' (a wrapper div), and individual buttons use data-testid='currency-option-TTD' / 'currency-option-USD'. Tests/automation should click the option testids, not the container."
+  ],
+  "updated_files": [
+    "/app/frontend/src/PromoteEarn.js (added missing useCurrency import on line 5)"
+  ],
+  "success_rate": {
+    "backend": "100% (no backend testing requested; promoter endpoints verified working in iteration_19)",
+    "frontend": "100% (all /promote acceptance criteria pass; currency toggle works; regressions for /join and admin promoters tab pass)"
+  },
+  "test_credentials": "Owner admin tracyfortune@islandhoptt.com / IslandHopAdmin2026! (POST /api/auth/login returns 200 with JWT; injected into localStorage.token for Playwright run).",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Promoter/QR feature is fully verified end-to-end. /promote renders for owner admin (code=ISLA5A5D), currency toggle works on this page (TT$33.90/169.50/271.20/271.20 default → US$5/25/40/40 after toggling currency-option-USD). /join/ISLA5A5D and Admin Promoters tab also work. PromoteEarn.js is now self-consistent (import + hook usage + format calls). If new currency-aware pages are added in future, ensure useCurrency is imported wherever it's destructured — a missing-import lint rule would catch this regression class.",
+  "rca of the issue": "RCA for the 2nd-iteration bug discovered this run: In iteration_19 PromoteEarn.js used a hard-coded `+5 USD` style string; iteration 20 main agent refactored to `+{format(schedule[t] ?? 0)}` calling `const { format } = useCurrency()` on line 25 BUT forgot to add `import { useCurrency } from './CurrencyContext';` at the top of the file. At runtime, React called PromoteEarn() during the route mount → ReferenceError: useCurrency is not defined → ErrorBoundary swallowed render → page body sample showed only the bootstrap shell, no data-testids reachable. Reproduction: 1) login as owner, 2) navigate to /promote, 3) Dev overlay shows 'Uncaught runtime errors: useCurrency is not defined at PromoteEarn'. Mitigation applied: added `import { useCurrency } from './CurrencyContext';` as line 5 of PromoteEarn.js. Verified post-fix: /promote renders all expected testids, currency toggle flips reward values, regression flows still pass."
+}

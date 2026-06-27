@@ -188,7 +188,7 @@ const PromoCodeManagement = () => {
                     <p className="text-sm text-muted-foreground">Total Codes</p>
                     <p className="text-2xl font-bold">{promoCodes.length}</p>
                   </div>
-                  <Tag className="h-8 w-8 text-neon-cyan" />
+                  <Tag className="h-8 w-8 text-teal-700" />
                 </div>
               </CardContent>
             </Card>

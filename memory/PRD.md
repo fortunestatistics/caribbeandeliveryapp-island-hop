@@ -26,6 +26,129 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+
+### Jun 27, 2026 — GitHub Actions: auto-build signed Android .aab
+- Added `.github/workflows/android-build.yml`: on push to main/master (or manual `workflow_dispatch`), an **x86_64 ubuntu runner** builds web → `npx cap sync android` → `./gradlew bundleRelease`, producing a **signed `.aab`** (uses the in-repo keystore) uploaded as the `islandhop-release-aab` artifact. Solves the arm64/aapt2 limitation of the dev container.
+- Fixed a blocking bug: `android/gradle/wrapper/gradle-wrapper.properties` pointed `distributionUrl` to a local `file:///tmp/gradle-8.11.1-bin.zip` (would fail on CI **and** in Android Studio) → changed to the public `https://services.gradle.org/...` URL. Android download zip refreshed with the fix.
+- Production backend for the released app is set via workflow env `REACT_APP_BACKEND_URL` (default `https://islandhopapp.com`, override with a repo variable).
+
+
+
+### Jun 27, 2026 — Featured Partner ranking + paid Merchant Ad space + signed Android project
+- **Featured ranking:** `GET /api/restaurants` now returns `featured` + `subscription_tier` and pins Pro/Premium (Featured) merchants to the top (then by rating). Restaurant model extended. The public `/restaurants` page now **fetches real data** (was hardcoded) and shows a gold "Featured" badge on featured merchants. Featured flag is set when a merchant selects a Pro/Premium subscription.
+- **Merchant Ad space (paid):** new `merchant_ads` collection + `AD_PACKAGES` (Homepage 7d TT$300, Homepage 30d TT$1000, Website 30d TT$1500). Endpoints: `GET /api/ads/packages`, `GET /api/ads/active?placement=`, `POST /api/ads/{id}/click`, `GET/POST /api/merchant/ads`, `PATCH/DELETE /api/merchant/ads/{id}`. UI: `MerchantAds.js` (/merchant/ads, "Advertise" button on vendor dashboard) to buy ad space (sandbox payment); landing page renders a "Sponsored Partners" section (`SponsoredAds.js`) with live homepage ads + click tracking. Verified iter 30: backend 8/8, frontend 100%.
+- **Android (.aab):** could NOT compile in this cloud container (arm64/aarch64 — Android's `aapt2` ships x86_64-only and binfmt emulation is blocked by container security). Instead baked a release signing key into the project (`android/keystore/islandhop-upload.jks`, store/key pass `islandhop2026`, alias `islandhop`) + `SIGNING_README.md`, so Android Studio produces a **signed** `.aab` in one click. Download: https://logistics-island.preview.emergentagent.com/islandhop-android.zip
+- NOTE: subscription + ad payments are SANDBOX-activated (no live recurring charge wired yet).
+
+
+
+### Jun 27, 2026 — 3-tier Driver & Merchant subscriptions + Android project export
+- **Driver tiers** (prices TTD): Standard Free→keep 80% (20% cut), Pro TT$700/mo→keep 90% (10% cut), Premium TT$1,400/mo→keep 100% (0% cut). Tips always 100%. Backend: `DRIVER_PLAN_RATES`, `_driver_plan_tier`, `_driver_delivery_fee_rate`; endpoints `GET /api/driver/subscription/plans|/subscription`, `POST /api/driver/subscription/select`. Tier mirrored on driver profile doc (`subscription_tier`). UI: `DriverSubscription.js` (/driver/subscription) + dashboard button; earnings dashboard shows 3 tier cards + examples (Std $14.60 / Pro $15.80 / Prem $17.00). Verified: payout math Std 21 / Pro 23 / Prem 25.
+- **Merchant tiers** (prices TTD): Standard Free→15% commission, Pro TT$800/mo→10% + Featured Partner, Premium TT$1,600/mo→5% + Premium Marketing + Priority Support. Backend: `MERCHANT_SUBSCRIPTION_PLANS`, `_merchant_plan_tier`, `_merchant_commission_rate` (now used by `calculate_order_financials` — fixed an old bug where the vendor-subscription lookup keyed on the wrong id and never matched); endpoints `GET/POST /api/merchant/subscription[/plans|/select]`. `featured` flag scaffolded on the merchant profile doc for future search ranking. UI: `MerchantSubscription.js` (/merchant/subscription) + dashboard button; Become-a-Partner page shows tier cards. Verified: commission 15%/10%/5%, vendor_payout 85/90/95, **$3 service fee unchanged & 100% platform**.
+- **Android (Capacitor) export:** package `com.islandhop.app` confirmed (capacitor.config.json + android/app/build.gradle); ran `npx cap sync android`; produced downloadable project zip at `/app/frontend/public/islandhop-android.zip` → https://logistics-island.preview.emergentagent.com/islandhop-android.zip (open in Android Studio → Generate Signed Bundle). No JDK/SDK in container so .aab not built here.
+- Verified iter 29: backend 7/7, frontend 100% (zero functional issues).
+
+
+
+### Jun 27, 2026 — Admin click-to-review dialogs + Subscription links everywhere + bugfix
+- **Approvals:** applicant detail dialog now shows the KYC status + a "Submitted documents" section with buttons that open each uploaded file (`/api/drivers/documents/{id}/download`) or a "no documents" warning. (`AdminPanel.js` `applicant-detail-dialog`.)
+- **Claims:** claim rows are now clickable → `claim-detail-dialog` (full description, enlargeable proof photo, Approve&credit / Reject). Inline row buttons keep working via `stopPropagation`.
+- **Fraud:** flag rows clickable → `fraud-detail-dialog` (severity, order summary, customer, all signals, Clear / Confirm Fraud). Inline buttons preserved.
+- **Subscription links in ALL portals → /pricing:** Admin header (`admin-subscription-link`), Driver header (`driver-subscription-link`), Vendor header (`vendor-subscription-link`); customers already have the global header "Pricing" link.
+- **Bugfix:** `GET /api/business/onboarding` (and `/{application_id}`) called the wrong auth helper `get_current_user(request)` → always 500 (`'Request' object has no attribute 'credentials'`). Switched to `get_current_user_from_request`; now 401 unauth / 200 authed. Also added the missing auth header to App.js `fetchApplications` so the customer's business-application status view loads. Verified via curl.
+- Verified iter 28: frontend 5/5; admin review dialogs + subscription links all pass.
+
+
+
+### Jun 27, 2026 — Tiered driver payout (Premium 100% / Standard 80%)
+- New 2-tier delivery-fee split: **Premium** (active `user_subscriptions` row OR driver-profile `is_premium=true`/`subscription_status` in premium|active|subscribed) keeps **100%** of delivery fees; **Standard** keeps **80%** (20% platform cut). Tips always 100% to driver. Flat **$3.00** customer service fee stays 100% platform in BOTH tiers.
+- Backend (`server.py`): `DRIVER_FEE_RATE_SUBSCRIBER` default **0.10→0.00**; new `_driver_is_premium(driver_doc)`; `_driver_delivery_fee_rate(user_id, driver_doc)` now honours the profile premium flag; `_finalize_driver_split` passes the driver doc. Verified math: standard (del $20/tip $5) → driver $21, platform $14.50; premium → driver $25, platform $10.50.
+- Frontend copy updated to TWO tiers: `DriverEarningsDashboard.js` (tier cards `tier-premium`/`tier-standard`, example Premium $17 / Standard $14.60), `DriverOnboarding.js` badges, `App.js` partner-rate-highlight. (Supersedes the earlier "flat 100%" copy.)
+
+### Jun 27, 2026 — Merchant Storefront Builder + Self-Service Coupons
+- **Storefront:** new `merchant_storefronts` collection. Merchant edits logo/cover/bio(≤500)/gallery(≤6, base64 via `imageUtils.fileToResizedDataURL`). Endpoints `GET/PUT /api/merchant/storefront` (auth, resolves vendor via `_resolve_vendor_for_user`) + public `GET /api/merchants/{vendor_id}/storefront`. UI: `MerchantStorefrontEditor.js` (`/merchant/storefront`); public hero rendered atop `RestaurantMenu.js` (`storefront-hero`). Nav button on VendorDashboard.
+- **Coupons:** new `merchant_coupons` + `merchant_coupon_usage` collections. Merchant CRUD: `POST/GET /api/merchant/coupons`, `PATCH /api/merchant/coupons/{id}` (toggle active), `DELETE`. Code auto-gen, percentage|fixed, min order, expiry, usage limit, unique per merchant. UI: `MerchantCoupons.js` (`/merchant/coupons`).
+- **Checkout redemption:** `apply_promo_to_order` now falls back to `_apply_merchant_coupon` (validates merchant scope, active, expiry, usage limit, min order; discount applied to subtotal BEFORE the $3 service fee; idempotent per order via usage doc). Checkout promo input relabelled "Have a promo or coupon?". Verified: 15% on $50 → $7.50 discount, total $55.50.
+- **Perf (same session):** React.lazy route code-splitting (initial JS 327KB→177KB gzipped), 97 MongoDB indexes across 46 collections on startup, removed unused `firebase` dep, capped admin profile order scan. Verified iter 26.
+- Verified iter 27: backend 15/15, frontend 100%, zero issues.
+
+
+### Jun 23, 2026 — Admin customer profile + COD cash reconciliation
+- **Admin → Users customer profile:** clicking a user row (or the eye button) opens a full profile dialog — contact, status, address, member-since, user ID, order stats (count / total spent / delivered / active) and the 5 most recent orders, plus an Email action. New endpoint `GET /api/admin/users/{id}/profile` (admin-only). Row action buttons stopPropagation so they don't open the profile.
+- **COD cash reconciliation:** drivers delivering a Cash-on-Delivery order tap **"Delivered — Collect $X cash"** (ActiveOrderCard, shows a `COD · collect $X` badge). This marks the order delivered + `POST /api/orders/{id}/cash-collected` → `payment_status=cod_collected`, and tracks the cash the driver owes the platform (`platform_due = total − driver_earnings`) on the driver record (`cash_outstanding`). Admins see a **"Driver Cash Outstanding"** card in the Orders tab (`GET /api/admin/drivers/cash-outstanding`) and can **Mark settled** (`POST /api/admin/drivers/{id}/settle-cash`, writes a `driver_cash_settlements` audit row).
+- **Verified:** testing_agent iter 25 — backend 10/10 (RBAC, math, idempotency, 404s); frontend ~95% (all primary flows; the one miss was data-drift on the placeholder demo user, since re-seeded). Cash math example: total $53 − driver_keeps $8 = $45 platform_due.
+
+
+### Jun 23, 2026 — CariPay removal + digital wallet hidden + COD checkout
+- **CariPay removed completely:** deleted `caripay_client.py`, removed all CariPay endpoints (`/wallet/link`, `/wallet/deposit`, `/wallet/withdraw`, `/webhook/caripay`), the `import caripay_client`, the `CARIPAY_*`/`MOCK_CARIPAY` env vars, and the `caripay_*` fields on the Wallet model. No CariPay reference remains in backend or frontend.
+- **Digital wallet hidden from users:** deleted `WalletPage.js` + `WalletFunding.js`, removed the `/wallet` nav link, `/wallet` route now redirects to `/dashboard`. No top-up / balance / wallet-pay UI anywhere. (Internal `_credit_wallet_with_txn` payout plumbing for driver earnings/referrals is retained but not user-facing.)
+- **Checkout pivoted to COD:** `POST /api/orders/{id}/confirm-cod` confirms an order with `payment_method=cash`, `payment_status=cod_pending`, `status=confirmed`, best-effort driver assignment, and a WhatsApp 'confirmed' notification. Checkout now offers ONLY **Cash on Delivery (primary)** + **WiPay (secondary, sandbox: API Key 123 / Account 1234567890)**. Stripe card button + the Stripe/Apple/Google-Pay footer removed. PaymentSuccess shows a COD 'Order placed!' screen.
+- **CRITICAL pre-existing bug fixed:** `PUT /api/orders/{id}/status` had its route decorator attached to a helper (`_status_timestamp_field`) instead of `update_order_status`, so status updates silently no-opped. Moved the decorator to the real handler and allowed `admin`/`agent` roles to update status. Verified full flow: confirmed → preparing → picked_up → delivered. This unblocks the whole logistics test loop.
+- **Verified:** testing_agent iter 24 (frontend 100%, backend 12/13 — the 1 failure was this decorator bug, now fixed & re-verified by direct test). Mail status, Privacy/Terms, WhatsApp code path intact.
+- **NOTE:** `Terms.js` still has one sentence mentioning "The IslandHop Wallet" — left unchanged per the explicit "do not change Privacy/Terms" instruction; flag for the user to update later.
+
+
+### Jun 23, 2026 — Taxi fare engine (real distance + time)
+- **How delivery fees work (clarified):** delivery fee is a **flat rate each vendor sets** at onboarding — there is no distance engine for deliveries. Taxi, by contrast, now has a real metered fare.
+- **Backend (`taxi_pricing.py` + endpoints):** rate card in TT$ (Economy TT$16+1.70/km, Standard/Premium TT$22+2.15/km, Van TT$42+2.00/km; per-min, min-fare floor, higher per-km beyond 20km). `GET /api/taxi/rate-card` (public) and `POST /api/taxi/quote` compute fare from **real driving distance + time via Google Directions API** (Distance Matrix/Geocode are disabled on this key; Directions works). Fares are computed in TT$ then converted to USD for storage (app stores USD, displays TT$ ×6.78).
+- **Anti-tamper:** `create_order` recomputes the taxi fare server-side from pickup/drop-off coords and overrides any client-sent `delivery_fee`. Verified: client sent 999 → backend stored real $16.57.
+- **Driver economics:** taxi fare flows through the same payout rules — driver keeps fare minus the 10% (subscriber) / 20% (non-subscriber) cut + 100% of tips; $3 service fee + the platform cut go to the platform. (commission = 0 since no merchant subtotal.)
+- **Frontend (`TaxiBookingForm.js`):** rewritten with Google Places **autocomplete** for pickup/drop-off, live fare quote (distance + ETA), currency-accurate rate labels, and real **order creation → `/checkout/:orderId`** (was previously a mock that navigated to a broken `/checkout`). Requires login to book (redirects to /login).
+- **Order model:** added optional `notes`.
+- **Verified:** quote math exact (PoS→Chaguanas 24km Standard = TT$112.32/$16.57; Van 44km = TT$279.82/$41.27); full taxi order creation with correct split; UI renders with exact TT$ rate labels. NOT yet automated end-to-end through Google Places autocomplete (recommend a quick manual booking test).
+
+
+### Jun 23, 2026 — New approved fee/payout structure
+- **Merchant commission:** 15% of item subtotal (restaurant default; other vendor types keep their existing defaults).
+- **Customer Service Fee:** flat **$3.00** added to checkout total, **100% to platform** (env-overridable `PLATFORM_SERVICE_FEE`). Shown on the Customer Receipt (`checkout-service-fee`).
+- **Delivery fee + tips → driver**, minus platform's delivery-fee cut: **10% for paying driver-subscribers, 20% for non-paying drivers** (`DRIVER_FEE_RATE_SUBSCRIBER`/`DRIVER_FEE_RATE_NONSUBSCRIBER`). **Tips are always 100% to the driver.** Drivers also keep monthly incentive payouts.
+- **Implementation:** `calculate_order_financials()` sets commission + $3 service fee + delivery split (defaults to non-subscriber 20% since driver unknown at creation) and recomputes `total` to include the service fee. New `_finalize_driver_split()` re-splits the delivery fee at the moment a driver is assigned (auto-assign in `/orders/create` + `/orders/{id}/accept-driver`) based on that driver's active subscription. `_recompute_order_total()` now includes `service_fee` (tip/promo edits stay correct). Order model gained `service_fee` + `driver_fee_rate`. Analytics now use stored `driver_earnings`.
+- **Verified math (test orders on preview):** subtotal $100 / delivery $20 / tip $5 → commission $15, vendor payout $85, service fee $3, total **$128**. Non-subscriber driver: keeps $16 delivery + $5 tip = **$21**, platform **$22**. Subscriber driver (10%): keeps $18 + $5 = **$23**, platform **$20**.
+- **UI:** Driver Onboarding (`driver-rate-highlight`) and Become-a-Partner (`partner-rate-highlight`) now advertise the competitive rates (15% commission; drivers keep up to 90% of delivery fees + 100% of tips + monthly bonuses).
+
+
+### Jun 23, 2026 — WhatsApp inbound webhook dedup/consolidation
+- **Audit finding:** Our backend sends NO welcome WhatsApp message anywhere (no welcome logic in code, zero "welcome" outbound rows in `whatsapp_messages`, and the send path creates exactly one message per call). The duplicate welcome Tracy received is generated by **Twilio-side config** (Studio Flow / WhatsApp sender auto-reply), not our code.
+- **Code hardening:** Consolidated the two inbound endpoints — `POST /webhook/whatsapp` (legacy) now delegates to the canonical `POST /webhooks/whatsapp`. Added **MessageSid idempotency**: a duplicate delivery of the same inbound message is ignored (verified: 3 deliveries → 1 row). Removes the double-registration/divergent-logic risk on our side.
+- **ACTION REQUIRED (Twilio Console, not code):** To stop the duplicate welcome, point the WhatsApp sender's inbound webhook to a SINGLE URL (`/api/webhooks/whatsapp`) and ensure the welcome auto-reply (Studio Flow / Conversations autoresponder) is attached in only ONE place (either the number OR the Messaging Service, not both).
+
+
+### Jun 23, 2026 — P0 fix: Admin "Message Customer" placeholder-email bug + admin detail modals
+- **Root cause:** Admin → Users "Message Customer" was emailing system/QA placeholder addresses (e.g. `id_start_..._...@gmail.com`, `*@test.com`) left behind by the backend test suite (`tests/test_identity_kyc.py`, `conftest.py`), causing bounces. No recipient validation existed before Microsoft Graph `sendMail`.
+- **Fix (backend):** `graph_mail.is_real_email()` rejects placeholder local-prefixes (`id_start_`, `id_noapp_`, `id_session_`, `id_kyc_`, `sched_test_`, `resto_test_`, `driver_test_`, `qa_test_`) + placeholder domains (`test.com`, `example.*`, `test.test`) + syntactic non-emails. Guard added inside `send_mail()` (raises `InvalidRecipientEmail`) AND at new endpoint `POST /api/admin/users/{user_id}/message` (returns 400/403/404). Defense in depth.
+- **Fix (DB):** `scripts/cleanup_test_users.py` deleted ~1788 placeholder/test users. `conftest.py` now has a session-scoped autouse teardown that purges test-pattern users after each run so they never leak into prod/preview again.
+- **Fix (frontend, AdminPanel.js):** Users tab shows amber "No valid email" badge + disabled message button for placeholder users (uses authoritative backend `email_is_real` flag). New email-compose dialog (`message-user-dialog`).
+- **New feature:** Admin → Orders cards are clickable → `order-detail-dialog` (service, customer, items, transaction breakdown subtotal/fee/tip/tax/discount/total, payouts & earnings). Admin → Approvals rows have a "View" button → `applicant-detail-dialog` (type/email/phone/applied + linked customer account + application details, with Approve/Reject).
+- **Backend improvement:** `GET /api/admin/users` now honours `?q=` (case-insensitive regex on name/email/phone), sorts by `created_at` desc, limit up to 2000, and returns derived `email_is_real` per user. Users-tab search box now does debounced server-side search.
+- **Tested:** testing_agent iteration_23 — backend 7/7 guard tests pass, all 3 dialogs render with testids. Self-verified search + badge + disabled button on preview.
+- **Admin test account:** `admin.qa@islandhop-demo.com` / `AdminQA1234!` (see test_credentials.md).
+
+
+### Jun 22, 2026 — Meta App Secret + webhook signature verification + 5 WhatsApp templates
+- Added `META_APP_SECRET` and `META_APP_ID=2180974786018435` to backend/.env.
+- Re-created + submitted 5 WhatsApp templates via Twilio Content API (twilio/text, en, with {{n}} vars), all status=received: driver_welcome HX5b8d8946381d2c4b602d95e8cf8b5efa (MKT), merchant_welcome HXca1f02f37f64791bb1fe071517db5c83 (MKT), order_update HXb5b4f7aef8a67074fde372c65d57309b (UTIL), delivery_assigned HX2bd3767066c14a25dd297f7f9c8e92f0 (UTIL), pickup_ready HXfbda51c375e45b319b5ec171c7f3de0d (UTIL).
+- `/api/webhooks/whatsapp` upgraded: now verifies Meta `X-Hub-Signature-256` (HMAC-SHA256 w/ META_APP_SECRET) → 403 on mismatch; parses BOTH Twilio form + Meta Cloud API JSON; logs signature_verified. Added GET `/api/webhooks/whatsapp` Meta verification handshake (echoes hub.challenge if hub.verify_token == META_WEBHOOK_VERIFY_TOKEN env). Backward-compatible: no-signature (Twilio) requests still 200.
+- Verified preview: no-sig→200 TwiML, invalid Meta sig→403, valid Meta sig→200. Production no-sig→200 (old handler; needs redeploy for sig-verify + Meta parsing + META envs).
+
+
+### Jun 22, 2026 — Debug APK built + Capacitor finalized + D-U-N-S
+- D-U-N-S 145048519 added to backend/.env (`DUNS_NUMBER`) and documented in `/app/PLAY_STORE_NOTES.md` (App ID com.islandhop.app, versionCode 1, versionName 1.0, build/sign commands, Play Console links).
+- AndroidManifest: added INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE(+_LOCATION), VIBRATE. Added `res/xml/network_security_config.xml` (HTTPS-only) + referenced in <application>.
+- DEBUG APK BUILT on this ARM64 container: installed JDK17→needed JDK21 (Temurin aarch64 to /opt/jdk21), Android cmdline-tools + platform-35 + build-tools 35.0.0 to /opt/android-sdk. ARM64 blocker: Android tools are x86_64 + no binfmt (unprivileged) → solved via amd64 multiarch glibc + qemu-x86_64-static wrappers for aapt2 & zipalign (renamed real binaries to .bin, shell wrappers exec qemu; AGP `android.aapt2FromMavenOverride` → wrapper). Gradle 8.11.1 fetched manually (services.gradle.org timed out) → distributionUrl=file:///tmp/...
+- APK: `/app/frontend/android/app/build/outputs/apk/debug/app-debug.apk` (15MB), served at https://logistics-island.preview.emergentagent.com/downloads/islandhop-v1.0-debug.apk (debug-signed, sideload for team testing only).
+- Webhooks verified 200 on BOTH preview and production (prod already redeployed with the routes). TWILIO_MESSAGING_SERVICE_SID present in .env.
+
+
+### Jun 22, 2026 — Twilio fixes, WhatsApp/status webhooks, Play Store prep (Capacitor)
+- Twilio: added `TWILIO_MESSAGING_SERVICE_SID=MG5c07e189324f5f2d77e196f0a3300fbd` to backend/.env (WHATSAPP_FROM=whatsapp:+12523746444 + MOCK_TWILIO=false already set).
+- NEW webhooks: `POST /api/webhooks/whatsapp` (Twilio inbound; parses From/Body/MessageSid/ProfileName, logs to whatsapp_messages direction=inbound, returns empty TwiML XML) and `POST /api/webhooks/twilio-status` (delivery status callback; updates whatsapp_messages status + logs twilio_status_events). Both tested → 200.
+- Play Store: wired `/privacy-policy` (PrivacyPolicy.js) and `/terms` (Terms.js) routes in App.js + footer links (footer-privacy, footer-terms). Real logistics-platform legal copy (data/location/driver/merchant terms, T&T jurisdiction). Added manifest.json + icon/apple-touch links in index.html.
+- App assets: branded icons generated (public/icons: 16–512 + maskable 192/512 + adaptive fg/bg; public/splash). Master icon via image gen (gold parcel+palm on matte black).
+- Capacitor 7 (Node 20 compatible; v8 needs Node 22) installed + configured: appId `com.islandhop.app`, appName `IslandHop`, webDir `build`. Android platform added; `@capacitor/assets` generated 74 native android assets (all densities + adaptive + splash light/dark). versionCode 1, versionName 1.0.
+- ⚠️ NO .aab built — container has no Java/Gradle/Android SDK. Build on a machine with Android Studio: `cd /app/frontend && yarn build && npx cap sync android && cd android && ./gradlew bundleRelease` (then sign).
+- ⚠️ Production: redeploy + add TWILIO_MESSAGING_SERVICE_SID to Deploy Panel; configure Twilio webhook URLs to https://islandhopapp.com/api/webhooks/whatsapp and /api/webhooks/twilio-status.
+
+
 ### Jun 20, 2026 — Full PayPal integration (Checkout + Payouts + Webhooks), mode-driven
 - ⚠️ CREDENTIAL FINDING: the "LIVE" PayPal credentials provided are actually SANDBOX creds — verified: they 401 (invalid_client) on `api-m.paypal.com` (live) but return a valid token on `api-m.sandbox.paypal.com`. So `PAYPAL_MODE=sandbox` in .env (NOT live). Going truly live requires LIVE app credentials from the PayPal dashboard; then set PAYPAL_MODE=live + live client id/secret.
 - NEW `backend/paypal_client.py`: REST API v2 via httpx (no SDK). Token caching, create_order, capture_order, get_order, create_payout (Payouts v1), verify_webhook (needs PAYPAL_WEBHOOK_ID). `_base_url()` switches on PAYPAL_MODE.
@@ -417,3 +540,56 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - `/app/frontend/src/OTPVerification.js`, `ReferralPage.js`, `DeliveryProofUpload.js`.
 - `/app/frontend/src/AdminPanel.js` — admin UI with new approvals/zones/whatsapp tabs.
 - `/app/design_guidelines.json` — Matte Black + Metallic Gold + Neon Cyan tokens.
+
+## CHANGELOG — 2026-06-22: Vibrant "Caribbean Sunshine" Light Theme (global)
+- Migrated the ENTIRE app from dark "Midnight Tropical" to a VIBRANT light theme matching user's reference screenshots (warm off-white bg, white cards, deep navy headings/text, bright teal accents, vivid orange CTAs).
+- Mechanism (avoids touching 130+ files): legacy Tailwind tokens remapped in `tailwind.config.js` — `matte-900=#FFFCF9` (page bg), `matte-800=#FFFFFF` (cards), `matte-700=#EEF2F7`; `gold-500=#FF6A00` (vivid orange), `gold-700=#E85D00`, `gold-300=#FFB37A`, `gold-400=#FF8A3D`; `neon.cyan=#06D6BE` (bright teal); new `navy` palette (#0B2C54). Gradients/glows refreshed.
+- `public/index.html`: removed forced `class="dark"`. `src/index.css`: `:root` semantic vars → primary=orange `25 100% 50%`, accent=teal `173 94% 43%`, secondary=navy `211 77% 19%`, foreground=navy, light scrollbar/selection.
+- Contrast sweep: converted misused `text-white` text labels (PartnerSelection, ReviewForm, order-form Totals, Terms/Privacy headers) to `text-secondary`/`text-foreground`; renamed `text-neon-cyan`→`text-teal-700` across 19 files; pale `bg-gold-500/15 text-gold-300` badges → `text-gold-700`.
+- Verified: testing agent iteration_18 (95% → contrast bugs fixed) + screenshots on Home, Partner, Car Rentals, Login, Pharmacy, and authed Dashboard/Admin/Wallet.
+- DEPLOY: live on preview. Production (islandhopapp.com) requires the user to trigger the Deploy panel manually. (Note: pre-existing apex/www POST-redirect blocker may still affect production until Emergent Support rebuilds the apex bundle.)
+- Pre-existing unrelated: `/dashboard` applications fetch returns 500 (console error only, page still renders) — NOT caused by theme.
+
+## CHANGELOG — 2026-06-22 (code review fixes, safe subset)
+- Fixed 3 empty catch blocks to log errors: WalletFunding.js, MerchantReviews.js, AdminTeam.js.
+- wipay_client.py: marked protocol-mandated MD5 hash `usedforsecurity=False` (WiPay API requires md5(transaction_id+total+api_key); cannot change algorithm without breaking payment verification).
+- FALSE POSITIVES (no change): server.py:5627 is a comment (only real hash is sha256 HMAC @7811); graph_mail.py:139 is `$skiptoken` URL parsing; test-file "secrets" are pytest fixtures.
+- Hook-dependency warnings: this CRA project does NOT enable the `react-hooks/exhaustive-deps` rule, so there are no such warnings in the actual build. Attempted eslint-disable comments broke compilation (rule undefined) and were reverted. App behavior already correct; no change needed. NOTE: required `rm -rf node_modules/.cache` + frontend restart to clear stale eslint cache.
+- Backend verified healthy (curl 200); frontend "webpack compiled successfully"; homepage smoke screenshot OK.
+- DEFERRED (high-risk, need dedicated effort + testing): localStorage→httpOnly cookie auth migration (P1 security), splitting BusinessOnboarding/AdminPanel/server.py, backend complexity reduction, type hints, console-statement stripping, nested-ternary cleanup.
+
+## CHANGELOG — 2026-06-23: Promoter QR System + Global TT$/US$ Currency Toggle
+### A) Promoter / Ambassador QR system (verified 100% — iteration_19/20)
+- Every user gets a personal QR + referral code; sharing onboards customers/drivers/businesses/suppliers.
+- Wallet rewards (USD base): customer $5 (on 1st paid order), driver $25, merchant $40, supplier $40 (on admin approval). Paid instantly if promoter eligible (admin-approved Ambassador OR active/approved account), else HELD and auto-released on eligibility.
+- Backend (server.py): GET /api/promoter/me, /onboards, /leaderboard, /resolve/{code}; GET /api/admin/promoters; POST /api/admin/promoters/approve|revoke. Reward hooks in _maybe_complete_referral, admin_approve_driver, admin_approve_business. New collection: promo_rewards. Reuses referral_codes + user.referred_by for attribution.
+- Frontend: PromoteEarn.js (/promote, QR + download PNG + share + totals + onboards + leaderboard), JoinLanding.js (/join/:code public invite, 4 onboarding paths → /signup?ref=CODE&intent=), AdminPromoters.js (admin 'Promoters' tab). Nav + footer links added.
+- Env tunables: PROMO_REWARD_CUSTOMER/DRIVER/MERCHANT/SUPPLIER, PROMO_REWARD_CURRENCY (default USD).
+
+### B) Global TT$ / US$ currency display toggle (verified 100%)
+- All catalog/order/subscription prices authored in USD; DISPLAY TT$ by default (rate 6.78), navbar switcher flips to US$, persisted in localStorage 'display_currency'.
+- CurrencyContext.js (CurrencyProvider, useCurrency, Price, CurrencySwitcher, RATE_TTD_PER_USD=6.78). Provider wraps app; switcher in navbar (authed + guest).
+- Converted: SubscriptionPlans, RestaurantMenu, Grocery/Pharmacy/Courier/CarRental/Taxi order forms, CheckoutPage, OrderTrackingPageWithMaps, PromoteEarn rewards.
+- Grand totals on grocery/pharmacy/checkout use existing CurrencyConverter widget (shows BOTH currencies). Wallet balances + driver/vendor EARNINGS dashboards intentionally kept in native currency (real settlement amounts) — out of scope.
+- DEPLOY: both features live on PREVIEW only; user must redeploy via Deploy panel for production (islandhopapp.com).
+
+## CHANGELOG — 2026-06-23 (WhatsApp delivery visibility fix + UX additions)
+### WhatsApp dashboard "not connected" — ROOT CAUSE + FIX (verified 100%, iteration_21)
+- Diagnosed via Twilio API: outbound msgs reach Twilio (200/queued) then FAIL async with error 63005 (recipient outside WhatsApp's 24h customer-care window; business-initiated free-form requires an approved template). Dashboard never showed it because sends had no status_callback → stuck at "queued". Inbound works (webhook receives msgs).
+- FIX: twilio_client.py now passes status_callback on SMS + WhatsApp sends (_status_callback_url(): env TWILIO_STATUS_CALLBACK_URL, fallback FRONTEND_URL + /api/webhooks/twilio-status). Existing POST /api/webhooks/twilio-status updates whatsapp_messages status+error_code. AdminPanel whatsapp thread now shows per-message delivery status + a clear note when failed due to the 24h window.
+- .env (preview): added TWILIO_STATUS_CALLBACK_URL=<preview>/api/webhooks/twilio-status. PRODUCTION: falls back to FRONTEND_URL (islandhopapp.com) automatically.
+- IMPORTANT: WhatsApp 24h-window/template requirement is Meta/Twilio POLICY, not a bug. To message customers who haven't contacted you in 24h, approved Message Templates (Content API content_sid) are required — twilio_client.send_whatsapp already supports content_sid; map approved template SIDs to env once Meta approves them.
+### UX additions
+- Dashboard quick-action tile "Promote & Earn" (data-testid quick-action-promote) → /promote.
+- Signup: SMS consent line under Phone (data-testid sms-consent-text) for Twilio A2P. Fixed broken signup links /terms→/terms-and-conditions, /privacy→/privacy-policy.
+
+## CHANGELOG — 2026-06-23 (Business model explanations + analytics promotions + homepage incentives widget) — verified 100% (iteration_22)
+- BusinessOnboarding.js: 'Business Model' field now shows a description + an explanatory legend for each option (B2C, B2B, B2B2C, Marketplace, Subscription). renderField supports field.description + field.optionDescriptions generically.
+- AnalyticsPromotions.js: new card in Admin Panel Analytics tab — total paid to promoters, held, total onboards, approved ambassadors + Top Promoters list (pulls /api/admin/promoters + /api/promoter/leaderboard).
+- App.js homepage: new horizontal 'Earn with IslandHop' incentives widget (data-testid incentives-widget) on navy gradient with 4 cards (Promote & Earn → /promote highlighted, Refer Friends → /referrals, Drive & Earn → /partner, Partner Bonuses → /partner) + 'Get my QR code' CTA.
+- All live on PREVIEW only — redeploy via Deploy panel for production.
+
+## CHANGELOG — 2026-06-23 (Dynamic homepage social proof)
+- New public endpoint GET /api/promoter/social-proof → top promoter's earnings THIS MONTH (first name only) + onboards_this_month. Verified with temp data (Tracy / 40 USD), test doc cleaned up.
+- New component PromoterSocialProof.js wired into the homepage incentives widget header — shows a live pulsing badge "<Name> earned <TT$ amount> this month · N new sign-ups" using the global currency formatter. Renders nothing (graceful) until there is real paid-this-month data.
+- PREVIEW only — redeploy for production.

@@ -18,6 +18,9 @@ import {
   Settings,
   BarChart3,
   Users,
+  Store,
+  Ticket,
+  Megaphone,
   MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
@@ -96,11 +99,11 @@ const VendorDashboard = () => {
   const getStatusColor = (status) => {
     const colors = {
       pending: 'bg-gold-500/15 text-yellow-800',
-      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
+      confirmed: 'bg-neon-cyan/15 text-teal-700',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
+      in_transit: 'bg-neon-cyan/15 text-teal-700',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };
@@ -142,6 +145,22 @@ const VendorDashboard = () => {
                 <ChefHat className="h-5 w-5 mr-2" />
                 Manage Menu
               </Button>
+              <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
+                <Store className="h-5 w-5 mr-2" />
+                My Storefront
+              </Button>
+              <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
+                <Ticket className="h-5 w-5 mr-2" />
+                Coupons
+              </Button>
+              <Button onClick={() => navigate('/merchant/ads')} variant="outline" data-testid="vendor-ads-btn">
+                <Megaphone className="h-5 w-5 mr-2" />
+                Advertise
+              </Button>
+              <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
+                <DollarSign className="h-5 w-5 mr-2" />
+                Subscription
+              </Button>
               <Button onClick={() => navigate('/vendor/settings')} variant="outline">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
@@ -159,7 +178,7 @@ const VendorDashboard = () => {
                     <p className="text-3xl font-bold text-foreground">{stats.today_orders}</p>
                   </div>
                   <div className="bg-neon-cyan/15 p-3 rounded-lg">
-                    <Package className="h-6 w-6 text-neon-cyan" />
+                    <Package className="h-6 w-6 text-teal-700" />
                   </div>
                 </div>
               </CardContent>

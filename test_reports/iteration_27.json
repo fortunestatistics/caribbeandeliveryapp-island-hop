@@ -1,0 +1,32 @@
+{
+  "summary": "Iter 27 — independently verified the three new feature areas end-to-end on the preview URL: (A) MERCHANT STOREFRONT BUILDER, (B) SELF-SERVICE COUPONS (incl. coupon-at-checkout math), and (C) TIERED DRIVER PAYOUT copy/regression. 15/15 backend pytest pass; merchant frontend (storefront editor + public hero + coupons CRUD UI) works; /driver/earnings shows Premium 100% + Standard 80% tiers with the $17.00 / $14.60 examples; /driver-onboarding shows both tier badges. No stale '10% on delivery' / '90%' / 'flat universal 100%' text found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter27_storefront_coupons.py",
+    "/app/test_reports/pytest/pytest_iter27.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Storefront: PUT /api/merchant/storefront correctly enforces bio<=500 (400) and gallery<=6 (400); per-image base64 size cap also enforced at ~1MB (413). PUBLIC GET /api/merchants/{vendor_id}/storefront returns the doc without auth and (correctly) returns an empty default when no doc exists — frontend RestaurantMenu.js still renders the hero shell, with bio/logo/gallery from the customisation doc when set.",
+    "Coupons: POST /api/merchant/coupons validates discount_type (percentage|fixed), value>0, percentage<=100, regex ^[A-Z0-9]{3,20}$ on code, uniqueness per merchant; auto-generates an 8-char code when blank. PATCH/DELETE scope to vendor_id (other merchants' coupons → 404). LIST returns used_count + is_expired correctly.",
+    "Coupon-at-checkout (_apply_merchant_coupon): percentage 15% on subtotal 50 → discount 7.5, total 55.5 (50+10+0+3-7.5) ✓; fixed $5 → discount 5, total 58.0 ✓; wrong/other-store code → 404 ✓; min_order violation → 400 ✓; usage_limit (1) exceeded on a second different order → 400 ✓. Coupon uses the order's single discount slot (replaces platform promo) — by design.",
+    "Tiered payout regression: POST /api/orders/create returns service_fee=3.00 (100% platform), driver_fee_rate in {0.00, 0.20} (premium vs standard — never legacy 0.10), total = subtotal+delivery+tip+service_fee. Auto-assign + _finalize_driver_split path looks correct; full driver_earnings $21/$25 split is dependent on a driver being online (not exercised here — main agent already unit-verified).",
+    "Frontend storefront: /merchant/storefront editor mounts, bio textarea saves, public /restaurant/{id} hero shows the new bio (data-testid='storefront-hero-bio' populates as expected). /merchant/coupons creates coupon via generate+create flow, lists it with per-code toggle (data-testid='coupon-toggle-{CODE}') and delete (data-testid='coupon-delete-{CODE}') buttons.",
+    "Driver copy: DriverEarningsDashboard renders two tier cards 'Premium (Subscriber) 100% of every delivery fee + 100% of tips. No platform cut.' and 'Standard (No subscription) 80% of every delivery fee (20% platform cut) + 100% of tips.' Example calc card shows $17.00 (Premium) and $14.60 (Standard). DriverOnboarding badges read 'Premium: keep 100% of delivery fees', 'Standard: keep 80% of delivery fees', '100% of your tips, always'. No legacy 'up to 90%' or '10% on delivery' strings."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter27_storefront_coupons.py (new — 15 tests across StorefrontCRUD, CouponsCRUD, CouponAtCheckout, OrderFinancialsRegression)"
+  ],
+  "success_rate": { "backend": "100% (15/15)", "frontend": "100% (storefront editor, public hero, coupons page, driver-earnings tier copy, driver-onboarding badges all verified)" },
+  "test_credentials": "Used admin.qa@islandhop-demo.com / AdminQA1234! for /driver/earnings + /driver-onboarding; backend tests register a fresh merchant per session (POST /api/auth/register customer → POST /api/restaurants promotes to user_type=restaurant) and a separate customer.",
+  "seed_data_creation": "Each test class creates ephemeral coupons + orders and cleans up via DELETE /api/merchant/coupons/{id}. Test merchant + customer accounts use timestamp+uuid emails (@test.com) auto-purged by conftest cleanup fixture.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All three iter27 deliverables verified independently: storefront CRUD + public hero render, coupon CRUD + at-checkout math (percentage/fixed/invalid/min_order/usage_limit), tiered payout copy ($17/$14.60), and no regression on /api/orders/create financial fields (service_fee=$3, driver_fee_rate in {0.00, 0.20}). Order auto-assign full split ($21/$25 driver_earnings) was NOT exercised because it requires a driver doc with status=online; main agent already unit-verified that path.",
+  "rca_of_the_issue": "N/A — no defects found."
+}

@@ -100,6 +100,27 @@ const Footer = () => {
             >
               About
             </a>
+            <a
+              href="/promote"
+              data-testid="footer-promote"
+              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
+            >
+              Promote &amp; Earn
+            </a>
+            <a
+              href="/privacy-policy"
+              data-testid="footer-privacy"
+              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
+            >
+              Privacy Policy
+            </a>
+            <a
+              href="/terms-and-conditions"
+              data-testid="footer-terms"
+              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
+            >
+              Terms &amp; Conditions
+            </a>
           </div>
         </div>
       </div>

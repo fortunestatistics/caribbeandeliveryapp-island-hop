@@ -93,8 +93,8 @@ const MerchantReviews = ({ merchantId }) => {
     try {
       const res = await reviewAPI.getMerchantReviews(merchantId);
       setData(res.data);
-    } catch (_e) {
-      // keep empty state
+    } catch (e) {
+      console.error('Failed to load merchant reviews:', e);
     } finally { setLoading(false); }
   };
 

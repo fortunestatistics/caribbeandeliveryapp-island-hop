@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 
 const CourierOrderForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [orderData, setOrderData] = useState({
     // Sender Information
@@ -274,7 +276,7 @@ const CourierOrderForm = () => {
                         <CardContent className="p-3 text-center">
                           <div className="text-2xl mb-1">{type.icon}</div>
                           <div className="text-xs font-semibold text-foreground">{type.name}</div>
-                          <div className="text-xs text-muted-foreground">${type.baseFare}</div>
+                          <div className="text-xs text-muted-foreground">{format(type.baseFare)}</div>
                         </CardContent>
                       </Card>
                     ))}
@@ -414,7 +416,7 @@ const CourierOrderForm = () => {
               <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Total Delivery Cost</h3>
+                    <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
                   <CurrencyConverter amountUSD={parseFloat(calculateFare()) || 0} size="lg" />

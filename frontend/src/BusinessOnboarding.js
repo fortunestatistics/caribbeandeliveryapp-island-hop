@@ -307,7 +307,13 @@ const BusinessOnboarding = () => {
           fields: [
             { key: 'industryType', label: 'Industry Type', type: 'select', options: ['Retail', 'Services', 'Manufacturing', 'Technology', 'Healthcare', 'Education', 'Other'] },
             { key: 'serviceArea', label: 'Primary Service Area', type: 'text' },
-            { key: 'businessModel', label: 'Business Model', type: 'select', options: ['B2C', 'B2B', 'B2B2C', 'Marketplace', 'Subscription'] },
+            { key: 'businessModel', label: 'Business Model', type: 'select', options: ['B2C', 'B2B', 'B2B2C', 'Marketplace', 'Subscription'], description: 'How your business sells to customers — pick the one that best fits.', optionDescriptions: {
+              'B2C': 'Business-to-Consumer — you sell directly to individual shoppers (most restaurants, shops & pharmacies).',
+              'B2B': 'Business-to-Business — you sell wholesale to other companies, not the general public.',
+              'B2B2C': 'You supply other businesses who resell to consumers (e.g., a brand selling through retail partners).',
+              'Marketplace': 'You host multiple third-party sellers/vendors under one storefront and take a commission.',
+              'Subscription': 'Customers pay a recurring fee (weekly/monthly) for ongoing products or services.'
+            } },
             { key: 'targetCustomers', label: 'Target Customer Demographics', type: 'textarea' },
             { key: 'competitiveAdvantage', label: 'Competitive Advantage', type: 'textarea' }
           ]
@@ -592,6 +598,9 @@ const BusinessOnboarding = () => {
                       <Label htmlFor={field.key}>
                         {field.label} {field.required && '*'}
                       </Label>
+                      {field.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 mb-1" data-testid={`${field.key}-description`}>{field.description}</p>
+                      )}
                       
                       {field.type === 'text' && (
                         <Input
@@ -636,6 +645,13 @@ const BusinessOnboarding = () => {
                             ))}
                           </SelectContent>
                         </Select>
+                      )}
+                      {field.type === 'select' && field.optionDescriptions && (
+                        <ul className="mt-2 space-y-1 text-xs text-muted-foreground rounded-lg bg-muted/40 p-3" data-testid={`${field.key}-help`}>
+                          {Object.entries(field.optionDescriptions).map(([k, v]) => (
+                            <li key={k}><span className="font-semibold text-foreground">{k}:</span> {v}</li>
+                          ))}
+                        </ul>
                       )}
                       
                       {field.type === 'textarea' && (
@@ -952,15 +968,22 @@ const BusinessOnboarding = () => {
                 {/* Banking Information Section */}
                 <Card className="bg-neon-cyan/10">
                   <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <CreditCard className="h-5 w-5 mr-2 text-neon-cyan" />
-                      Banking Information
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center">
+                        <CreditCard className="h-5 w-5 mr-2 text-teal-700" />
+                        Banking Information <span className="ml-2 text-sm font-normal text-muted-foreground">(optional)</span>
+                      </span>
+                      <Button type="button" variant="outline" size="sm" data-testid="partner-skip-banking-btn"
+                        onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); nextStep(); }}>
+                        Skip for now
+                      </Button>
                     </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">You can add your payout details later from your profile. Not needed to submit your application.</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                        <Label htmlFor="accountHolderName">Account Holder Name</Label>
                         <Input
                           id="accountHolderName"
                           value={formData.accountHolderName || ''}
@@ -970,7 +993,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="bankName">Bank Name *</Label>
+                        <Label htmlFor="bankName">Bank Name</Label>
                         <Input
                           id="bankName"
                           value={formData.bankName || ''}
@@ -980,7 +1003,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="accountNumber">Account Number *</Label>
+                        <Label htmlFor="accountNumber">Account Number</Label>
                         <Input
                           id="accountNumber"
                           value={formData.accountNumber || ''}
@@ -990,7 +1013,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="routingNumber">Routing Number *</Label>
+                        <Label htmlFor="routingNumber">Routing Number</Label>
                         <Input
                           id="routingNumber"
                           value={formData.routingNumber || ''}
@@ -1000,7 +1023,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <Label htmlFor="accountType">Account Type *</Label>
+                        <Label htmlFor="accountType">Account Type</Label>
                         <Select 
                           value={formData.accountType || ''} 
                           onValueChange={(value) => handleInputChange('accountType', value)}

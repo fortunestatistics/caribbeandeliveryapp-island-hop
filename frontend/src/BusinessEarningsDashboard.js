@@ -252,8 +252,8 @@ const BusinessEarningsDashboard = () => {
                   </div>
                   <Separator className="my-3" />
                   <div className="bg-neon-cyan/10 rounded p-3 space-y-1 text-sm">
-                    <p className="font-semibold text-neon-cyan">Important Notes:</p>
-                    <ul className="list-disc list-inside text-neon-cyan space-y-1">
+                    <p className="font-semibold text-teal-700">Important Notes:</p>
+                    <ul className="list-disc list-inside text-teal-700 space-y-1">
                       <li>Commission calculated on order subtotal only</li>
                       <li>Delivery fees go 100% to drivers</li>
                       <li>Customer tips go 100% to drivers</li>

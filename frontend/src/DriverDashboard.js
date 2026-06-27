@@ -7,7 +7,8 @@ import {
   Wallet,
   Power,
   AlertCircle,
-  Star
+  Star,
+  DollarSign
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
@@ -217,6 +218,21 @@ const DriverDashboard = () => {
     }
   };
 
+  const handleDeliverCOD = async (order) => {
+    const token = localStorage.getItem('token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    if (!window.confirm(`Confirm you collected $${Number(order.total || 0).toFixed(2)} cash from the customer?`)) return;
+    try {
+      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: false });
+      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: false });
+      alert(`Cash collected. You keep $${r.data.driver_keeps?.toFixed(2)}; $${r.data.platform_due?.toFixed(2)} is owed to IslandHop.`);
+      fetchActiveOrders();
+    } catch (error) {
+      console.error('Error confirming cash:', error);
+      alert(error.response?.data?.detail || 'Failed to confirm cash collected');
+    }
+  };
+
   const handleNavigate = (address) => {
     // Open Google Maps
     const destination = `${address.latitude},${address.longitude}`;
@@ -252,6 +268,10 @@ const DriverDashboard = () => {
               <Button onClick={() => navigate('/driver/earnings')} variant="outline">
                 <Wallet className="h-5 w-5 mr-2" />
                 Wallet
+              </Button>
+              <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
+                <DollarSign className="h-5 w-5 mr-2" />
+                Subscription
               </Button>
             </div>
           </div>
@@ -343,6 +363,7 @@ const DriverDashboard = () => {
                     order={order}
                     onNavigate={handleNavigate}
                     onUpdateStatus={handleUpdateOrderStatus}
+                    onDeliverCOD={handleDeliverCOD}
                     onView={(id) => navigate(`/order-tracking/${id}`)}
                   />
                 ))}

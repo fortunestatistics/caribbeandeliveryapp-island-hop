@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 
 const GroceryOrderForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -135,7 +137,7 @@ const GroceryOrderForm = () => {
 
     const store = stores.find(s => s.id === selectedStore);
     if (calculateSubtotal() < store.minOrder) {
-      alert(`Minimum order for ${store.name} is $${store.minOrder.toFixed(2)}`);
+      alert(`Minimum order for ${store.name} is ${format(store.minOrder)}`);
       return;
     }
 
@@ -196,7 +198,7 @@ const GroceryOrderForm = () => {
                       >
                         <CardContent className="p-4 text-center">
                           <h4 className="font-semibold text-foreground mb-1">{store.name}</h4>
-                          <p className="text-xs text-muted-foreground">Delivery: ${store.deliveryFee}</p>
+                          <p className="text-xs text-muted-foreground">Delivery: {format(store.deliveryFee)}</p>
                           <p className="text-xs text-muted-foreground">Min: ${store.minOrder}</p>
                         </CardContent>
                       </Card>
@@ -244,7 +246,7 @@ const GroceryOrderForm = () => {
                               <div className="text-4xl mb-2">{item.image}</div>
                               <Badge className="mb-1 text-xs bg-green-100 text-green-700">{item.category}</Badge>
                               <h4 className="text-sm font-semibold text-foreground mb-1">{item.name}</h4>
-                              <p className="text-lg font-bold text-green-600">${item.price.toFixed(2)}</p>
+                              <p className="text-lg font-bold text-green-600">{format(item.price)}</p>
                             </div>
                             <Button
                               type="button"
@@ -297,7 +299,7 @@ const GroceryOrderForm = () => {
                             <span className="text-2xl">{item.image}</span>
                             <div className="flex-1 min-w-0">
                               <h4 className="text-sm font-semibold text-foreground">{item.name}</h4>
-                              <p className="text-xs text-muted-foreground">${item.price} / {item.unit}</p>
+                              <p className="text-xs text-muted-foreground">{format(item.price)} / {item.unit}</p>
                               <div className="flex items-center space-x-1 mt-1">
                                 <Button
                                   type="button"
@@ -330,7 +332,7 @@ const GroceryOrderForm = () => {
                               </div>
                             </div>
                             <span className="text-sm font-bold text-foreground">
-                              ${(item.price * item.quantity).toFixed(2)}
+                              {format(item.price * item.quantity)}
                             </span>
                           </div>
                         ))}
@@ -371,15 +373,15 @@ const GroceryOrderForm = () => {
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm text-muted-foreground">
                             <span>Subtotal</span>
-                            <span className="text-foreground">${calculateSubtotal().toFixed(2)}</span>
+                            <span className="text-foreground">{format(calculateSubtotal())}</span>
                           </div>
                           <div className="flex justify-between text-sm text-muted-foreground">
                             <span>Delivery Fee</span>
-                            <span className="text-foreground">${getDeliveryFee().toFixed(2)}</span>
+                            <span className="text-foreground">{format(getDeliveryFee())}</span>
                           </div>
                           <Separator className="bg-gold-500/30" />
                           <div className="flex justify-between items-center pt-1 gap-3 flex-wrap">
-                            <span className="text-lg font-semibold text-white">Total</span>
+                            <span className="text-lg font-semibold text-foreground">Total</span>
                             <CurrencyConverter amountUSD={calculateTotal()} size="lg" />
                           </div>
                         </div>

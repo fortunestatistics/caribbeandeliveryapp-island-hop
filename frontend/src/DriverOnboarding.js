@@ -268,6 +268,20 @@ const DriverOnboarding = () => {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">Become a Driver</h1>
           <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
+          <div data-testid="driver-rate-highlight" className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 max-w-2xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 border border-gray-500/30 text-foreground/80 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Standard (Free): keep 80%
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Pro (TT$700/mo): keep 90%
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Premium (TT$1,400/mo): keep 100%
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
+            Start free on Standard (keep 80% of delivery fees). Upgrade to Pro (TT$700/mo, keep 90%) or Premium (TT$1,400/mo, keep 100%) anytime to lower the platform cut. All tiers keep 100% of tips.
+          </p>
         </div>
 
         {/* Progress Bar */}
@@ -529,7 +543,7 @@ const DriverOnboarding = () => {
             {currentStep === 3 && (
               <div className="space-y-6" data-testid="documents-step">
                 <div className="text-center mb-6">
-                  <FileText className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <FileText className="h-12 w-12 text-teal-700 mx-auto mb-4" />
                   <h3 className="text-2xl font-bold text-foreground mb-2">Documents Upload</h3>
                   <p className="text-muted-foreground">Upload required documents for verification</p>
                 </div>
@@ -590,13 +604,17 @@ const DriverOnboarding = () => {
               <div className="space-y-6" data-testid="banking-step">
                 <div className="text-center mb-6">
                   <CreditCard className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information</h3>
-                  <p className="text-muted-foreground">Secure account details for receiving your earnings</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information <span className="text-base font-normal text-muted-foreground">(optional)</span></h3>
+                  <p className="text-muted-foreground">Add your payout details now, or skip and add them later from your profile.</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" data-testid="driver-skip-banking-btn"
+                    onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); setCurrentStep((s) => Math.min(s + 1, 5)); }}>
+                    Skip for now
+                  </Button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                    <Label htmlFor="accountHolderName">Account Holder Name</Label>
                     <Input
                       id="accountHolderName"
                       value={formData.accountHolderName}
@@ -606,7 +624,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="bankName">Bank Name *</Label>
+                    <Label htmlFor="bankName">Bank Name</Label>
                     <Select value={formData.bankName} onValueChange={(value) => handleInputChange('bankName', value)}>
                       <SelectTrigger data-testid="bank-name-select">
                         <SelectValue placeholder="Select your bank" />
@@ -622,7 +640,7 @@ const DriverOnboarding = () => {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="accountNumber">Account Number *</Label>
+                    <Label htmlFor="accountNumber">Account Number</Label>
                     <Input
                       id="accountNumber"
                       value={formData.accountNumber}
@@ -642,7 +660,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <Label htmlFor="accountType">Account Type *</Label>
+                    <Label htmlFor="accountType">Account Type</Label>
                     <Select value={formData.accountType} onValueChange={(value) => handleInputChange('accountType', value)}>
                       <SelectTrigger data-testid="account-type-select">
                         <SelectValue placeholder="Select account type" />

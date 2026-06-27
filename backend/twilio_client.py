@@ -27,6 +27,18 @@ def _mock_enabled() -> bool:
     return os.environ.get("MOCK_TWILIO", "true").lower() in {"1", "true", "yes"}
 
 
+def _status_callback_url() -> str | None:
+    """Public HTTPS URL Twilio posts delivery status (sent/delivered/failed + ErrorCode) to.
+    Falls back to FRONTEND_URL so production works without extra config."""
+    url = os.environ.get("TWILIO_STATUS_CALLBACK_URL")
+    if url:
+        return url.strip()
+    base = os.environ.get("FRONTEND_URL")
+    if base:
+        return base.rstrip("/") + "/api/webhooks/twilio-status"
+    return None
+
+
 def generate_otp(length: int = 6) -> str:
     """Generate a cryptographically secure numeric OTP of the requested length."""
     # `secrets` is the recommended module for security-sensitive randomness (PEP 506).
@@ -82,7 +94,11 @@ def _real_send_sms(to: str, body: str) -> dict:
         return {"success": False, "error": "Sender and recipient cannot be the same number.", "channel": "sms", "to": to}
     try:
         client = Client(sid, token)
-        msg = client.messages.create(from_=from_number, to=to, body=body)
+        kwargs = {"from_": from_number, "to": to, "body": body}
+        cb = _status_callback_url()
+        if cb:
+            kwargs["status_callback"] = cb
+        msg = client.messages.create(**kwargs)
         return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "sms", "to": to, "body": body}
     except Exception as exc:  # noqa: BLE001 — surface a clean error, never crash the request
         return {"success": False, "error": str(getattr(exc, "msg", exc)),
@@ -140,6 +156,9 @@ def _real_send_whatsapp(to: str, body: str, content_sid: str | None = None,
         client = Client(sid, token)
         to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
         kwargs = {"from_": from_number, "to": to_addr}
+        cb = _status_callback_url()
+        if cb:
+            kwargs["status_callback"] = cb
         if content_sid:
             kwargs["content_sid"] = content_sid
             if content_variables:

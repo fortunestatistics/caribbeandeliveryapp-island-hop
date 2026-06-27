@@ -1,0 +1,44 @@
+{
+  "short_name": "IslandHop",
+  "name": "IslandHop — Caribbean Delivery & Wallet",
+  "description": "On-demand delivery, taxi, courier, grocery, pharmacy and wallet super-app for Trinidad & Tobago and the Caribbean.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0C0C0C",
+  "background_color": "#0C0C0C",
+  "categories": ["shopping", "food", "travel", "business"]
+}

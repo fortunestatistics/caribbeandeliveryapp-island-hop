@@ -16,6 +16,8 @@ from datetime import datetime, timezone, timedelta
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 import json
+import hmac
+import hashlib
 import re
 from passlib.context import CryptContext
 import secrets
@@ -23,6 +25,7 @@ from jose import JWTError, jwt
 import stripe
 import push_client
 import graph_mail
+import taxi_pricing
 import mercury_client
 import storage_client
 import wipay_client
@@ -140,7 +143,7 @@ from models import (
     ScheduledOrder, RecurringOrder,
     RentalVehicle, CarRentalCompany, RentalBooking,
     Wallet, WalletTransaction,
-    BusinessCategory, BusinessOnboarding,
+    BusinessCategory, BusinessOnboarding, BusinessOnboardingRequest,
     PricingTier, PaymentTransaction,
     ChatMessage, ChatMessageCreate, ChatRequest,
     OrderChatMessage, OrderChatMessageCreate,
@@ -152,40 +155,220 @@ from models import (
 )
 
 # Helper function to calculate commission and split payments
+# ---------------------------------------------------------------------------
+# Fee structure (approved Jun 2026 — 3-tier driver subscription):
+#   • Merchant commission: 15% of the item subtotal (default; per vendor type / plan).
+#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform (all tiers).
+#   • Delivery fee + tips go to the driver, MINUS the platform's delivery-fee cut by plan:
+#       - STANDARD (Free):        platform takes 20% → driver keeps 80%.
+#       - PRO ($700 TT/mo):       platform takes 10% → driver keeps 90%.
+#       - PREMIUM ($1,400 TT/mo): platform takes 0%  → driver keeps 100%.
+#     Tips are ALWAYS 100% to the driver. (Drivers also receive monthly incentive payouts.)
+# ---------------------------------------------------------------------------
+PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
+
+# Platform's % cut of the delivery fee, keyed by the driver's subscription tier.
+DRIVER_PLAN_RATES = {
+    "standard": float(os.environ.get("DRIVER_FEE_RATE_STANDARD", "0.20")),
+    "pro": float(os.environ.get("DRIVER_FEE_RATE_PRO", "0.10")),
+    "premium": float(os.environ.get("DRIVER_FEE_RATE_PREMIUM", "0.00")),
+}
+# Default cut applied at order-creation time (before a driver is assigned).
+DRIVER_FEE_RATE_NONSUBSCRIBER = DRIVER_PLAN_RATES["standard"]
+
+# Driver subscription catalogue (prices in TTD).
+DRIVER_SUBSCRIPTION_PLANS = [
+    {
+        "tier": "standard", "name": "Standard", "price_ttd": 0,
+        "platform_cut_pct": 20, "driver_keep_pct": 80,
+        "tagline": "Start earning for free.",
+        "features": [
+            "Keep 80% of every delivery fee",
+            "Keep 100% of all tips",
+            "Access to all delivery & taxi jobs",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "pro", "name": "Pro", "price_ttd": 700,
+        "platform_cut_pct": 10, "driver_keep_pct": 90,
+        "tagline": "Keep more of what you earn.",
+        "features": [
+            "Keep 90% of every delivery fee",
+            "Keep 100% of all tips",
+            "Priority job matching",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "premium", "name": "Premium", "price_ttd": 1400,
+        "platform_cut_pct": 0, "driver_keep_pct": 100,
+        "tagline": "Zero platform cut. Maximum earnings.",
+        "features": [
+            "Keep 100% of every delivery fee",
+            "Keep 100% of all tips",
+            "Top priority job matching",
+            "Premium support",
+        ],
+    },
+]
+
+
+def _derive_vendor_type(service_type: str) -> str:
+    return {
+        "food": "restaurant",
+        "pharmacy": "pharmacy",
+        "grocery": "grocery",
+        "car_rental": "car_rental",
+    }.get(service_type, "business")
+
+
+# Merchant subscription catalogue (prices in TTD). Commission is on the item subtotal.
+MERCHANT_PLAN_COMMISSION = {"pro": 10.0, "premium": 5.0}  # standard → vendor-type default
+MERCHANT_SUBSCRIPTION_PLANS = [
+    {
+        "tier": "standard", "name": "Standard", "price_ttd": 0,
+        "commission_pct": 15, "featured": False,
+        "tagline": "Free to join. Start selling today.",
+        "features": [
+            "15% commission on orders",
+            "Standard search placement",
+            "Order & menu management",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "pro", "name": "Pro", "price_ttd": 800,
+        "commission_pct": 10, "featured": True,
+        "tagline": "Lower fees + Featured Partner status.",
+        "features": [
+            "10% commission on orders",
+            "Featured Partner — higher search visibility",
+            "Order & menu management",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "premium", "name": "Premium", "price_ttd": 1600,
+        "commission_pct": 5, "featured": True,
+        "tagline": "Lowest fees + Premium Marketing & Priority Support.",
+        "features": [
+            "5% commission on orders",
+            "Featured Partner — top search visibility",
+            "Premium Marketing placement",
+            "Priority Support",
+        ],
+    },
+]
+
+
+async def _merchant_plan_tier(vendor_id: Optional[str]) -> str:
+    """Resolve a merchant's active subscription tier from its profile doc."""
+    if not vendor_id:
+        return "standard"
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "subscription_tier": 1})
+        if doc:
+            tier = str(doc.get("subscription_tier") or "").lower()
+            return tier if tier in MERCHANT_PLAN_COMMISSION else "standard"
+    return "standard"
+
+
+async def _merchant_commission_rate(vendor_id: Optional[str], vendor_type: str) -> float:
+    """Commission % on item subtotal, by the merchant's subscription tier.
+    PRO 10% / PREMIUM 5% / STANDARD = vendor-type default (restaurant 15%)."""
+    default_rates = {
+        "restaurant": 15.0, "pharmacy": 8.0, "grocery": 12.0,
+        "car_rental": 10.0, "business": 20.0,
+    }
+    base = default_rates.get(vendor_type, 15.0)
+    tier = await _merchant_plan_tier(vendor_id)
+    return MERCHANT_PLAN_COMMISSION.get(tier, base)
+
+
+async def _driver_plan_tier(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> str:
+    """Resolve the driver's active subscription tier: 'standard' | 'pro' | 'premium'."""
+    doc = driver_doc or {}
+    tier = str(doc.get("subscription_tier") or "").lower()
+    if tier in DRIVER_PLAN_RATES:
+        return tier
+    # Legacy flag → premium
+    if doc.get("is_premium") is True:
+        return "premium"
+    if driver_user_id:
+        sub = await db.user_subscriptions.find_one({
+            "user_id": driver_user_id, "status": "active",
+            "plan_tier": {"$in": ["pro", "premium"]},
+        })
+        if sub:
+            return sub.get("plan_tier", "standard")
+    return "standard"
+
+
+async def _driver_delivery_fee_rate(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> float:
+    """Platform's % cut of the delivery fee for the assigned driver, by plan tier.
+    STANDARD 20% / PRO 10% / PREMIUM 0%. Tips are always 100% to the driver."""
+    tier = await _driver_plan_tier(driver_user_id, driver_doc)
+    return DRIVER_PLAN_RATES.get(tier, DRIVER_PLAN_RATES["standard"])
+
+
+
+async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
+    """Re-split the delivery fee once the assigned driver is known (their tier
+    sets the 0% premium vs 20% standard platform cut). Idempotent."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return
+    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"), driver_doc)
+    delivery_fee = float(order.get("delivery_fee", 0) or 0)
+    tip = float(order.get("tip", 0) or 0)
+    commission = float(order.get("commission_amount", 0) or 0)
+    service_fee = float(order.get("service_fee", 0) or 0)
+    platform_delivery = round(delivery_fee * rate, 2)
+    driver_delivery = round(delivery_fee - platform_delivery, 2)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "driver_fee_rate": rate,
+        "platform_delivery_portion": platform_delivery,
+        "driver_delivery_portion": driver_delivery,
+        "driver_earnings": round(driver_delivery + tip, 2),
+        "platform_earnings": round(commission + platform_delivery + service_fee, 2),
+    }})
+
+
 async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: str) -> Order:
     """
-    Calculate commission, vendor payout, platform earnings, and driver earnings
+    Calculate commission, vendor payout, platform earnings, and driver earnings.
     """
-    # Get vendor's subscription plan to determine commission rate
-    subscription = await db.user_subscriptions.find_one({"user_id": vendor_id, "status": "active"})
-    
-    if subscription:
-        plan = await db.subscription_plans.find_one({"id": subscription["plan_id"]})
-        commission_rate = plan.get("commission_rate", 15.0) if plan else 15.0
-    else:
-        # Default commission rates by vendor type if no subscription
-        default_rates = {
-            "restaurant": 15.0,
-            "pharmacy": 8.0,
-            "grocery": 12.0,
-            "car_rental": 10.0,
-            "business": 20.0
-        }
-        commission_rate = default_rates.get(vendor_type, 15.0)
-    
-    # Calculate commission
+    # Merchant commission rate is determined by the merchant's subscription tier
+    # (Pro 10% / Premium 5% / Standard = vendor-type default).
+    commission_rate = await _merchant_commission_rate(vendor_id, vendor_type)
+
+    # Merchant commission on the item subtotal
     order.commission_rate = commission_rate
     order.commission_amount = round(order.subtotal * (commission_rate / 100), 2)
     order.vendor_payout = round(order.subtotal - order.commission_amount, 2)
-    
-    # Split delivery fee: 60% to driver, 40% to platform
-    order.driver_delivery_portion = round(order.delivery_fee * 0.6, 2)
-    order.platform_delivery_portion = round(order.delivery_fee * 0.4, 2)
-    
-    # Calculate total earnings
+
+    # Flat customer service fee → 100% platform
+    order.service_fee = PLATFORM_SERVICE_FEE
+
+    # Delivery-fee split. Driver isn't assigned at creation, so assume the
+    # non-subscriber rate (max platform cut); re-split via _finalize_driver_split
+    # once the assigned driver's subscription status is known.
+    rate = DRIVER_FEE_RATE_NONSUBSCRIBER
+    order.driver_fee_rate = rate
+    order.platform_delivery_portion = round(order.delivery_fee * rate, 2)
+    order.driver_delivery_portion = round(order.delivery_fee - order.platform_delivery_portion, 2)
+
+    # Driver keeps their delivery share + 100% of tips
     order.driver_earnings = round(order.driver_delivery_portion + order.tip, 2)
-    order.platform_earnings = round(order.commission_amount + order.platform_delivery_portion, 2)
-    
+    # Platform earns merchant commission + delivery-fee cut + service fee
+    order.platform_earnings = round(order.commission_amount + order.platform_delivery_portion + order.service_fee, 2)
+
+    # Total the customer pays includes the flat service fee
+    order.total = round(
+        order.subtotal + order.delivery_fee + order.tax + order.tip - order.discount + order.service_fee, 2
+    )
+
     return order
 
 # Helper functions
@@ -1059,7 +1242,7 @@ async def global_search(q: str):
 
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
-    """Get all active restaurants (capped at 200 for safety)."""
+    """Get all active restaurants, Featured (Pro/Premium) merchants first."""
     restaurants = await db.restaurants.find({"status": "active"}, {"_id": 0}).limit(200).to_list(length=None)
     valid = []
     for r in restaurants:
@@ -1068,6 +1251,8 @@ async def get_restaurants():
         except Exception:
             # Skip documents that don't conform to the schema (legacy/incomplete seeds)
             continue
+    # Featured Partners (Pro/Premium) are pinned to the top, then by rating.
+    valid.sort(key=lambda x: (0 if x.featured else 1, -(x.rating or 0)))
     return valid
 
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
@@ -1306,14 +1491,26 @@ async def get_admin_stats(request: Request):
     }
 
 @api_router.get("/admin/users")
-async def get_all_users(request: Request, limit: int = 100):
-    """Get all users for admin"""
+async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = None):
+    """Get all users for admin. Supports case-insensitive search on name/email via `q`."""
     current_user = await get_current_user_from_request(request)
-    
+
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    users = await db.users.find({}, {"_id": 0}).limit(limit).to_list(length=None)
+
+    query: Dict[str, Any] = {}
+    if q and q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        query = {"$or": [{"email": rx}, {"name": rx}, {"phone": rx}]}
+
+    users = (
+        await db.users.find(query, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(max(1, min(limit, 2000)))
+        .to_list(length=None)
+    )
+    for u in users:
+        u["email_is_real"] = graph_mail.is_real_email(u.get("email"))
     return users
 
 @api_router.get("/admin/orders")
@@ -1368,6 +1565,95 @@ async def activate_user(user_id: str, request: Request):
     )
     
     return {"success": True}
+
+
+class AdminUserMessage(BaseModel):
+    subject: str
+    body: str
+
+
+@api_router.post("/admin/users/{user_id}/message")
+async def message_user(user_id: str, payload: AdminUserMessage, request: Request):
+    """Admin: send a direct email to a user. Blocks placeholder/QA addresses."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    subject = (payload.subject or "").strip()
+    body = (payload.body or "").strip()
+    if not subject or not body:
+        raise HTTPException(status_code=400, detail="Subject and message body are required")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = user.get("email")
+    if not graph_mail.is_real_email(email):
+        raise HTTPException(
+            status_code=400,
+            detail="This user has no valid email address on file (placeholder/test account). Message not sent.",
+        )
+
+    name = user.get("name") or "there"
+    safe_body = body.replace("\n", "<br/>")
+    html = (
+        f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>"
+        f"<p>Hi {name},</p><p>{safe_body}</p>"
+        "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+    )
+    try:
+        await graph_mail.send_mail(email, subject, html)
+    except graph_mail.InvalidRecipientEmail:
+        raise HTTPException(status_code=400, detail="This user has no valid email address on file. Message not sent.")
+    except graph_mail.GraphNotConfigured:
+        raise HTTPException(status_code=503, detail="Email service is not configured.")
+    except graph_mail.GraphConsentMissing:
+        raise HTTPException(status_code=503, detail="Email admin consent not granted yet.")
+    return {"success": True, "sent_to": email}
+
+
+@api_router.get("/admin/users/{user_id}/profile")
+async def get_user_profile(user_id: str, request: Request):
+    """Full customer profile for the admin Users tab: details + order stats + recent orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0, "session_token": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user["email_is_real"] = graph_mail.is_real_email(user.get("email"))
+
+    orders = await db.orders.find({"customer_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=500)
+    paid_statuses = {"paid", "cod_pending", "cod_collected", "cod_paid"}
+    total_spent = round(sum(float(o.get("total", 0) or 0) for o in orders if o.get("payment_status") in paid_statuses), 2)
+    stats = {
+        "order_count": len(orders),
+        "total_spent": total_spent,
+        "delivered": sum(1 for o in orders if o.get("status") == "delivered"),
+        "active": sum(1 for o in orders if o.get("status") not in ("delivered", "cancelled")),
+    }
+    recent = [{
+        "id": o.get("id"), "service_type": o.get("service_type"), "status": o.get("status"),
+        "total": o.get("total"), "payment_method": o.get("payment_method"),
+        "payment_status": o.get("payment_status"), "created_at": o.get("created_at"),
+    } for o in orders[:5]]
+
+    # Role-specific record
+    role_record = None
+    if user.get("user_type") == "driver":
+        role_record = await db.drivers.find_one({"user_id": user_id}, {"_id": 0})
+    elif user.get("user_type") in ("restaurant", "business"):
+        role_record = await db.restaurants.find_one({"user_id": user_id}, {"_id": 0})
+
+    referrer = None
+    if user.get("referred_by"):
+        ref = await db.users.find_one({"id": user["referred_by"]}, {"_id": 0, "name": 1, "email": 1})
+        if ref:
+            referrer = {"name": ref.get("name"), "email": ref.get("email")}
+
+    return {"user": user, "stats": stats, "recent_orders": recent, "role_record": role_record, "referrer": referrer}
 
 @api_router.post("/admin/orders/{order_id}/cancel")
 async def admin_cancel_order(order_id: str, request: Request):
@@ -2008,24 +2294,63 @@ async def _maybe_flag_order(order_dict: dict, extra_signals: Optional[List[str]]
     return flag_doc
 
 
+class TaxiQuoteRequest(BaseModel):
+    pickup_lat: float
+    pickup_lng: float
+    dropoff_lat: float
+    dropoff_lng: float
+    vehicle_type: str = "standard"
+
+
+@api_router.get("/taxi/rate-card")
+async def taxi_rate_card():
+    """Public taxi rate card (TT$ + USD) for the booking UI."""
+    return {"vehicles": taxi_pricing.rate_card_public(), "rate_ttd_per_usd": taxi_pricing.TTD_PER_USD}
+
+
+@api_router.post("/taxi/quote")
+async def taxi_quote(payload: TaxiQuoteRequest):
+    """Estimate a taxi fare from real driving distance + time (Google Directions).
+    Fare is computed server-side so it can't be tampered with. Public (pre-login)."""
+    if payload.vehicle_type not in taxi_pricing.TAXI_RATE_CARD:
+        raise HTTPException(status_code=400, detail="Unknown vehicle type")
+    try:
+        distance_km, duration_min = await taxi_pricing.road_distance_duration(
+            (payload.pickup_lat, payload.pickup_lng),
+            (payload.dropoff_lat, payload.dropoff_lng),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Could not find a driving route between those points: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Taxi quote routing failed: {exc}")
+        raise HTTPException(status_code=503, detail="Fare estimate service is temporarily unavailable.")
+    return taxi_pricing.compute_fare(distance_km, duration_min, payload.vehicle_type)
+
+
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
     """Create new order with automatic commission calculation"""
     current_user = await get_current_user_from_request(request)
     order.customer_id = current_user.id
+
+    # Taxi: recompute the fare server-side from real driving distance so the
+    # delivery_fee (the ride fare) can't be tampered with by the client.
+    if order.service_type == "taxi":
+        pa, da = order.pickup_address or {}, order.delivery_address or {}
+        p_lat, p_lng = pa.get("latitude"), pa.get("longitude")
+        d_lat, d_lng = da.get("latitude"), da.get("longitude")
+        if None not in (p_lat, p_lng, d_lat, d_lng):
+            try:
+                dist_km, dur_min = await taxi_pricing.road_distance_duration((p_lat, p_lng), (d_lat, d_lng))
+                quote = taxi_pricing.compute_fare(dist_km, dur_min, pa.get("vehicle_type") or order.vendor_id or "standard")
+                order.subtotal = 0.0
+                order.delivery_fee = quote["fare_usd"]
+            except Exception as exc:  # noqa: BLE001 — fall back to client-provided fare
+                logging.warning(f"Taxi fare recompute failed for order {order.id}: {exc}")
     
     # Determine vendor ID and type
     vendor_id = order.restaurant_id or order.vendor_id
-    if order.service_type == "food":
-        vendor_type = "restaurant"
-    elif order.service_type == "pharmacy":
-        vendor_type = "pharmacy"
-    elif order.service_type == "grocery":
-        vendor_type = "grocery"
-    elif order.service_type == "car_rental":
-        vendor_type = "car_rental"
-    else:
-        vendor_type = "business"
+    vendor_type = _derive_vendor_type(order.service_type)
     
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)
@@ -2079,7 +2404,6 @@ async def get_user_orders(request: Request):
     
     return [Order(**order) for order in orders]
 
-@api_router.put("/orders/{order_id}/status")
 def _status_timestamp_field(status: str) -> Optional[str]:
     """Map order status → the field to set with the current UTC timestamp."""
     return {
@@ -2092,6 +2416,8 @@ def _status_timestamp_field(status: str) -> Optional[str]:
 
 async def _authorize_order_status_change(current_user: User, order: dict) -> None:
     """Raise 403 if current_user cannot update this order's status."""
+    if current_user.user_type in ("admin", "agent"):
+        return
     if current_user.user_type == "restaurant":
         restaurant = await db.restaurants.find_one({"user_id": current_user.id})
         if restaurant and restaurant["id"] == order["restaurant_id"]:
@@ -2210,6 +2536,7 @@ async def _notify_order_whatsapp(order: dict, status: str):
     )
 
 
+@api_router.put("/orders/{order_id}/status")
 async def update_order_status(order_id: str, status: str, request: Request):
     """Update order status — broken into small steps: auth → timestamps → side-effects → notify."""
     current_user = await get_current_user_from_request(request)
@@ -2257,7 +2584,133 @@ async def update_order_status(order_id: str, status: str, request: Request):
 
     return {"message": f"Order status updated to {status}"}
 
-# Enhanced Order Management Routes
+
+@api_router.post("/orders/{order_id}/confirm-cod")
+async def confirm_order_cod(order_id: str, request: Request):
+    """Place an order as Cash on Delivery / Pay Later — no payment gateway needed.
+    Confirms the order so the logistics flow (assign driver → pickup → deliver) proceeds;
+    the customer pays the driver on delivery."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("customer_id") != current_user.id and current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized for this order")
+    if order.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Order is already paid")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "payment_method": "cash",
+            "payment_status": "cod_pending",
+            "status": "confirmed",
+            "confirmed_at": now_iso,
+            "updated_at": now_iso,
+        }},
+    )
+
+    # Best-effort driver assignment + customer WhatsApp confirmation.
+    try:
+        if not order.get("driver_id"):
+            await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"COD driver assignment skipped for {order_id}: {exc}")
+    asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
+
+    return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
+
+
+@api_router.post("/orders/{order_id}/cash-collected")
+async def confirm_cash_collected(order_id: str, request: Request):
+    """Driver confirms cash collected for a COD order. Marks the order paid-by-cash and
+    tracks how much of that cash the driver owes the platform (total minus driver's earnings)."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Only the assigned driver (or admin) can confirm cash collection.
+    if current_user.user_type == "driver":
+        driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+        if not driver or driver["id"] != order.get("driver_id"):
+            raise HTTPException(status_code=403, detail="You are not assigned to this order")
+    elif current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Only the assigned driver or an admin can confirm cash")
+
+    if order.get("payment_method") != "cash":
+        raise HTTPException(status_code=400, detail="This is not a Cash on Delivery order")
+    if order.get("payment_status") == "cod_collected":
+        raise HTTPException(status_code=400, detail="Cash already marked as collected for this order")
+
+    total = float(order.get("total", 0) or 0)
+    driver_earnings = float(order.get("driver_earnings", 0) or 0)
+    platform_due = round(max(total - driver_earnings, 0.0), 2)  # cash the driver owes the platform
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "payment_status": "cod_collected",
+            "cash_collected_at": now_iso,
+            "cash_collected_by": order.get("driver_id"),
+            "cash_platform_due": platform_due,
+            "updated_at": now_iso,
+        }},
+    )
+    # Track outstanding cash the driver owes the platform.
+    if order.get("driver_id"):
+        await db.drivers.update_one(
+            {"id": order["driver_id"]},
+            {"$inc": {"cash_outstanding": platform_due, "cash_collected_total": total}, "$set": {"updated_at": now_iso}},
+        )
+
+    return {"success": True, "order_id": order_id, "cash_total": round(total, 2),
+            "driver_keeps": round(driver_earnings, 2), "platform_due": platform_due}
+
+
+@api_router.get("/admin/drivers/cash-outstanding")
+async def admin_drivers_cash_outstanding(request: Request):
+    """Per-driver outstanding cash owed to the platform from COD orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    drivers = await db.drivers.find({"cash_outstanding": {"$gt": 0}}, {"_id": 0}).to_list(length=None)
+    rows = []
+    for d in drivers:
+        u = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+        rows.append({
+            "driver_id": d.get("id"),
+            "name": (u or {}).get("name") or "Driver",
+            "phone": (u or {}).get("phone"),
+            "cash_outstanding": round(float(d.get("cash_outstanding", 0) or 0), 2),
+            "cash_collected_total": round(float(d.get("cash_collected_total", 0) or 0), 2),
+        })
+    rows.sort(key=lambda r: r["cash_outstanding"], reverse=True)
+    return {"drivers": rows, "total_outstanding": round(sum(r["cash_outstanding"] for r in rows), 2)}
+
+
+@api_router.post("/admin/drivers/{driver_id}/settle-cash")
+async def admin_settle_driver_cash(driver_id: str, request: Request):
+    """Admin records that a driver has remitted their outstanding cash (resets the balance)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "cash_outstanding": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    settled = round(float(driver.get("cash_outstanding", 0) or 0), 2)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.drivers.update_one({"id": driver_id}, {"$set": {"cash_outstanding": 0.0, "last_cash_settlement_at": now_iso}})
+    await db.driver_cash_settlements.insert_one({
+        "id": str(uuid.uuid4()), "driver_id": driver_id, "amount": settled,
+        "settled_by": current_user.id, "settled_at": now_iso,
+    })
+    return {"success": True, "settled_amount": settled}
+
+
 @api_router.post("/orders/create", response_model=Order)
 async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
     """Create new order with payment processing"""
@@ -2265,6 +2718,10 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
         customer_id=current_user.id,
         **order_data.dict()
     )
+
+    # Apply the approved fee structure (commission + $3 service fee + delivery split)
+    vendor_id = order.restaurant_id or order.vendor_id
+    order = await calculate_order_financials(order, vendor_id, _derive_vendor_type(order.service_type))
     
     # Calculate estimated delivery time (30 mins from now)
     order.estimated_delivery_time = datetime.now(timezone.utc) + timedelta(minutes=30)
@@ -2281,6 +2738,8 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
                 {"id": order.id},
                 {"$set": {"driver_id": available_driver['id']}}
             )
+            # Finalize the delivery-fee split for this specific driver (10% vs 20%)
+            await _finalize_driver_split(order.id, available_driver)
             # Update driver status
             await db.drivers.update_one(
                 {"id": available_driver['id']},
@@ -2702,6 +3161,308 @@ async def create_subscription(
         return {"message": "Subscription created", "subscription": user_subscription.dict()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# DRIVER SUBSCRIPTION TIERS (Standard / Pro / Premium)
+# ============================================================
+class DriverPlanSelect(BaseModel):
+    tier: str  # 'standard' | 'pro' | 'premium'
+
+
+def _driver_plan_by_tier(tier: str) -> Optional[dict]:
+    return next((p for p in DRIVER_SUBSCRIPTION_PLANS if p["tier"] == tier), None)
+
+
+@api_router.get("/driver/subscription/plans")
+async def get_driver_subscription_plans():
+    """Public catalogue of the three driver subscription tiers (prices in TTD)."""
+    return DRIVER_SUBSCRIPTION_PLANS
+
+
+@api_router.get("/driver/subscription")
+async def get_my_driver_subscription(request: Request):
+    """Current driver's active subscription tier (defaults to free Standard)."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    tier = await _driver_plan_tier(current_user.id, driver)
+    plan = _driver_plan_by_tier(tier) or _driver_plan_by_tier("standard")
+    sub = await db.user_subscriptions.find_one(
+        {"user_id": current_user.id, "status": "active", "plan_tier": {"$in": ["pro", "premium"]}},
+        {"_id": 0},
+    )
+    return {
+        "tier": tier,
+        "plan": plan,
+        "current_period_end": sub.get("current_period_end") if sub else None,
+    }
+
+
+@api_router.post("/driver/subscription/select")
+async def select_driver_subscription(payload: DriverPlanSelect, request: Request):
+    """Activate a driver subscription tier. NOTE: paid tiers are activated in
+    sandbox mode (no live recurring charge wired yet — same as the rest of the app)."""
+    current_user = await get_current_user_from_request(request)
+    tier = (payload.tier or "").lower()
+    plan = _driver_plan_by_tier(tier)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan tier")
+
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="No driver profile found for this account")
+
+    now = datetime.now(timezone.utc)
+    # Deactivate any prior active driver subscription
+    await db.user_subscriptions.update_many(
+        {"user_id": current_user.id, "status": "active", "plan_tier": {"$exists": True}},
+        {"$set": {"status": "cancelled", "cancelled_at": now.isoformat()}},
+    )
+
+    if tier in ("pro", "premium"):
+        period_end = now + timedelta(days=30)
+        await db.user_subscriptions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current_user.id,
+            "plan_tier": tier,
+            "price_ttd": plan["price_ttd"],
+            "status": "active",
+            "billing_cycle": "monthly",
+            "current_period_start": now.isoformat(),
+            "current_period_end": period_end.isoformat(),
+            "created_at": now.isoformat(),
+        })
+
+    # Mirror the tier on the driver profile so the payout split resolves instantly
+    await db.drivers.update_one(
+        {"user_id": current_user.id},
+        {"$set": {"subscription_tier": tier, "is_premium": tier == "premium", "updated_at": now.isoformat()}},
+    )
+    return {
+        "success": True,
+        "tier": tier,
+        "platform_cut_pct": plan["platform_cut_pct"],
+        "driver_keep_pct": plan["driver_keep_pct"],
+        "message": f"You're now on the {plan['name']} plan — you keep {plan['driver_keep_pct']}% of delivery fees.",
+    }
+
+
+# ============================================================
+# MERCHANT SUBSCRIPTION TIERS (Standard / Pro / Premium)
+# ============================================================
+class MerchantPlanSelect(BaseModel):
+    tier: str  # 'standard' | 'pro' | 'premium'
+
+
+def _merchant_plan_by_tier(tier: str) -> Optional[dict]:
+    return next((p for p in MERCHANT_SUBSCRIPTION_PLANS if p["tier"] == tier), None)
+
+
+@api_router.get("/merchant/subscription/plans")
+async def get_merchant_subscription_plans():
+    """Public catalogue of the three merchant subscription tiers (prices in TTD)."""
+    return MERCHANT_SUBSCRIPTION_PLANS
+
+
+@api_router.get("/merchant/subscription")
+async def get_my_merchant_subscription(request: Request):
+    """Current merchant's active subscription tier (defaults to free Standard)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    tier = await _merchant_plan_tier(vendor_id)
+    plan = _merchant_plan_by_tier(tier) or _merchant_plan_by_tier("standard")
+    sub = await db.user_subscriptions.find_one(
+        {"user_id": current_user.id, "status": "active", "audience": "merchant",
+         "plan_tier": {"$in": ["pro", "premium"]}},
+        {"_id": 0},
+    )
+    return {
+        "tier": tier,
+        "plan": plan,
+        "current_period_end": sub.get("current_period_end") if sub else None,
+    }
+
+
+@api_router.post("/merchant/subscription/select")
+async def select_merchant_subscription(payload: MerchantPlanSelect, request: Request):
+    """Activate a merchant subscription tier. NOTE: paid tiers are activated in
+    sandbox mode (no live recurring charge wired yet)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    tier = (payload.tier or "").lower()
+    plan = _merchant_plan_by_tier(tier)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan tier")
+
+    now = datetime.now(timezone.utc)
+    await db.user_subscriptions.update_many(
+        {"user_id": current_user.id, "status": "active", "audience": "merchant"},
+        {"$set": {"status": "cancelled", "cancelled_at": now.isoformat()}},
+    )
+    if tier in ("pro", "premium"):
+        await db.user_subscriptions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current_user.id,
+            "audience": "merchant",
+            "plan_tier": tier,
+            "price_ttd": plan["price_ttd"],
+            "status": "active",
+            "billing_cycle": "monthly",
+            "current_period_start": now.isoformat(),
+            "current_period_end": (now + timedelta(days=30)).isoformat(),
+            "created_at": now.isoformat(),
+        })
+
+    # Mirror tier + Featured Partner flag on the merchant profile doc
+    update = {"subscription_tier": tier, "featured": plan["featured"], "updated_at": now.isoformat()}
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        res = await db[coll].update_one({"id": vendor_id}, {"$set": update})
+        if res.matched_count:
+            break
+    return {
+        "success": True,
+        "tier": tier,
+        "commission_pct": plan["commission_pct"],
+        "featured": plan["featured"],
+        "message": f"You're now on the {plan['name']} plan — {plan['commission_pct']}% commission on orders.",
+    }
+
+
+# ============================================================
+# MERCHANT ADVERTISEMENTS (front-page / website ad space)
+# ============================================================
+AD_PACKAGES = [
+    {"id": "home_7", "name": "Homepage Spotlight — 7 days", "placement": "homepage", "days": 7, "price_ttd": 300},
+    {"id": "home_30", "name": "Homepage Spotlight — 30 days", "placement": "homepage", "days": 30, "price_ttd": 1000},
+    {"id": "web_30", "name": "Website Banner — 30 days", "placement": "website", "days": 30, "price_ttd": 1500},
+]
+
+
+class AdCreate(BaseModel):
+    title: str
+    image: str                 # base64 data URL
+    cta_url: Optional[str] = None
+    package_id: str
+
+
+def _ad_package(pid: str) -> Optional[dict]:
+    return next((p for p in AD_PACKAGES if p["id"] == pid), None)
+
+
+def _ad_is_live(ad: dict) -> bool:
+    if ad.get("status") != "active":
+        return False
+    ends = ad.get("ends_at")
+    if ends:
+        try:
+            d = datetime.fromisoformat(ends)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            return d > datetime.now(timezone.utc)
+        except Exception:
+            return True
+    return True
+
+
+@api_router.get("/ads/packages")
+async def get_ad_packages():
+    """Public catalogue of paid advertising packages (prices in TTD)."""
+    return AD_PACKAGES
+
+
+@api_router.get("/ads/active")
+async def get_active_ads(placement: str = "homepage", limit: int = 8):
+    """Public: live merchant ads for the given placement (newest first)."""
+    ads = await db.merchant_ads.find(
+        {"placement": placement, "status": "active"}, {"_id": 0}
+    ).sort("created_at", -1).limit(max(1, min(limit, 20))).to_list(length=20)
+    return [a for a in ads if _ad_is_live(a)]
+
+
+@api_router.post("/ads/{ad_id}/click")
+async def track_ad_click(ad_id: str):
+    await db.merchant_ads.update_one({"id": ad_id}, {"$inc": {"clicks": 1}})
+    return {"success": True}
+
+
+@api_router.get("/merchant/ads")
+async def list_merchant_ads(request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    ads = await db.merchant_ads.find({"vendor_id": vendor_id}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=50)
+    for a in ads:
+        a["is_live"] = _ad_is_live(a)
+    return ads
+
+
+@api_router.post("/merchant/ads")
+async def create_merchant_ad(payload: AdCreate, request: Request):
+    """Buy ad space. NOTE: payment is sandbox-activated (no live charge wired yet)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    pkg = _ad_package(payload.package_id)
+    if not pkg:
+        raise HTTPException(status_code=400, detail="Invalid ad package")
+    if not payload.title or not payload.image:
+        raise HTTPException(status_code=400, detail="Title and image are required")
+    if len(payload.image) > 1_500_000:
+        raise HTTPException(status_code=413, detail="Ad image too large (max ~1MB)")
+
+    now = datetime.now(timezone.utc)
+    merchant = None
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        merchant = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "name": 1})
+        if merchant:
+            break
+    doc = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "merchant_name": (merchant or {}).get("name"),
+        "title": payload.title,
+        "image": payload.image,
+        "cta_url": payload.cta_url or f"/restaurant/{vendor_id}",
+        "placement": pkg["placement"],
+        "package_id": pkg["id"],
+        "price_ttd": pkg["price_ttd"],
+        "status": "active",
+        "starts_at": now.isoformat(),
+        "ends_at": (now + timedelta(days=pkg["days"])).isoformat(),
+        "impressions": 0,
+        "clicks": 0,
+        "created_at": now.isoformat(),
+    }
+    await db.merchant_ads.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"success": True, "ad": doc, "message": f"Your ad is live for {pkg['days']} days!"}
+
+
+@api_router.patch("/merchant/ads/{ad_id}")
+async def toggle_merchant_ad(ad_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    ad = await db.merchant_ads.find_one({"id": ad_id, "vendor_id": vendor_id}, {"_id": 0, "status": 1})
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    new_status = "paused" if ad.get("status") == "active" else "active"
+    await db.merchant_ads.update_one({"id": ad_id}, {"$set": {"status": new_status}})
+    return {"success": True, "status": new_status}
+
+
+@api_router.delete("/merchant/ads/{ad_id}")
+async def delete_merchant_ad(ad_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_ads.delete_one({"id": ad_id, "vendor_id": vendor_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    return {"success": True}
+
+
+
+
+
+
 
 @api_router.post("/payments/create-payment-intent")
 async def create_payment_intent(
@@ -4224,6 +4985,10 @@ async def driver_accept_order(order_id: str, driver_id: str):
             "status": "confirmed"
         }}
     )
+
+    # Finalize delivery-fee split based on this driver's subscription (10% vs 20%)
+    driver_doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    await _finalize_driver_split(order_id, driver_doc or {})
     
     # Update driver status
     await db.drivers.update_one(
@@ -5191,8 +5956,8 @@ async def get_driver_performance(driver_id: str, days: int = 7):
                 if delivery_time <= 30:
                     on_time_count += 1
                 
-                # Calculate driver earnings (80% of delivery fee)
-                earnings += order.get('delivery_fee', 0) * 0.8
+                # Driver earnings = stored payout (delivery share minus platform cut + tips)
+                earnings += order.get('driver_earnings', order.get('delivery_fee', 0) * 0.8)
         
         # Get driver ratings
         ratings = await db.customer_ratings.find({
@@ -5248,8 +6013,8 @@ async def get_financial_summary(start_date: str, end_date: str):
         delivery_fee_revenue = sum(o.get('delivery_fee', 0) for o in orders)
         tax_revenue = sum(o.get('tax', 0) for o in orders)
         
-        # Cost calculations (estimates)
-        driver_payouts = delivery_fee_revenue * 0.8  # Drivers get 80% of delivery fee
+        # Cost calculations
+        driver_payouts = sum(o.get('driver_earnings', o.get('delivery_fee', 0) * 0.8) for o in orders)
         payment_processing_fees = total_revenue * 0.029  # ~2.9% for payment processing
         operational_costs = len(orders) * 2.50  # Estimated operational cost per order
         
@@ -5314,48 +6079,85 @@ async def get_pricing_tiers():
     return [PricingTier(**tier) for tier in tiers]
 
 # Business Onboarding Routes
-@api_router.post("/business/onboarding", response_model=BusinessOnboarding)
-async def create_business_application(application: BusinessOnboarding, request: Request):
-    """Submit business onboarding application"""
+@api_router.post("/business/onboarding")
+async def create_business_application(application: BusinessOnboardingRequest, request: Request):
+    """Submit a partner/business onboarding application. Accepts partial data — bank
+    info and several details are optional so applicants can complete sign-up during
+    testing and add the rest later. Auth is optional (anonymous test submissions allowed)."""
     try:
-        # Get current user
-        current_user = await get_current_user(request)
-        application.user_id = current_user.id
-        
-        # Store application
-        app_dict = prepare_for_mongo(application.dict())
-        await db.business_applications.insert_one(app_dict)
-        
-        return application
-    
+        # Auth is best-effort — derive user_id if a valid session/token is present.
+        user_id = None
+        try:
+            current_user = await get_current_user_from_request(request)
+            user_id = current_user.id
+        except Exception:
+            user_id = None
+
+        owner = application.business_owner or {}
+        details = application.business_details or {}
+
+        # Normalise documents to a list of dicts regardless of how the form sent them.
+        docs = application.documents
+        if isinstance(docs, dict):
+            normalised_docs = [{"type": k, **(v if isinstance(v, dict) else {"value": v})} for k, v in docs.items()]
+        elif isinstance(docs, list):
+            normalised_docs = docs
+        else:
+            normalised_docs = []
+
+        app_doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "business_owner": owner,
+            "business_details": details,
+            "documents": normalised_docs,
+            "banking_info": application.banking_info,  # may be None — bank is optional
+            "verification_status": "pending",
+            "application_date": datetime.now(timezone.utc).isoformat(),
+            "reviewed_by": None,
+            "review_notes": None,
+            "approved_date": None,
+            # convenience fields for the admin approvals list
+            "name": owner.get("name"),
+            "email": owner.get("email"),
+            "phone": owner.get("phone"),
+            "business_name": details.get("business_name"),
+        }
+        await db.business_applications.insert_one(prepare_for_mongo(dict(app_doc)))
+        app_doc.pop("_id", None)
+        return {"success": True, "application": app_doc}
     except Exception as e:
+        logging.exception("Business onboarding submission failed")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/business/onboarding", response_model=List[BusinessOnboarding])
+@api_router.get("/business/onboarding")
 async def get_business_applications(request: Request):
     """Get business applications for current user"""
     try:
-        current_user = await get_current_user(request)
-        applications = await db.business_applications.find({"user_id": current_user.id}).to_list(length=None)
-        return [BusinessOnboarding(**app) for app in applications]
-    
+        current_user = await get_current_user_from_request(request)
+        applications = await db.business_applications.find(
+            {"user_id": current_user.id}, {"_id": 0}
+        ).to_list(length=None)
+        return applications
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/business/onboarding/{application_id}", response_model=BusinessOnboarding)
+@api_router.get("/business/onboarding/{application_id}")
 async def get_business_application(application_id: str, request: Request):
     """Get specific business application"""
     try:
-        current_user = await get_current_user(request)
+        current_user = await get_current_user_from_request(request)
         application = await db.business_applications.find_one({
             "id": application_id,
             "user_id": current_user.id
-        })
+        }, {"_id": 0})
         
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
         
-        return BusinessOnboarding(**application)
+        return application
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -5377,12 +6179,13 @@ class ApplyPromoToOrderRequest(BaseModel):
 
 
 def _recompute_order_total(order_doc: dict) -> float:
-    """Compute total from order parts: subtotal + delivery_fee + tax + tip - discount."""
+    """Compute total from order parts: subtotal + delivery_fee + tax + tip + service_fee - discount."""
     return round(
         float(order_doc.get("subtotal", 0) or 0)
         + float(order_doc.get("delivery_fee", 0) or 0)
         + float(order_doc.get("tax", 0) or 0)
         + float(order_doc.get("tip", 0) or 0)
+        + float(order_doc.get("service_fee", 0) or 0)
         - float(order_doc.get("discount", 0) or 0),
         2,
     )
@@ -5404,7 +6207,8 @@ async def apply_promo_to_order(order_id: str, payload: ApplyPromoToOrderRequest,
 
     promo = await db.promo_codes.find_one({"code": code}, {"_id": 0})
     if not promo or not promo.get("active"):
-        raise HTTPException(status_code=404, detail="Promo code not found or inactive")
+        # Fall back to a merchant self-service coupon scoped to this order's merchant
+        return await _apply_merchant_coupon(order, order_id, code, current_user)
 
     _assert_promo_dates_valid(promo)
     _assert_promo_usage_within_limit(promo)
@@ -5466,6 +6270,244 @@ async def remove_promo_from_order(order_id: str, request: Request):
                   "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"success": True, "total": new_total}
+
+
+# ============================================================
+# MERCHANT STOREFRONT + SELF-SERVICE COUPONS
+# ============================================================
+import random
+import string
+
+
+class StorefrontUpdate(BaseModel):
+    logo: Optional[str] = None       # base64 data URL or hosted URL
+    cover: Optional[str] = None      # banner/cover image
+    bio: Optional[str] = None        # max 500 chars
+    gallery: Optional[List[str]] = None  # up to 6 images
+
+
+class MerchantCouponCreate(BaseModel):
+    code: Optional[str] = None       # alphanumeric; auto-generated if blank
+    discount_type: str               # 'percentage' | 'fixed'
+    discount_value: float
+    min_order_amount: Optional[float] = 0.0
+    expiry_date: Optional[str] = None  # ISO date/datetime string
+    usage_limit: Optional[int] = None
+
+
+class MerchantCouponToggle(BaseModel):
+    active: bool
+
+
+MAX_STOREFRONT_IMG_LEN = 1_500_000  # ~1.1MB binary per image after client-side resize
+
+
+async def _resolve_vendor_for_user(current_user) -> tuple:
+    """Return (vendor_id, vendor_type) for the signed-in merchant, else 404."""
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if restaurant:
+        return restaurant["id"], "restaurant"
+    business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1, "business_type": 1})
+    if business:
+        return business["id"], business.get("business_type") or "business"
+    rental = await db.car_rental_companies.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if rental:
+        return rental["id"], "car_rental"
+    raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+
+def _validate_storefront_images(payload: StorefrontUpdate):
+    for field in ("logo", "cover"):
+        val = getattr(payload, field)
+        if val and len(val) > MAX_STOREFRONT_IMG_LEN:
+            raise HTTPException(status_code=413, detail=f"{field.capitalize()} image is too large (max ~1MB)")
+    if payload.gallery is not None:
+        if len(payload.gallery) > 6:
+            raise HTTPException(status_code=400, detail="Gallery is limited to 6 photos")
+        for g in payload.gallery:
+            if g and len(g) > MAX_STOREFRONT_IMG_LEN:
+                raise HTTPException(status_code=413, detail="A gallery image is too large (max ~1MB each)")
+
+
+@api_router.get("/merchant/storefront")
+async def get_my_storefront(request: Request):
+    """Get the signed-in merchant's storefront customisation."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not doc:
+        doc = {"vendor_id": vendor_id, "vendor_type": vendor_type,
+               "logo": None, "cover": None, "bio": "", "gallery": []}
+    return doc
+
+
+@api_router.put("/merchant/storefront")
+async def update_my_storefront(payload: StorefrontUpdate, request: Request):
+    """Upsert the signed-in merchant's storefront (logo, cover, bio, gallery)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if payload.bio is not None and len(payload.bio) > 500:
+        raise HTTPException(status_code=400, detail="Bio must be 500 characters or fewer")
+    _validate_storefront_images(payload)
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    update.update({
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    return {"success": True, "storefront": doc}
+
+
+@api_router.get("/merchants/{vendor_id}/storefront")
+async def get_public_storefront(vendor_id: str):
+    """Public storefront customisation for a merchant (used by the customer-facing store page)."""
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not doc:
+        return {"vendor_id": vendor_id, "logo": None, "cover": None, "bio": "", "gallery": []}
+    return doc
+
+
+def _gen_coupon_code() -> str:
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+
+def _merchant_coupon_expired(exp: Optional[str]) -> bool:
+    if not exp:
+        return False
+    try:
+        d = datetime.fromisoformat(exp)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        # Date-only values count as valid through the end of that day
+        if len(exp) <= 10:
+            d = d + timedelta(days=1)
+        return d < datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
+@api_router.post("/merchant/coupons")
+async def create_merchant_coupon(payload: MerchantCouponCreate, request: Request):
+    """Merchant creates a self-service discount coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+
+    dtype = (payload.discount_type or "").lower()
+    if dtype not in ("percentage", "fixed"):
+        raise HTTPException(status_code=400, detail="discount_type must be 'percentage' or 'fixed'")
+    if payload.discount_value is None or payload.discount_value <= 0:
+        raise HTTPException(status_code=400, detail="discount_value must be greater than 0")
+    if dtype == "percentage" and payload.discount_value > 100:
+        raise HTTPException(status_code=400, detail="Percentage discount cannot exceed 100%")
+
+    code = (payload.code or "").strip().upper() or _gen_coupon_code()
+    if not re.match(r"^[A-Z0-9]{3,20}$", code):
+        raise HTTPException(status_code=400, detail="Code must be 3-20 alphanumeric characters")
+    if await db.merchant_coupons.find_one({"vendor_id": vendor_id, "code": code}):
+        raise HTTPException(status_code=400, detail="You already have a coupon with this code")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "code": code,
+        "discount_type": dtype,
+        "discount_value": round(float(payload.discount_value), 2),
+        "min_order_amount": round(float(payload.min_order_amount or 0), 2),
+        "expiry_date": payload.expiry_date,
+        "usage_limit": payload.usage_limit,
+        "used_count": 0,
+        "active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.merchant_coupons.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"success": True, "coupon": doc}
+
+
+@api_router.get("/merchant/coupons")
+async def list_merchant_coupons(request: Request):
+    """List the signed-in merchant's coupons with redemption counts + expiry status."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    coupons = await db.merchant_coupons.find(
+        {"vendor_id": vendor_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(200).to_list(length=200)
+    for c in coupons:
+        c["is_expired"] = _merchant_coupon_expired(c.get("expiry_date"))
+    return coupons
+
+
+@api_router.patch("/merchant/coupons/{coupon_id}")
+async def toggle_merchant_coupon(coupon_id: str, payload: MerchantCouponToggle, request: Request):
+    """Activate / deactivate a coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_coupons.update_one(
+        {"id": coupon_id, "vendor_id": vendor_id}, {"$set": {"active": bool(payload.active)}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return {"success": True}
+
+
+@api_router.delete("/merchant/coupons/{coupon_id}")
+async def delete_merchant_coupon(coupon_id: str, request: Request):
+    """Delete a coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_coupons.delete_one({"id": coupon_id, "vendor_id": vendor_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return {"success": True}
+
+
+async def _apply_merchant_coupon(order: dict, order_id: str, code: str, current_user) -> dict:
+    """Validate + apply a merchant-scoped coupon to an unpaid order (shared discount slot)."""
+    merchant_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not merchant_id:
+        raise HTTPException(status_code=404, detail="Code not found")
+    coupon = await db.merchant_coupons.find_one({"vendor_id": merchant_id, "code": code}, {"_id": 0})
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Code not valid for this store")
+    if not coupon.get("active"):
+        raise HTTPException(status_code=400, detail="This coupon is no longer active")
+    if _merchant_coupon_expired(coupon.get("expiry_date")):
+        raise HTTPException(status_code=400, detail="This coupon has expired")
+
+    already_used_here = await db.merchant_coupon_usage.find_one(
+        {"coupon_id": coupon["id"], "order_id": order_id}
+    )
+    limit = coupon.get("usage_limit")
+    if limit is not None and not already_used_here and coupon.get("used_count", 0) >= limit:
+        raise HTTPException(status_code=400, detail="This coupon has reached its usage limit")
+
+    subtotal = float(order.get("subtotal", 0) or 0)
+    min_order = float(coupon.get("min_order_amount", 0) or 0)
+    if min_order and subtotal < min_order:
+        raise HTTPException(status_code=400, detail=f"Minimum order of ${min_order:.2f} required for this coupon")
+
+    if coupon["discount_type"] == "percentage":
+        discount = round(subtotal * (float(coupon["discount_value"]) / 100), 2)
+    else:
+        discount = round(min(float(coupon["discount_value"]), subtotal), 2)
+
+    updated = {**order, "discount": discount, "promo_code": code}
+    new_total = _recompute_order_total(updated)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "discount": discount, "promo_code": code, "coupon_vendor_id": merchant_id,
+        "total": new_total, "updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    if not already_used_here:
+        await db.merchant_coupons.update_one({"id": coupon["id"]}, {"$inc": {"used_count": 1}})
+        await db.merchant_coupon_usage.insert_one({
+            "coupon_id": coupon["id"], "order_id": order_id,
+            "user_id": current_user.id, "used_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return {"success": True, "code": code, "discount": discount, "total": new_total,
+            "message": f"Coupon applied! You saved ${discount:.2f}"}
 
 
 @api_router.put("/orders/{order_id}/tip")
@@ -6299,9 +7341,8 @@ async def process_driver_payout(driver_id: str, request: Request):
 
 
 # ============================================================
-# WALLET ROUTES — IslandHop in-app wallet + CariPay integration
+# WALLET ROUTES — IslandHop in-app wallet (internal credits only)
 # ============================================================
-import caripay_client  # noqa: E402
 
 
 async def _get_or_create_wallet(user_id: str) -> dict:
@@ -6419,141 +7460,10 @@ async def get_wallet_transactions(request: Request, limit: int = 50):
     return await cursor.to_list(length=limit)
 
 
-class LinkCaripayRequest(BaseModel):
-    handle: str  # phone, email, or CariPay account number
-    country: Optional[str] = None  # JM, TT, BB, GH, NG, ZA
-
-
-@api_router.post("/wallet/link")
-async def link_caripay(payload: LinkCaripayRequest, request: Request):
-    current_user = await get_current_user_from_request(request)
-    handle = (payload.handle or "").strip()
-    if not handle:
-        raise HTTPException(status_code=400, detail="CariPay handle is required")
-    await _get_or_create_wallet(current_user.id)
-    await db.wallets.update_one(
-        {"user_id": current_user.id},
-        {"$set": {
-            "caripay_handle": handle,
-            "caripay_country": payload.country,
-            "caripay_linked_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
-    )
-    return await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0})
-
-
-@api_router.delete("/wallet/link")
-async def unlink_caripay(request: Request):
-    current_user = await get_current_user_from_request(request)
-    await db.wallets.update_one(
-        {"user_id": current_user.id},
-        {"$set": {"caripay_handle": None, "caripay_country": None, "caripay_linked_at": None,
-                  "updated_at": datetime.now(timezone.utc).isoformat()}},
-    )
-    return {"success": True}
-
-
 class WalletAmountRequest(BaseModel):
     amount: float
     currency: str = "USD"
     note: Optional[str] = None
-
-
-@api_router.post("/wallet/deposit")
-async def wallet_deposit(payload: WalletAmountRequest, request: Request):
-    """Pull funds from the linked CariPay account into the user's IslandHop wallet."""
-    current_user = await get_current_user_from_request(request)
-    payload.amount = _round_money(payload.amount)
-    if payload.amount <= 0 or payload.amount > 10000:
-        raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
-    currency = (payload.currency or "USD").upper()
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        raise HTTPException(status_code=400, detail=f"Unsupported currency. Supported: {sorted(SUPPORTED_WALLET_CURRENCIES)}")
-
-    wallet = await _get_or_create_wallet(current_user.id)
-    if not wallet.get("caripay_handle"):
-        raise HTTPException(status_code=400, detail="Link your CariPay account first")
-
-    reference = f"deposit:{current_user.id}:{uuid.uuid4().hex[:8]}"
-    try:
-        cp_resp = await caripay_client.initiate_deposit(
-            handle=wallet["caripay_handle"],
-            amount=payload.amount,
-            currency=currency,
-            reference=reference,
-        )
-    except Exception as e:
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"), note=f"CariPay error: {e}")
-        raise HTTPException(status_code=502, detail=f"CariPay error: {e}")
-
-    if not cp_resp.get("success"):
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"))
-        raise HTTPException(status_code=502, detail="CariPay declined the deposit")
-
-    await _credit_wallet(current_user.id, payload.amount, currency)
-    txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="deposit",
-                            amount=payload.amount, currency=currency, status="completed",
-                            counterparty_handle=wallet.get("caripay_handle"),
-                            external_transfer_id=cp_resp.get("transfer_id"),
-                            note=payload.note)
-    return {"success": True, "transaction": txn.dict(),
-            "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
-
-
-@api_router.post("/wallet/withdraw")
-async def wallet_withdraw(payload: WalletAmountRequest, request: Request):
-    """Push funds from the user's IslandHop wallet to their linked CariPay account."""
-    current_user = await get_current_user_from_request(request)
-    if payload.amount <= 0 or payload.amount > 10000:
-        raise HTTPException(status_code=400, detail="Amount must be between $0.01 and $10,000")
-    currency = (payload.currency or "USD").upper()
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        raise HTTPException(status_code=400, detail="Unsupported currency")
-
-    wallet = await _get_or_create_wallet(current_user.id)
-    if not wallet.get("caripay_handle"):
-        raise HTTPException(status_code=400, detail="Link your CariPay account first")
-    if float(wallet.get("balances", {}).get(currency, 0)) < payload.amount:
-        raise HTTPException(status_code=400, detail="Insufficient balance")
-
-    # Reserve the funds first (debit) — refund if CariPay fails
-    await _debit_wallet(current_user.id, payload.amount, currency)
-    reference = f"withdraw:{current_user.id}:{uuid.uuid4().hex[:8]}"
-    try:
-        cp_resp = await caripay_client.initiate_withdrawal(
-            handle=wallet["caripay_handle"],
-            amount=payload.amount,
-            currency=currency,
-            reference=reference,
-        )
-    except Exception as e:
-        # Reverse the debit
-        await _credit_wallet(current_user.id, payload.amount, currency)
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"),
-                          note=f"CariPay error: {e}")
-        raise HTTPException(status_code=502, detail=f"CariPay error: {e}")
-
-    if not cp_resp.get("success"):
-        await _credit_wallet(current_user.id, payload.amount, currency)
-        await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                          amount=payload.amount, currency=currency, status="failed",
-                          counterparty_handle=wallet.get("caripay_handle"))
-        raise HTTPException(status_code=502, detail="CariPay declined the withdrawal")
-
-    txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="withdraw",
-                            amount=payload.amount, currency=currency, status="completed",
-                            counterparty_handle=wallet.get("caripay_handle"),
-                            external_transfer_id=cp_resp.get("transfer_id"),
-                            note=payload.note)
-    return {"success": True, "transaction": txn.dict(),
-            "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
 
 
 # ---------------------------------------------------------------------------
@@ -6977,61 +7887,6 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
                             order_id=payload.order_id, note="Paid order from wallet")
     return {"success": True, "transaction": txn.dict(),
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
-
-
-@api_router.post("/webhook/caripay")
-async def caripay_webhook(request: Request):
-    """
-    Receive webhook events from CariPay. Used when CariPay reconciles a transfer
-    asynchronously (e.g. user-initiated push from CariPay app → IslandHop wallet).
-    Verified via HMAC-SHA256 (header: X-CariPay-Signature: sha256=<hex>).
-    """
-    body = await request.body()
-    sig = request.headers.get("X-CariPay-Signature")
-    if not caripay_client.verify_webhook_signature(body, sig):
-        raise HTTPException(status_code=400, detail="Invalid CariPay webhook signature")
-    try:
-        event = json.loads(body.decode() or "{}")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
-    event_type = event.get("type") or event.get("event")
-    transfer_id = event.get("transfer_id") or event.get("id")
-    handle = event.get("handle")
-    amount = float(event.get("amount", 0) or 0)
-    currency = (event.get("currency") or "USD").upper()
-    status = (event.get("status") or "").lower()
-
-    if currency not in SUPPORTED_WALLET_CURRENCIES:
-        return {"received": True, "ignored": True, "reason": f"unsupported_currency:{currency}"}
-
-    if not handle:
-        return {"received": True, "ignored": True, "reason": "no_handle"}
-
-    wallet = await db.wallets.find_one({"caripay_handle": handle}, {"_id": 0})
-    if not wallet:
-        return {"received": True, "ignored": True, "reason": "no_wallet_for_handle"}
-
-    # Idempotency — never process the same transfer twice
-    if transfer_id:
-        seen = await db.wallet_transactions.find_one(
-            {"external_transfer_id": transfer_id}, {"_id": 0}
-        )
-        if seen:
-            return {"received": True, "duplicate": True}
-
-    # Only honour completed deposit-style events here
-    if event_type in {"deposit.completed", "transfer.completed"} and status in {"", "completed", "succeeded"}:
-        await _credit_wallet(wallet["user_id"], amount, currency)
-        await _record_txn(
-            user_id=wallet["user_id"], wallet_id=wallet["id"], type="deposit",
-            amount=amount, currency=currency, status="completed",
-            counterparty_handle=handle, external_transfer_id=transfer_id,
-            note="CariPay webhook deposit",
-        )
-        return {"received": True, "credited": True}
-
-    return {"received": True, "ignored": True, "reason": f"unsupported_event:{event_type}"}
 
 
 # AI Chat Routes
@@ -7531,6 +8386,260 @@ async def _maybe_complete_referral(referee_id: str):
         {"user_id": referrer_id},
         {"$inc": {"total_referrals": 1, "total_rewards": amount}},
     )
+    # Promoter (QR) compensation for the customer-onboarding milestone.
+    await _award_promo_reward(referee_id, "customer", "first_paid_order")
+
+
+# ============================================================
+# PROMOTER / AMBASSADOR QR SYSTEM
+# Each user has a referral code (reused) + QR. Promoters earn wallet
+# rewards when people they onboarded complete a qualifying action.
+# Paid immediately if the promoter is ELIGIBLE (admin-approved Ambassador
+# OR an active/approved account); otherwise HELD until they become eligible.
+# ============================================================
+PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
+PROMO_REWARDS = {
+    "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
+    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "15")),
+    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "20")),
+    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "25")),
+}
+PROMO_TYPE_LABEL = {
+    "customer": "Customer", "driver": "Driver",
+    "merchant": "Business/Merchant", "supplier": "Supplier",
+}
+
+
+async def _is_eligible_promoter(promoter: Optional[dict]) -> bool:
+    """Eligible = admin-approved Ambassador OR an active/approved account."""
+    if not promoter:
+        return False
+    if promoter.get("is_promoter"):
+        return True
+    if promoter.get("user_type") in ("driver", "restaurant", "business", "admin", "agent"):
+        return True
+    uid = promoter.get("id")
+    if uid:
+        if await db.drivers.find_one({"user_id": uid, "status": {"$in": ["active", "online", "busy"]}}, {"_id": 1}):
+            return True
+        if await db.restaurants.find_one({"user_id": uid, "status": {"$in": ["active", "approved"]}}, {"_id": 1}):
+            return True
+        if await db.car_rental_companies.find_one({"user_id": uid, "status": {"$in": ["active", "approved"]}}, {"_id": 1}):
+            return True
+        if await db.business_applications.find_one({"user_id": uid, "verification_status": "verified"}, {"_id": 1}):
+            return True
+    return False
+
+
+async def _release_held_promo_rewards(promoter_id: str) -> int:
+    """If the promoter is now eligible, credit any HELD rewards to their wallet."""
+    promoter = await db.users.find_one({"id": promoter_id}, {"_id": 0})
+    if not await _is_eligible_promoter(promoter):
+        return 0
+    held = await db.promo_rewards.find({"promoter_id": promoter_id, "status": "held"}).to_list(length=None)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for r in held:
+        await _credit_wallet_with_txn(
+            promoter_id, r["amount"], r.get("currency", PROMO_REWARD_CURRENCY),
+            txn_type="promoter_reward", counterparty_user_id=r.get("referred_user_id"),
+            note=f"Promoter reward: {PROMO_TYPE_LABEL.get(r.get('type'), r.get('type'))} onboarding",
+        )
+        await db.promo_rewards.update_one({"id": r["id"]}, {"$set": {"status": "paid", "paid_at": now_iso}})
+    return len(held)
+
+
+async def _award_promo_reward(referred_user_id: str, reward_type: str, qualifying_event: str) -> None:
+    """Grant the promoter (referred_user.referred_by) a reward for an onboarding milestone. Idempotent."""
+    user = await db.users.find_one({"id": referred_user_id}, {"_id": 0})
+    if not user or not user.get("referred_by") or user["referred_by"] == referred_user_id:
+        return
+    promoter_id = user["referred_by"]
+    if await db.promo_rewards.find_one(
+        {"promoter_id": promoter_id, "referred_user_id": referred_user_id, "type": reward_type}, {"_id": 1}
+    ):
+        return  # one reward per (promoter, referred_user, type)
+    amount = float(PROMO_REWARDS.get(reward_type, 0) or 0)
+    if amount <= 0:
+        return
+    promoter = await db.users.find_one({"id": promoter_id}, {"_id": 0})
+    eligible = await _is_eligible_promoter(promoter)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    reward = {
+        "id": str(uuid.uuid4()),
+        "promoter_id": promoter_id,
+        "referred_user_id": referred_user_id,
+        "referred_name": user.get("name"),
+        "type": reward_type,
+        "amount": amount,
+        "currency": PROMO_REWARD_CURRENCY,
+        "qualifying_event": qualifying_event,
+        "status": "paid" if eligible else "held",
+        "created_at": now_iso,
+        "paid_at": now_iso if eligible else None,
+    }
+    if eligible:
+        await _credit_wallet_with_txn(
+            promoter_id, amount, PROMO_REWARD_CURRENCY, txn_type="promoter_reward",
+            counterparty_user_id=referred_user_id,
+            note=f"Promoter reward: {PROMO_TYPE_LABEL.get(reward_type, reward_type)} onboarding",
+        )
+    await db.promo_rewards.insert_one(reward)
+
+
+@api_router.get("/promoter/me")
+async def get_promoter_me(request: Request):
+    """Promoter dashboard summary: code, eligibility, reward schedule, totals."""
+    current_user = await get_current_user_from_request(request)
+    code_doc = await _get_or_create_referral_code(current_user)
+    await _release_held_promo_rewards(current_user.id)
+    promoter = await db.users.find_one({"id": current_user.id}, {"_id": 0})
+    eligible = await _is_eligible_promoter(promoter)
+    rewards = await db.promo_rewards.find({"promoter_id": current_user.id}, {"_id": 0}).to_list(length=None)
+    paid = sum(r["amount"] for r in rewards if r.get("status") == "paid")
+    held = sum(r["amount"] for r in rewards if r.get("status") == "held")
+    by_type: dict = {}
+    for r in rewards:
+        by_type[r["type"]] = by_type.get(r["type"], 0) + 1
+    return {
+        "code": code_doc["code"],
+        "is_eligible": eligible,
+        "is_ambassador": bool((promoter or {}).get("is_promoter")),
+        "currency": PROMO_REWARD_CURRENCY,
+        "reward_schedule": PROMO_REWARDS,
+        "totals": {"paid": round(paid, 2), "held": round(held, 2), "count": len(rewards), "by_type": by_type},
+    }
+
+
+@api_router.get("/promoter/onboards")
+async def get_promoter_onboards(request: Request):
+    """List people this promoter onboarded, with status + rewards earned."""
+    current_user = await get_current_user_from_request(request)
+    referred = await db.users.find(
+        {"referred_by": current_user.id},
+        {"_id": 0, "id": 1, "name": 1, "user_type": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(length=500)
+    rewards = await db.promo_rewards.find({"promoter_id": current_user.id}, {"_id": 0}).to_list(length=None)
+    rewards_by_user: dict = {}
+    for r in rewards:
+        rewards_by_user.setdefault(r["referred_user_id"], []).append(
+            {"type": r["type"], "amount": r["amount"], "status": r["status"]}
+        )
+    out = [{
+        "user_id": u["id"], "name": u.get("name"), "role": u.get("user_type"),
+        "joined_at": u.get("created_at"), "rewards": rewards_by_user.get(u["id"], []),
+    } for u in referred]
+    return {"onboards": out, "count": len(out)}
+
+
+@api_router.get("/promoter/leaderboard")
+async def get_promoter_leaderboard(limit: int = 20):
+    """Top promoters by total PAID rewards (public, names only)."""
+    pipeline = [
+        {"$match": {"status": "paid"}},
+        {"$group": {"_id": "$promoter_id", "total": {"$sum": "$amount"}, "onboards": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+        {"$limit": int(limit)},
+    ]
+    rows = await db.promo_rewards.aggregate(pipeline).to_list(length=limit)
+    ids = [r["_id"] for r in rows]
+    names: dict = {}
+    if ids:
+        async for u in db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1}):
+            names[u["id"]] = u.get("name")
+    out = [{
+        "rank": i + 1, "name": names.get(r["_id"], "Promoter"),
+        "total": round(r["total"], 2), "onboards": r["onboards"],
+    } for i, r in enumerate(rows)]
+    return {"leaderboard": out, "currency": PROMO_REWARD_CURRENCY}
+
+
+@api_router.get("/promoter/social-proof")
+async def get_promoter_social_proof():
+    """Public: top promoter's earnings THIS MONTH for homepage social proof (first name only)."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    pipeline = [
+        {"$match": {"status": "paid", "paid_at": {"$gte": month_start}}},
+        {"$group": {"_id": "$promoter_id", "total": {"$sum": "$amount"}}},
+        {"$sort": {"total": -1}},
+        {"$limit": 1},
+    ]
+    rows = await db.promo_rewards.aggregate(pipeline).to_list(length=1)
+    onboards_this_month = await db.promo_rewards.count_documents({"status": "paid", "paid_at": {"$gte": month_start}})
+    if not rows:
+        return {"has_data": False, "currency": PROMO_REWARD_CURRENCY, "onboards_this_month": 0}
+    top = rows[0]
+    promoter = await db.users.find_one({"id": top["_id"]}, {"_id": 0, "name": 1})
+    full = (promoter or {}).get("name") or "A promoter"
+    first = full.split()[0] if full else "A promoter"
+    return {
+        "has_data": True,
+        "top_name": first,
+        "top_earnings": round(top["total"], 2),
+        "onboards_this_month": onboards_this_month,
+        "currency": PROMO_REWARD_CURRENCY,
+    }
+
+
+@api_router.get("/promoter/resolve/{code}")
+async def resolve_promoter_code(code: str):
+    """Public: resolve a promoter code to a display name for the join landing page."""
+    code_doc = await db.referral_codes.find_one({"code": (code or "").strip().upper()}, {"_id": 0})
+    if not code_doc:
+        return {"valid": False}
+    promoter = await db.users.find_one({"id": code_doc["user_id"]}, {"_id": 0, "name": 1})
+    return {"valid": True, "code": code_doc["code"], "promoter_name": (promoter or {}).get("name", "an IslandHop promoter")}
+
+
+@api_router.get("/admin/promoters")
+async def admin_list_promoters(request: Request, limit: int = 200):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    promoter_ids = set()
+    async for u in db.users.find({"is_promoter": True}, {"_id": 0, "id": 1}):
+        promoter_ids.add(u["id"])
+    async for r in db.promo_rewards.find({}, {"_id": 0, "promoter_id": 1}):
+        promoter_ids.add(r["promoter_id"])
+    out = []
+    if promoter_ids:
+        rewards = await db.promo_rewards.find({"promoter_id": {"$in": list(promoter_ids)}}, {"_id": 0}).to_list(length=None)
+        by_promoter: dict = {}
+        for r in rewards:
+            d = by_promoter.setdefault(r["promoter_id"], {"paid": 0.0, "held": 0.0, "count": 0})
+            d["count"] += 1
+            d[r["status"]] = d.get(r["status"], 0) + r["amount"]
+        async for u in db.users.find(
+            {"id": {"$in": list(promoter_ids)}},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "is_promoter": 1, "user_type": 1},
+        ):
+            stats = by_promoter.get(u["id"], {})
+            out.append({**u, "paid": round(stats.get("paid", 0), 2), "held": round(stats.get("held", 0), 2), "onboards": stats.get("count", 0)})
+    out.sort(key=lambda x: x.get("paid", 0), reverse=True)
+    return {"promoters": out[:limit]}
+
+
+class PromoterApprove(BaseModel):
+    user_id: str
+
+
+@api_router.post("/admin/promoters/approve")
+async def admin_approve_promoter(payload: PromoterApprove, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await db.users.update_one({"id": payload.user_id}, {"$set": {"is_promoter": True}})
+    released = await _release_held_promo_rewards(payload.user_id)
+    return {"success": True, "released_rewards": released}
+
+
+@api_router.post("/admin/promoters/revoke")
+async def admin_revoke_promoter(payload: PromoterApprove, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await db.users.update_one({"id": payload.user_id}, {"$set": {"is_promoter": False}})
+    return {"success": True}
 
 
 # ============================================================
@@ -7766,38 +8875,143 @@ async def whatsapp_send(payload: WhatsAppSendRequest, request: Request):
 
 @api_router.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request):
-    """Inbound WhatsApp webhook (Twilio posts form-encoded fields like From, Body, MessageSid)."""
-    form = {}
+    """Legacy inbound WhatsApp webhook path. Delegates to the canonical handler so
+    there is a SINGLE source of truth (prevents duplicate/divergent processing if
+    Twilio is configured to hit both /webhook/whatsapp and /webhooks/whatsapp)."""
+    return await whatsapp_webhook_inbound(request)
+
+
+def _verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
+    """Verify Meta WhatsApp Cloud API webhook signature (X-Hub-Signature-256)
+    = 'sha256=' + HMAC-SHA256(raw_body, META_APP_SECRET). Returns True if valid."""
+    secret = os.environ.get("META_APP_SECRET")
+    if not (secret and signature_header):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+
+@api_router.get("/webhooks/whatsapp")
+async def whatsapp_webhook_verify(request: Request):
+    """Meta Cloud API webhook verification handshake (GET). Echoes hub.challenge
+    when hub.verify_token matches META_WEBHOOK_VERIFY_TOKEN."""
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+    expected = os.environ.get("META_WEBHOOK_VERIFY_TOKEN")
+    if mode == "subscribe" and expected and token == expected:
+        return Response(content=challenge or "", media_type="text/plain")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@api_router.post("/webhooks/whatsapp")
+async def whatsapp_webhook_inbound(request: Request):
+    """Inbound WhatsApp webhook. Supports Twilio (form-encoded) and Meta Cloud API (JSON).
+
+    Security: if an X-Hub-Signature-256 header is present (Meta), the request body is
+    validated against META_APP_SECRET and rejected (403) on mismatch. Requests without
+    that header (e.g. Twilio) are processed as before."""
+    raw_body = await request.body()
+    meta_sig = request.headers.get("X-Hub-Signature-256")
+    if meta_sig is not None and not _verify_meta_signature(raw_body, meta_sig):
+        logger.warning("WhatsApp webhook: invalid X-Hub-Signature-256 — rejected.")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
     try:
-        body = await request.form()
-        form = dict(body)
+        form = dict(await request.form())
     except Exception:
+        form = {}
+
+    # Meta Cloud API delivers JSON (no form fields) — extract the first message if present.
+    if not form and raw_body:
         try:
-            form = await request.json()
-        except Exception:
-            form = {}
+            payload = json.loads(raw_body)
+            change = payload["entry"][0]["changes"][0]["value"]
+            msg = (change.get("messages") or [{}])[0]
+            form = {
+                "From": msg.get("from", ""),
+                "Body": (msg.get("text") or {}).get("body", ""),
+                "MessageSid": msg.get("id"),
+                "ProfileName": (((change.get("contacts") or [{}])[0]).get("profile") or {}).get("name"),
+            }
+        except (KeyError, IndexError, ValueError, TypeError):
+            pass
 
     from_raw = form.get("From") or form.get("from") or ""
     body_text = form.get("Body") or form.get("body") or ""
-    twilio_sid = form.get("MessageSid") or form.get("sid")
+    twilio_sid = form.get("MessageSid") or form.get("SmsMessageSid") or form.get("sid")
+    profile_name = form.get("ProfileName")
     phone = _normalize_phone(str(from_raw).replace("whatsapp:", ""))
-    if not phone:
-        raise HTTPException(status_code=400, detail="Missing From")
 
-    user = await db.users.find_one({"phone": phone}, {"_id": 0})
-    msg_doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"] if user else None,
-        "phone": phone,
-        "direction": "inbound",
-        "body": body_text,
-        "status": "received",
-        "twilio_sid": twilio_sid,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.whatsapp_messages.insert_one(msg_doc)
-    msg_doc.pop("_id", None)
-    return {"success": True, "received": True, "message": msg_doc}
+    if phone:
+        # Idempotency: Twilio (or a double-registered webhook) may deliver the same
+        # inbound message more than once. Dedupe on MessageSid so a single incoming
+        # message is only ever recorded/processed ONCE.
+        if twilio_sid:
+            existing = await db.whatsapp_messages.find_one(
+                {"twilio_sid": twilio_sid, "direction": "inbound"}, {"_id": 1}
+            )
+            if existing:
+                logger.info(f"Duplicate inbound WhatsApp {twilio_sid} ignored (idempotent).")
+                return Response(
+                    content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
+                    media_type="application/xml",
+                )
+
+        user = await db.users.find_one({"phone": phone}, {"_id": 0})
+        await db.whatsapp_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"] if user else None,
+            "phone": phone,
+            "profile_name": profile_name,
+            "direction": "inbound",
+            "body": body_text,
+            "status": "received",
+            "twilio_sid": twilio_sid,
+            "num_media": form.get("NumMedia"),
+            "signature_verified": meta_sig is not None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Inbound WhatsApp from {phone}: {body_text[:120]}")
+
+    return Response(content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
+                    media_type="application/xml")
+
+
+@api_router.post("/webhooks/twilio-status")
+async def twilio_status_callback(request: Request):
+    """Delivery status callback for Twilio messages (SMS + WhatsApp).
+    Updates the matching whatsapp_messages row with the latest delivery status."""
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+
+    message_sid = form.get("MessageSid") or form.get("SmsSid")
+    message_status = form.get("MessageStatus") or form.get("SmsStatus")
+    error_code = form.get("ErrorCode")
+
+    if message_sid:
+        await db.whatsapp_messages.update_one(
+            {"twilio_sid": message_sid},
+            {"$set": {"status": message_status, "error_code": error_code,
+                      "status_updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await db.twilio_status_events.insert_one({
+            "id": str(uuid.uuid4()),
+            "message_sid": message_sid,
+            "status": message_status,
+            "error_code": error_code,
+            "raw": form,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Twilio status callback: {message_sid} → {message_status}"
+                    + (f" (error {error_code})" if error_code else ""))
+
+    return Response(content="", media_type="text/plain")
+
+
 
 
 @api_router.get("/whatsapp/messages")
@@ -7907,6 +9121,8 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     if driver and driver.get("user_id"):
         await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
         await _notify_driver_status(driver["user_id"], "approved")
+        await _award_promo_reward(driver["user_id"], "driver", "driver_approved")
+        await _release_held_promo_rewards(driver["user_id"])
     return result
 
 
@@ -7961,6 +9177,12 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
         raise HTTPException(status_code=403, detail="Admin access required")
     result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
     await _notify_merchant_status(application_id, "verified", payload.notes)
+    app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    if app_doc and app_doc.get("user_id"):
+        btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
+        rtype = "supplier" if "supplier" in btype else "merchant"
+        await _award_promo_reward(app_doc["user_id"], rtype, "business_approved")
+        await _release_held_promo_rewards(app_doc["user_id"])
     return result
 
 
@@ -8273,6 +9495,73 @@ async def initialize_data():
         # Create TTL index for driver location history (auto-delete after 1 hour)
         await db.driver_locations.create_index("timestamp", expireAfterSeconds=3600)
         print("✅ Created TTL index for driver location history")
+
+        # Performance indexes for high-traffic collections (idempotent; Mongo skips existing).
+        # The app uses a logical string `id` field as the primary key plus several FK/filter fields.
+        perf_indexes = {
+            "users": [[("email", 1)], [("id", 1)], [("user_type", 1)], [("session_token", 1)]],
+            "orders": [
+                [("id", 1)], [("customer_id", 1)], [("driver_id", 1)], [("restaurant_id", 1)],
+                [("vendor_id", 1)], [("status", 1)], [("service_type", 1)], [("payment_status", 1)],
+                [("created_at", -1)], [("customer_id", 1), ("created_at", -1)],
+                [("status", 1), ("created_at", -1)],
+            ],
+            "drivers": [[("id", 1)], [("user_id", 1)], [("status", 1)]],
+            "restaurants": [[("id", 1)], [("user_id", 1)], [("status", 1)]],
+            "businesses": [[("id", 1)], [("user_id", 1)], [("verification_status", 1)]],
+            "business_applications": [[("id", 1)], [("user_id", 1)], [("verification_status", 1)]],
+            "car_rental_companies": [[("id", 1)], [("user_id", 1)]],
+            "menu_items": [[("restaurant_id", 1)], [("id", 1)]],
+            "ratings": [[("order_id", 1)], [("vendor_id", 1)], [("driver_id", 1)]],
+            "merchant_reviews": [[("merchant_id", 1)], [("customer_id", 1)]],
+            "addresses": [[("user_id", 1)]],
+            "support_tickets": [[("user_id", 1)], [("status", 1)], [("assigned_to", 1)], [("created_at", -1)]],
+            "ticket_messages": [[("ticket_id", 1)]],
+            "order_chat_messages": [[("order_id", 1)], [("created_at", 1)]],
+            "substitution_proposals": [[("order_id", 1)]],
+            "whatsapp_messages": [[("MessageSid", 1)], [("direction", 1)], [("created_at", -1)]],
+            "notifications": [[("user_id", 1)], [("read", 1)]],
+            "wallets": [[("user_id", 1)]],
+            "wallet_transactions": [[("user_id", 1)], [("order_id", 1)], [("created_at", -1)]],
+            "driver_wallets": [[("driver_id", 1)]],
+            "driver_withdrawals": [[("driver_id", 1)]],
+            "driver_incentives": [[("driver_id", 1)], [("month", 1)]],
+            "fraud_flags": [[("status", 1)], [("order_id", 1)], [("created_at", -1)]],
+            "promo_codes": [[("code", 1)]],
+            "promo_rewards": [[("user_id", 1)]],
+            "referral_codes": [[("user_id", 1)], [("code", 1)]],
+            "referrals": [[("referrer_id", 1)], [("referred_user_id", 1)]],
+            "scheduled_orders": [[("user_id", 1)], [("scheduled_datetime", 1)]],
+            "recurring_orders": [[("user_id", 1)], [("next_occurrence", 1)]],
+            "rental_bookings": [[("customer_id", 1)], [("rental_company_id", 1)]],
+            "vendor_stripe_accounts": [[("vendor_id", 1)]],
+            "vendor_payouts": [[("vendor_id", 1)]],
+            "payment_transactions": [[("session_id", 1)], [("user_id", 1)]],
+            "paypal_orders": [[("order_id", 1)]],
+            "otp_codes": [[("phone", 1)], [("created_at", -1)]],
+            "push_subscriptions": [[("user_id", 1)]],
+            "money_requests": [[("requester_id", 1)], [("payer_id", 1)]],
+            "mail_tickets": [[("message_id", 1)], [("conversation_id", 1)]],
+            "admin_invites": [[("token", 1)]],
+            "user_subscriptions": [[("user_id", 1)], [("status", 1)], [("user_id", 1), ("status", 1), ("plan_tier", 1)]],
+            "service_zones": [[("active", 1)]],
+            "driver_documents": [[("id", 1)], [("driver_user_id", 1)]],
+            "public_application_log": [[("ip", 1)], [("created_at", -1)]],
+            "merchant_storefronts": [[("vendor_id", 1)]],
+            "merchant_coupons": [[("vendor_id", 1)], [("vendor_id", 1), ("code", 1)]],
+            "merchant_coupon_usage": [[("coupon_id", 1), ("order_id", 1)]],
+            "merchant_ads": [[("placement", 1), ("status", 1)], [("vendor_id", 1)]],
+        }
+        idx_count = 0
+        for coll, keys_list in perf_indexes.items():
+            for keys in keys_list:
+                try:
+                    await db[coll].create_index(keys, background=True)
+                    idx_count += 1
+                except Exception as ie:
+                    print(f"⚠️ index {coll} {keys} skipped: {ie}")
+        print(f"✅ Ensured {idx_count} performance indexes across {len(perf_indexes)} collections")
+
         
         # Check if business categories exist
         existing_categories = await db.business_categories.count_documents({})

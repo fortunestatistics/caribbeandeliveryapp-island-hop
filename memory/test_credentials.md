@@ -1,5 +1,11 @@
 # IslandHop Test Credentials
 
+## Admin (for UI / admin-endpoint testing) — Jun 2026
+- **Email:** `admin.qa@islandhop-demo.com`
+- **Password:** `AdminQA1234!`
+- Role: `admin` (registered as customer then promoted in DB; public register only ever creates customers).
+- A seeded placeholder user `id_start_demo_qa@gmail.com` exists in the Users tab to verify the "No valid email" badge + disabled message button.
+
 ## Authentication
 - **JWT Bearer** (primary): from `/api/auth/register` or `/api/auth/login` → `access_token` field.
 - **Session cookie** (`session_token`): legacy OAuth flow.
@@ -45,6 +51,11 @@ curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
 
 ## Known working test users
 - No persisted seed accounts — tests register fresh users with timestamp-suffixed emails like `tester_<ts>@test.com`.
+
+## Merchant test account pattern (Jun 27, 2026) — for storefront/coupon testing
+- There is no persisted merchant seed. To get a merchant: (1) `POST /api/auth/register` a customer, (2) `POST /api/restaurants` with body `{"user_id":"x","name":...,"description":...,"cuisine_type":...,"address":{...},"phone":...,"email":...}` (the `user_id` is required by the model but overwritten server-side; this promotes the user to `user_type=restaurant` and returns the restaurant `id`). Use that JWT for `/api/merchant/storefront` and `/api/merchant/coupons`. Frontend pages: `/merchant/storefront`, `/merchant/coupons` (ROLES_VENDOR_ADMIN = restaurant|business|admin). Public storefront: `/restaurant/{restaurant_id}`.
+
+## Misc
 - Reusable admin created this session: **inboxadmin@test.com / Admin1234!** (user_type=admin). Note: `.test` TLD emails are rejected by email validation — use `@test.com` / `@gmail.com` style domains.
 
 ## Social login (Google)

@@ -15,21 +15,28 @@ module.exports = {
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
-        /* NOTE: "Midnight Tropical" theme — legacy palette names are intentionally
-           reused so we didn't have to touch ~130 files. Actual colors:
-           matte = deep navy/charcoal, gold = sunset orange, neon.cyan = teal. */
+        /* NOTE: "Caribbean Sunshine" light theme — legacy palette names are intentionally
+           reused so we don't have to touch ~130 files. Remapped to LIGHT surfaces:
+           matte-900 = warm off-white page bg, matte-800 = white card, matte-700 = subtle surface.
+           gold = vivid sunset orange (CTAs), neon.cyan = bright teal, navy = deep rich brand navy. */
         matte: {
-          '700': '#1C3A52',
-          '800': '#102433',
-          '900': '#0A1824'
+          '700': '#EEF2F7',
+          '800': '#FFFFFF',
+          '900': '#FFFCF9'
+        },
+        navy: {
+          '500': '#0B2C54',
+          '700': '#072442',
+          '900': '#04162B'
         },
         gold: {
-          '300': '#FDBA74',
-          '500': '#F97316',
-          '700': '#EA580C'
+          '300': '#FFB37A',
+          '400': '#FF8A3D',
+          '500': '#FF6A00',
+          '700': '#E85D00'
         },
         neon: {
-          cyan: '#2DD4BF'
+          cyan: '#06D6BE'
         },
         card: {
           DEFAULT: 'hsl(var(--card))',
@@ -71,14 +78,15 @@ module.exports = {
         }
       },
       backgroundImage: {
-        'gold-gradient': 'linear-gradient(135deg, #FDBA74 0%, #F97316 55%, #EA580C 100%)',
-        'gold-gradient-hover': 'linear-gradient(135deg, #FED7AA 0%, #FB8C3C 55%, #F2630A 100%)'
+        'gold-gradient': 'linear-gradient(135deg, #FF8A3D 0%, #FF6A00 55%, #E85D00 100%)',
+        'gold-gradient-hover': 'linear-gradient(135deg, #FFA45C 0%, #FF7A1A 55%, #F2630A 100%)',
+        'navy-gradient': 'linear-gradient(135deg, #0B2C54 0%, #072442 100%)'
       },
       boxShadow: {
-        'gold-glow': '0 0 15px rgba(249, 115, 22, 0.4)',
-        'gold-glow-lg': '0 0 30px rgba(249, 115, 22, 0.55)',
-        'cyan-pulse': '0 0 20px rgba(45, 212, 191, 0.6)',
-        'card-hover': '0 10px 40px -10px rgba(0,0,0,0.55)'
+        'gold-glow': '0 0 18px rgba(255, 106, 0, 0.45)',
+        'gold-glow-lg': '0 0 34px rgba(255, 106, 0, 0.6)',
+        'cyan-pulse': '0 0 22px rgba(6, 214, 190, 0.65)',
+        'card-hover': '0 16px 44px -12px rgba(11, 44, 84, 0.22)'
       },
       fontFamily: {
         heading: ['Outfit', 'sans-serif'],

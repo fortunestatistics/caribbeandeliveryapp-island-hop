@@ -1,0 +1,11 @@
+{
+  "appId": "com.islandhop.app",
+  "appName": "IslandHop",
+  "webDir": "build",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

@@ -91,3 +91,32 @@ def restaurant_headers(restaurant_creds):
 @pytest.fixture
 def driver_headers(driver_creds):
     return {"Authorization": f"Bearer {driver_creds['token']}", "Content-Type": "application/json"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_users():
+    """After the test session, purge any users this suite created so they never
+    leak into the admin user list / messaging flows."""
+    yield
+    try:
+        import os
+        from pathlib import Path
+        from pymongo import MongoClient
+
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        cfg = {}
+        for line in env_path.read_text().splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                cfg[k.strip()] = v.strip().strip('"').strip("'")
+        client = MongoClient(cfg["MONGO_URL"])
+        db = client[cfg["DB_NAME"]]
+        db.users.delete_many({
+            "$or": [
+                {"email": {"$regex": r"^(id_start_|id_noapp_|id_session_|id_kyc_|sched_test_|resto_test_|driver_test_|qa_test_|auth_test_|dup_|fix_test_|pay_test_|checkout)", "$options": "i"}},
+                {"email": {"$regex": r"@(test\.com|example\.(com|org|net)|test\.test)$", "$options": "i"}},
+            ]
+        })
+        client.close()
+    except Exception as exc:  # never fail the suite on cleanup
+        print(f"[conftest] test-user cleanup skipped: {exc}")

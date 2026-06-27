@@ -92,7 +92,7 @@ def verify_hash(transaction_id: str, total: str, received_hash: str) -> bool:
     if not (transaction_id and total and received_hash):
         return False
     api_key = _cfg()["api_key"]
-    computed = hashlib.md5(f"{transaction_id}{total}{api_key}".encode("utf-8")).hexdigest()
+    computed = hashlib.md5(f"{transaction_id}{total}{api_key}".encode("utf-8"), usedforsecurity=False).hexdigest()
     return computed.lower() == received_hash.lower()
 
 

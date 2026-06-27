@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -16,13 +17,28 @@ import {
   ArrowRight
 } from 'lucide-react';
 import MerchantReviews from './MerchantReviews';
+import axios from 'axios';
+
+const STOREFRONT_API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const RestaurantMenu = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const { restaurantId } = useParams();
   const [cart, setCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [storefront, setStorefront] = useState(null);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    axios.get(`${STOREFRONT_API}/merchants/${restaurantId}/storefront`)
+      .then((res) => {
+        const d = res.data || {};
+        if (d.logo || d.cover || d.bio || (d.gallery && d.gallery.length)) setStorefront(d);
+      })
+      .catch(() => {});
+  }, [restaurantId]);
 
   // Demo restaurant data
   const restaurant = {
@@ -225,6 +241,38 @@ const RestaurantMenu = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
+        {/* Storefront hero (custom merchant branding) */}
+        {storefront && (
+          <div className="mb-6 rounded-2xl overflow-hidden border border-matte-800 bg-card" data-testid="storefront-hero">
+            <div
+              className="h-40 sm:h-52 bg-matte-800 bg-cover bg-center"
+              style={storefront.cover ? { backgroundImage: `url(${storefront.cover})` } : {}}
+              data-testid="storefront-hero-cover"
+            />
+            <div className="px-5 sm:px-7 pb-6 -mt-10">
+              <div className="flex items-end gap-4">
+                {storefront.logo && (
+                  <img src={storefront.logo} alt="store logo" data-testid="storefront-hero-logo"
+                    className="h-20 w-20 rounded-2xl border-4 border-background object-cover shadow-lg bg-card" />
+                )}
+                <h2 className="text-2xl font-bold text-foreground pb-1">{restaurant.name}</h2>
+              </div>
+              {storefront.bio && (
+                <p className="text-muted-foreground mt-3 max-w-2xl" data-testid="storefront-hero-bio">{storefront.bio}</p>
+              )}
+              {storefront.gallery && storefront.gallery.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mt-5" data-testid="storefront-hero-gallery">
+                  {storefront.gallery.map((g, i) => (
+                    <div key={i} className="aspect-square rounded-lg overflow-hidden bg-matte-800">
+                      <img src={g} alt={`gallery-${i}`} className="h-full w-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Restaurant Header */}
         <Card className="mb-8">
           <CardContent className="p-6">
@@ -254,9 +302,9 @@ const RestaurantMenu = () => {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Badge className="bg-gold-500/15 text-gold-300">{restaurant.cuisine}</Badge>
-                  <Badge variant="outline">Delivery ${restaurant.deliveryFee.toFixed(2)}</Badge>
-                  <Badge variant="outline">Min ${restaurant.minOrder.toFixed(2)}</Badge>
+                  <Badge className="bg-gold-500/15 text-gold-700">{restaurant.cuisine}</Badge>
+                  <Badge variant="outline">Delivery {format(restaurant.deliveryFee)}</Badge>
+                  <Badge variant="outline">Min {format(restaurant.minOrder)}</Badge>
                 </div>
               </div>
             </div>
@@ -318,7 +366,7 @@ const RestaurantMenu = () => {
                             </h3>
                             <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
                           </div>
-                          <p className="text-xl font-bold text-foreground">${item.price.toFixed(2)}</p>
+                          <p className="text-xl font-bold text-foreground">{format(item.price)}</p>
                         </div>
                         <Button
                           className="bg-gold-gradient text-white"
@@ -374,7 +422,7 @@ const RestaurantMenu = () => {
                           <div className="text-3xl">{item.image}</div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold text-foreground truncate">{item.name}</h4>
-                            <p className="text-sm text-muted-foreground">${item.price.toFixed(2)}</p>
+                            <p className="text-sm text-muted-foreground">{format(item.price)}</p>
                             <div className="flex items-center space-x-2 mt-2">
                               <Button
                                 size="sm"
@@ -402,7 +450,7 @@ const RestaurantMenu = () => {
                             </div>
                           </div>
                           <div className="font-semibold text-foreground">
-                            ${(item.price * item.quantity).toFixed(2)}
+                            {format(item.price * item.quantity)}
                           </div>
                         </div>
                       ))}
@@ -411,21 +459,21 @@ const RestaurantMenu = () => {
                     <div className="space-y-2 mb-6">
                       <div className="flex justify-between text-muted-foreground">
                         <span>Subtotal</span>
-                        <span>${subtotal.toFixed(2)}</span>
+                        <span>{format(subtotal)}</span>
                       </div>
                       <div className="flex justify-between text-muted-foreground">
                         <span>Delivery Fee</span>
-                        <span>${restaurant.deliveryFee.toFixed(2)}</span>
+                        <span>{format(restaurant.deliveryFee)}</span>
                       </div>
                       <div className="flex justify-between text-xl font-bold text-foreground pt-2 border-t">
                         <span>Total</span>
-                        <span>${total.toFixed(2)}</span>
+                        <span>{format(total)}</span>
                       </div>
                     </div>
 
                     {subtotal < restaurant.minOrder && (
                       <div className="mb-4 p-3 bg-gold-500/10 rounded-lg text-sm text-yellow-800">
-                        Add ${(restaurant.minOrder - subtotal).toFixed(2)} more to reach minimum order
+                        Add {format(restaurant.minOrder - subtotal)} more to reach minimum order
                       </div>
                     )}
 

@@ -175,7 +175,7 @@ const OrderScheduling = () => {
                     <p className="text-sm text-muted-foreground">Upcoming Orders</p>
                     <p className="text-2xl font-bold">{scheduledOrders.length}</p>
                   </div>
-                  <Calendar className="h-8 w-8 text-neon-cyan" />
+                  <Calendar className="h-8 w-8 text-teal-700" />
                 </div>
               </CardContent>
             </Card>
@@ -250,7 +250,7 @@ const OrderScheduling = () => {
                               </Badge>
                             )}
                             <Badge className={
-                              order.status === 'pending' ? 'bg-neon-cyan/15 text-neon-cyan' :
+                              order.status === 'pending' ? 'bg-neon-cyan/15 text-teal-700' :
                               order.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                               'bg-matte-800 text-foreground'
                             }>
@@ -481,8 +481,8 @@ const OrderScheduling = () => {
 
                   {/* Info */}
                   <div className="bg-neon-cyan/10 p-4 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="h-5 w-5 text-neon-cyan flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-neon-cyan">
+                    <AlertCircle className="h-5 w-5 text-teal-700 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-teal-700">
                       <p className="font-medium mb-1">Note:</p>
                       <p>This is a simplified scheduling interface. In production, you would select specific items, quantities, and delivery address before scheduling.</p>
                     </div>
