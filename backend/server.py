@@ -5731,12 +5731,13 @@ async def create_business_application(application: BusinessOnboardingRequest, re
 async def get_business_applications(request: Request):
     """Get business applications for current user"""
     try:
-        current_user = await get_current_user(request)
+        current_user = await get_current_user_from_request(request)
         applications = await db.business_applications.find(
             {"user_id": current_user.id}, {"_id": 0}
         ).to_list(length=None)
         return applications
-    
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -5744,7 +5745,7 @@ async def get_business_applications(request: Request):
 async def get_business_application(application_id: str, request: Request):
     """Get specific business application"""
     try:
-        current_user = await get_current_user(request)
+        current_user = await get_current_user_from_request(request)
         application = await db.business_applications.find_one({
             "id": application_id,
             "user_id": current_user.id

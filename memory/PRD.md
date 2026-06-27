@@ -27,6 +27,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jun 27, 2026 — Admin click-to-review dialogs + Subscription links everywhere + bugfix
+- **Approvals:** applicant detail dialog now shows the KYC status + a "Submitted documents" section with buttons that open each uploaded file (`/api/drivers/documents/{id}/download`) or a "no documents" warning. (`AdminPanel.js` `applicant-detail-dialog`.)
+- **Claims:** claim rows are now clickable → `claim-detail-dialog` (full description, enlargeable proof photo, Approve&credit / Reject). Inline row buttons keep working via `stopPropagation`.
+- **Fraud:** flag rows clickable → `fraud-detail-dialog` (severity, order summary, customer, all signals, Clear / Confirm Fraud). Inline buttons preserved.
+- **Subscription links in ALL portals → /pricing:** Admin header (`admin-subscription-link`), Driver header (`driver-subscription-link`), Vendor header (`vendor-subscription-link`); customers already have the global header "Pricing" link.
+- **Bugfix:** `GET /api/business/onboarding` (and `/{application_id}`) called the wrong auth helper `get_current_user(request)` → always 500 (`'Request' object has no attribute 'credentials'`). Switched to `get_current_user_from_request`; now 401 unauth / 200 authed. Also added the missing auth header to App.js `fetchApplications` so the customer's business-application status view loads. Verified via curl.
+- Verified iter 28: frontend 5/5; admin review dialogs + subscription links all pass.
+
+
+
 ### Jun 27, 2026 — Tiered driver payout (Premium 100% / Standard 80%)
 - New 2-tier delivery-fee split: **Premium** (active `user_subscriptions` row OR driver-profile `is_premium=true`/`subscription_status` in premium|active|subscribed) keeps **100%** of delivery fees; **Standard** keeps **80%** (20% platform cut). Tips always 100% to driver. Flat **$3.00** customer service fee stays 100% platform in BOTH tiers.
 - Backend (`server.py`): `DRIVER_FEE_RATE_SUBSCRIBER` default **0.10→0.00**; new `_driver_is_premium(driver_doc)`; `_driver_delivery_fee_rate(user_id, driver_doc)` now honours the profile premium flag; `_finalize_driver_split` passes the driver doc. Verified math: standard (del $20/tip $5) → driver $21, platform $14.50; premium → driver $25, platform $10.50.

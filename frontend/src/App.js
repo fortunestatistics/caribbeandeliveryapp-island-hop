@@ -1255,8 +1255,10 @@ const Dashboard = () => {
 
   const fetchApplications = async () => {
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: false
+        withCredentials: false,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setApplications(response.data);
     } catch (error) {
