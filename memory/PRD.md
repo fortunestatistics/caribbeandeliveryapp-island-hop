@@ -27,6 +27,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jun 27, 2026 — 3-tier Driver & Merchant subscriptions + Android project export
+- **Driver tiers** (prices TTD): Standard Free→keep 80% (20% cut), Pro TT$700/mo→keep 90% (10% cut), Premium TT$1,400/mo→keep 100% (0% cut). Tips always 100%. Backend: `DRIVER_PLAN_RATES`, `_driver_plan_tier`, `_driver_delivery_fee_rate`; endpoints `GET /api/driver/subscription/plans|/subscription`, `POST /api/driver/subscription/select`. Tier mirrored on driver profile doc (`subscription_tier`). UI: `DriverSubscription.js` (/driver/subscription) + dashboard button; earnings dashboard shows 3 tier cards + examples (Std $14.60 / Pro $15.80 / Prem $17.00). Verified: payout math Std 21 / Pro 23 / Prem 25.
+- **Merchant tiers** (prices TTD): Standard Free→15% commission, Pro TT$800/mo→10% + Featured Partner, Premium TT$1,600/mo→5% + Premium Marketing + Priority Support. Backend: `MERCHANT_SUBSCRIPTION_PLANS`, `_merchant_plan_tier`, `_merchant_commission_rate` (now used by `calculate_order_financials` — fixed an old bug where the vendor-subscription lookup keyed on the wrong id and never matched); endpoints `GET/POST /api/merchant/subscription[/plans|/select]`. `featured` flag scaffolded on the merchant profile doc for future search ranking. UI: `MerchantSubscription.js` (/merchant/subscription) + dashboard button; Become-a-Partner page shows tier cards. Verified: commission 15%/10%/5%, vendor_payout 85/90/95, **$3 service fee unchanged & 100% platform**.
+- **Android (Capacitor) export:** package `com.islandhop.app` confirmed (capacitor.config.json + android/app/build.gradle); ran `npx cap sync android`; produced downloadable project zip at `/app/frontend/public/islandhop-android.zip` → https://logistics-island.preview.emergentagent.com/islandhop-android.zip (open in Android Studio → Generate Signed Bundle). No JDK/SDK in container so .aab not built here.
+- Verified iter 29: backend 7/7, frontend 100% (zero functional issues).
+
+
+
 ### Jun 27, 2026 — Admin click-to-review dialogs + Subscription links everywhere + bugfix
 - **Approvals:** applicant detail dialog now shows the KYC status + a "Submitted documents" section with buttons that open each uploaded file (`/api/drivers/documents/{id}/download`) or a "no documents" warning. (`AdminPanel.js` `applicant-detail-dialog`.)
 - **Claims:** claim rows are now clickable → `claim-detail-dialog` (full description, enlargeable proof photo, Approve&credit / Reject). Inline row buttons keep working via `stopPropagation`.
