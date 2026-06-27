@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -73,6 +74,7 @@ const DOC_LABELS = {
 };
 
 const AdminPanel = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     total_users: 0,
     total_orders: 0,
@@ -115,6 +117,8 @@ const AdminPanel = () => {
   // Order detail + approval detail dialogs
   const [detailOrder, setDetailOrder] = useState(null);
   const [detailApproval, setDetailApproval] = useState(null);
+  const [detailClaim, setDetailClaim] = useState(null);
+  const [detailFraud, setDetailFraud] = useState(null);
   // Customer profile dialog
   const [profileUser, setProfileUser] = useState(null);
   const [profileData, setProfileData] = useState(null);
@@ -509,10 +513,16 @@ const AdminPanel = () => {
               <h1 className="text-3xl font-bold text-foreground">Admin Panel</h1>
               <p className="text-muted-foreground">Platform management & analytics</p>
             </div>
-            <Button variant="outline">
-              <Settings className="h-5 w-5 mr-2" />
-              Settings
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => navigate('/pricing')} data-testid="admin-subscription-link">
+                <DollarSign className="h-5 w-5 mr-2" />
+                Subscription Plans
+              </Button>
+              <Button variant="outline">
+                <Settings className="h-5 w-5 mr-2" />
+                Settings
+              </Button>
+            </div>
           </div>
 
           {/* Stats Overview */}
@@ -936,7 +946,8 @@ const AdminPanel = () => {
                       <div
                         key={flag.id}
                         data-testid={`fraud-row-${flag.id}`}
-                        className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60"
+                        className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60 cursor-pointer hover:border-gold-500/40 transition-colors"
+                        onClick={() => setDetailFraud(flag)}
                       >
                         <div className="flex items-start justify-between flex-wrap gap-3">
                           <div className="flex-1 min-w-0">
@@ -977,7 +988,7 @@ const AdminPanel = () => {
                               <Button
                                 size="sm"
                                 className="bg-green-600 hover:bg-green-700"
-                                onClick={() => handleFraudReview(flag.id, 'clear')}
+                                onClick={(e) => { e.stopPropagation(); handleFraudReview(flag.id, 'clear'); }}
                                 data-testid={`fraud-clear-${flag.id}`}
                               >
                                 <CheckCircle className="h-4 w-4 mr-1" />Clear
@@ -985,7 +996,7 @@ const AdminPanel = () => {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => handleFraudReview(flag.id, 'confirm')}
+                                onClick={(e) => { e.stopPropagation(); handleFraudReview(flag.id, 'confirm'); }}
                                 data-testid={`fraud-confirm-${flag.id}`}
                               >
                                 <Ban className="h-4 w-4 mr-1" />Confirm Fraud
@@ -1042,7 +1053,8 @@ const AdminPanel = () => {
                     <div
                       key={claim.id}
                       data-testid={`admin-claim-row-${claim.id}`}
-                      className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60"
+                      className="p-4 bg-matte-900/40 rounded-lg border border-matte-700/60 cursor-pointer hover:border-gold-500/40 transition-colors"
+                      onClick={() => setDetailClaim(claim)}
                     >
                       <div className="flex items-start justify-between flex-wrap gap-3">
                         <div className="flex-1 min-w-0">
@@ -1078,7 +1090,7 @@ const AdminPanel = () => {
                             <Button
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleClaimResolve(claim.id, 'approved')}
+                              onClick={(e) => { e.stopPropagation(); handleClaimResolve(claim.id, 'approved'); }}
                               data-testid={`claim-approve-${claim.id}`}
                             >
                               <CheckCircle className="h-4 w-4 mr-1" />Approve & credit
@@ -1086,7 +1098,7 @@ const AdminPanel = () => {
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => handleClaimResolve(claim.id, 'rejected', 0)}
+                              onClick={(e) => { e.stopPropagation(); handleClaimResolve(claim.id, 'rejected', 0); }}
                               data-testid={`claim-reject-${claim.id}`}
                             >
                               <X className="h-4 w-4 mr-1" />Reject
@@ -1582,12 +1594,167 @@ const AdminPanel = () => {
                       </div>
                     </div>
                   )}
+                  {detailApproval.raw?.identity_verification && (
+                    <div>
+                      <p className="font-semibold mb-1">Automated KYC (Stripe Identity)</p>
+                      <div className="border rounded-lg p-3">
+                        <Badge className={detailApproval.raw.identity_verification.status === 'verified'
+                          ? 'bg-green-600/20 text-green-400'
+                          : 'bg-yellow-600/20 text-yellow-400'}>
+                          {detailApproval.raw.identity_verification.status || 'not started'}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+                  {detailApproval.kind === 'driver' && (
+                    <div>
+                      <p className="font-semibold mb-1">Submitted documents (click to open)</p>
+                      {detailApproval.raw?.documents && Object.keys(detailApproval.raw.documents).length > 0 ? (
+                        <div className="border rounded-lg p-3 flex flex-wrap gap-2" data-testid="applicant-dialog-docs">
+                          {Object.entries(detailApproval.raw.documents).map(([docType, docId]) => (
+                            <Button key={docType} size="sm" variant="outline"
+                              onClick={() => viewDocument(docId)}
+                              data-testid={`dialog-view-doc-${docType}`}>
+                              <FileText className="h-3.5 w-3.5 mr-1" />{DOC_LABELS[docType] || docType}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-yellow-500 border rounded-lg p-3" data-testid="applicant-dialog-nodocs">
+                          ⚠ No identity documents were submitted with this application.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <DialogFooter className="gap-2">
                   <Button variant="outline" onClick={() => setDetailApproval(null)}>Close</Button>
                   <Button variant="destructive" onClick={() => { handleApproval(detailApproval.kind, detailApproval.id, 'reject'); setDetailApproval(null); }}>Reject</Button>
                   <Button className="bg-green-600 hover:bg-green-700" onClick={() => { handleApproval(detailApproval.kind, detailApproval.id, 'approve'); setDetailApproval(null); }}>Approve</Button>
                 </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Claim detail dialog */}
+        <Dialog open={!!detailClaim} onOpenChange={(o) => { if (!o) setDetailClaim(null); }}>
+          <DialogContent data-testid="claim-detail-dialog" className="max-w-lg max-h-[85vh] overflow-y-auto">
+            {detailClaim && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 flex-wrap">
+                    <FileText className="h-5 w-5 text-gold-500" />
+                    {detailClaim.subject || 'Customer claim'}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="bg-gold-500/15 text-gold-500 border-gold-500/30 capitalize">
+                      {(detailClaim.claim_type || 'other').replace(/_/g, ' ')}
+                    </Badge>
+                    <Badge variant="outline" className="capitalize">{detailClaim.status}</Badge>
+                    <span className="font-mono text-xs text-muted-foreground self-center">
+                      ORDER #{(detailClaim.order_id || '').slice(0, 8)}
+                    </span>
+                    {typeof detailClaim.resolution_credit === 'number' && detailClaim.resolution_credit > 0 && (
+                      <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
+                        +${detailClaim.resolution_credit.toFixed(2)} credited
+                      </Badge>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Description</p>
+                    <p className="font-medium whitespace-pre-wrap border rounded-lg p-3" data-testid="claim-dialog-description">
+                      {detailClaim.description || '—'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Filed by</span><p className="font-medium break-all">{detailClaim.customer_email || detailClaim.customer_id?.substring(0, 8) || '—'}</p></div>
+                    <div><span className="text-muted-foreground">Submitted</span><p className="font-medium">{detailClaim.created_at ? new Date(detailClaim.created_at).toLocaleString() : '—'}</p></div>
+                  </div>
+                  {detailClaim.photo_url && (
+                    <div>
+                      <p className="text-muted-foreground mb-1">Proof photo (click to enlarge)</p>
+                      <a href={detailClaim.photo_url} target="_blank" rel="noopener noreferrer" data-testid="claim-dialog-photo-link">
+                        <img src={detailClaim.photo_url} alt="claim proof"
+                          className="max-h-72 w-auto rounded-lg border border-matte-700 hover:opacity-90 transition-opacity" />
+                      </a>
+                    </div>
+                  )}
+                  {detailClaim.resolution_notes && (
+                    <div>
+                      <p className="text-muted-foreground mb-1">Resolution notes</p>
+                      <p className="font-medium border rounded-lg p-3">{detailClaim.resolution_notes}</p>
+                    </div>
+                  )}
+                </div>
+                {detailClaim.status === 'open' && (
+                  <DialogFooter className="gap-2">
+                    <Button variant="destructive" data-testid="claim-dialog-reject"
+                      onClick={() => { handleClaimResolve(detailClaim.id, 'rejected', 0); setDetailClaim(null); }}>
+                      <X className="h-4 w-4 mr-1" />Reject
+                    </Button>
+                    <Button className="bg-green-600 hover:bg-green-700" data-testid="claim-dialog-approve"
+                      onClick={() => { handleClaimResolve(detailClaim.id, 'approved'); setDetailClaim(null); }}>
+                      <CheckCircle className="h-4 w-4 mr-1" />Approve &amp; credit
+                    </Button>
+                  </DialogFooter>
+                )}
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Fraud detail dialog */}
+        <Dialog open={!!detailFraud} onOpenChange={(o) => { if (!o) setDetailFraud(null); }}>
+          <DialogContent data-testid="fraud-detail-dialog" className="max-w-lg max-h-[85vh] overflow-y-auto">
+            {detailFraud && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 flex-wrap">
+                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                    Fraud review · {(detailFraud.severity || '').toUpperCase()}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Order</span><p className="font-mono font-medium">#{(detailFraud.order_id || '').slice(0, 8)}</p></div>
+                    <div><span className="text-muted-foreground">Amount</span><p className="font-medium">${(detailFraud.amount || 0).toFixed(2)}</p></div>
+                    <div><span className="text-muted-foreground">Service</span><p className="font-medium capitalize">{detailFraud.order?.service_type || '—'}</p></div>
+                    <div><span className="text-muted-foreground">Payment</span><p className="font-medium capitalize">{detailFraud.order?.payment_method} · {detailFraud.order?.payment_status}</p></div>
+                    <div><span className="text-muted-foreground">Flagged</span><p className="font-medium">{detailFraud.created_at ? new Date(detailFraud.created_at).toLocaleString() : '—'}</p></div>
+                    <div><span className="text-muted-foreground">Status</span><p className="font-medium capitalize">{(detailFraud.status || '').replace(/_/g, ' ')}</p></div>
+                  </div>
+                  <div className="border rounded-lg p-3 space-y-1">
+                    <p className="font-semibold">Customer</p>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span>{detailFraud.customer?.name || 'Unknown'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span className="break-all">{detailFraud.customer?.email || '—'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{detailFraud.customer?.phone || '—'}</span></div>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Fraud signals</p>
+                    <div className="flex flex-wrap gap-1" data-testid="fraud-dialog-signals">
+                      {(detailFraud.signals || []).length === 0
+                        ? <span className="text-muted-foreground">None recorded</span>
+                        : detailFraud.signals.map((s) => (
+                          <Badge key={s} variant="outline" className="text-xs capitalize">{s.replace(/_/g, ' ')}</Badge>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+                {detailFraud.status === 'open' && (
+                  <DialogFooter className="gap-2">
+                    <Button className="bg-green-600 hover:bg-green-700" data-testid="fraud-dialog-clear"
+                      onClick={() => { handleFraudReview(detailFraud.id, 'clear'); setDetailFraud(null); }}>
+                      <CheckCircle className="h-4 w-4 mr-1" />Clear
+                    </Button>
+                    <Button variant="destructive" data-testid="fraud-dialog-confirm"
+                      onClick={() => { handleFraudReview(detailFraud.id, 'confirm'); setDetailFraud(null); }}>
+                      <Ban className="h-4 w-4 mr-1" />Confirm Fraud
+                    </Button>
+                  </DialogFooter>
+                )}
               </>
             )}
           </DialogContent>
