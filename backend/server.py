@@ -156,16 +156,16 @@ from models import (
 
 # Helper function to calculate commission and split payments
 # ---------------------------------------------------------------------------
-# Fee structure (approved Jun 2026):
+# Fee structure (approved Jun 2026 — tiered driver payout):
 #   • Merchant commission: 15% of the item subtotal (default; per vendor type / plan).
-#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform.
-#   • Delivery fee + tips: go to the driver, MINUS the platform's delivery-fee cut:
-#       - paying driver-subscriber: platform takes 10% of the delivery fee.
-#       - non-paying driver:        platform takes 20% of the delivery fee.
-#     (Drivers also receive monthly incentive payouts on top of this.)
+#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform (both tiers).
+#   • Delivery fee + tips go to the driver, MINUS the platform's delivery-fee cut:
+#       - PREMIUM (subscribed / is_premium) driver: platform takes 0% → driver keeps 100%.
+#       - STANDARD (no subscription) driver:         platform takes 20% → driver keeps 80%.
+#     Tips are ALWAYS 100% to the driver. (Drivers also receive monthly incentive payouts.)
 # ---------------------------------------------------------------------------
 PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
-DRIVER_FEE_RATE_SUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_SUBSCRIBER", "0.10"))
+DRIVER_FEE_RATE_SUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_SUBSCRIBER", "0.00"))
 DRIVER_FEE_RATE_NONSUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_NONSUBSCRIBER", "0.20"))
 
 
@@ -178,9 +178,22 @@ def _derive_vendor_type(service_type: str) -> str:
     }.get(service_type, "business")
 
 
-async def _driver_delivery_fee_rate(driver_user_id: Optional[str]) -> float:
+def _driver_is_premium(driver_doc: Optional[dict]) -> bool:
+    """Premium if the driver profile carries an explicit premium flag."""
+    if not driver_doc:
+        return False
+    if driver_doc.get("is_premium") is True:
+        return True
+    status = str(driver_doc.get("subscription_status") or "").lower()
+    return status in ("premium", "active", "subscribed")
+
+
+async def _driver_delivery_fee_rate(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> float:
     """Platform's % cut of the delivery fee for the assigned driver.
-    Paying subscribers pay 10% of earnings; non-paying drivers pay 20%."""
+    PREMIUM (active subscription OR is_premium flag): 0% cut → keep 100%.
+    STANDARD (no subscription): 20% cut → keep 80%. Tips are always 100% to the driver."""
+    if _driver_is_premium(driver_doc):
+        return DRIVER_FEE_RATE_SUBSCRIBER
     if driver_user_id:
         sub = await db.user_subscriptions.find_one({"user_id": driver_user_id, "status": "active"})
         if sub:
@@ -189,12 +202,12 @@ async def _driver_delivery_fee_rate(driver_user_id: Optional[str]) -> float:
 
 
 async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
-    """Re-split the delivery fee once the assigned driver is known (their
-    subscription status sets the 10% vs 20% platform cut). Idempotent."""
+    """Re-split the delivery fee once the assigned driver is known (their tier
+    sets the 0% premium vs 20% standard platform cut). Idempotent."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
-    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"))
+    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"), driver_doc)
     delivery_fee = float(order.get("delivery_fee", 0) or 0)
     tip = float(order.get("tip", 0) or 0)
     commission = float(order.get("commission_amount", 0) or 0)
@@ -5790,7 +5803,8 @@ async def apply_promo_to_order(order_id: str, payload: ApplyPromoToOrderRequest,
 
     promo = await db.promo_codes.find_one({"code": code}, {"_id": 0})
     if not promo or not promo.get("active"):
-        raise HTTPException(status_code=404, detail="Promo code not found or inactive")
+        # Fall back to a merchant self-service coupon scoped to this order's merchant
+        return await _apply_merchant_coupon(order, order_id, code, current_user)
 
     _assert_promo_dates_valid(promo)
     _assert_promo_usage_within_limit(promo)
@@ -5852,6 +5866,244 @@ async def remove_promo_from_order(order_id: str, request: Request):
                   "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"success": True, "total": new_total}
+
+
+# ============================================================
+# MERCHANT STOREFRONT + SELF-SERVICE COUPONS
+# ============================================================
+import random
+import string
+
+
+class StorefrontUpdate(BaseModel):
+    logo: Optional[str] = None       # base64 data URL or hosted URL
+    cover: Optional[str] = None      # banner/cover image
+    bio: Optional[str] = None        # max 500 chars
+    gallery: Optional[List[str]] = None  # up to 6 images
+
+
+class MerchantCouponCreate(BaseModel):
+    code: Optional[str] = None       # alphanumeric; auto-generated if blank
+    discount_type: str               # 'percentage' | 'fixed'
+    discount_value: float
+    min_order_amount: Optional[float] = 0.0
+    expiry_date: Optional[str] = None  # ISO date/datetime string
+    usage_limit: Optional[int] = None
+
+
+class MerchantCouponToggle(BaseModel):
+    active: bool
+
+
+MAX_STOREFRONT_IMG_LEN = 1_500_000  # ~1.1MB binary per image after client-side resize
+
+
+async def _resolve_vendor_for_user(current_user) -> tuple:
+    """Return (vendor_id, vendor_type) for the signed-in merchant, else 404."""
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if restaurant:
+        return restaurant["id"], "restaurant"
+    business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1, "business_type": 1})
+    if business:
+        return business["id"], business.get("business_type") or "business"
+    rental = await db.car_rental_companies.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if rental:
+        return rental["id"], "car_rental"
+    raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+
+def _validate_storefront_images(payload: StorefrontUpdate):
+    for field in ("logo", "cover"):
+        val = getattr(payload, field)
+        if val and len(val) > MAX_STOREFRONT_IMG_LEN:
+            raise HTTPException(status_code=413, detail=f"{field.capitalize()} image is too large (max ~1MB)")
+    if payload.gallery is not None:
+        if len(payload.gallery) > 6:
+            raise HTTPException(status_code=400, detail="Gallery is limited to 6 photos")
+        for g in payload.gallery:
+            if g and len(g) > MAX_STOREFRONT_IMG_LEN:
+                raise HTTPException(status_code=413, detail="A gallery image is too large (max ~1MB each)")
+
+
+@api_router.get("/merchant/storefront")
+async def get_my_storefront(request: Request):
+    """Get the signed-in merchant's storefront customisation."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not doc:
+        doc = {"vendor_id": vendor_id, "vendor_type": vendor_type,
+               "logo": None, "cover": None, "bio": "", "gallery": []}
+    return doc
+
+
+@api_router.put("/merchant/storefront")
+async def update_my_storefront(payload: StorefrontUpdate, request: Request):
+    """Upsert the signed-in merchant's storefront (logo, cover, bio, gallery)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if payload.bio is not None and len(payload.bio) > 500:
+        raise HTTPException(status_code=400, detail="Bio must be 500 characters or fewer")
+    _validate_storefront_images(payload)
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    update.update({
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    return {"success": True, "storefront": doc}
+
+
+@api_router.get("/merchants/{vendor_id}/storefront")
+async def get_public_storefront(vendor_id: str):
+    """Public storefront customisation for a merchant (used by the customer-facing store page)."""
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not doc:
+        return {"vendor_id": vendor_id, "logo": None, "cover": None, "bio": "", "gallery": []}
+    return doc
+
+
+def _gen_coupon_code() -> str:
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+
+def _merchant_coupon_expired(exp: Optional[str]) -> bool:
+    if not exp:
+        return False
+    try:
+        d = datetime.fromisoformat(exp)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        # Date-only values count as valid through the end of that day
+        if len(exp) <= 10:
+            d = d + timedelta(days=1)
+        return d < datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
+@api_router.post("/merchant/coupons")
+async def create_merchant_coupon(payload: MerchantCouponCreate, request: Request):
+    """Merchant creates a self-service discount coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+
+    dtype = (payload.discount_type or "").lower()
+    if dtype not in ("percentage", "fixed"):
+        raise HTTPException(status_code=400, detail="discount_type must be 'percentage' or 'fixed'")
+    if payload.discount_value is None or payload.discount_value <= 0:
+        raise HTTPException(status_code=400, detail="discount_value must be greater than 0")
+    if dtype == "percentage" and payload.discount_value > 100:
+        raise HTTPException(status_code=400, detail="Percentage discount cannot exceed 100%")
+
+    code = (payload.code or "").strip().upper() or _gen_coupon_code()
+    if not re.match(r"^[A-Z0-9]{3,20}$", code):
+        raise HTTPException(status_code=400, detail="Code must be 3-20 alphanumeric characters")
+    if await db.merchant_coupons.find_one({"vendor_id": vendor_id, "code": code}):
+        raise HTTPException(status_code=400, detail="You already have a coupon with this code")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "code": code,
+        "discount_type": dtype,
+        "discount_value": round(float(payload.discount_value), 2),
+        "min_order_amount": round(float(payload.min_order_amount or 0), 2),
+        "expiry_date": payload.expiry_date,
+        "usage_limit": payload.usage_limit,
+        "used_count": 0,
+        "active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.merchant_coupons.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"success": True, "coupon": doc}
+
+
+@api_router.get("/merchant/coupons")
+async def list_merchant_coupons(request: Request):
+    """List the signed-in merchant's coupons with redemption counts + expiry status."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    coupons = await db.merchant_coupons.find(
+        {"vendor_id": vendor_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(200).to_list(length=200)
+    for c in coupons:
+        c["is_expired"] = _merchant_coupon_expired(c.get("expiry_date"))
+    return coupons
+
+
+@api_router.patch("/merchant/coupons/{coupon_id}")
+async def toggle_merchant_coupon(coupon_id: str, payload: MerchantCouponToggle, request: Request):
+    """Activate / deactivate a coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_coupons.update_one(
+        {"id": coupon_id, "vendor_id": vendor_id}, {"$set": {"active": bool(payload.active)}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return {"success": True}
+
+
+@api_router.delete("/merchant/coupons/{coupon_id}")
+async def delete_merchant_coupon(coupon_id: str, request: Request):
+    """Delete a coupon."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_coupons.delete_one({"id": coupon_id, "vendor_id": vendor_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    return {"success": True}
+
+
+async def _apply_merchant_coupon(order: dict, order_id: str, code: str, current_user) -> dict:
+    """Validate + apply a merchant-scoped coupon to an unpaid order (shared discount slot)."""
+    merchant_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not merchant_id:
+        raise HTTPException(status_code=404, detail="Code not found")
+    coupon = await db.merchant_coupons.find_one({"vendor_id": merchant_id, "code": code}, {"_id": 0})
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Code not valid for this store")
+    if not coupon.get("active"):
+        raise HTTPException(status_code=400, detail="This coupon is no longer active")
+    if _merchant_coupon_expired(coupon.get("expiry_date")):
+        raise HTTPException(status_code=400, detail="This coupon has expired")
+
+    already_used_here = await db.merchant_coupon_usage.find_one(
+        {"coupon_id": coupon["id"], "order_id": order_id}
+    )
+    limit = coupon.get("usage_limit")
+    if limit is not None and not already_used_here and coupon.get("used_count", 0) >= limit:
+        raise HTTPException(status_code=400, detail="This coupon has reached its usage limit")
+
+    subtotal = float(order.get("subtotal", 0) or 0)
+    min_order = float(coupon.get("min_order_amount", 0) or 0)
+    if min_order and subtotal < min_order:
+        raise HTTPException(status_code=400, detail=f"Minimum order of ${min_order:.2f} required for this coupon")
+
+    if coupon["discount_type"] == "percentage":
+        discount = round(subtotal * (float(coupon["discount_value"]) / 100), 2)
+    else:
+        discount = round(min(float(coupon["discount_value"]), subtotal), 2)
+
+    updated = {**order, "discount": discount, "promo_code": code}
+    new_total = _recompute_order_total(updated)
+    await db.orders.update_one({"id": order_id}, {"$set": {
+        "discount": discount, "promo_code": code, "coupon_vendor_id": merchant_id,
+        "total": new_total, "updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    if not already_used_here:
+        await db.merchant_coupons.update_one({"id": coupon["id"]}, {"$inc": {"used_count": 1}})
+        await db.merchant_coupon_usage.insert_one({
+            "coupon_id": coupon["id"], "order_id": order_id,
+            "user_id": current_user.id, "used_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return {"success": True, "code": code, "discount": discount, "total": new_total,
+            "message": f"Coupon applied! You saved ${discount:.2f}"}
 
 
 @api_router.put("/orders/{order_id}/tip")
@@ -8891,6 +9143,9 @@ async def initialize_data():
             "service_zones": [[("active", 1)]],
             "driver_documents": [[("id", 1)], [("driver_user_id", 1)]],
             "public_application_log": [[("ip", 1)], [("created_at", -1)]],
+            "merchant_storefronts": [[("vendor_id", 1)]],
+            "merchant_coupons": [[("vendor_id", 1)], [("vendor_id", 1), ("code", 1)]],
+            "merchant_coupon_usage": [[("coupon_id", 1), ("order_id", 1)]],
         }
         idx_count = 0
         for coll, keys_list in perf_indexes.items():

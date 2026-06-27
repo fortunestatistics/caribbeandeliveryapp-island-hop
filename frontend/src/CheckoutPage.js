@@ -285,7 +285,7 @@ export const CheckoutPage = () => {
               <div className="border border-border rounded-lg p-4">
                 <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold">
                   <Tag className="h-4 w-4 text-gold-500" />
-                  Promo code
+                  Have a promo or coupon?
                 </div>
                 {order.promo_code ? (
                   <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-md px-3 py-2">

@@ -18,6 +18,8 @@ import {
   Settings,
   BarChart3,
   Users,
+  Store,
+  Ticket,
   MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
@@ -141,6 +143,14 @@ const VendorDashboard = () => {
               <Button onClick={() => navigate('/menu-management')} variant="outline">
                 <ChefHat className="h-5 w-5 mr-2" />
                 Manage Menu
+              </Button>
+              <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
+                <Store className="h-5 w-5 mr-2" />
+                My Storefront
+              </Button>
+              <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
+                <Ticket className="h-5 w-5 mr-2" />
+                Coupons
               </Button>
               <Button onClick={() => navigate('/vendor/settings')} variant="outline">
                 <Settings className="h-5 w-5 mr-2" />

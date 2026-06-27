@@ -46,6 +46,8 @@ const JoinLanding = lazy(() => import('./JoinLanding'));
 const ClaimsPage = lazy(() => import('./ClaimsPage'));
 const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
+const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
@@ -992,7 +994,7 @@ const PartnerSelection = () => {
               You keep 100% of your menu pricing power
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
-              Drivers keep 100% of delivery fees + 100% of tips
+              Premium drivers keep 100% of delivery fees · Standard keep 80% · 100% of tips
             </span>
           </div>
         </div>
@@ -1851,6 +1853,8 @@ function App() {
             <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
             <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ONBOARD}><RestaurantOnboarding /></ProtectedRoute>} />
             <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
+            <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
+            <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />

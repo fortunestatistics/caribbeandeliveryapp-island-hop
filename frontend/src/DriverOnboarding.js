@@ -270,17 +270,17 @@ const DriverOnboarding = () => {
           <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
           <div data-testid="driver-rate-highlight" className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 max-w-2xl">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />Keep 100% of every delivery fee
+              <CheckCircle className="h-4 w-4" />Premium: keep 100% of delivery fees
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />100% of your tips
+              <CheckCircle className="h-4 w-4" />Standard: keep 80% of delivery fees
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />+ monthly incentive bonuses
+              <CheckCircle className="h-4 w-4" />100% of your tips, always
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
-            No platform cut on delivery fees — you keep 100% of every delivery fee and 100% of your tips.
+            Premium (subscribed) drivers keep 100% of delivery fees. Standard drivers keep 80% (20% platform cut). Both tiers keep 100% of tips.
           </p>
         </div>
 

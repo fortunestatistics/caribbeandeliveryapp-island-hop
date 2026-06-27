@@ -17,6 +17,9 @@ import {
   ArrowRight
 } from 'lucide-react';
 import MerchantReviews from './MerchantReviews';
+import axios from 'axios';
+
+const STOREFRONT_API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const RestaurantMenu = () => {
   const { format } = useCurrency();
@@ -25,6 +28,17 @@ const RestaurantMenu = () => {
   const [cart, setCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [storefront, setStorefront] = useState(null);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    axios.get(`${STOREFRONT_API}/merchants/${restaurantId}/storefront`)
+      .then((res) => {
+        const d = res.data || {};
+        if (d.logo || d.cover || d.bio || (d.gallery && d.gallery.length)) setStorefront(d);
+      })
+      .catch(() => {});
+  }, [restaurantId]);
 
   // Demo restaurant data
   const restaurant = {
@@ -227,6 +241,38 @@ const RestaurantMenu = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
+        {/* Storefront hero (custom merchant branding) */}
+        {storefront && (
+          <div className="mb-6 rounded-2xl overflow-hidden border border-matte-800 bg-card" data-testid="storefront-hero">
+            <div
+              className="h-40 sm:h-52 bg-matte-800 bg-cover bg-center"
+              style={storefront.cover ? { backgroundImage: `url(${storefront.cover})` } : {}}
+              data-testid="storefront-hero-cover"
+            />
+            <div className="px-5 sm:px-7 pb-6 -mt-10">
+              <div className="flex items-end gap-4">
+                {storefront.logo && (
+                  <img src={storefront.logo} alt="store logo" data-testid="storefront-hero-logo"
+                    className="h-20 w-20 rounded-2xl border-4 border-background object-cover shadow-lg bg-card" />
+                )}
+                <h2 className="text-2xl font-bold text-foreground pb-1">{restaurant.name}</h2>
+              </div>
+              {storefront.bio && (
+                <p className="text-muted-foreground mt-3 max-w-2xl" data-testid="storefront-hero-bio">{storefront.bio}</p>
+              )}
+              {storefront.gallery && storefront.gallery.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mt-5" data-testid="storefront-hero-gallery">
+                  {storefront.gallery.map((g, i) => (
+                    <div key={i} className="aspect-square rounded-lg overflow-hidden bg-matte-800">
+                      <img src={g} alt={`gallery-${i}`} className="h-full w-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Restaurant Header */}
         <Card className="mb-8">
           <CardContent className="p-6">
