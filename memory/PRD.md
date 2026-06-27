@@ -26,6 +26,20 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+
+### Jun 27, 2026 — Tiered driver payout (Premium 100% / Standard 80%)
+- New 2-tier delivery-fee split: **Premium** (active `user_subscriptions` row OR driver-profile `is_premium=true`/`subscription_status` in premium|active|subscribed) keeps **100%** of delivery fees; **Standard** keeps **80%** (20% platform cut). Tips always 100% to driver. Flat **$3.00** customer service fee stays 100% platform in BOTH tiers.
+- Backend (`server.py`): `DRIVER_FEE_RATE_SUBSCRIBER` default **0.10→0.00**; new `_driver_is_premium(driver_doc)`; `_driver_delivery_fee_rate(user_id, driver_doc)` now honours the profile premium flag; `_finalize_driver_split` passes the driver doc. Verified math: standard (del $20/tip $5) → driver $21, platform $14.50; premium → driver $25, platform $10.50.
+- Frontend copy updated to TWO tiers: `DriverEarningsDashboard.js` (tier cards `tier-premium`/`tier-standard`, example Premium $17 / Standard $14.60), `DriverOnboarding.js` badges, `App.js` partner-rate-highlight. (Supersedes the earlier "flat 100%" copy.)
+
+### Jun 27, 2026 — Merchant Storefront Builder + Self-Service Coupons
+- **Storefront:** new `merchant_storefronts` collection. Merchant edits logo/cover/bio(≤500)/gallery(≤6, base64 via `imageUtils.fileToResizedDataURL`). Endpoints `GET/PUT /api/merchant/storefront` (auth, resolves vendor via `_resolve_vendor_for_user`) + public `GET /api/merchants/{vendor_id}/storefront`. UI: `MerchantStorefrontEditor.js` (`/merchant/storefront`); public hero rendered atop `RestaurantMenu.js` (`storefront-hero`). Nav button on VendorDashboard.
+- **Coupons:** new `merchant_coupons` + `merchant_coupon_usage` collections. Merchant CRUD: `POST/GET /api/merchant/coupons`, `PATCH /api/merchant/coupons/{id}` (toggle active), `DELETE`. Code auto-gen, percentage|fixed, min order, expiry, usage limit, unique per merchant. UI: `MerchantCoupons.js` (`/merchant/coupons`).
+- **Checkout redemption:** `apply_promo_to_order` now falls back to `_apply_merchant_coupon` (validates merchant scope, active, expiry, usage limit, min order; discount applied to subtotal BEFORE the $3 service fee; idempotent per order via usage doc). Checkout promo input relabelled "Have a promo or coupon?". Verified: 15% on $50 → $7.50 discount, total $55.50.
+- **Perf (same session):** React.lazy route code-splitting (initial JS 327KB→177KB gzipped), 97 MongoDB indexes across 46 collections on startup, removed unused `firebase` dep, capped admin profile order scan. Verified iter 26.
+- Verified iter 27: backend 15/15, frontend 100%, zero issues.
+
+
 ### Jun 23, 2026 — Admin customer profile + COD cash reconciliation
 - **Admin → Users customer profile:** clicking a user row (or the eye button) opens a full profile dialog — contact, status, address, member-since, user ID, order stats (count / total spent / delivered / active) and the 5 most recent orders, plus an Email action. New endpoint `GET /api/admin/users/{id}/profile` (admin-only). Row action buttons stopPropagation so they don't open the profile.
 - **COD cash reconciliation:** drivers delivering a Cash-on-Delivery order tap **"Delivered — Collect $X cash"** (ActiveOrderCard, shows a `COD · collect $X` badge). This marks the order delivered + `POST /api/orders/{id}/cash-collected` → `payment_status=cod_collected`, and tracks the cash the driver owes the platform (`platform_due = total − driver_earnings`) on the driver record (`cash_outstanding`). Admins see a **"Driver Cash Outstanding"** card in the Orders tab (`GET /api/admin/drivers/cash-outstanding`) and can **Mark settled** (`POST /api/admin/drivers/{id}/settle-cash`, writes a `driver_cash_settlements` audit row).
