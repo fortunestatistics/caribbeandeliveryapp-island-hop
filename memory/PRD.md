@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jun 27, 2026 — GitHub Actions: auto-build signed Android .aab
+- Added `.github/workflows/android-build.yml`: on push to main/master (or manual `workflow_dispatch`), an **x86_64 ubuntu runner** builds web → `npx cap sync android` → `./gradlew bundleRelease`, producing a **signed `.aab`** (uses the in-repo keystore) uploaded as the `islandhop-release-aab` artifact. Solves the arm64/aapt2 limitation of the dev container.
+- Fixed a blocking bug: `android/gradle/wrapper/gradle-wrapper.properties` pointed `distributionUrl` to a local `file:///tmp/gradle-8.11.1-bin.zip` (would fail on CI **and** in Android Studio) → changed to the public `https://services.gradle.org/...` URL. Android download zip refreshed with the fix.
+- Production backend for the released app is set via workflow env `REACT_APP_BACKEND_URL` (default `https://islandhopapp.com`, override with a repo variable).
+
+
+
 ### Jun 27, 2026 — Featured Partner ranking + paid Merchant Ad space + signed Android project
 - **Featured ranking:** `GET /api/restaurants` now returns `featured` + `subscription_tier` and pins Pro/Premium (Featured) merchants to the top (then by rating). Restaurant model extended. The public `/restaurants` page now **fetches real data** (was hardcoded) and shows a gold "Featured" badge on featured merchants. Featured flag is set when a merchant selects a Pro/Premium subscription.
 - **Merchant Ad space (paid):** new `merchant_ads` collection + `AD_PACKAGES` (Homepage 7d TT$300, Homepage 30d TT$1000, Website 30d TT$1500). Endpoints: `GET /api/ads/packages`, `GET /api/ads/active?placement=`, `POST /api/ads/{id}/click`, `GET/POST /api/merchant/ads`, `PATCH/DELETE /api/merchant/ads/{id}`. UI: `MerchantAds.js` (/merchant/ads, "Advertise" button on vendor dashboard) to buy ad space (sandbox payment); landing page renders a "Sponsored Partners" section (`SponsoredAds.js`) with live homepage ads + click tracking. Verified iter 30: backend 8/8, frontend 100%.
