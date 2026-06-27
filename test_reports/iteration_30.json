@@ -1,0 +1,32 @@
+{
+  "summary": "Iter 30 — FEATURED ranking + MERCHANT AD SPACE fully verified end-to-end. Backend pytest 8/8 PASS (featured-first sort, featured+subscription_tier fields on /api/restaurants, AD_PACKAGES TT$300/1000/1500, /api/ads/active sample 'Ad Spice Kitchen' present, click increment, merchant ad CRUD with pause-excludes-from-active, invalid pkg 400, unauth 401/403). Frontend: /restaurants renders 108 cards with 5 'Featured' gold badges grouped at the top (newly-created premium merchant appears in featured group), card click navigates to /restaurant/<id>. Landing 'Sponsored Partners' section renders with the sample ad card. /vendor-dashboard 'Advertise' button (vendor-ads-btn) navigates to /merchant/ads; full create→list→toggle (Pause/Resume)→delete flow works; publish button correctly updates to 'Publish & Pay TT$300' after pkg select; success toast 'Ad published — Your ad is live for 7 days!' shown. No critical or minor bugs found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_featured_and_ads_iter30.py",
+    "/app/test_reports/pytest/pytest_iter30.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend server.py L3334-3470 ad endpoints are correctly scoped to vendor_id via _resolve_vendor_for_user. Paused ads correctly filtered from /api/ads/active by both Mongo query (status:'active') and _ad_is_live() expiry check. Status code for unauthenticated POST /api/merchant/ads is 401/403 (FastAPI default). All endpoints exclude _id (find with projection {'_id':0}).",
+    "Backend get_restaurants (L1255) sorts by (0 if featured else 1, -rating) — featured-first ranking is stable and correct. featured + subscription_tier are persisted on the restaurant doc by /api/merchant/subscription/select (L3317).",
+    "Frontend SponsoredAds.js is correctly eager-imported in App.js and renders only when active homepage ads exist (graceful empty-state hide). data-testid='sponsored-ads-section' + 'sponsored-ad-<id>' present and functional.",
+    "MerchantAds.js form correctly uses Radix Select (data-testid='ad-package-select'). Publish button text dynamically reflects the selected package price (verified TT$300 for home_7). Image upload is hidden file input triggered by data-testid='ad-image-upload' button — works.",
+    "MINOR: VendorDashboard issues 401 on /orders & /stats for a freshly-promoted merchant whose user_type is still 'customer' (admin approval pending). This is pre-existing behavior (see test_credentials.md) and unrelated to iter30 scope. The 'Advertise' button and /merchant/ads flow are unaffected — they resolve by restaurant ownership.",
+    "Sample 'Ad Spice Kitchen' ad has internal cta_url ('/restaurant/<id>'), so card click navigates in-app rather than opening a new tab. This matches code default in server.py L3424 (cta_url defaults to /restaurant/<vendor_id>)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_featured_and_ads_iter30.py (new)"
+  ],
+  "success_rate": { "backend": "100% (8/8 pytest)", "frontend": "100% on all iter30 data-testids" },
+  "test_credentials": "Reused admin.qa@islandhop-demo.com / AdminQA1234! plus ephemeral merchant qa_uimrcads30_<ts>@test.com (premium tier, restaurant 612b1fd6-2e43-440d-9e17-2fcef4e88d1a). Token saved at /tmp/iter30_merch.env.",
+  "seed_data_creation": "Ephemeral premium merchant + restaurant created via /api/auth/register → /api/restaurants → /api/merchant/subscription/select {tier:'premium'}. One ad was created, paused, then deleted during UI testing — no residual TEST_ data in active feed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "FEATURED ranking + MERCHANT ad space are GA-ready. Re-run pytest with: `REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_featured_and_ads_iter30.py -v`. For UI: set localStorage.token to a merchant JWT before visiting /vendor-dashboard; the Advertise button → /merchant/ads route works without admin approval since it resolves vendor by restaurant ownership.",
+  "rca_of_the_issue": "N/A — no defects found in iter30 scope."
+}

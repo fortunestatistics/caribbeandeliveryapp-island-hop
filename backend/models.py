@@ -223,6 +223,8 @@ class Restaurant(BaseModel):
     minimum_order: float = 15.0
     estimated_delivery_time: int = 30
     menu_items: List[Dict] = []
+    subscription_tier: str = "standard"
+    featured: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

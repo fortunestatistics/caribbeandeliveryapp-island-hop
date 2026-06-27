@@ -11,7 +11,7 @@ import AnimatedCounter from './AnimatedCounter';
 import PromoSlides from './PromoSlides';
 import LiveOrderMapPreview from './LiveOrderMapPreview';
 import EnablePushButton from './EnablePushButton';
-// Route-level pages — lazy loaded for code splitting (keeps initial bundle small)
+import SponsoredAds from './SponsoredAds';// Route-level pages — lazy loaded for code splitting (keeps initial bundle small)
 const KPIDashboard = lazy(() => import('./KPIDashboard'));
 const ThemePreview = lazy(() => import('./ThemePreview'));
 const CarRentalPage = lazy(() => import('./CarRentalPage'));
@@ -50,6 +50,7 @@ const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor')
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
+const MerchantAds = lazy(() => import('./MerchantAds'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
@@ -673,6 +674,10 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
+      {/* Sponsored merchant ads (paid front-page ad space) */}
+      <SponsoredAds />
+
 
       {/* Services Section - Card Grid */}
       <section id="services" className="py-20 bg-background">
@@ -1479,7 +1484,22 @@ const Dashboard = () => {
 // Restaurants Page Component
 const RestaurantsPage = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const [restaurants, setRestaurants] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/restaurants`)
+      .then((res) => setRestaurants(res.data || []))
+      .catch(() => setRestaurants([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const cardGradients = [
+    'from-red-500 to-orange-500',
+    'from-green-500 to-emerald-500',
+    'from-purple-500 to-pink-500',
+    'from-gold-300 to-gold-700',
+  ];
 
   return (
     <div className="min-h-screen bg-matte-900 py-12">
@@ -1493,62 +1513,52 @@ const RestaurantsPage = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {/* Sample restaurant cards - this would be populated from API */}
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg mb-4 flex items-center justify-center">
-                <Utensils className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Island Spice Kitchen</h3>
-              <p className="text-muted-foreground mb-4">Authentic Jamaican cuisine with a modern twist</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.8 (120 reviews)</span>
-                </div>
-                <Badge>30-45 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg mb-4 flex items-center justify-center">
-                <ChefHat className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Tropical Delights</h3>
-              <p className="text-muted-foreground mb-4">Fresh seafood and tropical flavors</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.6 (89 reviews)</span>
-                </div>
-                <Badge>25-40 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg mb-4 flex items-center justify-center">
-                <Utensils className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Caribbean Fusion</h3>
-              <p className="text-muted-foreground mb-4">International dishes with Caribbean flair</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.9 (156 reviews)</span>
-                </div>
-                <Badge>35-50 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/40"></div>
+          </div>
+        ) : restaurants.length === 0 ? (
+          <p className="text-center text-muted-foreground py-16" data-testid="restaurants-empty">
+            No restaurants available yet. Check back soon!
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" data-testid="restaurants-grid">
+            {restaurants.map((r, i) => (
+              <Card
+                key={r.id}
+                data-testid={`restaurant-card-${r.id}`}
+                onClick={() => navigate(`/restaurant/${r.id}`)}
+                className={`group cursor-pointer hover:shadow-xl transition-all duration-300 hover:-translate-y-2 ${r.featured ? 'border-2 border-gold-500/50 shadow-gold-500/10 shadow-lg' : ''}`}
+              >
+                <CardContent className="p-6">
+                  <div className={`relative w-full h-48 bg-gradient-to-r ${cardGradients[i % cardGradients.length]} rounded-lg mb-4 flex items-center justify-center`}>
+                    <Utensils className="h-12 w-12 text-white" />
+                    {r.featured && (
+                      <Badge
+                        data-testid={`restaurant-featured-badge-${r.id}`}
+                        className="absolute top-3 left-3 bg-gold-gradient text-white border-0 shadow-md"
+                      >
+                        <Star className="h-3 w-3 mr-1 fill-current" /> Featured
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-bold text-foreground mb-2">{r.name}</h3>
+                  <p className="text-muted-foreground mb-4 line-clamp-2">{r.description}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <Star className="h-4 w-4 text-gold-500 mr-1" />
+                      <span className="text-sm">{(r.rating || 0).toFixed(1)}</span>
+                    </div>
+                    <Badge variant="secondary">{r.estimated_delivery_time || 30} min</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         <div className="text-center mt-12">
-          <Button 
+          <Button
             onClick={() => navigate('/partner')}
             className="bg-gold-gradient text-white"
           >
@@ -1881,6 +1891,7 @@ function App() {
             <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
             <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
             <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
+            <Route path="/merchant/ads" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantAds /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />

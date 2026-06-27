@@ -1242,7 +1242,7 @@ async def global_search(q: str):
 
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
-    """Get all active restaurants (capped at 200 for safety)."""
+    """Get all active restaurants, Featured (Pro/Premium) merchants first."""
     restaurants = await db.restaurants.find({"status": "active"}, {"_id": 0}).limit(200).to_list(length=None)
     valid = []
     for r in restaurants:
@@ -1251,6 +1251,8 @@ async def get_restaurants():
         except Exception:
             # Skip documents that don't conform to the schema (legacy/incomplete seeds)
             continue
+    # Featured Partners (Pro/Premium) are pinned to the top, then by rating.
+    valid.sort(key=lambda x: (0 if x.featured else 1, -(x.rating or 0)))
     return valid
 
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
@@ -3324,6 +3326,139 @@ async def select_merchant_subscription(payload: MerchantPlanSelect, request: Req
         "featured": plan["featured"],
         "message": f"You're now on the {plan['name']} plan — {plan['commission_pct']}% commission on orders.",
     }
+
+
+# ============================================================
+# MERCHANT ADVERTISEMENTS (front-page / website ad space)
+# ============================================================
+AD_PACKAGES = [
+    {"id": "home_7", "name": "Homepage Spotlight — 7 days", "placement": "homepage", "days": 7, "price_ttd": 300},
+    {"id": "home_30", "name": "Homepage Spotlight — 30 days", "placement": "homepage", "days": 30, "price_ttd": 1000},
+    {"id": "web_30", "name": "Website Banner — 30 days", "placement": "website", "days": 30, "price_ttd": 1500},
+]
+
+
+class AdCreate(BaseModel):
+    title: str
+    image: str                 # base64 data URL
+    cta_url: Optional[str] = None
+    package_id: str
+
+
+def _ad_package(pid: str) -> Optional[dict]:
+    return next((p for p in AD_PACKAGES if p["id"] == pid), None)
+
+
+def _ad_is_live(ad: dict) -> bool:
+    if ad.get("status") != "active":
+        return False
+    ends = ad.get("ends_at")
+    if ends:
+        try:
+            d = datetime.fromisoformat(ends)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            return d > datetime.now(timezone.utc)
+        except Exception:
+            return True
+    return True
+
+
+@api_router.get("/ads/packages")
+async def get_ad_packages():
+    """Public catalogue of paid advertising packages (prices in TTD)."""
+    return AD_PACKAGES
+
+
+@api_router.get("/ads/active")
+async def get_active_ads(placement: str = "homepage", limit: int = 8):
+    """Public: live merchant ads for the given placement (newest first)."""
+    ads = await db.merchant_ads.find(
+        {"placement": placement, "status": "active"}, {"_id": 0}
+    ).sort("created_at", -1).limit(max(1, min(limit, 20))).to_list(length=20)
+    return [a for a in ads if _ad_is_live(a)]
+
+
+@api_router.post("/ads/{ad_id}/click")
+async def track_ad_click(ad_id: str):
+    await db.merchant_ads.update_one({"id": ad_id}, {"$inc": {"clicks": 1}})
+    return {"success": True}
+
+
+@api_router.get("/merchant/ads")
+async def list_merchant_ads(request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    ads = await db.merchant_ads.find({"vendor_id": vendor_id}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=50)
+    for a in ads:
+        a["is_live"] = _ad_is_live(a)
+    return ads
+
+
+@api_router.post("/merchant/ads")
+async def create_merchant_ad(payload: AdCreate, request: Request):
+    """Buy ad space. NOTE: payment is sandbox-activated (no live charge wired yet)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    pkg = _ad_package(payload.package_id)
+    if not pkg:
+        raise HTTPException(status_code=400, detail="Invalid ad package")
+    if not payload.title or not payload.image:
+        raise HTTPException(status_code=400, detail="Title and image are required")
+    if len(payload.image) > 1_500_000:
+        raise HTTPException(status_code=413, detail="Ad image too large (max ~1MB)")
+
+    now = datetime.now(timezone.utc)
+    merchant = None
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        merchant = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "name": 1})
+        if merchant:
+            break
+    doc = {
+        "id": str(uuid.uuid4()),
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "merchant_name": (merchant or {}).get("name"),
+        "title": payload.title,
+        "image": payload.image,
+        "cta_url": payload.cta_url or f"/restaurant/{vendor_id}",
+        "placement": pkg["placement"],
+        "package_id": pkg["id"],
+        "price_ttd": pkg["price_ttd"],
+        "status": "active",
+        "starts_at": now.isoformat(),
+        "ends_at": (now + timedelta(days=pkg["days"])).isoformat(),
+        "impressions": 0,
+        "clicks": 0,
+        "created_at": now.isoformat(),
+    }
+    await db.merchant_ads.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"success": True, "ad": doc, "message": f"Your ad is live for {pkg['days']} days!"}
+
+
+@api_router.patch("/merchant/ads/{ad_id}")
+async def toggle_merchant_ad(ad_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    ad = await db.merchant_ads.find_one({"id": ad_id, "vendor_id": vendor_id}, {"_id": 0, "status": 1})
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    new_status = "paused" if ad.get("status") == "active" else "active"
+    await db.merchant_ads.update_one({"id": ad_id}, {"$set": {"status": new_status}})
+    return {"success": True, "status": new_status}
+
+
+@api_router.delete("/merchant/ads/{ad_id}")
+async def delete_merchant_ad(ad_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    res = await db.merchant_ads.delete_one({"id": ad_id, "vendor_id": vendor_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    return {"success": True}
+
+
 
 
 
@@ -9415,6 +9550,7 @@ async def initialize_data():
             "merchant_storefronts": [[("vendor_id", 1)]],
             "merchant_coupons": [[("vendor_id", 1)], [("vendor_id", 1), ("code", 1)]],
             "merchant_coupon_usage": [[("coupon_id", 1), ("order_id", 1)]],
+            "merchant_ads": [[("placement", 1), ("status", 1)], [("vendor_id", 1)]],
         }
         idx_count = 0
         for coll, keys_list in perf_indexes.items():

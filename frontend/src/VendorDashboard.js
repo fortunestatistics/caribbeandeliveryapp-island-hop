@@ -20,6 +20,7 @@ import {
   Users,
   Store,
   Ticket,
+  Megaphone,
   MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
@@ -151,6 +152,10 @@ const VendorDashboard = () => {
               <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
                 <Ticket className="h-5 w-5 mr-2" />
                 Coupons
+              </Button>
+              <Button onClick={() => navigate('/merchant/ads')} variant="outline" data-testid="vendor-ads-btn">
+                <Megaphone className="h-5 w-5 mr-2" />
+                Advertise
               </Button>
               <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
                 <DollarSign className="h-5 w-5 mr-2" />
