@@ -48,6 +48,8 @@ const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
+const DriverSubscription = lazy(() => import('./DriverSubscription'));
+const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
@@ -987,17 +989,37 @@ const PartnerSelection = () => {
             Join IslandHop&apos;s growing network of Caribbean businesses and reach more customers than ever before
           </p>
           <div data-testid="partner-rate-highlight" className="mt-6 inline-flex flex-wrap items-center justify-center gap-3 max-w-3xl">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
-              Low 15% commission for restaurants
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 border border-gray-500/30 text-secondary/80 px-4 py-1.5 text-sm font-semibold">
+              Standard (Free): 15% commission
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
-              You keep 100% of your menu pricing power
+              Pro (TT$800/mo): 10% + Featured Partner
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
-              Premium drivers keep 100% of delivery fees · Standard keep 80% · 100% of tips
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-4 py-1.5 text-sm font-semibold">
+              Premium (TT$1,600/mo): 5% + Premium Marketing
             </span>
           </div>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl mx-auto">
+            Start free on Standard, then upgrade to <span className="text-gold-400 font-semibold">Pro</span> or <span className="text-yellow-500 font-semibold">Premium</span> anytime to lower your commission and boost your search visibility. You always keep 100% of your menu pricing.
+          </p>
         </div>
+
+        {/* Merchant subscription tiers */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-4xl mx-auto mb-14" data-testid="partner-merchant-tiers">
+          {[
+            { name: 'Standard', price: 'Free', commission: '15% commission', perk: 'Standard placement', cls: 'border-border' },
+            { name: 'Pro', price: 'TT$800/mo', commission: '10% commission', perk: 'Featured Partner visibility', cls: 'border-gold-500/40 bg-gold-500/5' },
+            { name: 'Premium', price: 'TT$1,600/mo', commission: '5% commission', perk: 'Premium Marketing + Priority Support', cls: 'border-yellow-500/40 bg-yellow-500/5' },
+          ].map((t) => (
+            <div key={t.name} className={`rounded-xl border ${t.cls} p-5 text-center`} data-testid={`partner-tier-${t.name.toLowerCase()}`}>
+              <p className="font-heading text-lg font-bold text-secondary">{t.name}</p>
+              <p className="text-gold-400 font-semibold text-sm mt-1">{t.price}</p>
+              <p className="text-2xl font-bold text-secondary mt-3">{t.commission}</p>
+              <p className="text-xs text-muted-foreground mt-2">{t.perk}</p>
+            </div>
+          ))}
+        </div>
+        <div className="text-center -mt-6 mb-2"><span className="sr-only">tiers</span></div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
           {partnerTypes.map((partner) => (
@@ -1850,6 +1872,7 @@ function App() {
             <Route path="/driver-onboarding" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverOnboarding /></ProtectedRoute>} />
             <Route path="/driver" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverRegistration /></ProtectedRoute>} />
             <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverEarningsDashboard /></ProtectedRoute>} />
+            <Route path="/driver/subscription" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSubscription /></ProtectedRoute>} />
 
             {/* Merchant / Vendor only */}
             <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
@@ -1857,6 +1880,7 @@ function App() {
             <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
             <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
             <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
+            <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />

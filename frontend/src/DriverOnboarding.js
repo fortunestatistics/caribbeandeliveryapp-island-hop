@@ -269,18 +269,18 @@ const DriverOnboarding = () => {
           <h1 className="text-3xl font-bold text-foreground mb-4">Become a Driver</h1>
           <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
           <div data-testid="driver-rate-highlight" className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />Premium: keep 100% of delivery fees
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 border border-gray-500/30 text-foreground/80 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Standard (Free): keep 80%
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />Standard: keep 80% of delivery fees
+              <CheckCircle className="h-4 w-4" />Pro (TT$700/mo): keep 90%
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
-              <CheckCircle className="h-4 w-4" />100% of your tips, always
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Premium (TT$1,400/mo): keep 100%
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
-            Premium (subscribed) drivers keep 100% of delivery fees. Standard drivers keep 80% (20% platform cut). Both tiers keep 100% of tips.
+            Start free on Standard (keep 80% of delivery fees). Upgrade to Pro (TT$700/mo, keep 90%) or Premium (TT$1,400/mo, keep 100%) anytime to lower the platform cut. All tiers keep 100% of tips.
           </p>
         </div>
 

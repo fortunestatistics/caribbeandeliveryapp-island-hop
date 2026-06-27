@@ -269,7 +269,7 @@ const DriverDashboard = () => {
                 <Wallet className="h-5 w-5 mr-2" />
                 Wallet
               </Button>
-              <Button onClick={() => navigate('/pricing')} variant="outline" data-testid="driver-subscription-link">
+              <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
                 <DollarSign className="h-5 w-5 mr-2" />
                 Subscription
               </Button>

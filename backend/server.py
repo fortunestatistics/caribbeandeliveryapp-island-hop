@@ -156,17 +156,62 @@ from models import (
 
 # Helper function to calculate commission and split payments
 # ---------------------------------------------------------------------------
-# Fee structure (approved Jun 2026 — tiered driver payout):
+# Fee structure (approved Jun 2026 — 3-tier driver subscription):
 #   • Merchant commission: 15% of the item subtotal (default; per vendor type / plan).
-#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform (both tiers).
-#   • Delivery fee + tips go to the driver, MINUS the platform's delivery-fee cut:
-#       - PREMIUM (subscribed / is_premium) driver: platform takes 0% → driver keeps 100%.
-#       - STANDARD (no subscription) driver:         platform takes 20% → driver keeps 80%.
+#   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform (all tiers).
+#   • Delivery fee + tips go to the driver, MINUS the platform's delivery-fee cut by plan:
+#       - STANDARD (Free):        platform takes 20% → driver keeps 80%.
+#       - PRO ($700 TT/mo):       platform takes 10% → driver keeps 90%.
+#       - PREMIUM ($1,400 TT/mo): platform takes 0%  → driver keeps 100%.
 #     Tips are ALWAYS 100% to the driver. (Drivers also receive monthly incentive payouts.)
 # ---------------------------------------------------------------------------
 PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
-DRIVER_FEE_RATE_SUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_SUBSCRIBER", "0.00"))
-DRIVER_FEE_RATE_NONSUBSCRIBER = float(os.environ.get("DRIVER_FEE_RATE_NONSUBSCRIBER", "0.20"))
+
+# Platform's % cut of the delivery fee, keyed by the driver's subscription tier.
+DRIVER_PLAN_RATES = {
+    "standard": float(os.environ.get("DRIVER_FEE_RATE_STANDARD", "0.20")),
+    "pro": float(os.environ.get("DRIVER_FEE_RATE_PRO", "0.10")),
+    "premium": float(os.environ.get("DRIVER_FEE_RATE_PREMIUM", "0.00")),
+}
+# Default cut applied at order-creation time (before a driver is assigned).
+DRIVER_FEE_RATE_NONSUBSCRIBER = DRIVER_PLAN_RATES["standard"]
+
+# Driver subscription catalogue (prices in TTD).
+DRIVER_SUBSCRIPTION_PLANS = [
+    {
+        "tier": "standard", "name": "Standard", "price_ttd": 0,
+        "platform_cut_pct": 20, "driver_keep_pct": 80,
+        "tagline": "Start earning for free.",
+        "features": [
+            "Keep 80% of every delivery fee",
+            "Keep 100% of all tips",
+            "Access to all delivery & taxi jobs",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "pro", "name": "Pro", "price_ttd": 700,
+        "platform_cut_pct": 10, "driver_keep_pct": 90,
+        "tagline": "Keep more of what you earn.",
+        "features": [
+            "Keep 90% of every delivery fee",
+            "Keep 100% of all tips",
+            "Priority job matching",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "premium", "name": "Premium", "price_ttd": 1400,
+        "platform_cut_pct": 0, "driver_keep_pct": 100,
+        "tagline": "Zero platform cut. Maximum earnings.",
+        "features": [
+            "Keep 100% of every delivery fee",
+            "Keep 100% of all tips",
+            "Top priority job matching",
+            "Premium support",
+        ],
+    },
+]
 
 
 def _derive_vendor_type(service_type: str) -> str:
@@ -178,27 +223,94 @@ def _derive_vendor_type(service_type: str) -> str:
     }.get(service_type, "business")
 
 
-def _driver_is_premium(driver_doc: Optional[dict]) -> bool:
-    """Premium if the driver profile carries an explicit premium flag."""
-    if not driver_doc:
-        return False
-    if driver_doc.get("is_premium") is True:
-        return True
-    status = str(driver_doc.get("subscription_status") or "").lower()
-    return status in ("premium", "active", "subscribed")
+# Merchant subscription catalogue (prices in TTD). Commission is on the item subtotal.
+MERCHANT_PLAN_COMMISSION = {"pro": 10.0, "premium": 5.0}  # standard → vendor-type default
+MERCHANT_SUBSCRIPTION_PLANS = [
+    {
+        "tier": "standard", "name": "Standard", "price_ttd": 0,
+        "commission_pct": 15, "featured": False,
+        "tagline": "Free to join. Start selling today.",
+        "features": [
+            "15% commission on orders",
+            "Standard search placement",
+            "Order & menu management",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "pro", "name": "Pro", "price_ttd": 800,
+        "commission_pct": 10, "featured": True,
+        "tagline": "Lower fees + Featured Partner status.",
+        "features": [
+            "10% commission on orders",
+            "Featured Partner — higher search visibility",
+            "Order & menu management",
+            "Weekly payouts",
+        ],
+    },
+    {
+        "tier": "premium", "name": "Premium", "price_ttd": 1600,
+        "commission_pct": 5, "featured": True,
+        "tagline": "Lowest fees + Premium Marketing & Priority Support.",
+        "features": [
+            "5% commission on orders",
+            "Featured Partner — top search visibility",
+            "Premium Marketing placement",
+            "Priority Support",
+        ],
+    },
+]
+
+
+async def _merchant_plan_tier(vendor_id: Optional[str]) -> str:
+    """Resolve a merchant's active subscription tier from its profile doc."""
+    if not vendor_id:
+        return "standard"
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "subscription_tier": 1})
+        if doc:
+            tier = str(doc.get("subscription_tier") or "").lower()
+            return tier if tier in MERCHANT_PLAN_COMMISSION else "standard"
+    return "standard"
+
+
+async def _merchant_commission_rate(vendor_id: Optional[str], vendor_type: str) -> float:
+    """Commission % on item subtotal, by the merchant's subscription tier.
+    PRO 10% / PREMIUM 5% / STANDARD = vendor-type default (restaurant 15%)."""
+    default_rates = {
+        "restaurant": 15.0, "pharmacy": 8.0, "grocery": 12.0,
+        "car_rental": 10.0, "business": 20.0,
+    }
+    base = default_rates.get(vendor_type, 15.0)
+    tier = await _merchant_plan_tier(vendor_id)
+    return MERCHANT_PLAN_COMMISSION.get(tier, base)
+
+
+async def _driver_plan_tier(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> str:
+    """Resolve the driver's active subscription tier: 'standard' | 'pro' | 'premium'."""
+    doc = driver_doc or {}
+    tier = str(doc.get("subscription_tier") or "").lower()
+    if tier in DRIVER_PLAN_RATES:
+        return tier
+    # Legacy flag → premium
+    if doc.get("is_premium") is True:
+        return "premium"
+    if driver_user_id:
+        sub = await db.user_subscriptions.find_one({
+            "user_id": driver_user_id, "status": "active",
+            "plan_tier": {"$in": ["pro", "premium"]},
+        })
+        if sub:
+            return sub.get("plan_tier", "standard")
+    return "standard"
 
 
 async def _driver_delivery_fee_rate(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> float:
-    """Platform's % cut of the delivery fee for the assigned driver.
-    PREMIUM (active subscription OR is_premium flag): 0% cut → keep 100%.
-    STANDARD (no subscription): 20% cut → keep 80%. Tips are always 100% to the driver."""
-    if _driver_is_premium(driver_doc):
-        return DRIVER_FEE_RATE_SUBSCRIBER
-    if driver_user_id:
-        sub = await db.user_subscriptions.find_one({"user_id": driver_user_id, "status": "active"})
-        if sub:
-            return DRIVER_FEE_RATE_SUBSCRIBER
-    return DRIVER_FEE_RATE_NONSUBSCRIBER
+    """Platform's % cut of the delivery fee for the assigned driver, by plan tier.
+    STANDARD 20% / PRO 10% / PREMIUM 0%. Tips are always 100% to the driver."""
+    tier = await _driver_plan_tier(driver_user_id, driver_doc)
+    return DRIVER_PLAN_RATES.get(tier, DRIVER_PLAN_RATES["standard"])
+
 
 
 async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
@@ -227,23 +339,10 @@ async def calculate_order_financials(order: Order, vendor_id: str, vendor_type: 
     """
     Calculate commission, vendor payout, platform earnings, and driver earnings.
     """
-    # Get vendor's subscription plan to determine commission rate
-    subscription = await db.user_subscriptions.find_one({"user_id": vendor_id, "status": "active"})
-    
-    if subscription:
-        plan = await db.subscription_plans.find_one({"id": subscription["plan_id"]})
-        commission_rate = plan.get("commission_rate", 15.0) if plan else 15.0
-    else:
-        # Default commission rates by vendor type if no subscription
-        default_rates = {
-            "restaurant": 15.0,
-            "pharmacy": 8.0,
-            "grocery": 12.0,
-            "car_rental": 10.0,
-            "business": 20.0
-        }
-        commission_rate = default_rates.get(vendor_type, 15.0)
-    
+    # Merchant commission rate is determined by the merchant's subscription tier
+    # (Pro 10% / Premium 5% / Standard = vendor-type default).
+    commission_rate = await _merchant_commission_rate(vendor_id, vendor_type)
+
     # Merchant commission on the item subtotal
     order.commission_rate = commission_rate
     order.commission_amount = round(order.subtotal * (commission_rate / 100), 2)
@@ -3060,6 +3159,175 @@ async def create_subscription(
         return {"message": "Subscription created", "subscription": user_subscription.dict()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# DRIVER SUBSCRIPTION TIERS (Standard / Pro / Premium)
+# ============================================================
+class DriverPlanSelect(BaseModel):
+    tier: str  # 'standard' | 'pro' | 'premium'
+
+
+def _driver_plan_by_tier(tier: str) -> Optional[dict]:
+    return next((p for p in DRIVER_SUBSCRIPTION_PLANS if p["tier"] == tier), None)
+
+
+@api_router.get("/driver/subscription/plans")
+async def get_driver_subscription_plans():
+    """Public catalogue of the three driver subscription tiers (prices in TTD)."""
+    return DRIVER_SUBSCRIPTION_PLANS
+
+
+@api_router.get("/driver/subscription")
+async def get_my_driver_subscription(request: Request):
+    """Current driver's active subscription tier (defaults to free Standard)."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    tier = await _driver_plan_tier(current_user.id, driver)
+    plan = _driver_plan_by_tier(tier) or _driver_plan_by_tier("standard")
+    sub = await db.user_subscriptions.find_one(
+        {"user_id": current_user.id, "status": "active", "plan_tier": {"$in": ["pro", "premium"]}},
+        {"_id": 0},
+    )
+    return {
+        "tier": tier,
+        "plan": plan,
+        "current_period_end": sub.get("current_period_end") if sub else None,
+    }
+
+
+@api_router.post("/driver/subscription/select")
+async def select_driver_subscription(payload: DriverPlanSelect, request: Request):
+    """Activate a driver subscription tier. NOTE: paid tiers are activated in
+    sandbox mode (no live recurring charge wired yet — same as the rest of the app)."""
+    current_user = await get_current_user_from_request(request)
+    tier = (payload.tier or "").lower()
+    plan = _driver_plan_by_tier(tier)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan tier")
+
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="No driver profile found for this account")
+
+    now = datetime.now(timezone.utc)
+    # Deactivate any prior active driver subscription
+    await db.user_subscriptions.update_many(
+        {"user_id": current_user.id, "status": "active", "plan_tier": {"$exists": True}},
+        {"$set": {"status": "cancelled", "cancelled_at": now.isoformat()}},
+    )
+
+    if tier in ("pro", "premium"):
+        period_end = now + timedelta(days=30)
+        await db.user_subscriptions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current_user.id,
+            "plan_tier": tier,
+            "price_ttd": plan["price_ttd"],
+            "status": "active",
+            "billing_cycle": "monthly",
+            "current_period_start": now.isoformat(),
+            "current_period_end": period_end.isoformat(),
+            "created_at": now.isoformat(),
+        })
+
+    # Mirror the tier on the driver profile so the payout split resolves instantly
+    await db.drivers.update_one(
+        {"user_id": current_user.id},
+        {"$set": {"subscription_tier": tier, "is_premium": tier == "premium", "updated_at": now.isoformat()}},
+    )
+    return {
+        "success": True,
+        "tier": tier,
+        "platform_cut_pct": plan["platform_cut_pct"],
+        "driver_keep_pct": plan["driver_keep_pct"],
+        "message": f"You're now on the {plan['name']} plan — you keep {plan['driver_keep_pct']}% of delivery fees.",
+    }
+
+
+# ============================================================
+# MERCHANT SUBSCRIPTION TIERS (Standard / Pro / Premium)
+# ============================================================
+class MerchantPlanSelect(BaseModel):
+    tier: str  # 'standard' | 'pro' | 'premium'
+
+
+def _merchant_plan_by_tier(tier: str) -> Optional[dict]:
+    return next((p for p in MERCHANT_SUBSCRIPTION_PLANS if p["tier"] == tier), None)
+
+
+@api_router.get("/merchant/subscription/plans")
+async def get_merchant_subscription_plans():
+    """Public catalogue of the three merchant subscription tiers (prices in TTD)."""
+    return MERCHANT_SUBSCRIPTION_PLANS
+
+
+@api_router.get("/merchant/subscription")
+async def get_my_merchant_subscription(request: Request):
+    """Current merchant's active subscription tier (defaults to free Standard)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    tier = await _merchant_plan_tier(vendor_id)
+    plan = _merchant_plan_by_tier(tier) or _merchant_plan_by_tier("standard")
+    sub = await db.user_subscriptions.find_one(
+        {"user_id": current_user.id, "status": "active", "audience": "merchant",
+         "plan_tier": {"$in": ["pro", "premium"]}},
+        {"_id": 0},
+    )
+    return {
+        "tier": tier,
+        "plan": plan,
+        "current_period_end": sub.get("current_period_end") if sub else None,
+    }
+
+
+@api_router.post("/merchant/subscription/select")
+async def select_merchant_subscription(payload: MerchantPlanSelect, request: Request):
+    """Activate a merchant subscription tier. NOTE: paid tiers are activated in
+    sandbox mode (no live recurring charge wired yet)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    tier = (payload.tier or "").lower()
+    plan = _merchant_plan_by_tier(tier)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan tier")
+
+    now = datetime.now(timezone.utc)
+    await db.user_subscriptions.update_many(
+        {"user_id": current_user.id, "status": "active", "audience": "merchant"},
+        {"$set": {"status": "cancelled", "cancelled_at": now.isoformat()}},
+    )
+    if tier in ("pro", "premium"):
+        await db.user_subscriptions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current_user.id,
+            "audience": "merchant",
+            "plan_tier": tier,
+            "price_ttd": plan["price_ttd"],
+            "status": "active",
+            "billing_cycle": "monthly",
+            "current_period_start": now.isoformat(),
+            "current_period_end": (now + timedelta(days=30)).isoformat(),
+            "created_at": now.isoformat(),
+        })
+
+    # Mirror tier + Featured Partner flag on the merchant profile doc
+    update = {"subscription_tier": tier, "featured": plan["featured"], "updated_at": now.isoformat()}
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        res = await db[coll].update_one({"id": vendor_id}, {"$set": update})
+        if res.matched_count:
+            break
+    return {
+        "success": True,
+        "tier": tier,
+        "commission_pct": plan["commission_pct"],
+        "featured": plan["featured"],
+        "message": f"You're now on the {plan['name']} plan — {plan['commission_pct']}% commission on orders.",
+    }
+
+
+
+
 
 @api_router.post("/payments/create-payment-intent")
 async def create_payment_intent(
@@ -9140,7 +9408,7 @@ async def initialize_data():
             "money_requests": [[("requester_id", 1)], [("payer_id", 1)]],
             "mail_tickets": [[("message_id", 1)], [("conversation_id", 1)]],
             "admin_invites": [[("token", 1)]],
-            "user_subscriptions": [[("user_id", 1)], [("status", 1)]],
+            "user_subscriptions": [[("user_id", 1)], [("status", 1)], [("user_id", 1), ("status", 1), ("plan_tier", 1)]],
             "service_zones": [[("active", 1)]],
             "driver_documents": [[("id", 1)], [("driver_user_id", 1)]],
             "public_application_log": [[("ip", 1)], [("created_at", -1)]],

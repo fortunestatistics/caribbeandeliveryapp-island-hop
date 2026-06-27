@@ -152,7 +152,7 @@ const VendorDashboard = () => {
                 <Ticket className="h-5 w-5 mr-2" />
                 Coupons
               </Button>
-              <Button onClick={() => navigate('/pricing')} variant="outline" data-testid="vendor-subscription-link">
+              <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
                 <DollarSign className="h-5 w-5 mr-2" />
                 Subscription
               </Button>
