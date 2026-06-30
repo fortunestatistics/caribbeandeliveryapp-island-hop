@@ -206,6 +206,7 @@ const GroceryOrderForm = () => {
                     {stores.map((store) => (
                       <Card
                         key={store.id}
+                        data-testid={`grocery-store-card-${store.id}`}
                         className={`cursor-pointer transition-all ${
                           selectedStore === store.id
                             ? 'border-2 border-green-500 bg-green-50'
@@ -268,6 +269,7 @@ const GroceryOrderForm = () => {
                             <Button
                               type="button"
                               size="sm"
+                              data-testid={`grocery-add-btn-${item.id}`}
                               className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white"
                               onClick={() => addToCart(item)}
                             >
@@ -367,6 +369,7 @@ const GroceryOrderForm = () => {
                               className="pl-9 text-sm"
                               value={deliveryAddress}
                               onChange={(e) => setDeliveryAddress(e.target.value)}
+                              data-testid="grocery-delivery-address-input"
                               required
                             />
                           </div>
@@ -407,6 +410,7 @@ const GroceryOrderForm = () => {
                       <Button
                         type="submit"
                         className="w-full"
+                        data-testid="grocery-checkout-btn"
                       >
                         Checkout
                       </Button>
