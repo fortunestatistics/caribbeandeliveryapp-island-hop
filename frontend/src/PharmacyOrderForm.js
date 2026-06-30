@@ -8,6 +8,7 @@ import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
 import CurrencyConverter from './CurrencyConverter';
 import { Badge } from './components/ui/badge';
+import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
 import { 
   Pill, 
   MapPin, 
@@ -104,9 +105,11 @@ const PharmacyOrderForm = () => {
     return calculateSubtotal() + calculateDeliveryFee();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    if (!isLoggedIn()) { navigate('/login'); return; }
+
     if (orderType === 'prescription' && orderData.prescriptionFiles.length === 0) {
       alert('Please upload your prescription');
       return;
@@ -117,16 +120,32 @@ const PharmacyOrderForm = () => {
       return;
     }
 
-    const pharmacyOrder = {
-      service_type: 'pharmacy',
-      order_type: orderType,
-      ...orderData,
-      subtotal: calculateSubtotal(),
-      delivery_fee: calculateDeliveryFee(),
-      total: calculateTotal()
-    };
+    const profile = await fetchProfile();
+    const addr = (orderData.deliveryAddress || '').trim() || formatProfileAddress(profile.address);
+    if (!addr) {
+      alert('Please enter a delivery address to continue.');
+      return;
+    }
 
-    navigate('/checkout', { state: { orderData: pharmacyOrder, serviceType: 'pharmacy' } });
+    try {
+      const order = await createOrder({
+        customer_id: 'x',
+        service_type: 'pharmacy',
+        items: orderData.items.map(i => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
+        subtotal: calculateSubtotal(),
+        delivery_fee: calculateDeliveryFee(),
+        tip: 0,
+        total: calculateTotal(),
+        pickup_address: { location: 'Pharmacy', full_address: 'Pharmacy' },
+        delivery_address: { location: addr, full_address: addr, instructions: orderData.deliveryInstructions || '' },
+        customer_phone: profile.phone || '',
+        payment_method: 'cod',
+        notes: `Order type: ${orderType}${orderData.deliveryInstructions ? ' | ' + orderData.deliveryInstructions : ''}`,
+      });
+      navigate(`/checkout/${order.id}`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
+    }
   };
 
   return (

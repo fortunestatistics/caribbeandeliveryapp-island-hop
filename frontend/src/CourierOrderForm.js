@@ -7,6 +7,7 @@ import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
 import CurrencyConverter from './CurrencyConverter';
+import { createOrder, fetchProfile, isLoggedIn } from './orderApi';
 import { 
   Package, 
   MapPin, 
@@ -99,16 +100,40 @@ const CourierOrderForm = () => {
     return baseFare.toFixed(2);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    const courierOrder = {
-      service_type: 'courier',
-      ...orderData,
-      total: parseFloat(calculateFare())
-    };
 
-    navigate('/checkout', { state: { orderData: courierOrder, serviceType: 'courier' } });
+    if (!isLoggedIn()) { navigate('/login'); return; }
+
+    const pickupAddr = (orderData.pickupAddress || '').trim();
+    const dropAddr = (orderData.deliveryAddress || '').trim();
+    if (!pickupAddr || !dropAddr) {
+      alert('Please enter both pickup and delivery addresses.');
+      return;
+    }
+
+    const fare = parseFloat(calculateFare());
+    const profile = await fetchProfile();
+
+    try {
+      const order = await createOrder({
+        customer_id: 'x',
+        service_type: 'courier',
+        items: [],
+        subtotal: 0,
+        delivery_fee: fare,
+        tip: 0,
+        total: fare,
+        pickup_address: { location: pickupAddr, full_address: pickupAddr, contact_name: orderData.senderName, instructions: orderData.pickupInstructions },
+        delivery_address: { location: dropAddr, full_address: dropAddr, contact_name: orderData.recipientName, instructions: orderData.deliveryInstructions },
+        customer_phone: orderData.senderPhone || profile.phone || '',
+        payment_method: 'cod',
+        notes: `Package: ${orderData.packageType} | Speed: ${orderData.deliverySpeed}`,
+      });
+      navigate(`/checkout/${order.id}`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
+    }
   };
 
   return (
