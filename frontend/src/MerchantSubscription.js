@@ -29,17 +29,21 @@ const MerchantSubscription = () => {
   const [selecting, setSelecting] = useState(null);
 
   const load = async () => {
+    // Plans are public — always render them regardless of merchant/auth state.
     try {
-      const [p, s] = await Promise.all([
-        axios.get(`${API}/merchant/subscription/plans`),
-        axios.get(`${API}/merchant/subscription`, { headers: authHeaders() }),
-      ]);
+      const p = await axios.get(`${API}/merchant/subscription/plans`);
       setPlans(p.data || []);
-      setCurrentTier(s.data?.tier || 'standard');
     } catch (e) {
-      toast({ title: 'Could not load plans', description: e?.response?.data?.detail || 'Make sure you have a merchant account.', variant: 'destructive' });
+      toast({ title: 'Could not load plans', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
     } finally {
       setLoading(false);
+    }
+    // Current subscription is best-effort (needs a merchant account) — never blocks plans.
+    try {
+      const s = await axios.get(`${API}/merchant/subscription`, { headers: authHeaders() });
+      setCurrentTier(s.data?.tier || 'standard');
+    } catch (e) {
+      // Not a merchant yet / not logged in — leave tier at default 'standard'.
     }
   };
 

@@ -1603,7 +1603,7 @@ async def message_user(user_id: str, payload: AdminUserMessage, request: Request
         "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
     )
     try:
-        await graph_mail.send_mail(email, subject, html)
+        await graph_mail.send_mail(email, subject, html, mailbox=graph_mail.notify_mailbox("support"))
     except graph_mail.InvalidRecipientEmail:
         raise HTTPException(status_code=400, detail="This user has no valid email address on file. Message not sent.")
     except graph_mail.GraphNotConfigured:
@@ -1999,7 +1999,35 @@ async def create_support_ticket(ticket: SupportTicket, request: Request):
     
     ticket_dict = prepare_for_mongo(ticket.dict())
     await db.support_tickets.insert_one(ticket_dict)
-    
+
+    # Best-effort: alert the support mailbox + acknowledge the user. Never blocks ticket creation.
+    async def _notify_support_ticket():
+        support_box = graph_mail.notify_mailbox("support")
+        internal_html = (
+            f"<h2>New support ticket — {ticket.category}</h2>"
+            f"<ul><li><b>Subject:</b> {ticket.subject}</li>"
+            f"<li><b>From:</b> {current_user.name} ({current_user.email})</li>"
+            f"<li><b>Priority:</b> {ticket.priority}</li>"
+            f"{f'<li><b>Order:</b> {ticket.order_id}</li>' if ticket.order_id else ''}</ul>"
+            f"<p>{(ticket.description or '').replace(chr(10),'<br/>')}</p>"
+            f"<p style='color:#888'>Ticket ID: {ticket.id}</p>"
+        )
+        try:
+            await graph_mail.send_mail(support_box, f"New support ticket: {ticket.subject}",
+                                       internal_html, mailbox=support_box)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Support-ticket alert email failed: {exc}")
+        try:
+            if current_user.email:
+                ack = (f"<p>Hi {current_user.name or 'there'},</p>"
+                       f"<p>We've received your support request <b>“{ticket.subject}”</b> and our team "
+                       f"will get back to you shortly.</p><p>— The IslandHop Team</p>")
+                await graph_mail.send_mail(current_user.email, "We received your support request",
+                                           ack, mailbox=support_box)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Support-ticket ack email failed: {exc}")
+    asyncio.create_task(_notify_support_ticket())
+
     return ticket
 
 @api_router.get("/support/tickets")
@@ -3715,7 +3743,7 @@ async def _notify_driver_status(user_id: str, decision: str, notes: Optional[str
             f"<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.5'>{body}"
             "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
         )
-        await graph_mail.send_mail(user["email"], subject, html)
+        await graph_mail.send_mail(user["email"], subject, html, mailbox=graph_mail.notify_mailbox("driver"))
     except Exception as exc:  # noqa: BLE001 — notifications must never break the flow
         logging.warning(f"Driver notification ({decision}) failed for {user_id}: {exc}")
 
@@ -4087,7 +4115,7 @@ async def invite_team_member(payload: TeamInvite, request: Request):
             f"<p><a href='{invite_link}'>{invite_link}</a></p>"
             f"<p style='margin-top:24px;color:#888;font-size:12px'>— IslandHop</p></div>"
         )
-        await graph_mail.send_mail(email, "You're invited to the IslandHop team", html)
+        await graph_mail.send_mail(email, "You're invited to the IslandHop team", html, mailbox=graph_mail.notify_mailbox("support"))
         emailed = True
     except Exception as exc:  # noqa: BLE001 — invite still works via the returned link
         logging.warning(f"Team invite email failed for {email}: {exc}")
@@ -9297,11 +9325,11 @@ async def _log_public_app(ip: str, kind: str):
 
 
 async def _notify_new_application(kind: str, doc: dict):
-    """Email an internal alert (to the admin/team mailbox) + an acknowledgement to
-    the applicant when a public application lands. Never raises — best effort."""
-    admin_email = os.environ.get("ADMIN_EMAIL")
+    """Email an internal alert (to the correct team mailbox) + an acknowledgement to
+    the applicant when an application lands. Never raises — best effort.
+    Driver apps route via drivers@; merchant/partner apps via partners@."""
     if kind == "driver":
-        inbox = os.environ.get("DRIVER_NOTIFY_MAILBOX") or "drivers@islandhoptt.com"
+        inbox = graph_mail.notify_mailbox("driver")   # drivers@islandhoptt.com
         label = "driver"
         summary = (
             f"<li><b>Name:</b> {doc.get('name','')}</li>"
@@ -9311,7 +9339,7 @@ async def _notify_new_application(kind: str, doc: dict):
             f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
         )
     else:
-        inbox = os.environ.get("MERCHANT_NOTIFY_MAILBOX") or "partner@islandhoptt.com"
+        inbox = graph_mail.notify_mailbox("merchant")  # partners@islandhoptt.com
         label = "merchant"
         summary = (
             f"<li><b>Business:</b> {doc.get('business_name','')}</li>"
@@ -9334,17 +9362,15 @@ async def _notify_new_application(kind: str, doc: dict):
         f"<p>— The IslandHop Team</p>"
     )
 
-    # Internal alert → routed to the correct team inbox (drivers@ / partner@),
-    # sent from the admin mailbox so it lands cleanly in that inbox.
-    sender = admin_email or inbox
+    # Internal alert → sent FROM and TO the correct team inbox (drivers@ / partners@).
     try:
         await graph_mail.send_mail(
             inbox,
             f"New {label} application — {doc.get('name') or doc.get('business_name','')}",
-            internal_html, mailbox=sender)
+            internal_html, mailbox=inbox)
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"New-application internal alert email failed ({kind}): {exc}")
-    # Acknowledgement to the applicant, sent from the team inbox so replies route correctly.
+    # Acknowledgement to the applicant, sent FROM the team inbox so replies route correctly.
     try:
         if doc.get("email"):
             await graph_mail.send_mail(doc["email"], "We received your IslandHop application",
@@ -9352,13 +9378,14 @@ async def _notify_new_application(kind: str, doc: dict):
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"New-application ack email failed ({kind}): {exc}")
 
-    # WhatsApp-first alert to the ops/admin team (if an admin notify number is configured).
+    # WhatsApp-first alert to the ops/admin team (mentions which mailbox handled it).
     admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
     if admin_phone:
         who = doc.get("name") or doc.get("business_name", "")
         await _wa_notify(
             admin_phone,
-            f"🌐 New {label} application: {who} ({doc.get('phone','')}). Review it in Admin → Approvals.",
+            f"🌐 New {label} application: {who} ({doc.get('phone','')}). "
+            f"📧 Email routed to {inbox}. Review it in Admin → Approvals.",
             event=f"new_{label}_application",
         )
 
