@@ -3656,6 +3656,18 @@ async def create_driver(application: DriverApplicationCreate, request: Request):
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
 
+    # Notify the team (email + WhatsApp) and acknowledge the applicant by email.
+    pi = application.personal_info or {}
+    asyncio.create_task(_notify_new_application("driver", {
+        "id": driver.id,
+        "name": pi.get("name") or current_user.name,
+        "email": pi.get("email") or current_user.email,
+        "phone": pi.get("phone") or current_user.phone,
+        "vehicle_type": application.vehicle_type,
+        "city": pi.get("city"),
+        "source": "the app",
+    }))
+
     # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
     # account restricted (still a customer) while the application is reviewed.
     return driver
@@ -6125,6 +6137,9 @@ async def create_business_application(application: BusinessOnboardingRequest, re
         }
         await db.business_applications.insert_one(prepare_for_mongo(dict(app_doc)))
         app_doc.pop("_id", None)
+        # Notify the team (email + WhatsApp) and acknowledge the applicant by email.
+        app_doc["source"] = "the partner sign-up form"
+        asyncio.create_task(_notify_new_application("merchant", app_doc))
         return {"success": True, "application": app_doc}
     except Exception as e:
         logging.exception("Business onboarding submission failed")
