@@ -156,8 +156,11 @@ from models import (
 
 # Helper function to calculate commission and split payments
 # ---------------------------------------------------------------------------
-# Fee structure (approved Jun 2026 — 3-tier driver subscription):
-#   • Merchant commission: 15% of the item subtotal (default; per vendor type / plan).
+# Fee structure (approved Jul 2026 — merchant plans):
+#   • Merchant commission on item subtotal, by plan:
+#       - STANDARD (Free):          20% commission.
+#       - PROFESSIONAL ($800 TT/mo): 15% commission (+ Featured Partner).
+#       - PREMIUM ($1,600 TT/mo):    5%  commission (+ Featured + Priority).
 #   • Customer Service Fee: flat $3.00 added to checkout, 100% to the Platform (all tiers).
 #   • Delivery fee + tips go to the driver, MINUS the platform's delivery-fee cut by plan:
 #       - STANDARD (Free):        platform takes 20% → driver keeps 80%.
@@ -224,25 +227,25 @@ def _derive_vendor_type(service_type: str) -> str:
 
 
 # Merchant subscription catalogue (prices in TTD). Commission is on the item subtotal.
-MERCHANT_PLAN_COMMISSION = {"pro": 10.0, "premium": 5.0}  # standard → vendor-type default
+MERCHANT_PLAN_COMMISSION = {"standard": 20.0, "pro": 15.0, "premium": 5.0}
 MERCHANT_SUBSCRIPTION_PLANS = [
     {
         "tier": "standard", "name": "Standard", "price_ttd": 0,
-        "commission_pct": 15, "featured": False,
+        "commission_pct": 20, "featured": False,
         "tagline": "Free to join. Start selling today.",
         "features": [
-            "15% commission on orders",
+            "20% commission on orders",
             "Standard search placement",
             "Order & menu management",
             "Weekly payouts",
         ],
     },
     {
-        "tier": "pro", "name": "Pro", "price_ttd": 800,
-        "commission_pct": 10, "featured": True,
+        "tier": "pro", "name": "Professional", "price_ttd": 800,
+        "commission_pct": 15, "featured": True,
         "tagline": "Lower fees + Featured Partner status.",
         "features": [
-            "10% commission on orders",
+            "15% commission on orders",
             "Featured Partner — higher search visibility",
             "Order & menu management",
             "Weekly payouts",
@@ -276,14 +279,9 @@ async def _merchant_plan_tier(vendor_id: Optional[str]) -> str:
 
 async def _merchant_commission_rate(vendor_id: Optional[str], vendor_type: str) -> float:
     """Commission % on item subtotal, by the merchant's subscription tier.
-    PRO 10% / PREMIUM 5% / STANDARD = vendor-type default (restaurant 15%)."""
-    default_rates = {
-        "restaurant": 15.0, "pharmacy": 8.0, "grocery": 12.0,
-        "car_rental": 10.0, "business": 20.0,
-    }
-    base = default_rates.get(vendor_type, 15.0)
+    STANDARD 20% / PROFESSIONAL 15% / PREMIUM 5% (flat across vendor types)."""
     tier = await _merchant_plan_tier(vendor_id)
-    return MERCHANT_PLAN_COMMISSION.get(tier, base)
+    return MERCHANT_PLAN_COMMISSION.get(tier, MERCHANT_PLAN_COMMISSION["standard"])
 
 
 async def _driver_plan_tier(driver_user_id: Optional[str], driver_doc: Optional[dict] = None) -> str:
@@ -6114,9 +6112,21 @@ async def create_business_category(category: BusinessCategory):
 # Pricing Tiers Routes
 @api_router.get("/business/pricing-tiers", response_model=List[PricingTier])
 async def get_pricing_tiers():
-    """Get all pricing tiers"""
-    tiers = await db.pricing_tiers.find().to_list(length=None)
-    return [PricingTier(**tier) for tier in tiers]
+    """Merchant pricing tiers — derived from the single-source MERCHANT_SUBSCRIPTION_PLANS
+    catalogue so onboarding text always matches the Merchant Portal & commission logic."""
+    return [
+        PricingTier(
+            id=p["tier"],
+            name=p["name"],
+            business_type="all",
+            commission_rate=float(p["commission_pct"]),
+            monthly_fee=float(p["price_ttd"]),
+            transaction_fee=0.0,
+            features=p["features"],
+            is_premium=bool(p.get("featured")),
+        )
+        for p in MERCHANT_SUBSCRIPTION_PLANS
+    ]
 
 # Business Onboarding Routes
 @api_router.post("/business/onboarding")

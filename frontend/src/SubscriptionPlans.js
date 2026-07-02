@@ -23,21 +23,20 @@ const SubscriptionPlans = () => {
 
   const businessPlans = [
     {
-      id: 'starter',
-      name: 'Starter',
+      id: 'standard',
+      name: 'Standard',
       icon: Zap,
-      price: billingCycle === 'monthly' ? 29 : 290,
-      description: 'Perfect for small businesses starting out',
+      price: 0,
+      ttd: true,
+      description: 'Free to join. Start selling today.',
       color: 'from-neon-cyan to-gold-500',
       features: [
-        { name: 'Up to 50 orders/month', included: true },
-        { name: '15% platform commission', included: true },
-        { name: 'Basic analytics', included: true },
-        { name: 'Email support', included: true },
-        { name: 'Standard payout (weekly)', included: true },
-        { name: 'Priority listing', included: false },
-        { name: 'Advanced analytics', included: false },
-        { name: 'Dedicated account manager', included: false }
+        { name: '20% commission on orders', included: true },
+        { name: 'Standard search placement', included: true },
+        { name: 'Order & menu management', included: true },
+        { name: 'Weekly payouts', included: true },
+        { name: 'Featured Partner placement', included: false },
+        { name: 'Priority support', included: false }
       ],
       recommended: false
     },
@@ -45,37 +44,32 @@ const SubscriptionPlans = () => {
       id: 'professional',
       name: 'Professional',
       icon: Crown,
-      price: billingCycle === 'monthly' ? 79 : 790,
-      description: 'For growing businesses with higher volume',
+      price: 800,
+      ttd: true,
+      description: 'Lower fees + Featured Partner status.',
       color: 'from-gold-300 to-orange-500',
       features: [
-        { name: 'Up to 200 orders/month', included: true },
-        { name: '12% platform commission', included: true },
-        { name: 'Advanced analytics & reports', included: true },
-        { name: 'Priority support (phone & email)', included: true },
-        { name: 'Fast payout (2-3 days)', included: true },
-        { name: 'Priority listing in search', included: true },
-        { name: 'Marketing campaign support', included: true },
-        { name: 'Dedicated account manager', included: false }
+        { name: '15% commission on orders', included: true },
+        { name: 'Featured Partner — higher search visibility', included: true },
+        { name: 'Order & menu management', included: true },
+        { name: 'Weekly payouts', included: true },
+        { name: 'Priority support', included: false }
       ],
       recommended: true
     },
     {
-      id: 'enterprise',
-      name: 'Enterprise',
+      id: 'premium',
+      name: 'Premium',
       icon: Shield,
-      price: billingCycle === 'monthly' ? 199 : 1990,
-      description: 'For established businesses at scale',
+      price: 1600,
+      ttd: true,
+      description: 'Lowest fees + Premium Marketing & Priority Support.',
       color: 'from-purple-500 to-pink-500',
       features: [
-        { name: 'Unlimited orders', included: true },
-        { name: '10% platform commission', included: true },
-        { name: 'Custom analytics dashboard', included: true },
-        { name: '24/7 priority support', included: true },
-        { name: 'Daily payout options', included: true },
-        { name: 'Featured listing & promoted', included: true },
-        { name: 'Full marketing suite access', included: true },
-        { name: 'Dedicated account manager', included: true }
+        { name: '5% commission on orders', included: true },
+        { name: 'Featured Partner — top search visibility', included: true },
+        { name: 'Premium Marketing placement', included: true },
+        { name: 'Priority Support', included: true }
       ],
       recommended: false
     }
