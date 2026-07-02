@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
-from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi.responses import JSONResponse, Response, RedirectResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -8130,6 +8130,20 @@ async def delete_recurring_order(recurring_id: str, request: Request):
 @api_router.get("/")
 async def root():
     return {"message": "Caribbean Delivery App API"}
+
+
+@api_router.get("/download/android-project")
+async def download_android_project():
+    """Public download of the Capacitor Android project zip (for local .aab builds)."""
+    zip_path = ROOT_DIR / "static" / "android-project.zip"
+    if not zip_path.exists():
+        raise HTTPException(status_code=404, detail="Android project archive not found")
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename="islandhop-android-project.zip",
+    )
+
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
