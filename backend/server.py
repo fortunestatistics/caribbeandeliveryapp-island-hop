@@ -4942,6 +4942,28 @@ def _score_driver_for_pickup(driver: dict, pickup_lat: float, pickup_lng: float)
     return {"driver": driver, "distance": distance, "score": score}
 
 
+# Subscription priority: subscribers get first dibs on job offers. The bonus is large
+# enough to rank Premium ahead of Pro ahead of Standard, while proximity + rating still
+# decide the order WITHIN a tier. Standard drivers are still notified if slots remain.
+DRIVER_DISPATCH_PRIORITY_BONUS = {"premium": 1000.0, "pro": 500.0, "standard": 0.0}
+
+
+async def _score_drivers_with_priority(drivers: List[dict], pickup_lat: float, pickup_lng: float) -> List[dict]:
+    """Score candidates by proximity + rating, then apply a subscription-tier priority
+    boost so Pro/Premium drivers are offered jobs first (Premium > Pro > Standard)."""
+    scored = []
+    for d in drivers:
+        s = _score_driver_for_pickup(d, pickup_lat, pickup_lng)
+        if not s:
+            continue
+        tier = await _driver_plan_tier(d.get("user_id"), d)
+        s["tier"] = tier
+        s["score"] += DRIVER_DISPATCH_PRIORITY_BONUS.get(tier, 0.0)
+        scored.append(s)
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored
+
+
 async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n: int = 3) -> List[dict]:
     """Send WebSocket notifications to top-N drivers; return list of notified driver summaries."""
     notified = []
@@ -4989,8 +5011,7 @@ async def find_and_assign_driver(order_id: str):
     if not drivers:
         return {"success": False, "message": "No available drivers found", "drivers_notified": 0}
 
-    scored = [s for s in (_score_driver_for_pickup(d, pickup_lat, pickup_lng) for d in drivers) if s]
-    scored.sort(key=lambda x: x["score"], reverse=True)
+    scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
 
     notified = await _notify_drivers_about_order(order, scored, top_n=3)
 

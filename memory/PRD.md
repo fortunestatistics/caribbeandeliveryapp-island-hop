@@ -27,6 +27,10 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 2, 2026 — Subscriber-priority taxi/delivery dispatch
+- **Dispatch now gives subscribers first preference.** Previously `find_and_assign_driver` scored online drivers within 10km purely by proximity+rating (`rating*10 - distance_km`) and pinged the top 3 (WebSocket + WhatsApp), first-to-accept wins — subscription tier had NO dispatch effect. Added `_score_drivers_with_priority()` applying `DRIVER_DISPATCH_PRIORITY_BONUS = {premium:1000, pro:500, standard:0}` so ordering is Premium > Pro > Standard, with proximity/rating deciding within a tier. Standard drivers are still notified if slots remain (soft, non-exclusive). Tier resolved via existing `_driver_plan_tier`.
+- VERIFIED (simulated dispatch): with Standard closest (0.16km) and Premium farthest (3.14km), offer order was Premium → Pro → Standard. Backend-only; no frontend change.
+
 ### Jul 2, 2026 — Merchant plan re-pricing (Standard 20% / Professional TT$800 15%) + Android project download
 - **Merchant commission update (single source of truth = `MERCHANT_SUBSCRIPTION_PLANS` in server.py):** Standard → FREE / **20%** (now flat across all vendor types, was per-type 8–15%), Pro renamed **"Professional"** (internal tier key kept as `"pro"` to avoid breaking existing subscriptions/subscribe endpoint) → TT$800 / **15%** (was 10%), Premium unchanged (TT$1600 / 5% — KEPT per non-destructive default; Tracy's answer on removal was ambiguous). `MERCHANT_PLAN_COMMISSION = {standard:20, pro:15, premium:5}`; `_merchant_commission_rate` now returns flat tier rate. Flat $3.00 customer service fee (100% platform) unchanged.
 - **UI/text sync:** `MerchantSubscription.js` is backend-driven (auto-updated). `/business/pricing-tiers` now DERIVES from the catalogue (was stale DB seed: Starter/Professional/Enterprise USD) so BusinessOnboarding shows correct tiers. Public `/pricing` page (`SubscriptionPlans.js`) businessPlans rewritten to Standard(free/20%)/Professional(TT$800/15%)/Premium(TT$1600/5%). `RestaurantOnboarding.js` payout note updated 15%→20%.
