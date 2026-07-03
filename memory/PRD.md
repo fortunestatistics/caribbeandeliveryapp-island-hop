@@ -27,6 +27,10 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 3, 2026 — Deployment readiness (PASS)
+- Ran deployment_agent health check. Fixed all flagged unbounded queries: converted `_recompute_entity_avg_rating` to a `$avg/$sum` aggregation, and added explicit `.limit()` safety caps to 6 date/ID-scoped queries (payouts batch 10000, ticket messages 1000, day analytics 10000, driver orders 5000, driver ratings 5000, held promo rewards 1000). Final status: **PASS — no deployment blockers** (env-var usage, CORS, ports, secrets, supervisor, auth redirects all green).
+- READY TO REDEPLOY. This redeploy carries the accumulated preview work: checkout fix, email routing (support@/drivers@/partners@/investors@, "IslandHop Support" sender), merchant re-pricing (Standard 20% / Professional TT$800 15% / Premium TT$1600 5%), subscriber-priority + exclusive-window dispatch, Android project download endpoint, admin test-data Cleanup tool, and SEO files.
+
 ### Jul 3, 2026 — Admin test-data cleanup tool + seed gating
 - **New admin-only cleanup tool** (soft-launch): Admin dashboard → **Cleanup** tab (`AdminDataCleanup.js`). Shows a DRY-RUN preview of exactly what will be removed (per-collection counts + names), then a typed-confirm ("DELETE") to purge. Endpoints: `GET /api/admin/cleanup/preview`, `POST /api/admin/cleanup/execute` (requires `{"confirm":"DELETE"}`, admin-only).
 - **Rules:** deletes seeded sample restaurants (Island Spice Kitchen, Tropical Grill, Beach Bites Cafe) + any test-pattern restaurants/drivers/applications/users/orders (regex: test, sub/slice/chat pizza, e2e, qa, demo, 8+ digit timestamps, @example.com, etc.) and cascades orders/wallets/subscriptions. **KEEPS** "Caribbean Spice Kitchen" + all real applicants; NEVER deletes admin/staff/owner accounts or the requesting admin.
