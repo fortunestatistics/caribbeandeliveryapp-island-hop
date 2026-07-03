@@ -5154,17 +5154,17 @@ async def _award_five_star_bonus(rating: Rating) -> None:
 
 
 async def _recompute_entity_avg_rating(collection_name: str, entity_id: str, rating_field: str) -> None:
-    """Recompute average rating across all ratings for an entity and update the collection."""
-    docs = await db.ratings.find({
-        f"{'vendor_id' if rating_field == 'vendor_rating' else 'driver_id'}": entity_id,
-        rating_field: {"$ne": None},
-    }).to_list(length=None)
-    if not docs:
+    """Recompute average rating for an entity via an aggregation (avoids loading all rows)."""
+    match_field = "vendor_id" if rating_field == "vendor_rating" else "driver_id"
+    result = await db.ratings.aggregate([
+        {"$match": {match_field: entity_id, rating_field: {"$ne": None}}},
+        {"$group": {"_id": None, "avg": {"$avg": f"${rating_field}"}, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    if not result or not result[0].get("count"):
         return
-    avg = sum(d.get(rating_field, 0) for d in docs) / len(docs)
     await db[collection_name].update_one(
         {"id": entity_id},
-        {"$set": {"rating": round(avg, 2), "total_ratings": len(docs)}},
+        {"$set": {"rating": round(result[0]["avg"], 2), "total_ratings": result[0]["count"]}},
     )
 
 
