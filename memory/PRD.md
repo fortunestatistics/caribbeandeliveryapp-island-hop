@@ -27,6 +27,10 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 3, 2026 — Subscriber-EXCLUSIVE first-dibs dispatch window
+- On top of the priority scoring, dispatch is now **two-phase**: Phase 1 offers the job EXCLUSIVELY to nearby Pro/Premium subscribers (top 3); if none accept within `DRIVER_PRIORITY_WINDOW_SECONDS` (default **30s**, set in backend/.env), `_priority_second_wave` opens it to all remaining (Standard) drivers. If NO subscribers are online, it opens to everyone immediately. If a subscriber accepts during the window, it NEVER opens to Standard (guarded on `driver_id`).
+- VERIFIED on preview (window=5s test): Phase 1 notified only [premium, pro]; after window, Standard added; and when Premium accepted first, Standard was never notified (`opened_to_all` stayed null). Restored window to 30s.
+
 ### Jul 2, 2026 — Subscriber-priority taxi/delivery dispatch
 - **Dispatch now gives subscribers first preference.** Previously `find_and_assign_driver` scored online drivers within 10km purely by proximity+rating (`rating*10 - distance_km`) and pinged the top 3 (WebSocket + WhatsApp), first-to-accept wins — subscription tier had NO dispatch effect. Added `_score_drivers_with_priority()` applying `DRIVER_DISPATCH_PRIORITY_BONUS = {premium:1000, pro:500, standard:0}` so ordering is Premium > Pro > Standard, with proximity/rating deciding within a tier. Standard drivers are still notified if slots remain (soft, non-exclusive). Tier resolved via existing `_driver_plan_tier`.
 - VERIFIED (simulated dispatch): with Standard closest (0.16km) and Premium farthest (3.14km), offer order was Premium → Pro → Standard. Backend-only; no frontend change.

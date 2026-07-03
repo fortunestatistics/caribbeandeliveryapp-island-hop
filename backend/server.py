@@ -4994,10 +4994,42 @@ async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n
     return notified
 
 
+# Exclusive first-look window (seconds) subscribers get before Standard drivers see the job.
+DRIVER_PRIORITY_WINDOW_SECONDS = int(os.environ.get("DRIVER_PRIORITY_WINDOW_SECONDS", "30"))
+
+
+async def _priority_second_wave(order_id: str, already_notified: List[str], delay: int):
+    """After the exclusive window, if the order is still unassigned, open it to the
+    remaining (Standard + any un-notified) drivers, keeping priority ordering."""
+    await asyncio.sleep(delay)
+    order = await db.orders.find_one({"id": order_id})
+    if not order or order.get("driver_id"):
+        return  # a subscriber already accepted — never opens to Standard
+    pickup = order.get("pickup_address", {})
+    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
+    if not pickup_lat or not pickup_lng:
+        return
+    drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
+    scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
+    remaining = [s for s in scored if s["driver"]["id"] not in set(already_notified)]
+    if not remaining:
+        return
+    notified = await _notify_drivers_about_order(order, remaining, top_n=3)
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "drivers_notified": already_notified + [d["driver_id"] for d in notified],
+            "dispatch_opened_to_all_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+
 # Smart Driver Matching Routes
 @api_router.post("/orders/{order_id}/find-driver")
 async def find_and_assign_driver(order_id: str):
-    """Find best-fit drivers (proximity + rating) and notify top 3 via WebSocket."""
+    """Two-phase dispatch: nearby Pro/Premium subscribers get the job offered
+    EXCLUSIVELY first for DRIVER_PRIORITY_WINDOW_SECONDS; if unaccepted it opens to
+    all drivers. Falls back to open dispatch immediately when no subscribers are online."""
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -5012,18 +5044,38 @@ async def find_and_assign_driver(order_id: str):
         return {"success": False, "message": "No available drivers found", "drivers_notified": 0}
 
     scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
+    subscribers = [s for s in scored if s["tier"] in ("pro", "premium")]
 
+    if subscribers:
+        # Phase 1 — exclusive offer to subscribers only.
+        notified = await _notify_drivers_about_order(order, subscribers, top_n=3)
+        notified_ids = [d["driver_id"] for d in notified]
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "drivers_notified": notified_ids,
+                "driver_search_started": datetime.now(timezone.utc).isoformat(),
+                "dispatch_phase": "subscriber_exclusive",
+            }},
+        )
+        # Phase 2 — schedule opening to all if still unassigned after the window.
+        asyncio.create_task(_priority_second_wave(order_id, notified_ids, DRIVER_PRIORITY_WINDOW_SECONDS))
+        return {
+            "success": True, "drivers_notified": len(notified), "drivers": notified,
+            "phase": "subscriber_exclusive", "opens_to_all_in_seconds": DRIVER_PRIORITY_WINDOW_SECONDS,
+        }
+
+    # No subscribers online — open to everyone immediately (priority ordering still applies).
     notified = await _notify_drivers_about_order(order, scored, top_n=3)
-
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
             "drivers_notified": [d["driver_id"] for d in notified],
             "driver_search_started": datetime.now(timezone.utc).isoformat(),
+            "dispatch_phase": "open",
         }},
     )
-
-    return {"success": True, "drivers_notified": len(notified), "drivers": notified}
+    return {"success": True, "drivers_notified": len(notified), "drivers": notified, "phase": "open"}
 
 @api_router.post("/orders/{order_id}/accept-driver")
 async def driver_accept_order(order_id: str, driver_id: str):
