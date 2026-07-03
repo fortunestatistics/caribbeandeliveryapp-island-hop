@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
+import { Checkbox } from './components/ui/checkbox';
 import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -55,6 +56,7 @@ const AuthPage = ({ mode = 'login' }) => {
     referralCode: initialRef
   });
   const [authError, setAuthError] = useState('');
+  const [smsConsent, setSmsConsent] = useState(false);
 
   const handleInputChange = (e) => {
     setAuthError('');
@@ -102,7 +104,8 @@ const AuthPage = ({ mode = 'login' }) => {
           address: formData.address,
           user_type: 'customer',
           referral_code: formData.referralCode || undefined,
-          otp_code: verifiedOtp || undefined
+          otp_code: verifiedOtp || undefined,
+          sms_consent: smsConsent
         });
         
         // Save token and user
@@ -289,10 +292,27 @@ const AuthPage = ({ mode = 'login' }) => {
                       required
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1.5" data-testid="sms-consent-text">
-                    By providing your number you agree to receive order &amp; account messages from IslandHop via SMS/WhatsApp.
-                    Reply STOP to opt out, HELP for help. Msg &amp; data rates may apply; message frequency varies.
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    We use your number to send order &amp; account updates.
                   </p>
+                </div>
+              )}
+
+              {authMode === 'signup' && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-3" data-testid="sms-consent-block">
+                  <Checkbox
+                    id="smsConsent"
+                    checked={smsConsent}
+                    onCheckedChange={(v) => setSmsConsent(v === true)}
+                    className="mt-0.5"
+                    data-testid="sms-consent-checkbox"
+                  />
+                  <Label htmlFor="smsConsent" className="text-xs font-normal leading-relaxed text-muted-foreground cursor-pointer" data-testid="sms-consent-text">
+                    By checking this box, I agree to receive automated transactional SMS notifications from IslandHop Technologies LLC at the number provided. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe, HELP for help. View our{' '}
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-gold-500 hover:underline">Privacy Policy (https://islandhopapp.com/privacy-policy)</a>{' '}
+                    and{' '}
+                    <a href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" className="text-gold-500 hover:underline">Terms (https://islandhopapp.com/terms-and-conditions)</a>.
+                  </Label>
                 </div>
               )}
 
