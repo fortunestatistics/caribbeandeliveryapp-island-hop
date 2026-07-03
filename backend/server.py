@@ -9384,6 +9384,92 @@ async def admin_cleanup_execute(request: Request):
 
 
 
+@api_router.get("/admin/applicants")
+async def admin_list_applicants(request: Request):
+    """Admin-only: full detail of pending Driver + Merchant applications, incl. uploaded files."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    drivers = []
+    async for d in db.drivers.find({"status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
+        pi = d.get("personal_info") or {}
+        docs = []
+        if d.get("user_id"):
+            async for doc in db.driver_documents.find(
+                {"user_id": d["user_id"], "is_deleted": False},
+                {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1},
+            ):
+                docs.append({"document_id": doc["id"], "doc_type": doc.get("doc_type"), "filename": doc.get("original_filename")})
+        drivers.append({
+            "id": d.get("id"), "user_id": d.get("user_id"),
+            "name": d.get("name") or pi.get("name"),
+            "email": d.get("email") or pi.get("email"),
+            "phone": d.get("phone") or pi.get("phone"),
+            "city": d.get("city") or pi.get("city"),
+            "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
+            "license_number": d.get("license_number"),
+            "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),
+            "created_at": d.get("created_at"), "documents": docs,
+        })
+
+    merchants = []
+    async for b in db.business_applications.find({"verification_status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
+        bd = b.get("business_details") or {}
+        bo = b.get("business_owner") or {}
+        raw_docs = b.get("documents") or bd.get("documents") or {}
+        docs = []
+        if isinstance(raw_docs, dict):
+            for k, v in raw_docs.items():
+                if v:
+                    docs.append({"label": k, "url": v})
+        elif isinstance(raw_docs, list):
+            for it in raw_docs:
+                docs.append(it if isinstance(it, dict) else {"label": "document", "url": it})
+        merchants.append({
+            "id": b.get("id"), "user_id": b.get("user_id"),
+            "business_name": b.get("business_name") or bd.get("business_name"),
+            "owner_name": bo.get("name"),
+            "email": b.get("email") or bo.get("email"),
+            "phone": b.get("phone") or bo.get("phone"),
+            "business_type": bd.get("business_type"),
+            "address": bd.get("address") or bo.get("address"),
+            "description": bd.get("description"), "website": bd.get("website"),
+            "source": b.get("source"), "is_external_lead": bool(b.get("is_external_lead")),
+            "created_at": b.get("created_at") or b.get("application_date"), "documents": docs,
+        })
+
+    return {"drivers": drivers, "merchants": merchants,
+            "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
+
+
+@api_router.post("/admin/impersonate/{user_id}")
+async def admin_impersonate(user_id: str, request: Request):
+    """Admin-only: mint a short-lived token so the admin can view a user's own portal.
+    Refuses to impersonate other admins; audit-logged."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="This applicant has no user account yet (external lead) — nothing to view.")
+    if (target.get("user_type") or "").lower() == "admin":
+        raise HTTPException(status_code=403, detail="Cannot impersonate another admin")
+    token = create_access_token(
+        {"sub": user_id, "impersonated_by": current_user.id},
+        expires_delta=timedelta(minutes=30),
+    )
+    await db.impersonation_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": current_user.id, "admin_email": current_user.email,
+        "target_user_id": user_id, "target_email": target.get("email"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    logging.info(f"Admin {current_user.email} started viewing portal of {target.get('email')}")
+    return {"token": token, "user": target, "expires_in_minutes": 30}
+
+
+
 @api_router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):
     """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""
