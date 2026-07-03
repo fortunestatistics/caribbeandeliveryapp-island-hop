@@ -516,7 +516,7 @@ async def process_daily_vendor_payouts():
                 "$gte": yesterday.isoformat(),
                 "$lt": today.isoformat()
             }
-        }).to_list(length=None)
+        }).limit(10000).to_list(length=10000)
         
         # Group orders by vendor
         vendor_orders = {}
@@ -2086,7 +2086,7 @@ async def get_ticket_messages(ticket_id: str, request: Request):
 
     messages = await db.ticket_messages.find(
         {"ticket_id": ticket_id}, {"_id": 0}
-    ).sort("created_at", 1).to_list(length=None)
+    ).sort("created_at", 1).limit(1000).to_list(length=1000)
     return messages
 
 @api_router.put("/support/tickets/{ticket_id}/close")
@@ -5997,7 +5997,7 @@ async def get_daily_operations(date: str):
                 "$gte": start_of_day.isoformat(),
                 "$lte": end_of_day.isoformat()
             }
-        }).to_list(length=None)
+        }).limit(10000).to_list(length=10000)
         
         # Peak hours analysis
         hourly_orders = {}
@@ -6048,7 +6048,7 @@ async def get_driver_performance(driver_id: str, days: int = 7):
                 "$gte": start_date.isoformat(),
                 "$lte": end_date.isoformat()
             }
-        }).to_list(length=None)
+        }).limit(5000).to_list(length=5000)
         
         completed_orders = [o for o in orders if o.get('status') == 'delivered']
         
@@ -6077,7 +6077,7 @@ async def get_driver_performance(driver_id: str, days: int = 7):
                 "$gte": start_date.isoformat(),
                 "$lte": end_date.isoformat()
             }
-        }).to_list(length=None)
+        }).limit(5000).to_list(length=5000)
         
         avg_rating = sum(r.get('delivery_rating', 0) for r in ratings) / len(ratings) if ratings else 0
         avg_delivery_time = sum(delivery_times) / len(delivery_times) if delivery_times else 0
@@ -8576,7 +8576,7 @@ async def _release_held_promo_rewards(promoter_id: str) -> int:
     promoter = await db.users.find_one({"id": promoter_id}, {"_id": 0})
     if not await _is_eligible_promoter(promoter):
         return 0
-    held = await db.promo_rewards.find({"promoter_id": promoter_id, "status": "held"}).to_list(length=None)
+    held = await db.promo_rewards.find({"promoter_id": promoter_id, "status": "held"}).limit(1000).to_list(length=1000)
     now_iso = datetime.now(timezone.utc).isoformat()
     for r in held:
         await _credit_wallet_with_txn(
