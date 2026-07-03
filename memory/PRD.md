@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 3, 2026 — Admin test-data cleanup tool + seed gating
+- **New admin-only cleanup tool** (soft-launch): Admin dashboard → **Cleanup** tab (`AdminDataCleanup.js`). Shows a DRY-RUN preview of exactly what will be removed (per-collection counts + names), then a typed-confirm ("DELETE") to purge. Endpoints: `GET /api/admin/cleanup/preview`, `POST /api/admin/cleanup/execute` (requires `{"confirm":"DELETE"}`, admin-only).
+- **Rules:** deletes seeded sample restaurants (Island Spice Kitchen, Tropical Grill, Beach Bites Cafe) + any test-pattern restaurants/drivers/applications/users/orders (regex: test, sub/slice/chat pizza, e2e, qa, demo, 8+ digit timestamps, @example.com, etc.) and cascades orders/wallets/subscriptions. **KEEPS** "Caribbean Spice Kitchen" + all real applicants; NEVER deletes admin/staff/owner accounts or the requesting admin.
+- **Seed gated:** sample-restaurant seeding now requires `SEED_SAMPLE_DATA=true` (default false) so test restaurants never reappear on production after a redeploy.
+- VERIFIED on preview: dry-run flagged 434 records; execute deleted 434, leaving ONLY "Caribbean Spice Kitchen"; admin still logs in; execute without confirm → 400. (Running it validated the tool AND cleaned the preview sandbox.)
+- NOTE: production has a SEPARATE database — Tracy must click the Cleanup button on the LIVE site after redeploy; cleaning preview does not affect production.
+
 ### Jul 3, 2026 — Subscriber-EXCLUSIVE first-dibs dispatch window
 - On top of the priority scoring, dispatch is now **two-phase**: Phase 1 offers the job EXCLUSIVELY to nearby Pro/Premium subscribers (top 3); if none accept within `DRIVER_PRIORITY_WINDOW_SECONDS` (default **30s**, set in backend/.env), `_priority_second_wave` opens it to all remaining (Standard) drivers. If NO subscribers are online, it opens to everyone immediately. If a subscriber accepts during the window, it NEVER opens to Standard (guarded on `driver_id`).
 - VERIFIED on preview (window=5s test): Phase 1 notified only [premium, pro]; after window, Standard added; and when Premium accepted first, Standard was never notified (`opened_to_all` stayed null). Restored window to 30s.

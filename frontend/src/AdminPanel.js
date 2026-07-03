@@ -46,6 +46,7 @@ import AdminMercuryBanking from './AdminMercuryBanking';
 import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
+import AdminDataCleanup from './AdminDataCleanup';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -179,7 +180,7 @@ const AdminPanel = () => {
     return () => clearTimeout(t);
   }, [searchQuery, selectedTab]);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics', 'cleanup'];
   const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
 
@@ -1314,6 +1315,10 @@ const AdminPanel = () => {
 
         {selectedTab === 'promoters' && (
           <AdminPromoters />
+        )}
+
+        {selectedTab === 'cleanup' && (
+          <AdminDataCleanup />
         )}
 
 

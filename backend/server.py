@@ -9217,6 +9217,173 @@ def _flatten_pending(items: List[dict], kind: str) -> List[dict]:
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Admin: Test-data cleanup (soft launch). Removes seeded/sample + test-pattern
+# data while preserving real applicants and a keep-list. Dry-run preview first,
+# then an explicit confirm to execute. Admin-only, irreversible.
+# ---------------------------------------------------------------------------
+CLEANUP_KEEP_RESTAURANT_NAMES = {"caribbean spice kitchen"}
+_CLEANUP_SEED_RESTAURANTS = {"island spice kitchen", "tropical grill", "beach bites cafe"}
+_CLEANUP_TEST_RE = re.compile(
+    r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|"
+    r"tier hut|ui eatery|ui merch|ad spice kitchen|featured_iter|jerk hut|"
+    r"\bfe diner\b|\bi14|diner\s*\d|\d{8,}|@example\.com|\+test|noreply\+)",
+    re.I,
+)
+_CLEANUP_PROTECTED_USER_TYPES = {"admin", "staff", "owner"}
+
+
+def _cleanup_is_test(*values) -> bool:
+    for v in values:
+        if v and _CLEANUP_TEST_RE.search(str(v)):
+            return True
+    return False
+
+
+def _cleanup_restaurant_should_delete(doc: dict) -> bool:
+    name = str(doc.get("name") or "").strip().lower()
+    if name in CLEANUP_KEEP_RESTAURANT_NAMES:
+        return False
+    if name in _CLEANUP_SEED_RESTAURANTS:
+        return True
+    return _cleanup_is_test(doc.get("name"))
+
+
+async def _build_cleanup_plan(requesting_user_id: str) -> dict:
+    """Return {collection: {ids, labels, ...}} describing exactly what would be deleted."""
+    plan = {}
+    keep_owner_ids = set()
+
+    del_rest_ids, rest_labels = [], []
+    async for r in db.restaurants.find({}, {"_id": 0, "id": 1, "name": 1, "user_id": 1}):
+        if _cleanup_restaurant_should_delete(r):
+            del_rest_ids.append(r.get("id")); rest_labels.append(r.get("name"))
+        elif r.get("user_id"):
+            keep_owner_ids.add(r.get("user_id"))
+    plan["restaurants"] = {"ids": del_rest_ids, "labels": rest_labels}
+
+    del_biz_ids, biz_labels = [], []
+    async for b in db.businesses.find({}, {"_id": 0, "id": 1, "business_name": 1, "name": 1, "user_id": 1}):
+        nm = b.get("business_name") or b.get("name")
+        if _cleanup_is_test(nm):
+            del_biz_ids.append(b.get("id")); biz_labels.append(nm)
+        elif b.get("user_id"):
+            keep_owner_ids.add(b.get("user_id"))
+    plan["businesses"] = {"ids": del_biz_ids, "labels": biz_labels}
+
+    del_cr_ids, cr_labels = [], []
+    async for cr in db.car_rental_companies.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1, "user_id": 1}):
+        nm = cr.get("company_name") or cr.get("name")
+        if _cleanup_is_test(nm):
+            del_cr_ids.append(cr.get("id")); cr_labels.append(nm)
+        elif cr.get("user_id"):
+            keep_owner_ids.add(cr.get("user_id"))
+    plan["car_rental_companies"] = {"ids": del_cr_ids, "labels": cr_labels}
+
+    del_driver_ids, del_driver_user_ids, drv_labels = [], [], []
+    async for d in db.drivers.find({}, {"_id": 0, "id": 1, "user_id": 1, "personal_info": 1, "license_number": 1}):
+        pi = d.get("personal_info") or {}
+        if _cleanup_is_test(pi.get("name"), pi.get("email"), d.get("license_number")):
+            del_driver_ids.append(d.get("id"))
+            if d.get("user_id"):
+                del_driver_user_ids.append(d.get("user_id"))
+            drv_labels.append(pi.get("name") or d.get("id"))
+    plan["drivers"] = {"ids": del_driver_ids, "labels": drv_labels, "user_ids": del_driver_user_ids}
+
+    del_app_ids, app_labels = [], []
+    async for a in db.business_applications.find({}, {"_id": 0, "id": 1, "business_name": 1, "email": 1, "business_owner": 1}):
+        owner = a.get("business_owner") or {}
+        if _cleanup_is_test(a.get("business_name"), a.get("email"), owner.get("name"), owner.get("email")):
+            del_app_ids.append(a.get("id")); app_labels.append(a.get("business_name") or a.get("email"))
+    plan["business_applications"] = {"ids": del_app_ids, "labels": app_labels}
+
+    del_user_ids, user_labels = [], []
+    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1}):
+        uid = u.get("id")
+        if not uid or uid == requesting_user_id:
+            continue
+        if (u.get("user_type") or "").lower() in _CLEANUP_PROTECTED_USER_TYPES:
+            continue
+        if uid in keep_owner_ids:
+            continue
+        if _cleanup_is_test(u.get("name"), u.get("email")):
+            del_user_ids.append(uid); user_labels.append(u.get("email") or u.get("name"))
+    plan["users"] = {"ids": del_user_ids, "labels": user_labels}
+
+    deleted_vendor_ids = set(del_rest_ids) | set(del_biz_ids) | set(del_cr_ids)
+    deleted_user_ids_all = set(del_user_ids) | set(del_driver_user_ids)
+    del_order_ids = []
+    async for o in db.orders.find({}, {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "customer_id": 1, "customer_phone": 1, "notes": 1}):
+        if (o.get("restaurant_id") in deleted_vendor_ids or o.get("vendor_id") in deleted_vendor_ids
+                or o.get("customer_id") in deleted_user_ids_all
+                or _cleanup_is_test(o.get("customer_phone"), o.get("notes"))):
+            del_order_ids.append(o.get("id"))
+    plan["orders"] = {"ids": del_order_ids, "labels": []}
+
+    return plan
+
+
+def _cleanup_summary(plan: dict) -> dict:
+    return {
+        coll: {
+            "count": len(data.get("ids") or []),
+            "sample": (data.get("labels") or [])[:40],
+        }
+        for coll, data in plan.items()
+    }
+
+
+@api_router.get("/admin/cleanup/preview")
+async def admin_cleanup_preview(request: Request):
+    """Dry-run: report exactly what the test-data cleanup WOULD delete. No changes made."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    plan = await _build_cleanup_plan(current_user.id)
+    summary = _cleanup_summary(plan)
+    total = sum(v["count"] for v in summary.values())
+    return {"total": total, "keep_restaurant": sorted(CLEANUP_KEEP_RESTAURANT_NAMES), "summary": summary}
+
+
+@api_router.post("/admin/cleanup/execute")
+async def admin_cleanup_execute(request: Request):
+    """Permanently delete the test data identified by the preview. Requires
+    body {"confirm": "DELETE"}. Preserves real applicants + the keep-list."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if (body or {}).get("confirm") != "DELETE":
+        raise HTTPException(status_code=400, detail="Confirmation required: send {\"confirm\": \"DELETE\"}")
+
+    plan = await _build_cleanup_plan(current_user.id)
+    deleted = {}
+    for coll, data in plan.items():
+        ids = data.get("ids") or []
+        deleted[coll] = (await db[coll].delete_many({"id": {"$in": ids}})).deleted_count if ids else 0
+
+    # Best-effort cascade of dependent records for deleted drivers/users.
+    driver_ids = plan.get("drivers", {}).get("ids") or []
+    driver_user_ids = plan.get("drivers", {}).get("user_ids") or []
+    user_ids = plan.get("users", {}).get("ids") or []
+    if driver_ids:
+        await db.driver_wallets.delete_many({"driver_id": {"$in": driver_ids}})
+    all_affected_users = list(set(user_ids) | set(driver_user_ids))
+    if all_affected_users:
+        for coll in ("user_subscriptions", "driver_subscriptions", "wallets"):
+            try:
+                await db[coll].delete_many({"user_id": {"$in": all_affected_users}})
+            except Exception:
+                pass
+
+    logging.info(f"Admin {current_user.email} ran test-data cleanup: {deleted}")
+    return {"success": True, "deleted": deleted, "total": sum(deleted.values())}
+
+
+
 @api_router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):
     """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""
@@ -9794,9 +9961,9 @@ async def initialize_data():
             
             await db.pricing_tiers.insert_many(default_tiers)
         
-        # Initialize sample restaurants
+        # Initialize sample restaurants (gated — never re-seed on production).
         existing_restaurants = await db.restaurants.count_documents({})
-        if existing_restaurants == 0:
+        if existing_restaurants == 0 and os.environ.get("SEED_SAMPLE_DATA", "false").lower() == "true":
             sample_restaurants = [
                 {
                     "id": str(uuid.uuid4()),
