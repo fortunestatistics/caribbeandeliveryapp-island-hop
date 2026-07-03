@@ -43,6 +43,7 @@ const DriverSubscription = () => {
       const s = await axios.get(`${API}/driver/subscription`, { headers: authHeaders() });
       setCurrentTier(s.data?.tier || 'standard');
     } catch (e) {
+      console.warn('Driver current-subscription fetch failed (defaulting to standard):', e?.message);
       // Not a driver yet / not logged in — leave tier at default 'standard'.
     }
   };

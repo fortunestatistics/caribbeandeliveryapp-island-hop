@@ -43,6 +43,7 @@ const MerchantSubscription = () => {
       const s = await axios.get(`${API}/merchant/subscription`, { headers: authHeaders() });
       setCurrentTier(s.data?.tier || 'standard');
     } catch (e) {
+      console.warn('Merchant current-subscription fetch failed (defaulting to standard):', e?.message);
       // Not a merchant yet / not logged in — leave tier at default 'standard'.
     }
   };

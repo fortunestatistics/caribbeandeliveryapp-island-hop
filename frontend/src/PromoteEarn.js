@@ -219,7 +219,7 @@ const PromoteEarn = () => {
                       {o.rewards.length === 0 ? (
                         <Badge variant="outline" className="text-muted-foreground">Pending</Badge>
                       ) : o.rewards.map((r, i) => (
-                        <Badge key={i} className={r.status === 'paid'
+                        <Badge key={r.id || `${r.status}-${i}`} className={r.status === 'paid'
                           ? 'bg-green-500/15 text-green-700 border-green-500/30'
                           : 'bg-gold-500/15 text-gold-700 border-gold-500/30'}>
                           {TYPE_META[r.type]?.label || r.type} +{format(r.amount)} {r.status === 'paid' ? '✓' : '⏳'}

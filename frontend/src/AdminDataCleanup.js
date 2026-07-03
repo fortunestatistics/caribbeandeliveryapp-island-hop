@@ -129,7 +129,7 @@ const AdminDataCleanup = () => {
                     {data.sample && data.sample.length > 0 && (
                       <ul className="mt-2 text-xs text-muted-foreground space-y-0.5 max-h-32 overflow-auto">
                         {data.sample.map((name, i) => (
-                          <li key={i} className="truncate">• {name || '(unnamed)'}</li>
+                          <li key={`${name}-${i}`} className="truncate">• {name || '(unnamed)'}</li>
                         ))}
                         {data.count > data.sample.length && (
                           <li className="italic">…and {data.count - data.sample.length} more</li>

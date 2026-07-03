@@ -304,7 +304,7 @@ const RestaurantMenu = () => {
               {storefront.gallery && storefront.gallery.length > 0 && (
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mt-5" data-testid="storefront-hero-gallery">
                   {storefront.gallery.map((g, i) => (
-                    <div key={i} className="aspect-square rounded-lg overflow-hidden bg-matte-800">
+                    <div key={`${g}-${i}`} className="aspect-square rounded-lg overflow-hidden bg-matte-800">
                       <img src={g} alt={`gallery-${i}`} className="h-full w-full object-cover" />
                     </div>
                   ))}

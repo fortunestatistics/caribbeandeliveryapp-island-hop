@@ -1515,7 +1515,7 @@ const AdminPanel = () => {
                       <p className="font-semibold mb-1">Items</p>
                       <div className="border rounded-lg divide-y">
                         {detailOrder.items.map((it, i) => (
-                          <div key={i} className="flex justify-between p-2">
+                          <div key={`${it.name}-${i}`} className="flex justify-between p-2">
                             <span>{it.quantity}× {it.name}</span>
                             <span className="font-medium">{money(it.price * it.quantity)}</span>
                           </div>
