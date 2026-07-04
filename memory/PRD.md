@@ -27,6 +27,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 4, 2026 — Admin "Payment Mode" status card + PayPal live creds confirmed
+- **New Admin → Overview card** (`AdminPaymentMode.js`) shows at-a-glance whether each rail is LIVE vs TEST/SANDBOX: Stripe (from `sk_live/sk_test`), PayPal (`PAYPAL_MODE`), WiPay (`WIPAY_ENVIRONMENT`), Twilio SMS (`MOCK_TWILIO`). Overall badge = amber "TEST mode — no real money" or green "LIVE — real money"; warns on mixed mode. Backend `GET /api/admin/payment-mode` (admin/agent; env-only, no secrets returned).
+- **PayPal creds re-verified: they are LIVE** (existing client_id `AQR9lKfu…` + secret authenticate 200 on api-m.paypal.com, 401 on sandbox). Kept `PAYPAL_MODE=sandbox` for safe preview; flip to `live` + set `PAYPAL_WEBHOOK_ID` to go live. NOTE: no PayPal sandbox creds exist, so PayPal is non-functional in preview until live.
+- Verified card renders on preview (all 4 tiles, amber TEST overall badge).
+
+
 ### Jul 4, 2026 — Payments reverted to TEST; live keys parked; go-live scan
 - Reverted to TEST/SANDBOX after a live-mode smoke check: `STRIPE_API_KEY=sk_test`, `PAYPAL_MODE=sandbox`, WiPay sandbox. LIVE Stripe keys PARKED (unused by code) as `STRIPE_LIVE_API_KEY`/`STRIPE_LIVE_PUBLISHABLE_KEY` (backend) + `REACT_APP_STRIPE_LIVE_PUBLISHABLE_KEY` (frontend). Switch steps in `/app/memory/GO_LIVE.md`.
 - Fixed pre-existing bug: `PaymentMethodsSelector.js` read a non-existent `REACT_APP_STRIPE_API_KEY` and fell back to a hardcoded test key from a DIFFERENT Stripe account → now uses `REACT_APP_STRIPE_PUBLISHABLE_KEY`.

@@ -47,6 +47,7 @@ import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
 import AdminApprovals from './AdminApprovals';
+import AdminPaymentMode from './AdminPaymentMode';
 import AdminDataCleanup from './AdminDataCleanup';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -580,7 +581,9 @@ const AdminPanel = () => {
 
         {/* Content based on selected tab */}
         {selectedTab === 'overview' && (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <AdminPaymentMode />
+            <div className="grid md:grid-cols-2 gap-6">
             {/* Recent Orders */}
             <Card>
               <CardHeader>
@@ -632,6 +635,7 @@ const AdminPanel = () => {
                 )}
               </CardContent>
             </Card>
+          </div>
           </div>
         )}
 

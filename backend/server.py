@@ -8819,6 +8819,42 @@ async def admin_list_promoters(request: Request, limit: int = 200):
     return {"promoters": out[:limit]}
 
 
+@api_router.get("/admin/payment-mode")
+async def admin_payment_mode(request: Request):
+    """Admin/agent: report whether each payment rail is in LIVE or TEST/SANDBOX mode.
+    Reads env only; never returns secret values."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    stripe_key = os.environ.get("STRIPE_API_KEY", "") or ""
+    if stripe_key.startswith("sk_live"):
+        stripe_mode = "live"
+    elif stripe_key.startswith("sk_test"):
+        stripe_mode = "test"
+    else:
+        stripe_mode = "unconfigured"
+    paypal_mode = (os.environ.get("PAYPAL_MODE", "sandbox") or "sandbox").lower()
+    wipay_env = (os.environ.get("WIPAY_ENVIRONMENT", "sandbox") or "sandbox").lower()
+    wipay_mode = "live" if wipay_env in ("live", "production") else "sandbox"
+    twilio_mocked = (os.environ.get("MOCK_TWILIO", "false") or "false").lower() == "true"
+    payment_providers = [
+        {"name": "Stripe", "mode": stripe_mode, "live": stripe_mode == "live", "kind": "payment"},
+        {"name": "PayPal", "mode": paypal_mode, "live": paypal_mode == "live", "kind": "payment"},
+        {"name": "WiPay", "mode": wipay_mode, "live": wipay_mode == "live", "kind": "payment"},
+    ]
+    other_providers = [
+        {"name": "Twilio SMS", "mode": "mocked" if twilio_mocked else "live", "live": not twilio_mocked, "kind": "messaging"},
+    ]
+    any_live = any(p["live"] for p in payment_providers)
+    all_live = all(p["live"] for p in payment_providers)
+    return {
+        "providers": payment_providers + other_providers,
+        "any_payment_live": any_live,
+        "all_payment_live": all_live,
+    }
+
+
+
 @api_router.get("/admin/promo-rewards")
 async def admin_list_promo_rewards(request: Request, status: Optional[str] = None, limit: int = 500):
     """Per-referral reward records for the admin Promotions view.
