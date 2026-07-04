@@ -2,8 +2,16 @@
 
 Current mode (as of Jul 4, 2026): **TEST / SANDBOX — no real money moves.**
 - Stripe: TEST key active (`STRIPE_API_KEY=sk_test…`). Live keys PARKED (not used by code) below.
-- PayPal: `PAYPAL_MODE=sandbox` (the provided PayPal creds are sandbox-only anyway).
+- PayPal: `PAYPAL_MODE=sandbox` (SAFE for now). NOTE: the only PayPal creds we have are LIVE (see below) — there are NO sandbox creds, so PayPal checkout is non-functional in preview until you flip to live.
 - WiPay: `WIPAY_ENVIRONMENT=sandbox`.
+
+## PayPal LIVE creds — CONFIRMED WORKING (Jul 4, 2026)
+Existing `PAYPAL_CLIENT_ID` (AQR9lKfu…) + `PAYPAL_CLIENT_SECRET` (EJCgWW…) authenticate on **api-m.paypal.com (LIVE) → HTTP 200**, 401 on sandbox. These ARE live credentials (supersedes the old "sandbox-only" note).
+### To GO LIVE with PayPal
+1. backend/.env: `PAYPAL_MODE=sandbox` → `live` (client id/secret already correct).
+2. Set `PAYPAL_WEBHOOK_ID` (create a live webhook in the PayPal dashboard → /api/webhooks/paypal).
+3. Set `PAYPAL_MODE=live` (+ client id/secret) in the Deploy panel; redeploy.
+
 
 ## Parked LIVE Stripe keys (switch when you give the go)
 Stored (unused) in env so they're ready:
