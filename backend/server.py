@@ -9565,6 +9565,120 @@ async def admin_impersonate(user_id: str, request: Request):
     return {"token": token, "user": target, "expires_in_minutes": 30}
 
 
+# ============================================================
+# ADMIN "APPROVALS" — full records by category + order history
+# ============================================================
+_RECORD_CATEGORIES = {
+    "restaurants": {"collection": "restaurants", "status_field": "status"},
+    "drivers": {"collection": "drivers", "status_field": "status"},
+    "car_rentals": {"collection": "car_rental_companies", "status_field": "status"},
+    "businesses": {"collection": "business_applications", "status_field": "verification_status"},
+    "users": {"collection": "users", "status_field": "status"},
+}
+_USER_SENSITIVE_FIELDS = ("hashed_password", "password", "session_token")
+
+
+def _record_summary(doc: dict, category: str) -> dict:
+    """Curated top-line fields for the list row; `full` carries every submitted field."""
+    pi = doc.get("personal_info") or {}
+    bd = doc.get("business_details") or {}
+    bo = doc.get("business_owner") or {}
+    ci = doc.get("contact_info") or {}
+    status = doc.get(_RECORD_CATEGORIES[category]["status_field"])
+    base = {
+        "id": doc.get("id"),
+        "user_id": doc.get("user_id"),
+        "status": status,
+        "is_external_lead": bool(doc.get("is_external_lead")),
+        "source": doc.get("source"),
+        "created_at": doc.get("created_at") or doc.get("application_date"),
+    }
+    if category == "restaurants":
+        base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": doc.get("cuisine_type"), "subscription_tier": doc.get("subscription_tier"),
+                     "featured": bool(doc.get("featured"))})
+    elif category == "drivers":
+        base.update({"name": doc.get("name") or pi.get("name"), "email": doc.get("email") or pi.get("email"),
+                     "phone": doc.get("phone") or pi.get("phone"),
+                     "subtitle": " · ".join([x for x in [doc.get("vehicle_type"), doc.get("vehicle_plate")] if x]) or None})
+    elif category == "car_rentals":
+        base.update({"name": doc.get("company_name"), "email": ci.get("email"), "phone": ci.get("phone"),
+                     "subtitle": f"{len(doc.get('fleet') or [])} vehicles"})
+    elif category == "businesses":
+        base.update({"name": doc.get("business_name") or bd.get("business_name"),
+                     "email": doc.get("email") or bo.get("email"), "phone": doc.get("phone") or bo.get("phone"),
+                     "subtitle": bd.get("business_type") or doc.get("business_type"),
+                     "owner_name": bo.get("name")})
+    elif category == "users":
+        base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": doc.get("user_type"), "user_type": doc.get("user_type")})
+        base["status"] = doc.get("status") or "active"
+    return base
+
+
+def _clean_full(doc: dict, category: str) -> dict:
+    full = {k: v for k, v in doc.items() if k != "_id"}
+    if category == "users":
+        for f in _USER_SENSITIVE_FIELDS:
+            full.pop(f, None)
+    return full
+
+
+@api_router.get("/admin/records/{category}")
+async def admin_list_records(category: str, request: Request, q: Optional[str] = None, limit: int = 500):
+    """Admin: all records of a category (any status) with full submitted data.
+    category ∈ restaurants | drivers | car_rentals | businesses | users."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    coll = db[_RECORD_CATEGORIES[category]["collection"]]
+    query: Dict[str, Any] = {}
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        fields = {
+            "restaurants": ["name", "email", "phone"],
+            "drivers": ["name", "email", "phone", "license_number", "vehicle_plate"],
+            "car_rentals": ["company_name"],
+            "businesses": ["business_name", "email", "phone"],
+            "users": ["name", "email", "phone"],
+        }[category]
+        query = {"$or": [{f: rx} for f in fields]}
+    cap = min(limit, 2000)
+    records = []
+    async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):
+        rec = _record_summary(doc, category)
+        rec["full"] = _clean_full(doc, category)
+        records.append(rec)
+    return {"category": category, "count": len(records), "records": records}
+
+
+@api_router.get("/admin/records/{category}/{record_id}/orders")
+async def admin_record_orders(category: str, record_id: str, request: Request, limit: int = 500):
+    """Admin: full order (or rental booking) history associated with a record."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    cap = min(limit, 2000)
+    if category == "car_rentals":
+        bookings = await db.rental_bookings.find(
+            {"rental_company_id": record_id}, {"_id": 0}
+        ).sort("created_at", -1).limit(cap).to_list(length=cap)
+        return {"type": "rental", "count": len(bookings), "orders": bookings}
+    order_query = {
+        "restaurants": {"restaurant_id": record_id},
+        "drivers": {"driver_id": record_id},
+        "businesses": {"$or": [{"vendor_id": record_id}, {"restaurant_id": record_id}]},
+        "users": {"customer_id": record_id},
+    }[category]
+    orders = await db.orders.find(order_query, {"_id": 0}).sort("created_at", -1).limit(cap).to_list(length=cap)
+    return {"type": "order", "count": len(orders), "orders": orders}
+
+
+
 
 @api_router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):

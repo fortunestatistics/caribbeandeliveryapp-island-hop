@@ -46,6 +46,7 @@ import AdminMercuryBanking from './AdminMercuryBanking';
 import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
+import AdminApprovals from './AdminApprovals';
 import AdminDataCleanup from './AdminDataCleanup';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -810,96 +811,7 @@ const AdminPanel = () => {
           </>
         )}
 
-        {selectedTab === 'approvals' && (
-          <Card data-testid="admin-approvals-content">
-            <CardHeader>
-              <CardTitle>Pending Approvals ({approvals.total})</CardTitle>
-              <p className="text-sm text-muted-foreground">Review and approve new drivers, restaurants, car rentals, and business onboarding applications.</p>
-            </CardHeader>
-            <CardContent>
-              {approvals.total === 0 ? (
-                <div className="text-center py-12 text-muted-foreground" data-testid="approvals-empty">
-                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
-                  <p>No pending approvals at the moment.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {[['drivers','driver','Drivers'], ['restaurants','restaurant','Restaurants'], ['car_rentals','car_rental','Car Rentals'], ['businesses','business','Businesses']].map(([key, kind, label]) => (
-                    approvals[key] && approvals[key].length > 0 && (
-                      <div key={key} data-testid={`approval-section-${key}`}>
-                        <h3 className="font-semibold mb-3 text-gold-500">{label} ({approvals[key].length})</h3>
-                        <div className="space-y-2">
-                          {approvals[key].map((row) => (
-                            <div key={row.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium">{row.name || row.id}</p>
-                                  <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
-                                  {row.source && (
-                                    <span data-testid={`lead-source-${row.id}`} className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
-                                      🌐 Lead from {row.source}
-                                    </span>
-                                  )}
-                                  {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button data-testid={`view-applicant-btn-${row.id}`} size="sm" variant="outline" onClick={() => setDetailApproval({ ...row, kind })}>
-                                    <Eye className="h-4 w-4 mr-1" />View
-                                  </Button>
-                                  <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
-                                    <CheckCircle className="h-4 w-4 mr-1" />Approve
-                                  </Button>
-                                  <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
-                                    <X className="h-4 w-4 mr-1" />Reject
-                                  </Button>
-                                </div>
-                              </div>
-                              {kind === 'driver' && row.raw?.identity_verification && (
-                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-kyc-${row.id}`}>
-                                  <span className="text-xs font-semibold text-gold-500">Automated KYC (Stripe Identity): </span>
-                                  <Badge
-                                    className={row.raw.identity_verification.status === 'verified'
-                                      ? 'bg-green-600/20 text-green-400'
-                                      : 'bg-yellow-600/20 text-yellow-400'}
-                                  >
-                                    {row.raw.identity_verification.status || 'not started'}
-                                  </Badge>
-                                </div>
-                              )}
-                              {kind === 'driver' && row.raw?.documents && Object.keys(row.raw.documents).length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-docs-${row.id}`}>
-                                  <p className="text-xs font-semibold text-gold-500 mb-2">Identity Documents (click to review)</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {Object.entries(row.raw.documents).map(([docType, docId]) => (
-                                      <Button
-                                        key={docType}
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => viewDocument(docId)}
-                                        data-testid={`view-doc-${row.id}-${docType}`}
-                                      >
-                                        <FileText className="h-3.5 w-3.5 mr-1" />{DOC_LABELS[docType] || docType}
-                                      </Button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              {kind === 'driver' && (!row.raw?.documents || Object.keys(row.raw.documents).length === 0) && (
-                                <p className="mt-3 pt-3 border-t border-border text-xs text-yellow-500" data-testid={`approval-nodocs-${row.id}`}>
-                                  ⚠ No identity documents were submitted with this application.
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        {selectedTab === 'approvals' && <AdminApprovals />}
 
         {selectedTab === 'fraud' && (
           <Card data-testid="admin-fraud-content">
