@@ -27,6 +27,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 4, 2026 — Payments reverted to TEST; live keys parked; go-live scan
+- Reverted to TEST/SANDBOX after a live-mode smoke check: `STRIPE_API_KEY=sk_test`, `PAYPAL_MODE=sandbox`, WiPay sandbox. LIVE Stripe keys PARKED (unused by code) as `STRIPE_LIVE_API_KEY`/`STRIPE_LIVE_PUBLISHABLE_KEY` (backend) + `REACT_APP_STRIPE_LIVE_PUBLISHABLE_KEY` (frontend). Switch steps in `/app/memory/GO_LIVE.md`.
+- Fixed pre-existing bug: `PaymentMethodsSelector.js` read a non-existent `REACT_APP_STRIPE_API_KEY` and fell back to a hardcoded test key from a DIFFERENT Stripe account → now uses `REACT_APP_STRIPE_PUBLISHABLE_KEY`.
+- deployment_agent: fixed 3 unbounded queries (`/orders/{id}/substitutions` .limit(200), `/service-zones` + `/service-zones/check` .limit(500)) and removed `.env`/`.env.*`/`*.env` from `.gitignore`. Final scan = **PASS, 0 blockers**.
+
+
 ### Jul 4, 2026 — Admin "Approvals" comprehensive records section
 - **Replaced the old pending-only Approvals tab** with a full records browser (`AdminApprovals.js`, rendered for the `approvals` tab in `AdminPanel.js`). Five category sub-tabs: **Restaurants, Drivers, Car Rental Companies, Business Storefronts, User Accounts** — each shows ALL records (any status) with a status badge + contact line, an expandable **full submitted-data grid** (every field, nested objects rendered as JSON), and per-record actions.
 - **Order History:** each record has an **Orders** button → dialog loading `GET /api/admin/records/{category}/{id}/orders` (returns `type:order` for restaurants/drivers/businesses/users, `type:rental` for car_rentals via `rental_bookings`).
