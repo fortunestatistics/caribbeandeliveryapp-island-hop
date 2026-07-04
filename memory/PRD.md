@@ -27,6 +27,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 4, 2026 — Promote & Earn: rewards escrowed until referred partner's FIRST ORDER
+- **New behavior:** Driver / Business-Merchant / Supplier referral rewards are NO LONGER paid at approval. `_award_promo_reward(..., require_first_order=True)` now creates the reward in a **`pending_first_order`** state (no wallet credit). It is released only when the referred entity completes their **first order** (order reaches `delivered`).
+- **Settlement:** new `_settle_partner_first_order_rewards(order)` runs (fire-and-forget) in `update_order_status` on `delivered`. It resolves the order's vendor (`restaurants`/`business_applications`/`car_rental_companies` → `user_id`) and driver (`drivers` → `user_id`), then transitions their promoter's `pending_first_order` reward → **`paid`** (credits wallet, sets `first_order_at`) if the promoter is eligible, else **`held`** (existing hold-until-eligible path via `_release_held_promo_rewards`). Idempotent (only transitions `pending_first_order`).
+- **Tracking:** every promo_reward now stores `referred_entity_type`, `signup_date`, `first_order_at`, `paid_at`, `status`. Customer rewards (first paid order) unchanged.
+- **New admin endpoint:** `GET /api/admin/promo-rewards?status=` (admin/agent) → per-reward ledger + `counts{pending_first_order,held,paid}` + reward schedule.
+- **UI (Admin → Promoters tab, `AdminPromoters.js`):** 3 status summary cards (Pending First Order / Ready for Payout / Paid Out) + a **Referral Rewards** table (promoter, referred entity, type, signed-up date, first-order date, amount, status badge). Statuses map: `pending_first_order`→"Pending First Order" (amber), `held`→"Ready for Payout" (blue), `paid`→"Paid" (green). Original promoters/ambassadors table retained below.
+- **Verified:** functional test `backend/tests/test_first_order_reward.py` — reward created `pending_first_order` (wallet NOT credited), then on delivered order → `paid` + wallet credited $15 + `first_order_at` set + idempotent (1 txn). UI confirmed rendering on preview.
+
+
 ### Jul 3, 2026 — Twilio A2P SMS consent compliance
 - **Signup opt-in checkbox** added to `AuthPage.js` (signup mode): unchecked by default (optional), with the exact required legal language — "By checking this box, I agree to receive automated transactional SMS notifications from IslandHop Technologies LLC…STOP…HELP…" — and clickable **Privacy Policy (/privacy-policy)** + **Terms (/terms-and-conditions)** links. `sms_consent` boolean passed in the register payload. testids: `sms-consent-checkbox`, `sms-consent-text`, `sms-consent-block`.
 - **Policy pages verified live/accessible:** `/privacy-policy` (PrivacyPolicy.js) and `/terms-and-conditions` (Terms.js) both render full content; `/terms` also maps to Terms. Privacy Policy explicitly discloses SMS/WhatsApp transactional notifications.

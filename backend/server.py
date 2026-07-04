@@ -2583,6 +2583,8 @@ async def update_order_status(order_id: str, status: str, request: Request):
     if status == "delivered":
         update_data["actual_delivery_time"] = now_iso
         update_data.update(await _credit_driver_on_delivery(order, order_id))
+        # Release promoter rewards for referred partners (driver/merchant/supplier) on their first completed order.
+        asyncio.create_task(_settle_partner_first_order_rewards(order))
 
     await db.orders.update_one({"id": order_id}, {"$set": update_data})
 
@@ -8588,8 +8590,13 @@ async def _release_held_promo_rewards(promoter_id: str) -> int:
     return len(held)
 
 
-async def _award_promo_reward(referred_user_id: str, reward_type: str, qualifying_event: str) -> None:
-    """Grant the promoter (referred_user.referred_by) a reward for an onboarding milestone. Idempotent."""
+async def _award_promo_reward(referred_user_id: str, reward_type: str, qualifying_event: str, require_first_order: bool = False) -> None:
+    """Grant the promoter (referred_user.referred_by) a reward for an onboarding milestone. Idempotent.
+
+    If require_first_order=True (Drivers / Businesses / Merchants / Suppliers) the reward is created in a
+    'pending_first_order' state and is NOT paid out until the referred entity completes their first order
+    (see _settle_partner_first_order_rewards). Otherwise it pays immediately when the promoter is eligible
+    (or is 'held' until they become eligible)."""
     user = await db.users.find_one({"id": referred_user_id}, {"_id": 0})
     if not user or not user.get("referred_by") or user["referred_by"] == referred_user_id:
         return
@@ -8609,21 +8616,74 @@ async def _award_promo_reward(referred_user_id: str, reward_type: str, qualifyin
         "promoter_id": promoter_id,
         "referred_user_id": referred_user_id,
         "referred_name": user.get("name"),
+        "referred_entity_type": reward_type,
         "type": reward_type,
         "amount": amount,
         "currency": PROMO_REWARD_CURRENCY,
         "qualifying_event": qualifying_event,
-        "status": "paid" if eligible else "held",
+        "signup_date": user.get("created_at"),
+        "first_order_at": None,
         "created_at": now_iso,
-        "paid_at": now_iso if eligible else None,
+        "paid_at": None,
     }
+    if require_first_order:
+        # Held in escrow until the referred entity completes their FIRST order.
+        reward["status"] = "pending_first_order"
+        await db.promo_rewards.insert_one(reward)
+        return
+    reward["status"] = "paid" if eligible else "held"
     if eligible:
+        reward["paid_at"] = now_iso
         await _credit_wallet_with_txn(
             promoter_id, amount, PROMO_REWARD_CURRENCY, txn_type="promoter_reward",
             counterparty_user_id=referred_user_id,
             note=f"Promoter reward: {PROMO_TYPE_LABEL.get(reward_type, reward_type)} onboarding",
         )
     await db.promo_rewards.insert_one(reward)
+
+
+async def _settle_partner_first_order_rewards(order: dict) -> None:
+    """When a referred partner (Driver / Merchant / Business / Supplier) completes their FIRST order,
+    move their promoter's 'pending_first_order' reward to paid (or 'held' if the promoter is not yet
+    eligible). Idempotent — only transitions rewards still in 'pending_first_order'. Never raises."""
+    try:
+        user_ids = set()
+        vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+        if vendor_id:
+            for coll in ("restaurants", "business_applications", "car_rental_companies"):
+                doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "user_id": 1})
+                if doc and doc.get("user_id"):
+                    user_ids.add(doc["user_id"])
+                    break
+        driver_id = order.get("driver_id")
+        if driver_id:
+            d = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+            if d and d.get("user_id"):
+                user_ids.add(d["user_id"])
+        if not user_ids:
+            return
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for uid in user_ids:
+            rewards = await db.promo_rewards.find(
+                {"referred_user_id": uid, "status": "pending_first_order"}
+            ).to_list(length=50)
+            for r in rewards:
+                promoter = await db.users.find_one({"id": r["promoter_id"]}, {"_id": 0})
+                eligible = await _is_eligible_promoter(promoter)
+                update = {"first_order_at": now_iso}
+                if eligible:
+                    update["status"] = "paid"
+                    update["paid_at"] = now_iso
+                    await _credit_wallet_with_txn(
+                        r["promoter_id"], r["amount"], r.get("currency", PROMO_REWARD_CURRENCY),
+                        txn_type="promoter_reward", counterparty_user_id=uid,
+                        note=f"Promoter reward: {PROMO_TYPE_LABEL.get(r.get('type'), r.get('type'))} first order",
+                    )
+                else:
+                    update["status"] = "held"
+                await db.promo_rewards.update_one({"id": r["id"]}, {"$set": update})
+    except Exception as exc:
+        logging.warning(f"Partner first-order reward settlement failed for order {order.get('id')}: {exc}")
 
 
 @api_router.get("/promoter/me")
@@ -8757,6 +8817,42 @@ async def admin_list_promoters(request: Request, limit: int = 200):
             out.append({**u, "paid": round(stats.get("paid", 0), 2), "held": round(stats.get("held", 0), 2), "onboards": stats.get("count", 0)})
     out.sort(key=lambda x: x.get("paid", 0), reverse=True)
     return {"promoters": out[:limit]}
+
+
+@api_router.get("/admin/promo-rewards")
+async def admin_list_promo_rewards(request: Request, status: Optional[str] = None, limit: int = 500):
+    """Per-referral reward records for the admin Promotions view.
+    Shows referred entity, type, signup date, first-order date and payout status
+    ('pending_first_order' | 'held' | 'paid')."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query: Dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    cap = min(limit, 2000)
+    rewards = await db.promo_rewards.find(query, {"_id": 0}).sort("created_at", -1).limit(cap).to_list(length=cap)
+    promoter_ids = list({r.get("promoter_id") for r in rewards if r.get("promoter_id")})
+    pmap: Dict[str, Any] = {}
+    if promoter_ids:
+        async for u in db.users.find({"id": {"$in": promoter_ids}}, {"_id": 0, "id": 1, "name": 1, "email": 1}):
+            pmap[u["id"]] = u
+    out = []
+    for r in rewards:
+        p = pmap.get(r.get("promoter_id"), {})
+        out.append({
+            **r,
+            "referred_entity_type": r.get("referred_entity_type") or r.get("type"),
+            "promoter_name": p.get("name"),
+            "promoter_email": p.get("email"),
+        })
+    # Totals across ALL records (not just this page) for the summary cards.
+    counts = {}
+    for st in ("pending_first_order", "held", "paid"):
+        counts[st] = await db.promo_rewards.count_documents({"status": st})
+    return {"rewards": out, "counts": counts, "currency": PROMO_REWARD_CURRENCY,
+            "reward_schedule": PROMO_REWARDS}
+
 
 
 class PromoterApprove(BaseModel):
@@ -9514,7 +9610,7 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     if driver and driver.get("user_id"):
         await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
         await _notify_driver_status(driver["user_id"], "approved")
-        await _award_promo_reward(driver["user_id"], "driver", "driver_approved")
+        await _award_promo_reward(driver["user_id"], "driver", "driver_approved", require_first_order=True)
         await _release_held_promo_rewards(driver["user_id"])
     return result
 
@@ -9574,7 +9670,7 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
     if app_doc and app_doc.get("user_id"):
         btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
         rtype = "supplier" if "supplier" in btype else "merchant"
-        await _award_promo_reward(app_doc["user_id"], rtype, "business_approved")
+        await _award_promo_reward(app_doc["user_id"], rtype, "business_approved", require_first_order=True)
         await _release_held_promo_rewards(app_doc["user_id"])
     return result
 
