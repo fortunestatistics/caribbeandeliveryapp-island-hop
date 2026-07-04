@@ -3062,7 +3062,7 @@ async def list_substitutions(order_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Not a participant of this order")
     rows = await db.substitution_proposals.find(
         {"order_id": order_id}, {"_id": 0}
-    ).sort("created_at", 1).to_list(length=None)
+    ).sort("created_at", 1).limit(200).to_list(length=200)
     return rows
 
 
@@ -9016,7 +9016,7 @@ async def create_service_zone(payload: ServiceZoneCreate, request: Request):
 async def list_service_zones(active_only: bool = False):
     """List all service zones (public — needed by client to soft-block unsupported regions)."""
     query = {"active": True} if active_only else {}
-    docs = await db.service_zones.find(query, {"_id": 0}).to_list(length=None)
+    docs = await db.service_zones.find(query, {"_id": 0}).limit(500).to_list(length=500)
     return [ServiceZone(**d) for d in docs]
 
 
@@ -9048,7 +9048,7 @@ async def delete_service_zone(zone_id: str, request: Request):
 @api_router.post("/service-zones/check")
 async def check_service_zone(payload: ServiceZoneCheck):
     """Check if a coordinate is inside any active service zone (optionally filtered by service)."""
-    zones = await db.service_zones.find({"active": True}, {"_id": 0}).to_list(length=None)
+    zones = await db.service_zones.find({"active": True}, {"_id": 0}).limit(500).to_list(length=500)
     matches = []
     for z in zones:
         polygon = z.get("polygon") or []
