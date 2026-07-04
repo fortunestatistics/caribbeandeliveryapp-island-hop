@@ -4,7 +4,7 @@ import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Input } from './components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn,
@@ -88,6 +88,7 @@ const OrderHistoryDialog = ({ open, onClose, record, category }) => {
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" /> {type === 'rental' ? 'Rental Bookings' : 'Order History'} — {record?.name || record?.id}
           </DialogTitle>
+          <DialogDescription>Full order/booking history associated with this record.</DialogDescription>
         </DialogHeader>
         {loading ? (
           <div className="py-10 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></div>

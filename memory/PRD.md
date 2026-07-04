@@ -27,6 +27,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 4, 2026 — Admin "Approvals" comprehensive records section
+- **Replaced the old pending-only Approvals tab** with a full records browser (`AdminApprovals.js`, rendered for the `approvals` tab in `AdminPanel.js`). Five category sub-tabs: **Restaurants, Drivers, Car Rental Companies, Business Storefronts, User Accounts** — each shows ALL records (any status) with a status badge + contact line, an expandable **full submitted-data grid** (every field, nested objects rendered as JSON), and per-record actions.
+- **Order History:** each record has an **Orders** button → dialog loading `GET /api/admin/records/{category}/{id}/orders` (returns `type:order` for restaurants/drivers/businesses/users, `type:rental` for car_rentals via `rental_bookings`).
+- **Approve/Reject** inline for pending drivers/restaurants/car_rentals/businesses (reuses existing endpoints); **View portal** (impersonate) button when the record has a `user_id`. User Accounts have no approve/reject.
+- **Backend:** `GET /api/admin/records/{category}?q=&limit=` (admin/agent, 403 otherwise) returns `{count, records:[{summary…, full}]}`; sensitive user fields (`hashed_password`, `password`, `session_token`) scrubbed. `_RECORD_CATEGORIES` maps category→collection→status field.
+- **Verified:** testing_agent iter 32 — backend 14/14, frontend 100% (all 5 sub-tabs load live data, expand grid, order-history dialog, users hide sensitive fields + no approve/reject). Added `DialogDescription` for a11y.
+- **Backlog flagged by review:** split `server.py` (~10.5k lines) into routers; per-category allowlist (vs denylist) for record fields; virtualize/paginate the driver list (157+ rows).
+
+
 ### Jul 4, 2026 — Promote & Earn: rewards escrowed until referred partner's FIRST ORDER
 - **New behavior:** Driver / Business-Merchant / Supplier referral rewards are NO LONGER paid at approval. `_award_promo_reward(..., require_first_order=True)` now creates the reward in a **`pending_first_order`** state (no wallet credit). It is released only when the referred entity completes their **first order** (order reaches `delivered`).
 - **Settlement:** new `_settle_partner_first_order_rewards(order)` runs (fire-and-forget) in `update_order_status` on `delivered`. It resolves the order's vendor (`restaurants`/`business_applications`/`car_rental_companies` → `user_id`) and driver (`drivers` → `user_id`), then transitions their promoter's `pending_first_order` reward → **`paid`** (credits wallet, sets `first_order_at`) if the promoter is eligible, else **`held`** (existing hold-until-eligible path via `_release_held_promo_rewards`). Idempotent (only transitions `pending_first_order`).
