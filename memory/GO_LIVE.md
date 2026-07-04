@@ -24,6 +24,9 @@ Stored (unused) in env so they're ready:
 3. Restart backend + frontend (or redeploy for production; also set both in the Deploy panel env vars).
 4. Verify: `curl -s https://api.stripe.com/v1/balance -u "<sk_live>:"` → `livemode: true` (no charge).
 
+### Stripe webhook (DONE)
+- `STRIPE_WEBHOOK_SECRET=whsec_…` is set in backend/.env and wired into `/api/webhook/stripe` (signature verified; bad sig → 400). For PRODUCTION, add `STRIPE_WEBHOOK_SECRET` to the Deploy panel and point a Stripe webhook endpoint at `https://<prod-domain>/api/webhook/stripe` (event `checkout.session.completed`). If the live endpoint uses a DIFFERENT signing secret than preview, update the value.
+
 ## SECURITY
 - The live keys were shared in chat — recommend ROTATING them in the Stripe Dashboard, then updating the parked values here + Deploy panel.
 - `sk_live` must ONLY ever live in backend `.env` / Deploy panel — never in frontend or client code. (Publishable `pk_live` is safe to expose.)

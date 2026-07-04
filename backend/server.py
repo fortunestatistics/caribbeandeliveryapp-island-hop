@@ -48,6 +48,7 @@ api_router = APIRouter(prefix="/api")
 # Environment variables
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
@@ -7097,7 +7098,7 @@ async def stripe_webhook(request: Request):
     """Phase A: Stripe webhook receiver (canonical path)."""
     body = await request.body()
     signature = request.headers.get("Stripe-Signature")
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="", webhook_secret=STRIPE_WEBHOOK_SECRET)
     try:
         webhook_response = await stripe_checkout.handle_webhook(body, signature)
     except Exception as e:
