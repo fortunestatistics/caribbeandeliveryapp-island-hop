@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — Applicant document viewer restored in Approvals
+- **Where docs are stored:** files in Emergent object storage (`islandhop/driver-docs/{user_id}/{doc_id}.{ext}`); metadata in `driver_documents` (drivers) or the `documents` field on `business_applications` (merchants, as URLs).
+- Added `GET /api/admin/records/{category}/{record_id}/documents` (admin/agent) returning a normalized list: driver docs (`kind:driver_doc` + `document_id`, streamed via `/api/drivers/documents/{id}/download?auth=<jwt>`) and business docs (`kind:url`). Includes `is_image` flag.
+- **UI:** new **Docs** button on Driver & Business rows in Approvals opens a Documents dialog with **thumbnails** (images render inline, others show a file icon); each card **opens in a new tab**. Fixes the gap where the old clickable viewer was orphaned when the Approvals tab was rebuilt.
+- Verified: docs list for a driver w/ uploads returns the license doc; `?auth` download → HTTP 200 image/png; UI dialog renders the thumbnail card + open-in-new-tab.
+
+
 ### Jul 6, 2026 — "Needs attention" badge on Approvals tab
 - Added an amber count badge on the Approvals tab = pending drivers + merchants(restaurants) + businesses (mirrors the Safety & Disputes badge). Reuses `GET /api/admin/pending-approvals` (fetched on mount). Verified on preview showing "13" (8 drivers + 5 businesses).
 

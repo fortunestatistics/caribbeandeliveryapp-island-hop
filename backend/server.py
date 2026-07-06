@@ -9783,6 +9783,63 @@ async def admin_record_orders(category: str, record_id: str, request: Request, l
     return {"type": "order", "count": len(orders), "orders": orders}
 
 
+_IMAGE_EXTS = ("png", "jpg", "jpeg", "webp", "gif", "heic", "heif")
+
+
+def _looks_like_image(name: str) -> bool:
+    if not name:
+        return False
+    tail = name.split("?")[0].lower().rsplit(".", 1)
+    return len(tail) == 2 and tail[1] in _IMAGE_EXTS
+
+
+@api_router.get("/admin/records/{category}/{record_id}/documents")
+async def admin_record_documents(category: str, record_id: str, request: Request):
+    """Admin: list uploaded documents for a driver or business applicant.
+    Drivers -> driver_documents (streamed via /drivers/documents/{id}/download).
+    Businesses -> the `documents` field on the application (direct URLs)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    docs = []
+    if category == "drivers":
+        drv = await db.drivers.find_one({"id": record_id}, {"_id": 0, "user_id": 1})
+        uid = drv.get("user_id") if drv else None
+        if uid:
+            async for d in db.driver_documents.find(
+                {"user_id": uid, "is_deleted": False},
+                {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1, "content_type": 1},
+            ):
+                fn = d.get("original_filename") or ""
+                docs.append({
+                    "kind": "driver_doc",
+                    "document_id": d["id"],
+                    "doc_type": d.get("doc_type"),
+                    "filename": fn,
+                    "is_image": (str(d.get("content_type") or "").startswith("image/") or _looks_like_image(fn)),
+                })
+    elif category == "businesses":
+        b = await db.business_applications.find_one({"id": record_id}, {"_id": 0})
+        if b:
+            raw = b.get("documents") or (b.get("business_details") or {}).get("documents") or {}
+            items = []
+            if isinstance(raw, dict):
+                items = [{"label": k, "url": v} for k, v in raw.items() if v]
+            elif isinstance(raw, list):
+                for it in raw:
+                    if isinstance(it, dict):
+                        items.append({"label": it.get("label") or it.get("doc_type") or "document", "url": it.get("url") or it.get("value")})
+                    elif it:
+                        items.append({"label": "document", "url": it})
+            for it in items:
+                url = it.get("url") or ""
+                docs.append({"kind": "url", "label": it.get("label"), "url": url, "is_image": _looks_like_image(url)})
+    return {"documents": docs, "count": len(docs)}
+
+
+
 
 
 @api_router.get("/admin/pending-approvals")

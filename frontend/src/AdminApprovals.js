@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
+  FileText, FolderOpen, ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -123,6 +124,72 @@ const OrderHistoryDialog = ({ open, onClose, record, category }) => {
   );
 };
 
+const DocumentsDialog = ({ open, onClose, record, category }) => {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const urlFor = (d) => d.kind === 'driver_doc'
+    ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(token())}`
+    : (d.url || '');
+
+  useEffect(() => {
+    if (!open || !record) return;
+    setLoading(true);
+    axios.get(`${API}/admin/records/${category}/${record.id}/documents`, { headers: authHeaders() })
+      .then((res) => setDocs(res.data.documents || []))
+      .catch(() => toast.error('Failed to load documents'))
+      .finally(() => setLoading(false));
+  }, [open, record, category]);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="documents-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderOpen className="h-5 w-5" /> Documents — {record?.name || record?.id}
+          </DialogTitle>
+          <DialogDescription>Uploaded application documents. Click a thumbnail to open it in a new tab.</DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="py-10 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></div>
+        ) : docs.length === 0 ? (
+          <p className="py-8 text-center text-muted-foreground" data-testid="documents-empty">No documents were submitted with this application.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {docs.map((d, i) => {
+              const url = urlFor(d);
+              const label = d.doc_type || d.label || d.filename || `Document ${i + 1}`;
+              return (
+                <a
+                  key={d.document_id || d.url || i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group border border-border rounded-lg overflow-hidden hover:border-gold-500 transition-colors"
+                  data-testid={`document-item-${i}`}
+                  title="Open in new tab"
+                >
+                  <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
+                    {d.is_image ? (
+                      <img src={url} alt={label} className="w-full h-full object-cover" loading="lazy" />
+                    ) : (
+                      <FileText className="h-10 w-10 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="p-2 flex items-center justify-between gap-1">
+                    <span className="text-xs font-medium capitalize truncate">{String(label).replace(/_/g, ' ')}</span>
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-gold-500 shrink-0" />
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 const AdminApprovals = () => {
   const [active, setActive] = useState('drivers');
   const [statusFilter, setStatusFilter] = useState('pending');
@@ -132,6 +199,7 @@ const AdminApprovals = () => {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(null);
   const [historyRec, setHistoryRec] = useState(null);
+  const [docsRec, setDocsRec] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async (category, q, status) => {
@@ -300,6 +368,11 @@ const AdminApprovals = () => {
                         <Button size="sm" variant="outline" onClick={() => setHistoryRec(rec)} data-testid={`record-orders-${rec.id}`}>
                           <Receipt className="h-4 w-4 mr-1" />Orders
                         </Button>
+                        {(active === 'drivers' || active === 'businesses') && (
+                          <Button size="sm" variant="outline" onClick={() => setDocsRec(rec)} data-testid={`record-docs-${rec.id}`}>
+                            <FolderOpen className="h-4 w-4 mr-1" />Docs
+                          </Button>
+                        )}
                         {rec.user_id && (
                           <Button size="sm" variant="outline" disabled={busyId === rec.id} onClick={() => impersonate(rec)} data-testid={`record-portal-${rec.id}`}>
                             {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
@@ -353,6 +426,13 @@ const AdminApprovals = () => {
         open={!!historyRec}
         onClose={() => setHistoryRec(null)}
         record={historyRec}
+        category={active}
+      />
+
+      <DocumentsDialog
+        open={!!docsRec}
+        onClose={() => setDocsRec(null)}
+        record={docsRec}
         category={active}
       />
     </div>
