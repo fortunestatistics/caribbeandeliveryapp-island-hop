@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — FIXED production deployment readiness-timeout
+- **Root cause:** the FastAPI `@app.on_event("startup")` handler was AWAITING heavy init before the server became ready — ~100 index creations + `2dsphere`/TTL indexes + `storage_client.init_storage()` + owner-admin/category/tier/sample seeding. On a fresh Atlas cluster this exceeded the K8s readiness timeout → "deployment failed to become ready".
+- **Fix:** split into a lightweight startup event that returns immediately and schedules `initialize_data()` via `asyncio.create_task` (background). Verified in logs: "🚀 Startup complete — server ready" prints FIRST, then indexes/seeds/storage complete in the background. No behavior change, just non-blocking init.
+- Also bounded flagged unbounded queries: referrals `.limit(500)`; pending drivers/restaurants/rentals/businesses `.limit(1000)`.
+- **deployment_agent: PASS, 0 blockers.** User needs to redeploy to push this fix to production.
+
+
 ### Jul 6, 2026 — Applicant document viewer restored in Approvals
 - **Where docs are stored:** files in Emergent object storage (`islandhop/driver-docs/{user_id}/{doc_id}.{ext}`); metadata in `driver_documents` (drivers) or the `documents` field on `business_applications` (merchants, as URLs).
 - Added `GET /api/admin/records/{category}/{record_id}/documents` (admin/agent) returning a normalized list: driver docs (`kind:driver_doc` + `document_id`, streamed via `/api/drivers/documents/{id}/download?auth=<jwt>`) and business docs (`kind:url`). Includes `is_image` flag.
