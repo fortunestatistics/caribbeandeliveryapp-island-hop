@@ -35,6 +35,8 @@ import {
   CreditCard,
   Banknote,
   AlertTriangle,
+  PauseCircle,
+  ShieldOff,
   Plus
 } from 'lucide-react';
 import axios from 'axios';
@@ -106,6 +108,8 @@ const AdminPanel = () => {
   const [claims, setClaims] = useState([]);
   const [claimsFilter, setClaimsFilter] = useState('open');
   const [claimsOpenCount, setClaimsOpenCount] = useState(0);
+  const [userTypeFilter, setUserTypeFilter] = useState('all');
+  const [safetySub, setSafetySub] = useState('fraud');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,10 +153,18 @@ const AdminPanel = () => {
     if (selectedTab === 'approvals') fetchApprovals();
     if (selectedTab === 'zones') fetchZones();
     if (selectedTab === 'whatsapp') fetchWhConvos();
-    if (selectedTab === 'fraud') fetchFraudQueue();
-    if (selectedTab === 'claims') fetchClaims();
+    if (selectedTab === 'safety') {
+      if (safetySub === 'fraud' && myRole !== 'agent') fetchFraudQueue();
+      if (safetySub === 'claims') fetchClaims();
+      if (safetySub === 'disputes') fetchDisputes();
+    }
     if (selectedTab === 'orders') fetchCashOutstanding();
-  }, [selectedTab, fraudFilter, claimsFilter]);
+  }, [selectedTab, safetySub, fraudFilter, claimsFilter]);
+
+  // Agents cannot see the Fraud sub-tab; default them to Claims.
+  useEffect(() => {
+    if (myRole === 'agent' && safetySub === 'fraud') setSafetySub('claims');
+  }, [myRole, safetySub]);
 
   const fetchCashOutstanding = async () => {
     try {
@@ -180,11 +192,12 @@ const AdminPanel = () => {
     if (selectedTab !== 'users') return;
     const t = setTimeout(() => fetchUsers(searchQuery), 350);
     return () => clearTimeout(t);
-  }, [searchQuery, selectedTab]);
+  }, [searchQuery, selectedTab, userTypeFilter]);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics', 'cleanup'];
-  const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'safety', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'analytics', 'cleanup'];
+  const AGENT_TABS = ['overview', 'safety', 'mail'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
+  const TAB_LABELS = { safety: 'Safety & Disputes' };
 
   const fetchClaims = async () => {
     try {
@@ -374,8 +387,11 @@ const AdminPanel = () => {
 
   const fetchUsers = async (search) => {
     try {
-      const params = search && search.trim() ? `?q=${encodeURIComponent(search.trim())}` : '';
-      const response = await axios.get(`${API}/admin/users${params}`, {
+      const params = new URLSearchParams();
+      if (search && search.trim()) params.set('q', search.trim());
+      if (userTypeFilter && userTypeFilter !== 'all') params.set('user_type', userTypeFilter);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const response = await axios.get(`${API}/admin/users${qs}`, {
         headers: authHeaders(), withCredentials: false
       });
       setUsers(response.data);
@@ -415,6 +431,17 @@ const AdminPanel = () => {
     } catch (error) {
       console.error(`Error ${action} user:`, error);
       alert(`Failed to ${action} user`);
+    }
+  };
+
+  const handleSetUserStatus = async (userId, status) => {
+    try {
+      await axios.post(`${API}/admin/users/${userId}/set-status`, { status }, {
+        headers: authHeaders(), withCredentials: false
+      });
+      fetchUsers(searchQuery);
+    } catch (error) {
+      alert(error?.response?.data?.detail || `Failed to set status to ${status}`);
     }
   };
 
@@ -541,12 +568,9 @@ const AdminPanel = () => {
               onClick={() => setSelectedTab(tab)}
               data-testid={`admin-tab-${tab}`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'fraud' && fraudOpenCount > 0 && (
-                <Badge variant="destructive" className="ml-2">{fraudOpenCount}</Badge>
-              )}
-              {tab === 'claims' && claimsOpenCount > 0 && (
-                <Badge variant="destructive" className="ml-2">{claimsOpenCount}</Badge>
+              {TAB_LABELS[tab] || (tab.charAt(0).toUpperCase() + tab.slice(1))}
+              {tab === 'safety' && (fraudOpenCount + claimsOpenCount) > 0 && (
+                <Badge variant="destructive" className="ml-2">{fraudOpenCount + claimsOpenCount}</Badge>
               )}
             </Button>
           ))}
@@ -642,7 +666,23 @@ const AdminPanel = () => {
         {selectedTab === 'users' && (
           <Card>
             <CardHeader>
-              <CardTitle>Users Management ({filteredUsers.length})</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle>Users Management ({filteredUsers.length})</CardTitle>
+                <div className="flex items-center gap-2" data-testid="user-type-filter">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  {[['all', 'All'], ['customer', 'Customer'], ['merchant', 'Merchant'], ['driver', 'Driver']].map(([val, label]) => (
+                    <Button
+                      key={val}
+                      size="sm"
+                      variant={userTypeFilter === val ? 'default' : 'outline'}
+                      onClick={() => setUserTypeFilter(val)}
+                      data-testid={`user-type-${val}`}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -677,7 +717,11 @@ const AdminPanel = () => {
                           <Badge variant="outline">{user.user_type || 'customer'}</Badge>
                         </td>
                         <td className="p-3">
-                          <Badge className={user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          <Badge className={
+                            (user.status === 'paused') ? 'bg-amber-100 text-amber-800'
+                            : (user.status === 'restricted' || user.status === 'suspended') ? 'bg-red-100 text-red-800'
+                            : 'bg-green-100 text-green-800'
+                          }>
                             {user.status || 'active'}
                           </Badge>
                         </td>
@@ -705,21 +749,38 @@ const AdminPanel = () => {
                             >
                               <Mail className="h-4 w-4" />
                             </Button>
-                            {user.status === 'active' ? (
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={() => handleUserAction(user.id, 'suspend')}
-                              >
-                                <Ban className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <Button 
+                            {(user.status || 'active') !== 'active' && (
+                              <Button
                                 size="sm"
-                                className="bg-green-600"
-                                onClick={() => handleUserAction(user.id, 'activate')}
+                                className="bg-green-600 hover:bg-green-700"
+                                title="Approve (set active)"
+                                data-testid={`approve-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'active')}
                               >
                                 <UserCheck className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(user.status || 'active') !== 'paused' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                                title="Pause account"
+                                data-testid={`pause-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'paused')}
+                              >
+                                <PauseCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(user.status || 'active') !== 'restricted' && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                title="Restrict account"
+                                data-testid={`restrict-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'restricted')}
+                              >
+                                <ShieldOff className="h-4 w-4" />
                               </Button>
                             )}
                           </div>
@@ -817,7 +878,26 @@ const AdminPanel = () => {
 
         {selectedTab === 'approvals' && <AdminApprovals />}
 
-        {selectedTab === 'fraud' && (
+        {selectedTab === 'safety' && (
+          <div className="flex gap-2 mb-4" data-testid="safety-subtabs">
+            {[['fraud', 'Frauds', fraudOpenCount], ['claims', 'Claims', claimsOpenCount], ['disputes', 'Disputes', 0]]
+              .filter(([key]) => !(key === 'fraud' && myRole === 'agent'))
+              .map(([key, label, count]) => (
+                <Button
+                  key={key}
+                  variant={safetySub === key ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSafetySub(key)}
+                  data-testid={`safety-subtab-${key}`}
+                >
+                  {label}
+                  {count > 0 && <Badge variant="destructive" className="ml-2">{count}</Badge>}
+                </Button>
+              ))}
+          </div>
+        )}
+
+        {selectedTab === 'safety' && safetySub === 'fraud' && myRole !== 'agent' && (
           <Card data-testid="admin-fraud-content">
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -930,7 +1010,7 @@ const AdminPanel = () => {
           </Card>
         )}
 
-        {selectedTab === 'claims' && (
+        {selectedTab === 'safety' && safetySub === 'claims' && (
           <Card data-testid="admin-claims-content">
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1030,6 +1110,40 @@ const AdminPanel = () => {
             </CardContent>
           </Card>
         )}
+
+        {selectedTab === 'safety' && safetySub === 'disputes' && (
+          <Card data-testid="admin-disputes-content">
+            <CardHeader>
+              <CardTitle>Customer Disputes ({disputes.length})</CardTitle>
+              <p className="text-sm text-muted-foreground">Review and resolve customer disputes. Approve with a wallet credit, or reject.</p>
+            </CardHeader>
+            <CardContent>
+              {disputes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="disputes-empty">
+                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
+                  <p>No open disputes.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {disputes.map((d) => (
+                    <div key={d.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`dispute-row-${d.id}`}>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <p className="font-medium">{d.subject || d.reason || `Dispute #${(d.id || '').slice(0, 8)}`}</p>
+                          <p className="text-sm text-muted-foreground">{d.customer_name || d.customer_id || '—'}{d.order_id ? ` · Order #${String(d.order_id).slice(0, 8)}` : ''}</p>
+                          {d.created_at && <p className="text-xs text-muted-foreground">{new Date(d.created_at).toLocaleString()}</p>}
+                        </div>
+                        <Badge variant="outline">{d.status || 'open'}</Badge>
+                      </div>
+                      {d.description && <p className="text-sm mt-2 text-muted-foreground">{d.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
 
         {selectedTab === 'zones' && (
           <div className="space-y-6" data-testid="admin-zones-content">

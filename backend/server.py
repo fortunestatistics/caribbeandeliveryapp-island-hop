@@ -111,6 +111,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def _account_block_detail(user_doc: dict):
+    """Return a 403 message if the account is paused/restricted/suspended, else None."""
+    st = (user_doc.get("status") or "active").lower()
+    if st == "paused":
+        return "Your account has been paused by an administrator. Please contact IslandHop support."
+    if st in ("restricted", "suspended", "banned"):
+        return "Your account has been restricted. Please contact IslandHop support."
+    return None
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
@@ -124,6 +134,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id})
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _blk = _account_block_detail(user)
+    if _blk:
+        raise HTTPException(status_code=403, detail=_blk)
     return User(**user)
 
 # Domain models (Pydantic schemas) are defined in models.py
@@ -410,6 +423,9 @@ async def get_current_user_from_request(request: Request):
     # Try session token lookup first
     user = await db.users.find_one({"session_token": session_token})
     if user:
+        _blk = _account_block_detail(user)
+        if _blk:
+            raise HTTPException(status_code=403, detail=_blk)
         return User(**user)
 
     # Fallback: try decoding as JWT (issued by /auth/login or /auth/register)
@@ -419,6 +435,11 @@ async def get_current_user_from_request(request: Request):
         if user_id:
             user = await db.users.find_one({"id": user_id})
             if user:
+                # Admin impersonation tokens bypass the block so staff can inspect the account.
+                if not payload.get("impersonated_by"):
+                    _blk = _account_block_detail(user)
+                    if _blk:
+                        raise HTTPException(status_code=403, detail=_blk)
                 return User(**user)
     except JWTError:
         pass
@@ -747,7 +768,12 @@ async def login(credentials: UserLogin):
     # Verify password
     if not verify_password(credentials.password, user_doc.get('hashed_password', '')):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
+    # Account-status gate (paused / restricted accounts cannot sign in)
+    _blk = _account_block_detail(user_doc)
+    if _blk:
+        raise HTTPException(status_code=403, detail=_blk)
+
     user = User(**user_doc)
     
     # Create access token
@@ -1490,8 +1516,9 @@ async def get_admin_stats(request: Request):
     }
 
 @api_router.get("/admin/users")
-async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = None):
-    """Get all users for admin. Supports case-insensitive search on name/email via `q`."""
+async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = None, user_type: Optional[str] = None):
+    """Get all users for admin. Supports search (`q`) and a `user_type` filter
+    (customer | merchant | driver | admin | agent). 'merchant' matches restaurant+business owners."""
     current_user = await get_current_user_from_request(request)
 
     if current_user.user_type != "admin":
@@ -1500,7 +1527,15 @@ async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = N
     query: Dict[str, Any] = {}
     if q and q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
-        query = {"$or": [{"email": rx}, {"name": rx}, {"phone": rx}]}
+        query["$or"] = [{"email": rx}, {"name": rx}, {"phone": rx}]
+    ut = (user_type or "").lower().strip()
+    if ut and ut != "all":
+        if ut == "merchant":
+            query["user_type"] = {"$in": ["restaurant", "business", "merchant"]}
+        elif ut == "customer":
+            query["user_type"] = {"$in": ["customer", None]}
+        else:
+            query["user_type"] = ut
 
     users = (
         await db.users.find(query, {"_id": 0})
@@ -1564,6 +1599,34 @@ async def activate_user(user_id: str, request: Request):
     )
     
     return {"success": True}
+
+
+class UserStatusUpdate(BaseModel):
+    status: str  # active | paused | restricted
+
+
+@api_router.post("/admin/users/{user_id}/set-status")
+async def set_user_status(user_id: str, payload: UserStatusUpdate, request: Request):
+    """Admin: set an account's status to active (approve), paused, or restricted.
+    Paused/restricted accounts are blocked from login and authenticated API access."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    status = (payload.status or "").lower().strip()
+    if status not in ("active", "paused", "restricted"):
+        raise HTTPException(status_code=400, detail="Invalid status. Use 'active', 'paused' or 'restricted'.")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if status != "active":
+        if user_id == current_user.id:
+            raise HTTPException(status_code=400, detail="You cannot pause or restrict your own account.")
+        if target.get("is_owner"):
+            raise HTTPException(status_code=400, detail="The owner account cannot be paused or restricted.")
+        if (target.get("user_type") or "").lower() in ("admin", "agent"):
+            raise HTTPException(status_code=400, detail="Staff accounts cannot be paused or restricted from here.")
+    await db.users.update_one({"id": user_id}, {"$set": {"status": status}})
+    return {"success": True, "id": user_id, "status": status}
 
 
 class AdminUserMessage(BaseModel):
