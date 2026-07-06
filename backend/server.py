@@ -9896,6 +9896,56 @@ async def admin_record_documents(category: str, record_id: str, request: Request
     return {"documents": docs, "count": len(docs)}
 
 
+@api_router.get("/admin/users/{user_id}/documents")
+async def admin_user_documents(user_id: str, request: Request):
+    """Admin: all uploaded documents for a user (driver docs + business/restaurant docs),
+    plus the linked applicant record (for the review-gated Approve/Reject in User Management)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    docs = []
+    async for d in db.driver_documents.find(
+        {"user_id": user_id, "is_deleted": False},
+        {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1, "content_type": 1},
+    ):
+        fn = d.get("original_filename") or ""
+        docs.append({
+            "kind": "driver_doc", "document_id": d["id"], "doc_type": d.get("doc_type"),
+            "filename": fn,
+            "is_image": (str(d.get("content_type") or "").startswith("image/") or _looks_like_image(fn)),
+        })
+    for coll in ("business_applications", "restaurants"):
+        rec = await db[coll].find_one({"user_id": user_id}, {"_id": 0})
+        if not rec:
+            continue
+        raw = rec.get("documents") or (rec.get("business_details") or {}).get("documents") or {}
+        if isinstance(raw, dict):
+            for k, v in raw.items():
+                if v:
+                    docs.append({"kind": "url", "label": k, "url": v, "is_image": _looks_like_image(v)})
+        elif isinstance(raw, list):
+            for it in raw:
+                url = (it.get("url") or it.get("value")) if isinstance(it, dict) else it
+                if url:
+                    label = it.get("label") or it.get("doc_type") or "document" if isinstance(it, dict) else "document"
+                    docs.append({"kind": "url", "label": label, "url": url, "is_image": _looks_like_image(url)})
+    # Resolve the applicant record so the profile can offer review-gated Approve/Reject.
+    applicant = None
+    drv = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "id": 1, "status": 1})
+    if drv:
+        applicant = {"kind": "driver", "record_id": drv["id"], "status": drv.get("status")}
+    else:
+        rest = await db.restaurants.find_one({"user_id": user_id}, {"_id": 0, "id": 1, "status": 1})
+        if rest:
+            applicant = {"kind": "restaurant", "record_id": rest["id"], "status": rest.get("status")}
+        else:
+            biz = await db.business_applications.find_one({"user_id": user_id}, {"_id": 0, "id": 1, "verification_status": 1})
+            if biz:
+                applicant = {"kind": "business", "record_id": biz["id"], "status": biz.get("verification_status")}
+    return {"documents": docs, "count": len(docs), "applicant": applicant}
+
+
+
 
 
 

@@ -7,6 +7,7 @@ import { Textarea } from './components/ui/textarea';
 import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './components/ui/dialog';
+import { toast } from 'sonner';
 import AnalyticsPromotions from './AnalyticsPromotions';
 import { 
   Users, 
@@ -37,6 +38,7 @@ import {
   AlertTriangle,
   PauseCircle,
   ShieldOff,
+  ExternalLink,
   Plus
 } from 'lucide-react';
 import axios from 'axios';
@@ -132,6 +134,9 @@ const AdminPanel = () => {
   const [profileUser, setProfileUser] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileDocs, setProfileDocs] = useState(null);
+  const [docsReviewed, setDocsReviewed] = useState(false);
+  const [docActionBusy, setDocActionBusy] = useState(false);
   // Driver cash-outstanding (COD reconciliation)
   const [cashOutstanding, setCashOutstanding] = useState(null);
 
@@ -481,6 +486,8 @@ const AdminPanel = () => {
   const openUserProfile = async (user) => {
     setProfileUser(user);
     setProfileData(null);
+    setProfileDocs(null);
+    setDocsReviewed(false);
     setProfileLoading(true);
     try {
       const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: false });
@@ -489,6 +496,30 @@ const AdminPanel = () => {
       setProfileData({ error: e.response?.data?.detail || 'Failed to load profile' });
     } finally {
       setProfileLoading(false);
+    }
+    // Load documents + linked applicant record (non-blocking)
+    try {
+      const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: false });
+      setProfileDocs(d.data);
+    } catch (e) {
+      setProfileDocs({ documents: [], applicant: null });
+    }
+  };
+
+  const APPLICANT_APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', business: 'businesses' };
+
+  const handleApplicantApproval = async (applicant, action) => {
+    if (!applicant?.record_id) return;
+    setDocActionBusy(true);
+    try {
+      await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: false });
+      toast.success(`Applicant ${action === 'approve' ? 'approved' : 'rejected'}`);
+      setProfileUser(null); setProfileData(null); setProfileDocs(null);
+      fetchUsers(searchQuery);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || `Failed to ${action}`);
+    } finally {
+      setDocActionBusy(false);
     }
   };
 
@@ -1449,6 +1480,45 @@ const AdminPanel = () => {
                       <p className="text-xs text-muted-foreground">Referred by <span className="font-medium text-foreground">{profileData.referrer.name || profileData.referrer.email}</span></p>
                     )}
 
+                    {/* Documents (drivers & merchants) — permanently stored, click to review */}
+                    {profileDocs && (profileDocs.documents?.length > 0 || ['driver', 'restaurant', 'business', 'merchant'].includes((profileData.user.user_type || '').toLowerCase())) && (
+                      <div data-testid="profile-documents-section">
+                        <p className="font-semibold mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-gold-500" />Documents ({profileDocs.documents?.length || 0})</p>
+                        {(!profileDocs.documents || profileDocs.documents.length === 0) ? (
+                          <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />No documents were submitted with this application.</p>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3" data-testid="profile-documents-grid">
+                            {profileDocs.documents.map((d, i) => {
+                              const url = d.kind === 'driver_doc'
+                                ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(localStorage.getItem('token') || '')}`
+                                : (d.url || '');
+                              const label = d.doc_type || d.label || d.filename || `Doc ${i + 1}`;
+                              return (
+                                <a key={d.document_id || d.url || i} href={url} target="_blank" rel="noopener noreferrer"
+                                  className="group border border-border rounded-lg overflow-hidden hover:border-gold-500 transition-colors"
+                                  data-testid={`profile-document-${i}`} title="Open in new tab"
+                                  onClick={() => setDocsReviewed(true)}>
+                                  <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
+                                    {d.is_image ? <img src={url} alt={label} className="w-full h-full object-cover" loading="lazy" /> : <FileText className="h-8 w-8 text-muted-foreground" />}
+                                  </div>
+                                  <div className="p-1.5 flex items-center justify-between gap-1">
+                                    <span className="text-[10px] font-medium capitalize truncate">{String(label).replace(/_/g, ' ')}</span>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-gold-500 shrink-0" />
+                                  </div>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {profileDocs.applicant && ['pending', 'pending_approval'].includes((profileDocs.applicant.status || '').toLowerCase()) && (
+                          <label className="flex items-center gap-2 mt-3 text-xs cursor-pointer" data-testid="docs-reviewed-toggle">
+                            <input type="checkbox" checked={docsReviewed} onChange={(e) => setDocsReviewed(e.target.checked)} className="h-4 w-4 accent-gold-500" data-testid="docs-reviewed-checkbox" />
+                            I have reviewed the submitted documents
+                          </label>
+                        )}
+                      </div>
+                    )}
+
                     {/* Order stats */}
                     <div className="grid grid-cols-4 gap-2">
                       {[['Orders', profileData.stats.order_count], ['Spent', money(profileData.stats.total_spent)], ['Delivered', profileData.stats.delivered], ['Active', profileData.stats.active]].map(([label, val]) => (
@@ -1484,6 +1554,28 @@ const AdminPanel = () => {
                   </div>
                 )}
                 <DialogFooter className="gap-2">
+                  {profileDocs?.applicant && ['pending', 'pending_approval'].includes((profileDocs.applicant.status || '').toLowerCase()) && (
+                    <>
+                      <Button
+                        data-testid="profile-reject-applicant-btn"
+                        variant="destructive"
+                        disabled={!docsReviewed || docActionBusy}
+                        title={!docsReviewed ? 'Review the documents first' : 'Reject applicant'}
+                        onClick={() => handleApplicantApproval(profileDocs.applicant, 'reject')}
+                      >
+                        <X className="h-4 w-4 mr-1" />Reject
+                      </Button>
+                      <Button
+                        data-testid="profile-approve-applicant-btn"
+                        className="bg-green-600 hover:bg-green-700"
+                        disabled={!docsReviewed || docActionBusy}
+                        title={!docsReviewed ? 'Review the documents first' : 'Approve applicant'}
+                        onClick={() => handleApplicantApproval(profileDocs.applicant, 'approve')}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />Approve
+                      </Button>
+                    </>
+                  )}
                   {profileData?.user && (
                     <Button
                       data-testid="profile-message-btn"

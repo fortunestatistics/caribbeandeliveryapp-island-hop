@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — Documents review in User Management profile (review-gated approval)
+- Added a **Documents section** to the Users-tab profile dialog for Drivers & Merchants: new `GET /api/admin/users/{user_id}/documents` returns driver docs (by user_id, streamed via `/drivers/documents/{id}/download?auth=`) + business/restaurant URL docs, plus the linked `applicant` record (kind/record_id/status).
+- Thumbnails render inline (images) or file icon; each **opens in a new tab**. Docs are permanently stored (object storage + `driver_documents`) and always accessible from the profile.
+- **Review gate:** for pending applicants, a "I have reviewed the submitted documents" checkbox controls the footer **Approve/Reject** buttons — they stay disabled until checked (opening any doc also marks reviewed). Approve/Reject hit the driver/restaurant/business approve endpoints.
+- Verified end-to-end via a controlled pending-driver test: Documents section + thumbnail render, and Approve toggled disabled→enabled with the checkbox (console-confirmed). Test data cleaned up.
+
+
 ### Jul 6, 2026 — "Become a Driver" CTAs, working contact form, merged admin tabs
 - **Become a Driver:** added a button next to "Become a Partner" on the landing hero (`hero-become-driver-btn` → `/driver-onboarding`, allowed for customers) and in the customer profile "Your Business Applications" card (empty state + a persistent action row).
 - **Footer "Get in touch" fixed:** replaced unreliable `mailto:` links with an in-app **contact form dialog** (name/email/message) that POSTs to a new public `POST /api/contact`. Backend allowlists departments → correct mailbox and sends via M365 Graph (`send_mail`). Verified routing: support→support@, partner→partners@, drivers→drivers@, investors→investors@, banking→banking.partners@islandhoptt.com (real sends succeeded). Kept an "or email directly" mailto fallback. Fixed footer 'partner' address to `partners@` to match the monitored inbox.
