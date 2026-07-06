@@ -27,6 +27,10 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — "Needs attention" badge on Approvals tab
+- Added an amber count badge on the Approvals tab = pending drivers + merchants(restaurants) + businesses (mirrors the Safety & Disputes badge). Reuses `GET /api/admin/pending-approvals` (fetched on mount). Verified on preview showing "13" (8 drivers + 5 businesses).
+
+
 ### Jul 6, 2026 — Approvals refined into a dedicated new-applications view
 - **"Partner Approvals"** header + a **New Applications / All Records** toggle (defaults to New = pending only), so admins process new partners efficiently. Backend `GET /api/admin/records/{category}?status=pending` filters by each category's status field (ignored for `users`). Verified: drivers pending=8 vs all=157; users unaffected.
 - Category tabs reordered/relabeled to match partner language: **Driver Applications**, **Merchant Applications** (restaurants), Business Storefronts, Car Rental Companies, User Accounts. Tab count badges reflect the active filter.

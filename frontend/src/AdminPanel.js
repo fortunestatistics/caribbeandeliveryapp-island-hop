@@ -138,6 +138,7 @@ const AdminPanel = () => {
     fetchUsers();
     fetchOrders();
     fetchDisputes();
+    fetchApprovals();
     // Lightweight fetch of fraud count for tab badge (silent on failure)
     axios
       .get(`${API}/admin/fraud-queue?status=open&limit=1`, { headers: authHeaders() })
@@ -569,6 +570,11 @@ const AdminPanel = () => {
               data-testid={`admin-tab-${tab}`}
             >
               {TAB_LABELS[tab] || (tab.charAt(0).toUpperCase() + tab.slice(1))}
+              {tab === 'approvals' && ((approvals.drivers?.length || 0) + (approvals.restaurants?.length || 0) + (approvals.businesses?.length || 0)) > 0 && (
+                <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500" data-testid="approvals-pending-badge">
+                  {(approvals.drivers?.length || 0) + (approvals.restaurants?.length || 0) + (approvals.businesses?.length || 0)}
+                </Badge>
+              )}
               {tab === 'safety' && (fraudOpenCount + claimsOpenCount) > 0 && (
                 <Badge variant="destructive" className="ml-2">{fraudOpenCount + claimsOpenCount}</Badge>
               )}
