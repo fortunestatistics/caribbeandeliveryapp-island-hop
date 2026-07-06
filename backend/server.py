@@ -8526,7 +8526,7 @@ async def apply_referral(payload: ApplyReferralRequest, request: Request):
 async def list_my_referrals(request: Request):
     """List referrals made by the current user."""
     current_user = await get_current_user_from_request(request)
-    refs = await db.referrals.find({"referrer_id": current_user.id}, {"_id": 0}).sort("created_at", -1).to_list(length=None)
+    refs = await db.referrals.find({"referrer_id": current_user.id}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=500)
     code = await _get_or_create_referral_code(current_user)
     code.pop("_id", None)
     pending = sum(1 for r in refs if r.get("status") == "pending")
@@ -9849,10 +9849,10 @@ async def admin_pending_approvals(request: Request):
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    drivers = await db.drivers.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
-    restaurants = await db.restaurants.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
-    rentals = await db.car_rental_companies.find({"status": {"$in": ["pending", "pending_approval"]}}).to_list(length=None)
-    businesses = await db.business_applications.find({"verification_status": "pending"}).to_list(length=None)
+    drivers = await db.drivers.find({"status": {"$in": ["pending", "pending_approval"]}}).limit(1000).to_list(length=1000)
+    restaurants = await db.restaurants.find({"status": {"$in": ["pending", "pending_approval"]}}).limit(1000).to_list(length=1000)
+    rentals = await db.car_rental_companies.find({"status": {"$in": ["pending", "pending_approval"]}}).limit(1000).to_list(length=1000)
+    businesses = await db.business_applications.find({"verification_status": "pending"}).limit(1000).to_list(length=1000)
 
     return {
         "drivers": _flatten_pending(drivers, "driver"),
@@ -10191,8 +10191,17 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
 
 # Initialize data on startup
 @app.on_event("startup")
+async def _startup_launcher():
+    """Return immediately so the K8s readiness probe passes right away.
+    All heavy initialization (indexes, seeds, object storage, scheduler) runs in the
+    background — otherwise a slow first-time index build on Atlas can exceed the
+    deployment readiness timeout and the pod never becomes ready."""
+    asyncio.create_task(initialize_data())
+    print("🚀 Startup complete — server ready; background initialization scheduled")
+
+
 async def initialize_data():
-    """Initialize default data and indexes"""
+    """Initialize default data and indexes (runs in the background, non-blocking)."""
     # Phase B: Schedule nightly vendor payouts at 02:00 UTC
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
