@@ -1538,7 +1538,7 @@ async def get_all_users(request: Request, limit: int = 500, q: Optional[str] = N
             query["user_type"] = ut
 
     users = (
-        await db.users.find(query, {"_id": 0})
+        await db.users.find(query, {"_id": 0, "hashed_password": 0, "session_token": 0})
         .sort("created_at", -1)
         .limit(max(1, min(limit, 2000)))
         .to_list(length=None)

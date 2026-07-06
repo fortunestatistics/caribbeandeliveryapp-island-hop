@@ -27,6 +27,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — Admin User Management overhaul + unified Safety & Disputes tab
+- **Users tab:** added a **User Type filter** (All/Customer/Merchant/Driver; 'merchant' = restaurant+business owners) via `GET /api/admin/users?user_type=`. Per-row **Approve / Pause / Restrict** controls (`POST /api/admin/users/{id}/set-status` with `active|paused|restricted`) + status badge colors (green/amber/red). Full profile dialog access retained.
+- **Account-status auth gate:** `_account_block_detail()` blocks **paused/restricted/suspended** accounts at login (403 w/ support message) and on authenticated API access (`get_current_user`, `get_current_user_from_request`). Admin impersonation tokens bypass the gate. Guards: cannot pause/restrict self, owner, or admin/agent accounts (400).
+- **Safety & Disputes:** merged the old separate `fraud`/`claims`/`disputes` tabs into ONE `safety` tab labeled "Safety & Disputes" with sub-filter buttons (Frauds/Claims/Disputes) and a combined open-count badge. Agents see the tab but not the Fraud sub-tab. Added a Disputes render block.
+- **Security fix:** `/api/admin/users` no longer returns `hashed_password`/`session_token` (scrubbed via projection).
+- **Verified:** testing_agent iter 33 — backend 11/11, frontend 100% (filter, status transitions, auth gate paused→403/active→200, self-guard, sub-tab switching). Hash-scrub re-verified via curl.
+
+
 ### Jul 4, 2026 — Admin "Payment Mode" status card + PayPal live creds confirmed
 - **New Admin → Overview card** (`AdminPaymentMode.js`) shows at-a-glance whether each rail is LIVE vs TEST/SANDBOX: Stripe (from `sk_live/sk_test`), PayPal (`PAYPAL_MODE`), WiPay (`WIPAY_ENVIRONMENT`), Twilio SMS (`MOCK_TWILIO`). Overall badge = amber "TEST mode — no real money" or green "LIVE — real money"; warns on mixed mode. Backend `GET /api/admin/payment-mode` (admin/agent; env-only, no secrets returned).
 - **PayPal creds re-verified: they are LIVE** (existing client_id `AQR9lKfu…` + secret authenticate 200 on api-m.paypal.com, 401 on sandbox). Kept `PAYPAL_MODE=sandbox` for safe preview; flip to `live` + set `PAYPAL_WEBHOOK_ID` to go live. NOTE: no PayPal sandbox creds exist, so PayPal is non-functional in preview until live.
