@@ -2052,6 +2052,63 @@ async def set_default_address(address_id: str, request: Request):
     
     return {"success": True}
 
+# Public contact form (footer "Get in touch") — sends reliably to the correct mailbox via M365 Graph
+CONTACT_MAILBOXES = {
+    "support": graph_mail.notify_mailbox("support"),
+    "partner": graph_mail.notify_mailbox("merchant"),
+    "drivers": graph_mail.notify_mailbox("driver"),
+    "investors": graph_mail.notify_mailbox("investor"),
+    "banking": os.environ.get("BANKING_NOTIFY_MAILBOX", "banking.partners@islandhoptt.com"),
+}
+
+
+class ContactMessage(BaseModel):
+    department: str
+    name: str
+    email: str
+    message: str
+
+
+def _esc(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+@api_router.post("/contact")
+async def submit_contact_message(payload: ContactMessage):
+    """Deliver a footer 'Get in touch' message to the correct IslandHop mailbox."""
+    dept = (payload.department or "support").lower().strip()
+    mailbox = CONTACT_MAILBOXES.get(dept)
+    if not mailbox:
+        raise HTTPException(status_code=400, detail="Unknown department")
+    email = (payload.email or "").strip()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    msg = (payload.message or "").strip()
+    if len(msg) < 5:
+        raise HTTPException(status_code=400, detail="Please enter a longer message.")
+    name = (payload.name or "Website visitor").strip()[:120]
+    html = (
+        f"<div style='font-family:Arial,sans-serif'>"
+        f"<h3>New contact message — {_esc(dept)}</h3>"
+        f"<p><b>From:</b> {_esc(name)} &lt;{_esc(email)}&gt;</p>"
+        f"<p><b>Message:</b></p><p style='white-space:pre-wrap'>{_esc(msg)}</p>"
+        f"<hr><p style='color:#888;font-size:12px'>Sent via the IslandHop website contact form. "
+        f"Reply directly to {_esc(email)}.</p></div>"
+    )
+    try:
+        await graph_mail.send_mail(
+            to_email=mailbox,
+            subject=f"[Contact · {dept}] {name}",
+            html_body=html,
+            mailbox=mailbox,
+        )
+    except Exception as e:
+        logging.error(f"Contact form send failed ({dept}): {e}")
+        raise HTTPException(status_code=502, detail="Could not send your message right now. Please try again shortly.")
+    return {"success": True, "sent_to": mailbox}
+
+
+
 # Support Ticket Routes
 @api_router.post("/support/tickets", response_model=SupportTicket)
 async def create_support_ticket(ticket: SupportTicket, request: Request):

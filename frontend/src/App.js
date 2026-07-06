@@ -643,6 +643,16 @@ const LandingPage = () => {
               >
                 Become a Partner
               </Button>
+              <Button 
+                size="lg" 
+                variant="outline"
+                className="rounded-full border-2 border-slate-200 text-secondary hover:border-primary hover:bg-primary/5 px-10 py-7 text-lg transition-all"
+                onClick={() => navigate('/driver-onboarding')}
+                data-testid="hero-become-driver-btn"
+              >
+                <Truck className="mr-2 h-5 w-5" />
+                Become a Driver
+              </Button>
             </div>
 
             {/* Hot right now widget */}
@@ -1468,8 +1478,25 @@ const Dashboard = () => {
               ) : (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground mb-4">No business applications yet</p>
-                  <Button onClick={() => navigate('/partner')}>
-                    Become a Partner
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    <Button onClick={() => navigate('/partner')} data-testid="profile-become-partner-btn">
+                      Become a Partner
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn">
+                      <Truck className="mr-2 h-4 w-4" />
+                      Become a Driver
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!loading && applications.length > 0 && (
+                <div className="mt-4 pt-4 border-t flex flex-wrap gap-3">
+                  <Button variant="outline" size="sm" onClick={() => navigate('/partner')} data-testid="profile-add-partner-btn">
+                    Add Another Partner Application
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn-2">
+                    <Truck className="mr-2 h-4 w-4" />
+                    Become a Driver
                   </Button>
                 </div>
               )}

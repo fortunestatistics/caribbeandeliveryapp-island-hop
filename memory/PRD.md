@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — "Become a Driver" CTAs, working contact form, merged admin tabs
+- **Become a Driver:** added a button next to "Become a Partner" on the landing hero (`hero-become-driver-btn` → `/driver-onboarding`, allowed for customers) and in the customer profile "Your Business Applications" card (empty state + a persistent action row).
+- **Footer "Get in touch" fixed:** replaced unreliable `mailto:` links with an in-app **contact form dialog** (name/email/message) that POSTs to a new public `POST /api/contact`. Backend allowlists departments → correct mailbox and sends via M365 Graph (`send_mail`). Verified routing: support→support@, partner→partners@, drivers→drivers@, investors→investors@, banking→banking.partners@islandhoptt.com (real sends succeeded). Kept an "or email directly" mailto fallback. Fixed footer 'partner' address to `partners@` to match the monitored inbox.
+- **Admin tab consolidation:** merged Team + Incentives + Promoters → **"Team & Growth"** tab (sub-tabs) and Wallet + Banking + Zones → **"Finance & Zones"** tab (sub-tabs), same pattern as Safety & Disputes. Removed the 4 standalone tabs; updated fetch effects (zones fetches under Finance→Zones).
+- Verified via curl (contact routing, all 5 depts) + preview screenshots (hero button, contact modal, both merged tabs with sub-tabs, old tabs gone).
+
+
 ### Jul 6, 2026 — FIXED production deployment readiness-timeout
 - **Root cause:** the FastAPI `@app.on_event("startup")` handler was AWAITING heavy init before the server became ready — ~100 index creations + `2dsphere`/TTL indexes + `storage_client.init_storage()` + owner-admin/category/tier/sample seeding. On a fresh Atlas cluster this exceeded the K8s readiness timeout → "deployment failed to become ready".
 - **Fix:** split into a lightweight startup event that returns immediately and schedules `initialize_data()` via `asyncio.create_task` (background). Verified in logs: "🚀 Startup complete — server ready" prints FIRST, then indexes/seeds/storage complete in the background. No behavior change, just non-blocking init.

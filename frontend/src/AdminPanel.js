@@ -110,6 +110,8 @@ const AdminPanel = () => {
   const [claimsOpenCount, setClaimsOpenCount] = useState(0);
   const [userTypeFilter, setUserTypeFilter] = useState('all');
   const [safetySub, setSafetySub] = useState('fraud');
+  const [growthSub, setGrowthSub] = useState('team');
+  const [financeSub, setFinanceSub] = useState('wallet');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,7 +154,7 @@ const AdminPanel = () => {
 
   useEffect(() => {
     if (selectedTab === 'approvals') fetchApprovals();
-    if (selectedTab === 'zones') fetchZones();
+    if (selectedTab === 'wallet' && financeSub === 'zones') fetchZones();
     if (selectedTab === 'whatsapp') fetchWhConvos();
     if (selectedTab === 'safety') {
       if (safetySub === 'fraud' && myRole !== 'agent') fetchFraudQueue();
@@ -160,7 +162,7 @@ const AdminPanel = () => {
       if (safetySub === 'disputes') fetchDisputes();
     }
     if (selectedTab === 'orders') fetchCashOutstanding();
-  }, [selectedTab, safetySub, fraudFilter, claimsFilter]);
+  }, [selectedTab, safetySub, financeSub, fraudFilter, claimsFilter]);
 
   // Agents cannot see the Fraud sub-tab; default them to Claims.
   useEffect(() => {
@@ -195,10 +197,10 @@ const AdminPanel = () => {
     return () => clearTimeout(t);
   }, [searchQuery, selectedTab, userTypeFilter]);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'safety', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'analytics', 'cleanup'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
   const AGENT_TABS = ['overview', 'safety', 'mail'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
-  const TAB_LABELS = { safety: 'Safety & Disputes' };
+  const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth' };
 
   const fetchClaims = async () => {
     try {
@@ -1151,7 +1153,7 @@ const AdminPanel = () => {
         )}
 
 
-        {selectedTab === 'zones' && (
+        {selectedTab === 'wallet' && financeSub === 'zones' && (
           <div className="space-y-6" data-testid="admin-zones-content">
             <Card>
               <CardHeader>
@@ -1334,22 +1336,42 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'wallet' && (
+          <div className="flex gap-2 mb-4" data-testid="finance-subtabs">
+            {[['wallet', 'Wallet Requests'], ['banking', 'Banking'], ['zones', 'Service Zones']].map(([key, label]) => (
+              <Button key={key} variant={financeSub === key ? 'default' : 'outline'} size="sm" onClick={() => setFinanceSub(key)} data-testid={`finance-subtab-${key}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {selectedTab === 'wallet' && financeSub === 'wallet' && (
           <AdminWalletRequests />
         )}
 
-        {selectedTab === 'banking' && (
+        {selectedTab === 'wallet' && financeSub === 'banking' && (
           <AdminMercuryBanking />
         )}
 
         {selectedTab === 'team' && (
+          <div className="flex gap-2 mb-4" data-testid="growth-subtabs">
+            {[['team', 'Team'], ['incentives', 'Incentives'], ['promoters', 'Promoters']].map(([key, label]) => (
+              <Button key={key} variant={growthSub === key ? 'default' : 'outline'} size="sm" onClick={() => setGrowthSub(key)} data-testid={`growth-subtab-${key}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {selectedTab === 'team' && growthSub === 'team' && (
           <AdminTeam />
         )}
 
-        {selectedTab === 'incentives' && (
+        {selectedTab === 'team' && growthSub === 'incentives' && (
           <AdminDriverIncentives />
         )}
 
-        {selectedTab === 'promoters' && (
+        {selectedTab === 'team' && growthSub === 'promoters' && (
           <AdminPromoters />
         )}
 
