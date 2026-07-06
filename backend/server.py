@@ -9725,9 +9725,10 @@ def _clean_full(doc: dict, category: str) -> dict:
 
 
 @api_router.get("/admin/records/{category}")
-async def admin_list_records(category: str, request: Request, q: Optional[str] = None, limit: int = 500):
+async def admin_list_records(category: str, request: Request, q: Optional[str] = None, status: Optional[str] = None, limit: int = 500):
     """Admin: all records of a category (any status) with full submitted data.
-    category ∈ restaurants | drivers | car_rentals | businesses | users."""
+    category ∈ restaurants | drivers | car_rentals | businesses | users.
+    Optional `status` filter: 'pending' (new applications) or a specific status; ignored for users."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -9745,6 +9746,10 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
+    st = (status or "").lower().strip()
+    if st and st != "all" and category != "users":
+        sf = _RECORD_CATEGORIES[category]["status_field"]
+        query[sf] = {"$in": ["pending", "pending_approval"]} if st == "pending" else st
     cap = min(limit, 2000)
     records = []
     async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):

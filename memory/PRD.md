@@ -27,6 +27,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 6, 2026 — Approvals refined into a dedicated new-applications view
+- **"Partner Approvals"** header + a **New Applications / All Records** toggle (defaults to New = pending only), so admins process new partners efficiently. Backend `GET /api/admin/records/{category}?status=pending` filters by each category's status field (ignored for `users`). Verified: drivers pending=8 vs all=157; users unaffected.
+- Category tabs reordered/relabeled to match partner language: **Driver Applications**, **Merchant Applications** (restaurants), Business Storefronts, Car Rental Companies, User Accounts. Tab count badges reflect the active filter.
+- **Integrated with the User Management overhaul:** the User Accounts sub-tab now has inline **Approve / Pause / Restrict** controls (`POST /api/admin/users/{id}/set-status`), matching the Users tab.
+- Kept distinct from the Orders tab — order history stays in each record's per-row dialog (noted in the header copy).
+- Verified via curl (pending vs all counts) + preview screenshots (toggle, relabeled tabs, 8 driver applications, 57 user-account control rows).
+
+
 ### Jul 6, 2026 — Admin User Management overhaul + unified Safety & Disputes tab
 - **Users tab:** added a **User Type filter** (All/Customer/Merchant/Driver; 'merchant' = restaurant+business owners) via `GET /api/admin/users?user_type=`. Per-row **Approve / Pause / Restrict** controls (`POST /api/admin/users/{id}/set-status` with `active|paused|restricted`) + status badge colors (green/amber/red). Full profile dialog access retained.
 - **Account-status auth gate:** `_account_block_detail()` blocks **paused/restricted/suspended** accounts at login (403 w/ support message) and on authenticated API access (`get_current_user`, `get_current_user_from_request`). Admin impersonation tokens bypass the gate. Guards: cannot pause/restrict self, owner, or admin/agent accounts (400).

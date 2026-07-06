@@ -7,7 +7,7 @@ import { Input } from './components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
-  CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn,
+  CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -16,10 +16,10 @@ const token = () => localStorage.getItem('token');
 const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 
 const CATEGORIES = [
-  { key: 'restaurants', label: 'Restaurants', icon: Store, approveKind: 'restaurant' },
-  { key: 'drivers', label: 'Drivers', icon: Truck, approveKind: 'driver' },
-  { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
+  { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
+  { key: 'restaurants', label: 'Merchant Applications', icon: Store, approveKind: 'restaurant' },
   { key: 'businesses', label: 'Business Storefronts', icon: Building2, approveKind: 'business' },
+  { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
   { key: 'users', label: 'User Accounts', icon: Users, approveKind: null },
 ];
 
@@ -124,7 +124,8 @@ const OrderHistoryDialog = ({ open, onClose, record, category }) => {
 };
 
 const AdminApprovals = () => {
-  const [active, setActive] = useState('restaurants');
+  const [active, setActive] = useState('drivers');
+  const [statusFilter, setStatusFilter] = useState('pending');
   const [records, setRecords] = useState([]);
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(false);
@@ -133,10 +134,13 @@ const AdminApprovals = () => {
   const [historyRec, setHistoryRec] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
-  const load = useCallback(async (category, q) => {
+  const load = useCallback(async (category, q, status) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/admin/records/${category}`, { headers: authHeaders(), params: q ? { q } : {} });
+      const params = {};
+      if (q) params.q = q;
+      if (status && status !== 'all') params.status = status;
+      const res = await axios.get(`${API}/admin/records/${category}`, { headers: authHeaders(), params });
       setRecords(res.data.records || []);
       setCounts((c) => ({ ...c, [category]: res.data.count }));
     } catch (e) {
@@ -147,16 +151,29 @@ const AdminApprovals = () => {
     }
   }, []);
 
-  useEffect(() => { setExpanded(null); load(active, ''); setQuery(''); }, [active, load]);
+  useEffect(() => { setExpanded(null); setQuery(''); load(active, '', statusFilter); }, [active, statusFilter, load]);
 
   const doApproval = async (kind, id, action) => {
     setBusyId(id);
     try {
       await axios.post(`${API}/admin/${APPROVE_EP[kind]}/${id}/${action}`, { notes: '' }, { headers: authHeaders() });
       toast.success(`${action === 'approve' ? 'Approved' : 'Rejected'} successfully`);
-      load(active, query);
+      load(active, query, statusFilter);
     } catch (e) {
       toast.error(e?.response?.data?.detail || `Failed to ${action}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setUserStatus = async (rec, status) => {
+    setBusyId(rec.id);
+    try {
+      await axios.post(`${API}/admin/users/${rec.id}/set-status`, { status }, { headers: authHeaders() });
+      toast.success(status === 'active' ? 'Account approved (active)' : `Account ${status}`);
+      load(active, query, statusFilter);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to update account');
     } finally {
       setBusyId(null);
     }
@@ -181,7 +198,31 @@ const AdminApprovals = () => {
 
   return (
     <div className="space-y-4" data-testid="admin-approvals-section">
-      {/* Category sub-tabs */}
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <ClipboardList className="h-5 w-5" /> Partner Approvals
+          </h2>
+          <p className="text-sm text-muted-foreground">Review and process new partner applications. Order history lives in each record — separate from the Orders tab.</p>
+        </div>
+        {/* New vs All toggle */}
+        <div className="flex items-center gap-1 rounded-lg border border-border p-1" data-testid="approvals-status-filter">
+          {[['pending', 'New Applications'], ['all', 'All Records']].map(([val, label]) => (
+            <Button
+              key={val}
+              size="sm"
+              variant={statusFilter === val ? 'default' : 'ghost'}
+              onClick={() => setStatusFilter(val)}
+              data-testid={`approvals-status-${val}`}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">
         {CATEGORIES.map((c) => {
           const Icon = c.icon;
@@ -209,11 +250,11 @@ const AdminApprovals = () => {
             placeholder={`Search ${activeCat?.label.toLowerCase()}...`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && load(active, query)}
+            onKeyDown={(e) => e.key === 'Enter' && load(active, query, statusFilter)}
             data-testid="approvals-search"
           />
         </div>
-        <Button variant="outline" onClick={() => load(active, query)} disabled={loading} data-testid="approvals-refresh">
+        <Button variant="outline" onClick={() => load(active, query, statusFilter)} disabled={loading} data-testid="approvals-refresh">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
@@ -272,6 +313,25 @@ const AdminApprovals = () => {
                             <Button size="sm" variant="destructive" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'reject')} data-testid={`record-reject-${rec.id}`}>
                               <X className="h-4 w-4" />
                             </Button>
+                          </>
+                        )}
+                        {active === 'users' && (
+                          <>
+                            {(rec.status || 'active') !== 'active' && (
+                              <Button size="sm" className="bg-green-600 hover:bg-green-700" title="Approve (set active)" disabled={busyId === rec.id} onClick={() => setUserStatus(rec, 'active')} data-testid={`record-approve-user-${rec.id}`}>
+                                <UserCheck className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(rec.status || 'active') !== 'paused' && (
+                              <Button size="sm" variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50" title="Pause account" disabled={busyId === rec.id} onClick={() => setUserStatus(rec, 'paused')} data-testid={`record-pause-user-${rec.id}`}>
+                                <PauseCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(rec.status || 'active') !== 'restricted' && (
+                              <Button size="sm" variant="destructive" title="Restrict account" disabled={busyId === rec.id} onClick={() => setUserStatus(rec, 'restricted')} data-testid={`record-restrict-user-${rec.id}`}>
+                                <ShieldOff className="h-4 w-4" />
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>
