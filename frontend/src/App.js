@@ -135,6 +135,7 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
+import { LocationConsentProvider } from './LocationConsentContext';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -1858,6 +1859,7 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <CurrencyProvider>
+        <LocationConsentProvider>
         <Router>
           <div className="min-h-screen bg-background">
             <Header />
@@ -1938,6 +1940,7 @@ function App() {
           <Toaster />
         </div>
       </Router>
+      </LocationConsentProvider>
       </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>

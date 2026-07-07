@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 7, 2026 — P0 FIX: Location Tracking Prominent Disclosure (Google Play blocker)
+- Added `LocationConsentProvider` + `useLocationConsent()` (`frontend/src/LocationConsentContext.js`): a reusable modal showing Google Play–compliant disclosure text ("collects location data … even when the app is closed or not in use …") with **Accept / Not Now**. Exposes `requestLocationConsent(): Promise<boolean>`; grant persists in `localStorage.islandhop_location_consent` (shown once).
+- Provider mounted in `App.js` (wraps Router). Gated ALL 3 `navigator.geolocation` call sites so the disclosure fires BEFORE the native permission prompt: `DriverDashboard.js` (live `watchPosition` tracking on going online), `DeliveryProofUpload.js` (POD `getCurrentPosition`), `AddressManagement.js` ("Use Current Location"). If declined, geolocation is never invoked.
+- Testids: `location-disclosure-modal/-title/-text/-accept-btn/-decline-btn/-privacy-link`.
+- Verified on preview: modal renders with compliant copy before geolocation on the Addresses "Use Current Location" flow.
+
+
 ### Jul 6, 2026 — Documents review in User Management profile (review-gated approval)
 - Added a **Documents section** to the Users-tab profile dialog for Drivers & Merchants: new `GET /api/admin/users/{user_id}/documents` returns driver docs (by user_id, streamed via `/drivers/documents/{id}/download?auth=`) + business/restaurant URL docs, plus the linked `applicant` record (kind/record_id/status).
 - Thumbnails render inline (images) or file icon; each **opens in a new tab**. Docs are permanently stored (object storage + `driver_documents`) and always accessible from the profile.

@@ -14,12 +14,14 @@ import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
+  const { requestLocationConsent } = useLocationConsent();
   const [driver, setDriver] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -131,11 +133,14 @@ const DriverDashboard = () => {
     }
   };
 
-  const startLocationTracking = () => {
+  const startLocationTracking = async () => {
     if (!navigator.geolocation) {
       alert('Geolocation not supported');
       return;
     }
+
+    const granted = await requestLocationConsent();
+    if (!granted) return;
 
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
