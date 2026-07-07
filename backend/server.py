@@ -9887,7 +9887,7 @@ async def admin_record_documents(category: str, record_id: str, request: Request
             elif isinstance(raw, list):
                 for it in raw:
                     if isinstance(it, dict):
-                        items.append({"label": it.get("label") or it.get("doc_type") or "document", "url": it.get("url") or it.get("value")})
+                        items.append({"label": it.get("label") or it.get("doc_type") or it.get("type") or "document", "url": it.get("url") or it.get("value") or it.get("file_url")})
                     elif it:
                         items.append({"label": "document", "url": it})
             for it in items:
@@ -9925,9 +9925,9 @@ async def admin_user_documents(user_id: str, request: Request):
                     docs.append({"kind": "url", "label": k, "url": v, "is_image": _looks_like_image(v)})
         elif isinstance(raw, list):
             for it in raw:
-                url = (it.get("url") or it.get("value")) if isinstance(it, dict) else it
+                url = (it.get("url") or it.get("value") or it.get("file_url")) if isinstance(it, dict) else it
                 if url:
-                    label = it.get("label") or it.get("doc_type") or "document" if isinstance(it, dict) else "document"
+                    label = (it.get("label") or it.get("doc_type") or it.get("type") or "document") if isinstance(it, dict) else "document"
                     docs.append({"kind": "url", "label": label, "url": url, "is_image": _looks_like_image(url)})
     # Resolve the applicant record so the profile can offer review-gated Approve/Reject.
     applicant = None

@@ -18,8 +18,8 @@ const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 
 const CATEGORIES = [
   { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
-  { key: 'restaurants', label: 'Merchant Applications', icon: Store, approveKind: 'restaurant' },
-  { key: 'businesses', label: 'Business Storefronts', icon: Building2, approveKind: 'business' },
+  { key: 'businesses', label: 'Merchant Applications', icon: Store, approveKind: 'business' },
+  { key: 'restaurants', label: 'Live Restaurants', icon: Building2, approveKind: 'restaurant' },
   { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
   { key: 'users', label: 'User Accounts', icon: Users, approveKind: null },
 ];
@@ -191,7 +191,7 @@ const DocumentsDialog = ({ open, onClose, record, category }) => {
 };
 
 const AdminApprovals = () => {
-  const [active, setActive] = useState('drivers');
+  const [active, setActive] = useState('businesses');
   const [statusFilter, setStatusFilter] = useState('pending');
   const [records, setRecords] = useState([]);
   const [counts, setCounts] = useState({});
