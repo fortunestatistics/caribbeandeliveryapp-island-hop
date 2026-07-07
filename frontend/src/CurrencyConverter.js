@@ -38,6 +38,7 @@ const CurrencyConverter = ({ amountUSD = 0, className = '', size = 'md' }) => {
       fetchRates().then((r) => { if (mounted.current) setRates(r); });
     }
     return () => { mounted.current = false; };
+    // eslint-disable-next-line -- fetch rates once on mount
   }, []);
 
   if (!rates) {

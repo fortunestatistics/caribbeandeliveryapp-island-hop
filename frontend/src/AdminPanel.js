@@ -53,6 +53,8 @@ import AdminPromoters from './AdminPromoters';
 import AdminApprovals from './AdminApprovals';
 import AdminPaymentMode from './AdminPaymentMode';
 import AdminDataCleanup from './AdminDataCleanup';
+import AdminWhatsApp from './AdminWhatsApp';
+import AdminServiceZones from './AdminServiceZones';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -94,16 +96,6 @@ const AdminPanel = () => {
   const [orders, setOrders] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [approvals, setApprovals] = useState({ drivers: [], restaurants: [], car_rentals: [], businesses: [], total: 0 });
-  const [zones, setZones] = useState([]);
-  const [zoneForm, setZoneForm] = useState({ name: '', polygon: '', allowed_services: '', description: '' });
-  const [whConvos, setWhConvos] = useState([]);
-  const [whSelectedPhone, setWhSelectedPhone] = useState('');
-  const [whMessages, setWhMessages] = useState([]);
-  const [whReplyBody, setWhReplyBody] = useState('');
-  const [whComposePhone, setWhComposePhone] = useState('');
-  const [whComposeBody, setWhComposeBody] = useState('');
-  const [whComposeSending, setWhComposeSending] = useState(false);
-  const [whComposeFeedback, setWhComposeFeedback] = useState(null); // {type, text}
   const [fraudFlags, setFraudFlags] = useState([]);
   const [fraudOpenCount, setFraudOpenCount] = useState(0);
   const [fraudFilter, setFraudFilter] = useState('open');
@@ -155,18 +147,18 @@ const AdminPanel = () => {
       .get(`${API}/admin/claims?status=open&limit=500`, { headers: authHeaders() })
       .then((r) => setClaimsOpenCount(Array.isArray(r.data) ? r.data.length : 0))
       .catch(() => {});
+    // eslint-disable-next-line -- initial data load on mount only
   }, []);
 
   useEffect(() => {
     if (selectedTab === 'approvals') fetchApprovals();
-    if (selectedTab === 'wallet' && financeSub === 'zones') fetchZones();
-    if (selectedTab === 'whatsapp') fetchWhConvos();
     if (selectedTab === 'safety') {
       if (safetySub === 'fraud' && myRole !== 'agent') fetchFraudQueue();
       if (safetySub === 'claims') fetchClaims();
       if (safetySub === 'disputes') fetchDisputes();
     }
     if (selectedTab === 'orders') fetchCashOutstanding();
+    // eslint-disable-next-line -- fetchers are stable; re-run only on tab/filter change
   }, [selectedTab, safetySub, financeSub, fraudFilter, claimsFilter]);
 
   // Agents cannot see the Fraud sub-tab; default them to Claims.
@@ -200,6 +192,7 @@ const AdminPanel = () => {
     if (selectedTab !== 'users') return;
     const t = setTimeout(() => fetchUsers(searchQuery), 350);
     return () => clearTimeout(t);
+    // eslint-disable-next-line -- debounced fetch; fetchUsers is stable
   }, [searchQuery, selectedTab, userTypeFilter]);
 
   const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
@@ -299,85 +292,6 @@ const AdminPanel = () => {
     } catch (e) {
       alert(e.response?.data?.detail || 'Could not open document');
     }
-  };
-
-  const fetchZones = async () => {
-    try {
-      const res = await axios.get(`${API}/service-zones`, { headers: authHeaders() });
-      setZones(res.data);
-    } catch (e) { console.error(e); }
-  };
-
-  const createZone = async () => {
-    let polygonParsed;
-    try {
-      polygonParsed = JSON.parse(zoneForm.polygon);
-      if (!Array.isArray(polygonParsed) || polygonParsed.length < 3) throw new Error();
-    } catch {
-      alert('Polygon must be valid JSON like [[lat,lng],[lat,lng],[lat,lng],...] with 3+ points');
-      return;
-    }
-    const services = zoneForm.allowed_services.split(',').map(s => s.trim()).filter(Boolean);
-    try {
-      await axios.post(`${API}/service-zones`, {
-        name: zoneForm.name,
-        polygon: polygonParsed,
-        allowed_services: services,
-        active: true,
-        description: zoneForm.description || undefined,
-      }, { headers: authHeaders() });
-      setZoneForm({ name: '', polygon: '', allowed_services: '', description: '' });
-      fetchZones();
-    } catch (e) {
-      alert(e.response?.data?.detail || 'Failed to create zone');
-    }
-  };
-
-  const deleteZone = async (id) => {
-    if (!window.confirm('Delete this zone?')) return;
-    try {
-      await axios.delete(`${API}/service-zones/${id}`, { headers: authHeaders() });
-      fetchZones();
-    } catch (e) { alert(e.response?.data?.detail || 'Failed'); }
-  };
-
-  const fetchWhConvos = async () => {
-    try {
-      const res = await axios.get(`${API}/whatsapp/conversations`, { headers: authHeaders() });
-      setWhConvos(res.data);
-    } catch (e) { console.error(e); }
-  };
-
-  const openWhConvo = async (phone) => {
-    setWhSelectedPhone(phone);
-    try {
-      const res = await axios.get(`${API}/whatsapp/messages?phone=${encodeURIComponent(phone)}`, { headers: authHeaders() });
-      setWhMessages(res.data.reverse());
-    } catch (e) { console.error(e); }
-  };
-
-  const sendWhReply = async () => {
-    if (!whSelectedPhone || !whReplyBody.trim()) return;
-    try {
-      await axios.post(`${API}/whatsapp/send`, { to: whSelectedPhone, body: whReplyBody }, { headers: authHeaders() });
-      setWhReplyBody('');
-      openWhConvo(whSelectedPhone);
-      fetchWhConvos();
-    } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
-  };
-
-  const sendWhCompose = async () => {
-    if (!whComposePhone.trim() || !whComposeBody.trim()) return;
-    setWhComposeSending(true);
-    setWhComposeFeedback(null);
-    try {
-      await axios.post(`${API}/whatsapp/send`, { to: whComposePhone.trim(), body: whComposeBody.trim() }, { headers: authHeaders() });
-      setWhComposeFeedback({ type: 'success', text: `WhatsApp message queued to ${whComposePhone.trim()}` });
-      setWhComposeBody('');
-      fetchWhConvos();
-    } catch (e) {
-      setWhComposeFeedback({ type: 'error', text: e.response?.data?.detail || 'Failed to send WhatsApp message' });
-    } finally { setWhComposeSending(false); }
   };
 
   const fetchStats = async () => {
@@ -1185,182 +1099,11 @@ const AdminPanel = () => {
 
 
         {selectedTab === 'wallet' && financeSub === 'zones' && (
-          <div className="space-y-6" data-testid="admin-zones-content">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5 text-gold-500" />Create Service Zone</CardTitle>
-                <p className="text-sm text-muted-foreground">Define a polygon (3+ [lat,lng] points) to restrict operations to a specific geo region.</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label>Zone Name</Label>
-                  <Input data-testid="zone-name-input" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Port of Spain Central" />
-                </div>
-                <div>
-                  <Label>Polygon (JSON: [[lat,lng],[lat,lng],…])</Label>
-                  <Textarea data-testid="zone-polygon-input" value={zoneForm.polygon} onChange={(e) => setZoneForm({ ...zoneForm, polygon: e.target.value })} placeholder='[[10.6,-61.6],[10.7,-61.6],[10.7,-61.45],[10.6,-61.45]]' />
-                </div>
-                <div>
-                  <Label>Allowed Services (comma-separated)</Label>
-                  <Input data-testid="zone-services-input" value={zoneForm.allowed_services} onChange={(e) => setZoneForm({ ...zoneForm, allowed_services: e.target.value })} placeholder="food,taxi,grocery,pharmacy" />
-                </div>
-                <div>
-                  <Label>Description (optional)</Label>
-                  <Input data-testid="zone-description-input" value={zoneForm.description} onChange={(e) => setZoneForm({ ...zoneForm, description: e.target.value })} />
-                </div>
-                <Button data-testid="create-zone-btn" onClick={createZone} className="bg-gold-gradient text-white" disabled={!zoneForm.name || !zoneForm.polygon}>
-                  <Plus className="h-4 w-4 mr-2" />Create Zone
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-teal-700" />Active Zones ({zones.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {zones.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8" data-testid="zones-empty">No service zones defined yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {zones.map((z) => (
-                      <div key={z.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`zone-row-${z.id}`}>
-                        <div>
-                          <p className="font-medium">{z.name}</p>
-                          <p className="text-sm text-muted-foreground">{z.country} • {z.polygon?.length || 0} vertices</p>
-                          {z.allowed_services && z.allowed_services.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {z.allowed_services.map((s) => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
-                            </div>
-                          )}
-                        </div>
-                        <Button data-testid={`delete-zone-btn-${z.id}`} size="sm" variant="destructive" onClick={() => deleteZone(z.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <AdminServiceZones />
         )}
 
         {selectedTab === 'whatsapp' && (
-          <div className="space-y-4" data-testid="admin-whatsapp-content">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-gold-500" />Send a WhatsApp message</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <Input
-                    data-testid="wa-compose-phone"
-                    value={whComposePhone}
-                    onChange={(e) => setWhComposePhone(e.target.value)}
-                    placeholder="To: +1868… (driver/merchant)"
-                    className="sm:col-span-1"
-                  />
-                  <Input
-                    data-testid="wa-compose-body"
-                    value={whComposeBody}
-                    onChange={(e) => setWhComposeBody(e.target.value)}
-                    placeholder="Message…"
-                    onKeyDown={(e) => e.key === 'Enter' && sendWhCompose()}
-                    className="sm:col-span-2"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-xs text-muted-foreground">
-                    Note: Customers must message <span className="font-semibold">+1 (252) 374-6444</span> first to receive WhatsApp notifications (WhatsApp's 24h session rule). Once your message templates are approved by Meta, this restriction is lifted and notifications send freely.
-                  </p>
-                  <Button
-                    data-testid="wa-compose-send-btn"
-                    onClick={sendWhCompose}
-                    disabled={whComposeSending || !whComposePhone.trim() || !whComposeBody.trim()}
-                    className="bg-gold-gradient text-white"
-                  >
-                    {whComposeSending ? 'Sending…' : 'Send WhatsApp'}
-                  </Button>
-                </div>
-                {whComposeFeedback && (
-                  <p data-testid="wa-compose-feedback" className={`text-xs ${whComposeFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                    {whComposeFeedback.text}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="grid md:grid-cols-3 gap-4">
-            <Card className="md:col-span-1">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-gold-500" />Conversations</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 max-h-[500px] overflow-y-auto">
-                {whConvos.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8" data-testid="whatsapp-no-convos">No WhatsApp messages yet.</p>
-                ) : (
-                  whConvos.map((c) => (
-                    <div key={c.phone} onClick={() => openWhConvo(c.phone)} className={`p-3 rounded-lg cursor-pointer ${whSelectedPhone === c.phone ? 'bg-gold-500/10 border border-gold-500/30' : 'bg-matte-900/40 hover:bg-matte-900/60'}`} data-testid={`wa-convo-${c.phone}`}>
-                      <p className="font-medium font-mono text-sm">{c.phone}</p>
-                      <p className="text-xs text-muted-foreground truncate">{c.last_message}</p>
-                      <p className="text-xs text-muted-foreground/70 mt-1">{c.count} msg • {new Date(c.last_at).toLocaleString()}</p>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>{whSelectedPhone ? `Chat with ${whSelectedPhone}` : 'Select a conversation'}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!whSelectedPhone ? (
-                  <p className="text-center text-muted-foreground py-12">Pick a conversation from the left.</p>
-                ) : (
-                  <>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4" data-testid="wa-thread">
-                      {whMessages.map((m) => (
-                        <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.direction === 'inbound' ? 'bg-matte-900/40 mr-auto' : 'bg-gold-500/15 ml-auto text-right'}`} data-testid={`wa-msg-${m.id}`}>
-                          <p className="text-sm">{m.body}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {new Date(m.created_at).toLocaleTimeString()}
-                            {m.direction === 'outbound' && m.status && (
-                              <span
-                                className={`ml-2 font-medium ${
-                                  ['delivered', 'read', 'sent'].includes(m.status) ? 'text-green-600'
-                                  : ['failed', 'undelivered'].includes(m.status) ? 'text-red-600'
-                                  : 'text-muted-foreground'
-                                }`}
-                                data-testid={`wa-status-${m.id}`}
-                              >
-                                · {m.status}
-                              </span>
-                            )}
-                          </p>
-                          {m.direction === 'outbound' && ['failed', 'undelivered'].includes(m.status) && (
-                            <p className="text-[11px] text-red-600 mt-1" data-testid={`wa-error-${m.id}`}>
-                              {String(m.error_code) === '63005' || String(m.error_code) === '63016'
-                                ? 'Not delivered — the customer is outside WhatsApp\u2019s 24-hour window. Business-initiated messages require an approved template.'
-                                : `Not delivered${m.error_code ? ` (error ${m.error_code})` : ''}.`}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Input data-testid="wa-reply-input" value={whReplyBody} onChange={(e) => setWhReplyBody(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendWhReply()} />
-                      <Button data-testid="wa-send-btn" onClick={sendWhReply} className="bg-gold-gradient text-white">
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-          </div>
+          <AdminWhatsApp />
         )}
         {selectedTab === 'mail' && (
           <AdminMailInbox />

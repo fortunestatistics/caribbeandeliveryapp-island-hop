@@ -105,6 +105,7 @@ const OrderTrackingPageWithMaps = () => {
     if (orderId) {
       fetchOrder();
     }
+    // eslint-disable-next-line -- fetch order on orderId change
   }, [orderId]);
 
   // Check if user has already rated this order
@@ -141,6 +142,7 @@ const OrderTrackingPageWithMaps = () => {
     const interval = setInterval(fetchDriverLocation, 10000); // Update every 10 seconds
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line -- poll driver location while order is active
   }, [order, orderId]);
 
   // Calculate route using Google Directions API

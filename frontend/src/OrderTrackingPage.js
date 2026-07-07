@@ -80,6 +80,7 @@ const OrderTrackingPage = () => {
         wsRef.current.close();
       }
     };
+    // eslint-disable-next-line -- re-fetch order + reconnect WS on orderId change
   }, [orderId]);
 
   const handleWebSocketMessage = (data) => {

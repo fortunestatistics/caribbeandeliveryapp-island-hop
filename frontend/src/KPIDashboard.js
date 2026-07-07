@@ -41,6 +41,7 @@ const KPIDashboard = () => {
     fetchKPIData();
     fetchDailyOperations();
     fetchFinancialSummary();
+    // eslint-disable-next-line -- re-fetch analytics on date change only
   }, [selectedDate]);
 
   const fetchKPIData = async () => {

@@ -505,6 +505,7 @@ export const PaymentSuccess = () => {
     };
     poll(0);
     return () => { cancelled = true; };
+    // eslint-disable-next-line -- poll defined inline; re-run on payment identifiers only
   }, [sessionId, via, orderId]);
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-teal-50 to-blue-50">

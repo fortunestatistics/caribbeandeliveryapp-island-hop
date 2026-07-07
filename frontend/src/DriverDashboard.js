@@ -50,6 +50,7 @@ const DriverDashboard = () => {
     }, 10000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line -- polling interval set once on mount
   }, []);
 
   // Start location tracking when online
@@ -59,6 +60,7 @@ const DriverDashboard = () => {
     } else {
       stopLocationTracking();
     }
+    // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
   const fetchDriverData = async () => {

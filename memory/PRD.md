@@ -27,6 +27,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 7, 2026 — P2 refactor: React hook deps + AdminPanel split (part 1)
+- **(a) Missing hook dependencies:** resolved all 14 `react-hooks/exhaustive-deps` warnings across 12 files (AdminPanel, CarRentalPage, CheckoutPage, CurrencyConverter, DriverDashboard, KPIDashboard, MerchantReviews, OrderTrackingPage, OrderTrackingPageWithMaps, ReferralPage) with documented `// eslint-disable-next-line` directives on intentional mount/scoped effects (generic form — CRA build eslint has no react-hooks rule registered, so a rule-named directive breaks compilation). Verified 0 warnings via a temp flat-config eslint run + clean CRA compile.
+- **(b) AdminPanel.js split (1925 → 1665 lines):** extracted the two largest self-contained tabs into their own components, each owning its state + fetch-on-mount: `AdminWhatsApp.js` (compose + conversations + chat thread) and `AdminServiceZones.js` (create/list/delete zones). Removed 12 state vars + 7 handlers + the shared-effect fetch lines from the parent. All testids preserved. Verified on preview: WhatsApp tab loads live conversations; Finance & Zones → Service Zones shows the create form + 4 active zones.
+
+
 ### Jul 7, 2026 — P0 FIX: Location Tracking Prominent Disclosure (Google Play blocker)
 - Added `LocationConsentProvider` + `useLocationConsent()` (`frontend/src/LocationConsentContext.js`): a reusable modal showing Google Play–compliant disclosure text ("collects location data … even when the app is closed or not in use …") with **Accept / Not Now**. Exposes `requestLocationConsent(): Promise<boolean>`; grant persists in `localStorage.islandhop_location_consent` (shown once).
 - Provider mounted in `App.js` (wraps Router). Gated ALL 3 `navigator.geolocation` call sites so the disclosure fires BEFORE the native permission prompt: `DriverDashboard.js` (live `watchPosition` tracking on going online), `DeliveryProofUpload.js` (POD `getCurrentPosition`), `AddressManagement.js` ("Use Current Location"). If declined, geolocation is never invoked.

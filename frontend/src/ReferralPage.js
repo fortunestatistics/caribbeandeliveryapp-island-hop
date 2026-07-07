@@ -22,6 +22,7 @@ const ReferralPage = () => {
       return;
     }
     fetchReferrals();
+    // eslint-disable-next-line -- auth check + load once on mount
   }, []);
 
   const fetchReferrals = async () => {
