@@ -3103,7 +3103,7 @@ async def chat_unread_summary(request: Request):
         {"$match": {"order_id": {"$in": order_ids}, "read_by": {"$ne": current_user.id}}},
         {"$group": {"_id": "$order_id", "count": {"$sum": 1}}},
     ]
-    rows = await db.order_chat_messages.aggregate(pipeline).to_list(length=None)
+    rows = await db.order_chat_messages.aggregate(pipeline).to_list(length=200)
     by_order = {r["_id"]: r["count"] for r in rows}
     total = sum(by_order.values())
     return {
@@ -4023,14 +4023,27 @@ async def get_driver_leaderboard(limit: int = 10):
     capped = max(1, min(limit, 50))
     drivers = await db.drivers.find(
         {"rating": {"$gt": 0}}, {"_id": 0}
-    ).sort("rating", -1).limit(capped).to_list(length=None)
+    ).sort("rating", -1).limit(capped).to_list(length=capped)
+
+    # Batch-fetch user names and delivery counts to avoid N+1 queries.
+    user_ids = list({d.get("user_id") for d in drivers if d.get("user_id")})
+    driver_ids = list({d.get("id") for d in drivers if d.get("id")})
+    name_by_user: dict = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            name_by_user[u["id"]] = u.get("name")
+    deliveries_by_driver: dict = {}
+    if driver_ids:
+        agg = db.orders.aggregate([
+            {"$match": {"driver_id": {"$in": driver_ids}, "status": "delivered"}},
+            {"$group": {"_id": "$driver_id", "count": {"$sum": 1}}},
+        ])
+        async for row in agg:
+            deliveries_by_driver[row["_id"]] = row["count"]
 
     leaderboard = []
     for d in drivers:
-        user = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1})
-        deliveries = await db.orders.count_documents(
-            {"driver_id": d.get("id"), "status": "delivered"}
-        )
+        deliveries = deliveries_by_driver.get(d.get("id"), 0)
         rating = float(d.get("rating", 0) or 0)
         if rating >= 4.95:
             tier = "GOLD"
@@ -4040,7 +4053,7 @@ async def get_driver_leaderboard(limit: int = 10):
             tier = "BRONZE"
         leaderboard.append({
             "id": d.get("id"),
-            "name": (user or {}).get("name") or "IslandHop Driver",
+            "name": name_by_user.get(d.get("user_id")) or "IslandHop Driver",
             "area": "Trinidad & Tobago",
             "deliveries": deliveries,
             "rating": round(rating, 2),
@@ -5050,7 +5063,7 @@ async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: i
     }).to_list(length=100)
     if nearby:
         return nearby
-    return await db.drivers.find({"status": "online"}).to_list(length=None)
+    return await db.drivers.find({"status": "online"}).limit(100).to_list(length=100)
 
 
 def _score_driver_for_pickup(driver: dict, pickup_lat: float, pickup_lng: float) -> Optional[dict]:
@@ -6090,9 +6103,9 @@ async def get_kpi_dashboard(date: Optional[str] = None):
         target_date, start_iso, end_iso = _kpi_day_window(date)
         day_range = {"$gte": start_iso, "$lte": end_iso}
 
-        orders = await db.orders.find({"created_at": day_range}).to_list(length=None)
-        rental_bookings = await db.rental_bookings.find({"created_at": day_range}).to_list(length=None)
-        ratings = await db.customer_ratings.find({"created_at": day_range}).to_list(length=None)
+        orders = await db.orders.find({"created_at": day_range}).limit(10000).to_list(length=10000)
+        rental_bookings = await db.rental_bookings.find({"created_at": day_range}).limit(5000).to_list(length=5000)
+        ratings = await db.customer_ratings.find({"created_at": day_range}).limit(5000).to_list(length=5000)
 
         delivery_perf, completed_orders, completed_count = _kpi_delivery_performance(orders)
         return {
