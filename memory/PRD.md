@@ -27,6 +27,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 9, 2026 (pt3) — Document-completeness badges on approval rows
+- Added a per-row `doc_summary` to `GET /api/admin/records/{category}` (batched — one `driver_documents` aggregation for all applicants' personal docs; merchant docs counted from the record's `documents` field, no N+1). Fields: `merchant_count`, `user_account_count`, `total`, `has_account_doc`.
+- `AdminApprovals.js` rows now show at-a-glance badges: green ✅ "N docs" when documents exist, amber ⚠ "No docs" when none, and amber ⚠ "Missing ID" for merchant applicants with no owner personal ID/licence uploaded (`has_account_doc=false`). Testid `record-docbadge-{id}`. Verified on preview across seeded rows (No docs / 2 docs+Missing ID / 4 docs).
+
+
 ### Jul 9, 2026 (pt2) — Partner Approvals split docs + Location disclosure approved wording
 - **Partner Approvals now shows TWO doc categories per applicant.** Backend `/api/admin/records/{category}/{id}/documents` rewritten: for merchant categories (restaurants/businesses/car_rentals) it returns the application `documents` tagged `group:'merchant'` PLUS the owner/applicant's personal account docs from `driver_documents` (via the record's `user_id`) tagged `group:'user_account'`; also fixed the missing `restaurants` branch. Response adds `merchant_count`/`user_account_count`. Frontend `AdminApprovals.js` DocumentsDialog renders two labeled sections: "Merchant / Restaurant Documents" and "User Account Documents" (testids `documents-section-merchant`/`-account`). Verified E2E: a merchant app with 3 merchant URLs + 1 owner DriversLicense renders both sections correctly.
 - **Location disclosure — approved wording + choice recorded.** `LocationConsentContext.js` now shows the exact approved text ("IslandHop collects location data to enable real-time tracking of your orders from the store to your door … even when the app is closed or not in use."), Accept/Deny buttons, and records BOTH decisions to `localStorage` (`islandhop_location_consent` = granted|denied + timestamped `..._record`). Still gates all 3 geolocation call sites before the native prompt. Verified on preview: approved copy displays and Accept records `granted`.

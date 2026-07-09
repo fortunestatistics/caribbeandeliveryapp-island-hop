@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
-  FileText, FolderOpen, ExternalLink,
+  FileText, FolderOpen, ExternalLink, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -393,6 +393,24 @@ const AdminApprovals = () => {
                           <Badge className={statusBadge(rec.status)} data-testid={`record-status-${rec.id}`}>{rec.status || '—'}</Badge>
                           {rec.is_external_lead && <Badge variant="secondary">Website lead</Badge>}
                           {rec.featured && <Badge className="bg-gold-500/15 text-gold-700 border-gold-500/30">Featured</Badge>}
+                          {active !== 'users' && rec.doc_summary && (
+                            rec.doc_summary.total === 0 ? (
+                              <Badge variant="outline" className="border-amber-500/40 text-amber-600 gap-1" data-testid={`record-docbadge-${rec.id}`}>
+                                <AlertTriangle className="h-3 w-3" />No docs
+                              </Badge>
+                            ) : (
+                              <span className="inline-flex items-center gap-1" data-testid={`record-docbadge-${rec.id}`}>
+                                <Badge variant="outline" className="border-green-500/40 text-green-600 gap-1">
+                                  <CheckCircle className="h-3 w-3" />{rec.doc_summary.total} docs
+                                </Badge>
+                                {active !== 'drivers' && !rec.doc_summary.has_account_doc && (
+                                  <Badge variant="outline" className="border-amber-500/40 text-amber-600 gap-1" title="Owner's personal ID / licence not uploaded">
+                                    <AlertTriangle className="h-3 w-3" />Missing ID
+                                  </Badge>
+                                )}
+                              </span>
+                            )
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
                           {rec.email && <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{rec.email}</span>}

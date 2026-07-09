@@ -9826,6 +9826,34 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
         rec = _record_summary(doc, category)
         rec["full"] = _clean_full(doc, category)
         records.append(rec)
+
+    # Per-row document summary so reviewers can spot incomplete applications at a glance.
+    # Batched: one aggregation for all applicants' personal (user_account) docs.
+    acct_by_user: Dict[str, int] = {}
+    if category != "users":
+        uids = [r.get("user_id") for r in records if r.get("user_id")]
+        if uids:
+            agg = db.driver_documents.aggregate([
+                {"$match": {"user_id": {"$in": uids}, "is_deleted": False}},
+                {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+            ])
+            async for row in agg:
+                acct_by_user[row["_id"]] = row["count"]
+        for r in records:
+            full = r.get("full") or {}
+            if category == "drivers":
+                merchant_count = 0
+            else:
+                raw = full.get("documents") or (full.get("business_details") or {}).get("documents") or {}
+                merchant_count = _count_url_docs(raw)
+            account_count = acct_by_user.get(r.get("user_id"), 0)
+            r["doc_summary"] = {
+                "merchant_count": merchant_count,
+                "user_account_count": account_count,
+                "total": merchant_count + account_count,
+                # merchant applicants should attach a personal ID/licence; flag when missing
+                "has_account_doc": account_count > 0,
+            }
     return {"category": category, "count": len(records), "records": records}
 
 
@@ -9861,6 +9889,22 @@ def _looks_like_image(name: str) -> bool:
         return False
     tail = name.split("?")[0].lower().rsplit(".", 1)
     return len(tail) == 2 and tail[1] in _IMAGE_EXTS
+
+
+def _count_url_docs(raw) -> int:
+    """Count non-empty merchant/application document URLs from a dict or list field."""
+    if isinstance(raw, dict):
+        return sum(1 for v in raw.values() if v)
+    if isinstance(raw, list):
+        n = 0
+        for it in raw:
+            if isinstance(it, dict):
+                if it.get("url") or it.get("value") or it.get("file_url"):
+                    n += 1
+            elif it:
+                n += 1
+        return n
+    return 0
 
 
 @api_router.get("/admin/records/{category}/{record_id}/documents")
