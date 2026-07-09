@@ -189,19 +189,20 @@ const GlobalSearch = () => {
   const handleResultClick = (result) => {
     setShowResults(false);
     setSearchQuery('');
-    
-    // Navigate based on result type
+
+    // Navigate based on result type. Route names must match App.js <Routes>:
+    //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
-      if (result.vendor_type === 'restaurant') {
-        navigate(`/restaurants/${result.id}`);
-      } else if (result.vendor_type === 'pharmacy') {
-        navigate(`/pharmacy/${result.id}`);
+      if (result.vendor_type === 'pharmacy') {
+        navigate('/pharmacy-order');
       } else if (result.vendor_type === 'grocery') {
-        navigate(`/grocery/${result.id}`);
+        navigate('/grocery-order');
+      } else {
+        navigate(`/restaurant/${result.id}`);
       }
     } else if (result.type === 'product') {
       // Navigate to vendor page with product highlighted
-      navigate(`/restaurants/${result.vendor_id}?product=${result.id}`);
+      navigate(`/restaurant/${result.vendor_id}?product=${result.id}`);
     }
   };
 
