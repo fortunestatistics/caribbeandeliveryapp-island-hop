@@ -28,7 +28,14 @@ export const LocationConsentProvider = ({ children }) => {
   }, []);
 
   const settle = useCallback((granted) => {
-    if (granted) localStorage.setItem(STORAGE_KEY, 'granted');
+    // Record the user's explicit choice (Accept/Deny) for Google Play compliance.
+    localStorage.setItem(STORAGE_KEY, granted ? 'granted' : 'denied');
+    try {
+      localStorage.setItem(
+        'islandhop_location_consent_record',
+        JSON.stringify({ decision: granted ? 'granted' : 'denied', at: new Date().toISOString() }),
+      );
+    } catch (e) { /* storage may be unavailable */ }
     setOpen(false);
     if (resolverRef.current) {
       resolverRef.current(granted);
@@ -49,9 +56,10 @@ export const LocationConsentProvider = ({ children }) => {
               IslandHop Uses Your Location
             </DialogTitle>
             <DialogDescription className="text-center" data-testid="location-disclosure-text">
-              IslandHop collects location data to enable live delivery tracking, driver dispatch,
-              and address auto-fill — <span className="font-semibold text-foreground">even when the app is
-              closed or not in use</span> — so drivers and customers can see delivery progress in real time.
+              IslandHop collects location data to enable real-time tracking of your orders from the
+              store to your door, and to provide accurate delivery time estimates,{' '}
+              <span className="font-semibold text-foreground">even when the app is closed or not in use.</span>
+              <br /><br />
               By tapping <span className="font-semibold text-foreground">Accept</span> you consent to this
               collection and use of your location.
             </DialogDescription>
@@ -84,7 +92,7 @@ export const LocationConsentProvider = ({ children }) => {
               onClick={() => settle(false)}
               data-testid="location-disclosure-decline-btn"
             >
-              Not Now
+              Deny
             </Button>
             <Button
               className="flex-1 bg-gold-gradient text-white"

@@ -155,8 +155,8 @@ const DocumentsDialog = ({ open, onClose, record, category }) => {
         ) : docs.length === 0 ? (
           <p className="py-8 text-center text-muted-foreground" data-testid="documents-empty">No documents were submitted with this application.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {docs.map((d, i) => {
+          (() => {
+            const renderCard = (d, i) => {
               const url = urlFor(d);
               const label = d.doc_type || d.label || d.filename || `Document ${i + 1}`;
               return (
@@ -182,8 +182,45 @@ const DocumentsDialog = ({ open, onClose, record, category }) => {
                   </div>
                 </a>
               );
-            })}
-          </div>
+            };
+            const merchantDocs = docs.filter((d) => d.group === 'merchant');
+            const accountDocs = docs.filter((d) => d.group === 'user_account');
+            const ungrouped = docs.filter((d) => d.group !== 'merchant' && d.group !== 'user_account');
+            const Section = ({ title, subtitle, items, testid }) => (
+              <div className="space-y-2" data-testid={testid}>
+                <div>
+                  <h4 className="text-sm font-semibold">{title}</h4>
+                  <p className="text-xs text-muted-foreground">{subtitle}</p>
+                </div>
+                {items.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic py-3" data-testid={`${testid}-empty`}>None submitted.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{items.map(renderCard)}</div>
+                )}
+              </div>
+            );
+            return (
+              <div className="space-y-6">
+                {category !== 'drivers' && (
+                  <Section
+                    title="Merchant / Restaurant Documents"
+                    subtitle="Business Registration, Health Permits, Store Photos, etc."
+                    items={merchantDocs}
+                    testid="documents-section-merchant"
+                  />
+                )}
+                <Section
+                  title="User Account Documents"
+                  subtitle="Personal ID and Driver's License of the owner / applicant."
+                  items={accountDocs}
+                  testid="documents-section-account"
+                />
+                {ungrouped.length > 0 && (
+                  <Section title="Other Documents" subtitle="" items={ungrouped} testid="documents-section-other" />
+                )}
+              </div>
+            );
+          })()
         )}
       </DialogContent>
     </Dialog>
