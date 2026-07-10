@@ -14,6 +14,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jul 10, 2026 (fork)
+**P0 fix — Admin Approvals "category tab shows nothing":** Root cause = single global status filter defaulting to "New Applications" (pending), but Live Restaurants/Car Rentals are created `active` (never pending) → those tabs rendered empty. Fix in `AdminApprovals.js`: category tabs now set a sensible default status on click via `defaultStatusFor()` — application tabs (drivers, businesses) → `pending`; roster tabs (restaurants, car_rentals, users) → `all`. Also `admin_list_records` now batch-joins the `users` collection for the drivers category so driver rows show name/email (driver docs store no name). Tested: iter36 6/6 backend + all category tabs verified.
+
+**Refactor — server.py split (in progress, incremental & tested):**
+- Created `backend/core.py` (202 lines): DB handle, config/secrets, JWT+password auth, `get_current_user` / `get_current_user_from_request`, `ConnectionManager`/`manager`, `prepare_for_mongo`/`parse_from_mongo`. `server.py` imports these. Verified: app boots, 292 routes, full pytest baseline identical (no regressions).
+- Created `backend/routers/admin_records.py` (590 lines): extracted the 17 admin Partner-Approvals/records endpoints (`/admin/records/*`, `/admin/pending-approvals`, `/admin/users/{id}/documents`, and approve/reject for drivers/restaurants/car-rentals/businesses) + domain-local helpers (`_RECORD_CATEGORIES`, `_record_summary`, `_set_partner_status`, `_notify_merchant_status`, `_provision_merchant_vendor`, etc.). 4 widely-shared helpers (`_wa_notify`, `_award_promo_reward`, `_release_held_promo_rewards`, `_notify_driver_status`) stay in server.py and are lazily imported inside handlers to avoid an import cycle. Mounted via `app.include_router`. Tested e2e: real business approve → 200 + vendor provisioned + storefront loads; iter36/iter32 approvals suites 20/20 pass; no regressions.
+- `server.py`: 11,255 → 10,557 lines. Pattern (`core.py` + `routers/` + lazy cross-imports) is proven and ready to apply to remaining domains.
+- REMAINING split (P2, follow same pattern, one domain at a time + pytest between each): rest of admin (mail, mercury, paypal, promoters, team, cleanup, stats/users/orders, fraud, driver-incentives), then orders, drivers, merchant, wallet, auth, payments, car-rentals, support/claims, promo-codes, addresses, chat, etc. Shared business helpers should migrate to a `services.py` as domains are extracted (removes the lazy-import shims).
+
+
 ## Architecture
 - **Frontend**: React + Tailwind + Shadcn UI. `App.js` routes all pages.
 - **Backend**: FastAPI single-module `server.py` (~6.2k lines — recommend splitting into `/routers/`).
