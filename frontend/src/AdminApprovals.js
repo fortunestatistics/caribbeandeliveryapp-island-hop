@@ -238,6 +238,20 @@ const AdminApprovals = () => {
   const [historyRec, setHistoryRec] = useState(null);
   const [docsRec, setDocsRec] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [readyOnly, setReadyOnly] = useState(false);
+
+  const isReady = useCallback((rec) => {
+    const ds = rec.doc_summary;
+    if (!ds) return true; // users / no summary — don't penalise
+    if (active === 'drivers') return ds.total > 0;
+    return ds.merchant_count > 0 && ds.has_account_doc;
+  }, [active]);
+
+  const displayRecords = React.useMemo(() => {
+    const list = readyOnly ? records.filter(isReady) : [...records];
+    // Incomplete applications sink to the bottom; keep API order otherwise (newest first).
+    return list.sort((a, b) => (isReady(a) === isReady(b) ? 0 : isReady(a) ? -1 : 1));
+  }, [records, readyOnly, isReady]);
 
   const load = useCallback(async (category, q, status) => {
     setLoading(true);
@@ -312,18 +326,29 @@ const AdminApprovals = () => {
           <p className="text-sm text-muted-foreground">Review and process new partner applications. Order history lives in each record — separate from the Orders tab.</p>
         </div>
         {/* New vs All toggle */}
-        <div className="flex items-center gap-1 rounded-lg border border-border p-1" data-testid="approvals-status-filter">
-          {[['pending', 'New Applications'], ['all', 'All Records']].map(([val, label]) => (
-            <Button
-              key={val}
-              size="sm"
-              variant={statusFilter === val ? 'default' : 'ghost'}
-              onClick={() => setStatusFilter(val)}
-              data-testid={`approvals-status-${val}`}
-            >
-              {label}
-            </Button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant={readyOnly ? 'default' : 'outline'}
+            onClick={() => setReadyOnly((v) => !v)}
+            data-testid="approvals-ready-toggle"
+            title="Show only applications with complete documents"
+          >
+            <CheckCircle className="h-4 w-4 mr-2" />Ready to approve
+          </Button>
+          <div className="flex items-center gap-1 rounded-lg border border-border p-1" data-testid="approvals-status-filter">
+            {[['pending', 'New Applications'], ['all', 'All Records']].map(([val, label]) => (
+              <Button
+                key={val}
+                size="sm"
+                variant={statusFilter === val ? 'default' : 'ghost'}
+                onClick={() => setStatusFilter(val)}
+                data-testid={`approvals-status-${val}`}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -369,11 +394,13 @@ const AdminApprovals = () => {
         <CardContent className="p-0">
           {loading ? (
             <div className="py-12 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
-          ) : records.length === 0 ? (
-            <p className="py-12 text-center text-muted-foreground" data-testid="approvals-empty">No {activeCat?.label.toLowerCase()} found.</p>
+          ) : displayRecords.length === 0 ? (
+            <p className="py-12 text-center text-muted-foreground" data-testid="approvals-empty">
+              {readyOnly ? `No "ready to approve" ${activeCat?.label.toLowerCase()} — all pending items are missing documents.` : `No ${activeCat?.label.toLowerCase()} found.`}
+            </p>
           ) : (
             <div className="divide-y divide-border">
-              {records.map((rec) => {
+              {displayRecords.map((rec) => {
                 const isPending = PENDING_STATUSES.includes((rec.status || '').toLowerCase());
                 const isOpen = expanded === rec.id;
                 return (

@@ -1307,6 +1307,42 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
     return {"results": results[: max(1, min(limit, 50))]}
 
 
+@api_router.get("/drivers/online-count")
+async def drivers_online_count():
+    """Public: number of drivers currently available (for Taxi/Courier availability hints)."""
+    n = await db.drivers.count_documents({"status": {"$in": ["online", "busy"]}})
+    return {"online": n}
+
+
+@api_router.get("/orders/{order_id}/public-track")
+async def public_track_order(order_id: str):
+    """Public, read-only tracking for a shareable delivery link. Returns only
+    non-sensitive status/progress fields (no customer PII, no phone numbers)."""
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+    driver_name = None
+    driver_location = None
+    did = o.get("driver_id")
+    if did:
+        d = await db.drivers.find_one({"id": did}, {"_id": 0, "name": 1, "current_location": 1})
+        if d:
+            driver_location = d.get("current_location")
+            driver_name = (d.get("name") or "").split(" ")[0] or None
+    addr = o.get("delivery_address") or {}
+    return {
+        "order_id": order_id,
+        "status": o.get("status"),
+        "service_type": o.get("service_type"),
+        "vendor_name": o.get("restaurant_name") or o.get("vendor_name"),
+        "created_at": o.get("created_at"),
+        "estimated_delivery_time": o.get("estimated_delivery_time"),
+        "driver_name": driver_name,
+        "driver_location": driver_location,
+        "destination_city": addr.get("city") if isinstance(addr, dict) else None,
+    }
+
+
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
     """Get all active restaurants, Featured (Pro/Premium) merchants first."""
@@ -10431,6 +10467,50 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
 
 
 # Initialize data on startup
+
+async def _seed_marketplace_partners():
+    """Idempotently ensure a set of onboarded partners exist so browse/search lists
+    look populated at launch. Safe to run repeatedly (matches by name)."""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        restaurants = [
+            {"name": "Roti Palace", "description": "Authentic Trini roti, doubles and curries.", "cuisine_type": "Caribbean", "rating": 4.7, "featured": True},
+            {"name": "Bake & Shark Hut", "description": "Maracas Bay-style bake and shark with all the toppings.", "cuisine_type": "Street Food", "rating": 4.6, "featured": True},
+            {"name": "Island Grill House", "description": "Char-grilled jerk chicken, ribs and pepper shrimp.", "cuisine_type": "BBQ", "rating": 4.5, "featured": False},
+            {"name": "Doubles Express", "description": "Fresh doubles, aloo pies and saheena all day.", "cuisine_type": "Breakfast", "rating": 4.4, "featured": False},
+        ]
+        for r in restaurants:
+            if not await db.restaurants.find_one({"name": r["name"]}, {"_id": 1}):
+                await db.restaurants.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": "seed_partner",
+                    "name": r["name"], "description": r["description"],
+                    "cuisine_type": r["cuisine_type"],
+                    "address": {"street": "Ariapita Ave", "city": "Port of Spain", "parish": "POS", "country": "Trinidad & Tobago"},
+                    "phone": "+1-868-555-0100", "email": f"hello@{r['name'].lower().replace(' ', '')}.tt",
+                    "status": "active", "rating": r["rating"], "delivery_fee": 8.0,
+                    "minimum_order": 30.0, "estimated_delivery_time": 35, "menu_items": [],
+                    "subscription_tier": "professional" if r["featured"] else "standard",
+                    "featured": r["featured"], "created_at": now,
+                })
+        businesses = [
+            {"business_name": "MedPlus Pharmacy", "business_type": "pharmacy", "business_description": "Prescriptions, OTC meds and health essentials delivered."},
+            {"business_name": "CarePoint Drugs", "business_type": "pharmacy", "business_description": "Your neighbourhood pharmacy — fast, reliable delivery."},
+            {"business_name": "Massy Stores Express", "business_type": "grocery", "business_description": "Groceries, fresh produce and household goods."},
+            {"business_name": "FreshMart Grocery", "business_type": "grocery", "business_description": "Everyday groceries and local favourites to your door."},
+        ]
+        for b in businesses:
+            if not await db.businesses.find_one({"business_name": b["business_name"]}, {"_id": 1}):
+                await db.businesses.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": "seed_partner",
+                    "business_name": b["business_name"], "business_type": b["business_type"],
+                    "business_description": b["business_description"],
+                    "status": "active", "created_at": now,
+                })
+        logger.info("✅ Marketplace partners seeded/verified")
+    except Exception as e:
+        logger.error(f"Marketplace partner seeding failed: {e}")
+
+
 @app.on_event("startup")
 async def _startup_launcher():
     """Return immediately so the K8s readiness probe passes right away.
@@ -10443,6 +10523,7 @@ async def _startup_launcher():
 
 async def initialize_data():
     """Initialize default data and indexes (runs in the background, non-blocking)."""
+    await _seed_marketplace_partners()
     # Phase B: Schedule nightly vendor payouts at 02:00 UTC
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

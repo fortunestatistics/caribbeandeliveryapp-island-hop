@@ -74,7 +74,8 @@ import { useToast } from './hooks/use-toast';
 import { Toaster } from './components/ui/toaster';
 import { 
   Building2, 
-  Utensils, 
+  Utensils,
+  Store, 
   Pill, 
   ShoppingCart, 
   Package, 
@@ -136,6 +137,8 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
 import { LocationConsentProvider } from './LocationConsentContext';
+import BusinessSearch from './BusinessSearch';
+import PublicTrack from './PublicTrack';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -146,8 +149,28 @@ const GlobalSearch = () => {
   const [featured, setFeatured] = useState([]);
   const [featCat, setFeatCat] = useState('all');
   const [loadingFeat, setLoadingFeat] = useState(false);
+  const [recent, setRecent] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('islandhop_recent_searches') || '[]'); } catch { return []; }
+  });
+  const [onlineCount, setOnlineCount] = useState(null);
   const navigate = useNavigate();
   const searchRef = React.useRef(null);
+
+  const POPULAR_SEARCHES = ['Roti', 'Pharmacy', 'Groceries', 'Jerk Chicken', 'Doubles'];
+
+  useEffect(() => {
+    axios.get(`${API}/drivers/online-count`).then((r) => setOnlineCount(r.data.online)).catch(() => {});
+  }, []);
+
+  const rememberSearch = React.useCallback((term) => {
+    const t = (term || '').trim();
+    if (t.length < 2) return;
+    setRecent((prev) => {
+      const next = [t, ...prev.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 5);
+      try { localStorage.setItem('islandhop_recent_searches', JSON.stringify(next)); } catch (e) { /* noop */ }
+      return next;
+    });
+  }, []);
 
   const loadFeatured = React.useCallback(async (cat) => {
     setLoadingFeat(true);
@@ -225,6 +248,7 @@ const GlobalSearch = () => {
   };
 
   const handleResultClick = (result) => {
+    if (searchQuery.trim().length >= 2) rememberSearch(searchQuery);
     setShowResults(false);
     setSearchQuery('');
 
@@ -287,22 +311,53 @@ const GlobalSearch = () => {
       {showResults && searchQuery.trim().length < 2 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50" data-testid="featured-partners-dropdown">
           <div className="p-2 flex flex-wrap gap-2 border-b border-border/50 sticky top-0 bg-card">
-            {searchCategories.map((cat) => (
-              <button
-                key={cat.key}
-                type="button"
-                onClick={() => handleCategoryChip(cat)}
-                data-testid={`search-cat-${cat.key}`}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  !cat.route && featCat === cat.key
-                    ? 'bg-gold-gradient text-white'
-                    : 'bg-background text-muted-foreground hover:text-foreground border border-border'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
+            {searchCategories.map((cat) => {
+              const hint = (cat.key === 'taxi' || cat.key === 'courier') && onlineCount != null ? ` · ${onlineCount} online` : '';
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => handleCategoryChip(cat)}
+                  data-testid={`search-cat-${cat.key}`}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    !cat.route && featCat === cat.key
+                      ? 'bg-gold-gradient text-white'
+                      : 'bg-background text-muted-foreground hover:text-foreground border border-border'
+                  }`}
+                >
+                  {cat.label}{hint}
+                </button>
+              );
+            })}
           </div>
+          {(recent.length > 0 || POPULAR_SEARCHES.length > 0) && (
+            <div className="px-3 pt-2 space-y-2 border-b border-border/50 pb-2">
+              {recent.length > 0 && (
+                <div data-testid="recent-searches">
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Recent</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recent.map((term) => (
+                      <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`recent-search-${term}`}
+                        className="text-xs px-2.5 py-1 rounded-full bg-background border border-border text-foreground hover:border-gold-500">
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div data-testid="popular-searches">
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Popular</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_SEARCHES.map((term) => (
+                    <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`popular-search-${term}`}
+                      className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="p-2">
             <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Onboarded Partners</div>
             {loadingFeat ? (
@@ -397,10 +452,25 @@ const GlobalSearch = () => {
 
       {/* No Results */}
       {showResults && searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50" data-testid="search-no-results">
           <div className="text-center text-muted-foreground">
             <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/70" />
             <p>No results found for &quot;{searchQuery}&quot;</p>
+          </div>
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5 text-center">Try one of these</div>
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {POPULAR_SEARCHES.map((term) => (
+                <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`no-results-suggestion-${term}`}
+                  className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                  {term}
+                </button>
+              ))}
+              <button type="button" onClick={() => navigate('/businesses')} data-testid="no-results-browse-all"
+                className="text-xs px-2.5 py-1 rounded-full bg-background border border-border hover:border-gold-500">
+                Browse all businesses
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -419,8 +489,7 @@ const Header = () => {
   //   `show: 'authed'`          — any logged-in user
   //   `show: ['admin', 'driver']` — restricted to listed user_type(s)
   const allNavigationItems = [
-    { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
-    { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
+    { to: "/businesses",        label: "Business",          icon: Store,       show: 'everyone' },
     { to: "/promote",           label: "Promote & Earn",    icon: Megaphone,   show: 'authed' },
     { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
     { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
@@ -1452,7 +1521,8 @@ const Dashboard = () => {
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
-                  onClick={() => navigate('/services')}
+                  onClick={() => navigate('/businesses')}
+                  data-testid="quick-action-place-order"
                 >
                   <Package className="h-6 w-6" />
                   <span className="text-sm">Place Order</span>
@@ -1971,6 +2041,8 @@ function App() {
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
+            <Route path="/businesses" element={<BusinessSearch />} />
+            <Route path="/t/:orderId" element={<PublicTrack />} />
             <Route path="/restaurant/:restaurantId" element={<RestaurantMenu />} />
             <Route path="/taxi-booking" element={<TaxiBookingForm />} />
             <Route path="/courier-order" element={<CourierOrderForm />} />
