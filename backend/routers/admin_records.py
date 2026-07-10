@@ -57,6 +57,7 @@ _RECORD_CATEGORIES = {
     "drivers": {"collection": "drivers", "status_field": "status"},
     "car_rentals": {"collection": "car_rental_companies", "status_field": "status"},
     "businesses": {"collection": "business_applications", "status_field": "verification_status"},
+    "shops": {"collection": "businesses", "status_field": "status"},
     "users": {"collection": "users", "status_field": "status"},
 }
 _USER_SENSITIVE_FIELDS = ("hashed_password", "password", "session_token")
@@ -93,6 +94,10 @@ def _record_summary(doc: dict, category: str) -> dict:
                      "email": doc.get("email") or bo.get("email"), "phone": doc.get("phone") or bo.get("phone"),
                      "subtitle": bd.get("business_type") or doc.get("business_type"),
                      "owner_name": bo.get("name")})
+    elif category == "shops":
+        base.update({"name": doc.get("business_name"),
+                     "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": doc.get("business_type")})
     elif category == "users":
         base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("user_type"), "user_type": doc.get("user_type")})
@@ -127,6 +132,7 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
             "drivers": ["name", "email", "phone", "license_number", "vehicle_plate"],
             "car_rentals": ["company_name"],
             "businesses": ["business_name", "email", "phone"],
+            "shops": ["business_name", "email", "phone"],
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
@@ -202,6 +208,7 @@ async def admin_record_orders(category: str, record_id: str, request: Request, l
         "restaurants": {"restaurant_id": record_id},
         "drivers": {"driver_id": record_id},
         "businesses": {"$or": [{"vendor_id": record_id}, {"restaurant_id": record_id}]},
+        "shops": {"$or": [{"vendor_id": record_id}, {"business_id": record_id}]},
         "users": {"customer_id": record_id},
     }[category]
     orders = await db.orders.find(order_query, {"_id": 0}).sort("created_at", -1).limit(cap).to_list(length=cap)

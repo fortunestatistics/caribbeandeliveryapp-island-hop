@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
-  FileText, FolderOpen, ExternalLink, AlertTriangle,
+  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,8 +18,9 @@ const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 
 const CATEGORIES = [
   { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
-  { key: 'businesses', label: 'Merchant Applications', icon: Store, approveKind: 'business' },
+  { key: 'businesses', label: 'Merchant/Vendor Applications', icon: Store, approveKind: 'business' },
   { key: 'restaurants', label: 'Live Restaurants', icon: Building2, approveKind: 'restaurant' },
+  { key: 'shops', label: 'Live Shops', icon: ShoppingBag, approveKind: null },
   { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
   { key: 'users', label: 'User Accounts', icon: Users, approveKind: null },
 ];

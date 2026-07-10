@@ -14,6 +14,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jul 10, 2026 (fork, cont.)
+**Password reset — FIXED (was fully broken):** Backend `/api/auth/forgot-password` never sent an email (had a TODO) and the frontend `/forgot-password` route/page didn't exist. Now: backend emails a 1-hour reset link via M365/Graph (`Mail.Send` confirmed granted); OAuth-only accounts get a "use Continue with Google/Microsoft" message; added `origin_url` to `PasswordReset` model so links match the environment. New pages `frontend/src/ForgotPassword.js` + `ResetPassword.js`, routes `/forgot-password` & `/reset-password` in App.js, `authAPI.forgotPassword` now passes `origin_url`. Verified e2e: forgot→reset(200)→login new pw(200)→old pw(401); reset email sent with no errors.
+
+**Approvals classification (user choice "b") — DONE:** Added a **"Live Shops"** category (`shops` → `businesses` collection) so approved non-food merchants (shops/pharmacies/groceries) are visible instead of vanishing after approval; renamed "Merchant Applications" → "Merchant/Vendor Applications". Backend `routers/admin_records.py` `_RECORD_CATEGORIES`/`_record_summary`/search-fields/order-query updated for `shops`; frontend `AdminApprovals.js` CATEGORIES adds `shops` (roster → defaults to All Records). Verified: shops tab returns 16 records, renders correctly, 20/20 approvals tests pass.
+
+**PRODUCTION DEPLOY ISSUE (root cause found):** User deployed 3× but prod stayed stale. Confirmed by hitting https://islandhop-mvp.emergent.host directly — prod `forgot-password` returns old message & driver rows show 0 names, proving prod lacks the committed fixes. Per Emergent Support: **deploy builds from the last GitHub commit, not the preview workspace** → user MUST click **Save to GitHub → PUSH**, THEN Deploy. Also: custom domain islandhopapp.com not connecting + POST(approve) failing = platform apex/www redirect issue → contact support@emergent.sh.
+
+
 ## Session Log — Jul 10, 2026 (fork)
 **P0 fix — Admin Approvals "category tab shows nothing":** Root cause = single global status filter defaulting to "New Applications" (pending), but Live Restaurants/Car Rentals are created `active` (never pending) → those tabs rendered empty. Fix in `AdminApprovals.js`: category tabs now set a sensible default status on click via `defaultStatusFor()` — application tabs (drivers, businesses) → `pending`; roster tabs (restaurants, car_rentals, users) → `all`. Also `admin_list_records` now batch-joins the `users` collection for the drivers category so driver rows show name/email (driver docs store no name). Tested: iter36 6/6 backend + all category tabs verified.
 
