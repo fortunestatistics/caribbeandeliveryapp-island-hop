@@ -27,6 +27,12 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 10, 2026 (pt3) — Merchant approval→portal fix, test-data purge, storefront populate/load
+- **Approved merchants couldn't reach their portal (FIXED):** business approval now (a) promotes the account `user_type` to `business`/`restaurant` (was staying `customer`, so `ROLES_VENDOR_ADMIN` blocked the portal), (b) creates the actual `businesses`/`restaurants` vendor record so `/merchant/storefront` works, (c) sends an **email** notification (WhatsApp-only before → many never notified). Verified: approve → role promoted → storefront 200.
+- **Storefronts now populate under Business & load real data (FIXED):** `/api/search` + `/api/search/featured` now return ALL active businesses (any `business_type`, was pharmacy/grocery-only); added a "Shops" category chip (browse + header). Public `/api/merchants/{id}/storefront` enriched with real name/type/description/rating/menu; `RestaurantMenu.js` now renders the real vendor (name, menu, address) instead of hardcoded demo "Island Spice Kitchen". Verified: Island Convenience shows under Shops; Roti Palace store page shows its real menu.
+- **Test-data cleanup:** ran admin cleanup on preview (deleted ~71 test items: QA/TEST/SMS/E2E/Probe drivers, probe merchant leads, timestamped test accounts). Improved matcher to catch top-level driver `name` + `probe`/`@x.tt`. Real applicant "SILAS SMOOTHIES" preserved. NOTE: 60 anonymous (no-name) drivers + ambiguous "Route Diner" left untouched to avoid deleting possibly-real data. Production data must be purged via Admin → Data Cleanup after redeploy.
+
+
 ### Jul 10, 2026 (pt2) — "Business" nav + Browse Businesses page + 5 improvements
 - **Nav change:** replaced top-nav "Restaurants" + "Car Rentals" with a single **"Business"** link → `/businesses` (routes to old pages still exist). Customer portal Quick Action **"Place Order"** now routes to `/businesses` (`quick-action-place-order`).
 - **New `/businesses` Browse Businesses page** (`BusinessSearch.js`): orange hero + search, category chips (All/Restaurants/Pharmacy/Grocery filter the grid; Taxi/Courier → booking pages with live "N online" hint), partner cards with Featured badge/rating; card click routes to the correct vendor/order page.

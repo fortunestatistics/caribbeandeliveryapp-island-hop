@@ -190,6 +190,7 @@ const GlobalSearch = () => {
     { key: 'restaurant', label: 'Restaurants' },
     { key: 'pharmacy', label: 'Pharmacy' },
     { key: 'grocery', label: 'Grocery' },
+    { key: 'shop', label: 'Shops' },
     { key: 'taxi', label: 'Taxi', route: '/taxi-booking' },
     { key: 'courier', label: 'Courier', route: '/courier-order' },
   ];

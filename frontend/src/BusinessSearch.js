@@ -11,6 +11,7 @@ const CATEGORIES = [
   { key: 'restaurant', label: 'Restaurants', icon: Utensils },
   { key: 'pharmacy', label: 'Pharmacy', icon: Pill },
   { key: 'grocery', label: 'Grocery', icon: ShoppingCart },
+  { key: 'shop', label: 'Shops', icon: Store },
   { key: 'taxi', label: 'Taxi', icon: Car, route: '/taxi-booking' },
   { key: 'courier', label: 'Courier', icon: Package, route: '/courier-order' },
 ];
@@ -41,7 +42,13 @@ const BusinessSearch = () => {
       if (query.trim().length >= 2) {
         const r = await axios.get(`${API}/search`, { params: { q: query.trim() } });
         const vendors = (r.data.results || []).filter((x) => x.type === 'vendor');
-        setResults(cat === 'all' ? vendors : vendors.filter((v) => v.vendor_type === cat));
+        let filtered = vendors;
+        if (cat === 'shop') {
+          filtered = vendors.filter((v) => !['pharmacy', 'grocery', 'restaurant'].includes(v.vendor_type));
+        } else if (cat !== 'all') {
+          filtered = vendors.filter((v) => v.vendor_type === cat);
+        }
+        setResults(filtered);
       } else {
         const r = await axios.get(`${API}/search/featured`, { params: { category: cat, limit: 30 } });
         setResults(r.data.results || []);

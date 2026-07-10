@@ -76,27 +76,44 @@ const RestaurantMenu = () => {
     axios.get(`${STOREFRONT_API}/merchants/${restaurantId}/storefront`)
       .then((res) => {
         const d = res.data || {};
-        if (d.logo || d.cover || d.bio || (d.gallery && d.gallery.length)) setStorefront(d);
+        if (d.name || d.logo || d.cover || d.bio || (d.gallery && d.gallery.length) || (d.menu_items && d.menu_items.length)) {
+          setStorefront(d);
+        }
       })
       .catch(() => {});
   }, [restaurantId]);
 
-  // Demo restaurant data
+  // Real vendor data (from the storefront endpoint) with a safe demo fallback.
+  const sf = storefront || {};
   const restaurant = {
     id: restaurantId || 'island-spice',
-    name: 'Island Spice Kitchen',
-    cuisine: 'Caribbean',
-    rating: 4.8,
+    name: sf.name || 'Island Spice Kitchen',
+    cuisine: sf.cuisine_type || sf.vendor_type || 'Caribbean',
+    rating: sf.rating != null ? sf.rating : 4.8,
     reviews: 342,
-    deliveryTime: '25-35 min',
-    deliveryFee: 12.00,
-    minOrder: 15.00,
-    address: '123 Main Street, Kingston, Jamaica'
+    deliveryTime: sf.estimated_delivery_time ? `${sf.estimated_delivery_time} min` : '25-35 min',
+    deliveryFee: sf.delivery_fee != null ? sf.delivery_fee : 12.00,
+    minOrder: sf.minimum_order != null ? sf.minimum_order : 15.00,
+    address: (sf.address && (sf.address.street || sf.address.city))
+      ? [sf.address.street, sf.address.city, sf.address.country].filter(Boolean).join(', ')
+      : '123 Main Street, Kingston, Jamaica',
+    description: sf.description || '',
   };
 
   const categories = ['All', 'Popular', 'Mains', 'Sides', 'Drinks', 'Desserts'];
 
-  const menuItems = [
+  const realMenu = (sf.menu_items || []).map((m, i) => ({
+    id: m.id || i + 1,
+    name: m.name,
+    description: m.description || '',
+    price: m.price || 0,
+    category: m.category || 'Mains',
+    image: '🍽️',
+    popular: !!m.popular,
+    spicy: !!m.spicy,
+  }));
+
+  const demoMenuItems = [
     {
       id: 1,
       name: 'Jerk Chicken Plate',
@@ -238,6 +255,10 @@ const RestaurantMenu = () => {
       spicy: false
     }
   ];
+
+  // Use the merchant's real menu when available. If we resolved a real vendor
+  // (sf.name) but it has no items yet, show an empty menu — not demo food.
+  const menuItems = realMenu.length > 0 ? realMenu : (sf.name ? [] : demoMenuItems);
 
   const filteredItems = menuItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

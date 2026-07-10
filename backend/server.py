@@ -1195,42 +1195,22 @@ async def global_search(q: str):
             "cuisine": restaurant.get("cuisine", [])
         })
     
-    # Search Pharmacies (from business onboarding with pharmacy type)
-    pharmacies = await db.businesses.find({
+    # Search ALL onboarded businesses (pharmacy, grocery, and any other merchant type)
+    businesses = await db.businesses.find({
         "$or": [
             {"business_name": search_query},
             {"business_description": search_query}
         ],
-        "business_type": "pharmacy",
         "status": "active"
-    }).limit(5).to_list(length=None)
-    
-    for pharmacy in pharmacies:
+    }).limit(15).to_list(length=15)
+
+    for biz in businesses:
         results.append({
-            "id": pharmacy.get("id"),
-            "name": pharmacy.get("business_name"),
+            "id": biz.get("id"),
+            "name": biz.get("business_name"),
             "type": "vendor",
-            "vendor_type": "pharmacy",
-            "description": pharmacy.get("business_description", "")
-        })
-    
-    # Search Grocery Stores
-    groceries = await db.businesses.find({
-        "$or": [
-            {"business_name": search_query},
-            {"business_description": search_query}
-        ],
-        "business_type": "grocery",
-        "status": "active"
-    }).limit(5).to_list(length=None)
-    
-    for grocery in groceries:
-        results.append({
-            "id": grocery.get("id"),
-            "name": grocery.get("business_name"),
-            "type": "vendor",
-            "vendor_type": "grocery",
-            "description": grocery.get("business_description", "")
+            "vendor_type": biz.get("business_type") or "business",
+            "description": biz.get("business_description", "")
         })
     
     # Search Menu Items / Products (if you have a menu_items collection)
@@ -1268,7 +1248,7 @@ async def global_search(q: str):
 @api_router.get("/search/featured")
 async def search_featured(category: Optional[str] = None, limit: int = 12):
     """Onboarded partners to show the moment the search bar is focused (before typing).
-    Optional `category`: restaurant | pharmacy | grocery (blank/all = mixed)."""
+    Optional `category`: restaurant | pharmacy | grocery | shop (blank/all = mixed)."""
     want = (category or "").lower().strip()
     results = []
 
@@ -1284,24 +1264,22 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
                 "featured": bool(r.get("featured")), "rating": r.get("rating"),
             })
 
-    if want in ("", "all", "pharmacy"):
-        pharmacies = await db.businesses.find(
-            {"business_type": "pharmacy", "status": "active"}, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1}
-        ).limit(20).to_list(length=20)
-        for p in pharmacies:
+    # Businesses: specific type when requested, otherwise ALL active businesses
+    # (pharmacy, grocery, and any other approved merchant type) so every merchant shows up.
+    if want not in ("restaurant", "food"):
+        biz_query = {"status": "active"}
+        if want in ("pharmacy", "grocery"):
+            biz_query["business_type"] = want
+        elif want in ("shop", "shops", "business", "other"):
+            biz_query["business_type"] = {"$nin": ["pharmacy", "grocery"]}
+        businesses = await db.businesses.find(
+            biz_query, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1, "business_type": 1}
+        ).limit(40).to_list(length=40)
+        for b in businesses:
             results.append({
-                "id": p.get("id"), "name": p.get("business_name"), "type": "vendor",
-                "vendor_type": "pharmacy", "description": p.get("business_description", ""),
-            })
-
-    if want in ("", "all", "grocery"):
-        groceries = await db.businesses.find(
-            {"business_type": "grocery", "status": "active"}, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1}
-        ).limit(20).to_list(length=20)
-        for g in groceries:
-            results.append({
-                "id": g.get("id"), "name": g.get("business_name"), "type": "vendor",
-                "vendor_type": "grocery", "description": g.get("business_description", ""),
+                "id": b.get("id"), "name": b.get("business_name"), "type": "vendor",
+                "vendor_type": b.get("business_type") or "business",
+                "description": b.get("business_description", ""),
             })
 
     return {"results": results[: max(1, min(limit, 50))]}
@@ -6705,11 +6683,36 @@ async def update_my_storefront(payload: StorefrontUpdate, request: Request):
 
 @api_router.get("/merchants/{vendor_id}/storefront")
 async def get_public_storefront(vendor_id: str):
-    """Public storefront customisation for a merchant (used by the customer-facing store page)."""
-    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
-    if not doc:
-        return {"vendor_id": vendor_id, "logo": None, "cover": None, "bio": "", "gallery": []}
-    return doc
+    """Public storefront for a merchant (used by the customer-facing store page).
+    Includes the vendor's real identity (name, type, description, menu) so the store
+    page never falls back to demo data."""
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0}) or {}
+    out = {
+        "vendor_id": vendor_id,
+        "logo": doc.get("logo"), "cover": doc.get("cover"),
+        "bio": doc.get("bio", ""), "gallery": doc.get("gallery", []),
+        "name": None, "vendor_type": None, "description": "", "rating": None,
+        "cuisine_type": None, "delivery_fee": None, "minimum_order": None,
+        "estimated_delivery_time": None, "address": None, "menu_items": [],
+    }
+    r = await db.restaurants.find_one({"id": vendor_id}, {"_id": 0})
+    if r:
+        out.update({
+            "name": r.get("name"), "vendor_type": "restaurant",
+            "description": r.get("description", ""), "rating": r.get("rating"),
+            "cuisine_type": r.get("cuisine_type"), "delivery_fee": r.get("delivery_fee"),
+            "minimum_order": r.get("minimum_order"), "estimated_delivery_time": r.get("estimated_delivery_time"),
+            "address": r.get("address"), "menu_items": r.get("menu_items") or [],
+        })
+        return out
+    b = await db.businesses.find_one({"id": vendor_id}, {"_id": 0})
+    if b:
+        out.update({
+            "name": b.get("business_name"), "vendor_type": b.get("business_type") or "business",
+            "description": b.get("business_description", ""),
+            "address": b.get("address"), "menu_items": b.get("products") or b.get("menu_items") or [],
+        })
+    return out
 
 
 def _gen_coupon_code() -> str:
@@ -9572,9 +9575,9 @@ def _flatten_pending(items: List[dict], kind: str) -> List[dict]:
 CLEANUP_KEEP_RESTAURANT_NAMES = {"caribbean spice kitchen"}
 _CLEANUP_SEED_RESTAURANTS = {"island spice kitchen", "tropical grill", "beach bites cafe"}
 _CLEANUP_TEST_RE = re.compile(
-    r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|"
+    r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|\bprobe\b|"
     r"tier hut|ui eatery|ui merch|ad spice kitchen|featured_iter|jerk hut|"
-    r"\bfe diner\b|\bi14|diner\s*\d|\d{8,}|@example\.com|\+test|noreply\+)",
+    r"\bfe diner\b|\bi14|diner\s*\d|\d{8,}|@example\.com|@x\.tt|\+test|noreply\+)",
     re.I,
 )
 _CLEANUP_PROTECTED_USER_TYPES = {"admin", "staff", "owner"}
@@ -9628,13 +9631,13 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     plan["car_rental_companies"] = {"ids": del_cr_ids, "labels": cr_labels}
 
     del_driver_ids, del_driver_user_ids, drv_labels = [], [], []
-    async for d in db.drivers.find({}, {"_id": 0, "id": 1, "user_id": 1, "personal_info": 1, "license_number": 1}):
+    async for d in db.drivers.find({}, {"_id": 0, "id": 1, "user_id": 1, "name": 1, "email": 1, "personal_info": 1, "license_number": 1}):
         pi = d.get("personal_info") or {}
-        if _cleanup_is_test(pi.get("name"), pi.get("email"), d.get("license_number")):
+        if _cleanup_is_test(d.get("name"), d.get("email"), pi.get("name"), pi.get("email"), d.get("license_number")):
             del_driver_ids.append(d.get("id"))
             if d.get("user_id"):
                 del_driver_user_ids.append(d.get("user_id"))
-            drv_labels.append(pi.get("name") or d.get("id"))
+            drv_labels.append(d.get("name") or pi.get("name") or d.get("id"))
     plan["drivers"] = {"ids": del_driver_ids, "labels": drv_labels, "user_ids": del_driver_user_ids}
 
     del_app_ids, app_labels = [], []
@@ -10221,8 +10224,10 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
-    await _notify_merchant_status(application_id, "verified", payload.notes)
     app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    if app_doc:
+        await _provision_merchant_vendor(app_doc)
+    await _notify_merchant_status(application_id, "verified", payload.notes)
     if app_doc and app_doc.get("user_id"):
         btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
         rtype = "supplier" if "supplier" in btype else "merchant"
@@ -10260,6 +10265,86 @@ async def _notify_merchant_status(application_id: str, decision: str, notes: Opt
             await _wa_notify(phone, body, user_id=app_doc.get("user_id"), event=f"merchant_{decision}")
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"Merchant WhatsApp notification ({decision}) failed for {application_id}: {exc}")
+
+    # Email fallback/parallel — WhatsApp requires the customer to have messaged first
+    # (24h window), so email is the reliable channel for the approval notice.
+    try:
+        app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+        if not app_doc:
+            return
+        email = app_doc.get("email") or (app_doc.get("business_owner", {}) or {}).get("email")
+        if not email or not graph_mail.is_real_email(email):
+            return
+        biz = app_doc.get("business_name") or app_doc.get("name") or "your business"
+        portal_url = f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/vendor-dashboard"
+        if decision == "verified":
+            subject = f"You're approved on IslandHop — set up {biz} 🎉"
+            html = (
+                f"<p>Great news! <strong>{biz}</strong> has been approved on IslandHop.</p>"
+                f"<p>Log in and open your <strong>Merchant Portal</strong> to build your storefront, "
+                f"add your menu/listings and start receiving orders:</p>"
+                f'<p><a href="{portal_url}" style="background:#FF6A00;color:#fff;padding:10px 18px;'
+                f'border-radius:8px;text-decoration:none;">Open my Merchant Portal</a></p>'
+                f'<p>Or go to <a href="{portal_url}">{portal_url}</a> after signing in.</p>'
+                f"<p>Welcome aboard! 🌴<br/>The IslandHop Team</p>"
+            )
+        elif decision == "rejected":
+            subject = f"Update on your IslandHop application for {biz}"
+            html = (
+                f"<p>Thanks for applying to IslandHop with <strong>{biz}</strong>.</p>"
+                f"<p>Unfortunately we're unable to approve your application at this time."
+                + (f" Reason: {notes}" if notes else "")
+                + "</p><p>Reply to this email if you'd like to reapply or need clarification.</p>"
+            )
+        else:
+            return
+        await graph_mail.send_mail(email, subject, html, mailbox=graph_mail.notify_mailbox("merchant"))
+    except graph_mail.GraphNotConfigured:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Merchant email notification ({decision}) failed for {application_id}: {exc}")
+
+
+async def _provision_merchant_vendor(app_doc: dict):
+    """On approval, create the actual vendor record (so the Merchant Portal & storefront
+    work) and promote the applicant's account role. Idempotent — never duplicates."""
+    uid = app_doc.get("user_id")
+    if not uid:
+        return  # external lead with no account yet — nothing to provision
+    details = app_doc.get("business_details", {}) or {}
+    btype = str(details.get("business_type") or app_doc.get("business_type") or "").lower().strip()
+    owner = app_doc.get("business_owner", {}) or {}
+    name = app_doc.get("business_name") or details.get("business_name") or owner.get("name") or "My Business"
+    description = details.get("business_description") or details.get("description") or ""
+    email = app_doc.get("email") or owner.get("email") or ""
+    phone = app_doc.get("phone") or owner.get("phone") or ""
+    address = details.get("address") if isinstance(details.get("address"), dict) else {
+        "street": details.get("address") or "", "city": details.get("city") or "",
+        "parish": "", "country": "Trinidad & Tobago",
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    food_types = {"restaurant", "food", "cafe", "bakery", "bar", "eatery"}
+
+    if btype in food_types:
+        if not await db.restaurants.find_one({"user_id": uid}, {"_id": 1}):
+            await db.restaurants.insert_one({
+                "id": str(uuid.uuid4()), "user_id": uid, "name": name,
+                "description": description, "cuisine_type": details.get("cuisine_type") or "Caribbean",
+                "address": address, "phone": phone, "email": email,
+                "status": "active", "rating": 0.0, "delivery_fee": 8.0,
+                "minimum_order": 30.0, "estimated_delivery_time": 35, "menu_items": [],
+                "subscription_tier": "standard", "featured": False, "created_at": now,
+            })
+        await db.users.update_one({"id": uid}, {"$set": {"user_type": "restaurant"}})
+    else:
+        if not await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
+            await db.businesses.insert_one({
+                "id": str(uuid.uuid4()), "user_id": uid, "business_name": name,
+                "business_type": btype or "business", "business_description": description,
+                "email": email, "phone": phone, "address": address,
+                "status": "active", "created_at": now,
+            })
+        await db.users.update_one({"id": uid}, {"$set": {"user_type": "business"}})
 
 
 # ---------------------------------------------------------------------------
