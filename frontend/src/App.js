@@ -47,6 +47,7 @@ const ClaimsPage = lazy(() => import('./ClaimsPage'));
 const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const MerchantProducts = lazy(() => import('./MerchantProducts'));
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
@@ -2086,6 +2087,7 @@ function App() {
             <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ONBOARD}><RestaurantOnboarding /></ProtectedRoute>} />
             <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
             <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
+            <Route path="/merchant/products" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantProducts /></ProtectedRoute>} />
             <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
             <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
             <Route path="/merchant/ads" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantAds /></ProtectedRoute>} />

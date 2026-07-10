@@ -144,16 +144,23 @@ const DriverDashboard = () => {
     const granted = await requestLocationConsent();
     if (!granted) return;
 
+    // Clear any existing watcher to avoid duplicate trackers.
+    if (locationTracking) {
+      navigator.geolocation.clearWatch(locationTracking);
+    }
+
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-        
+
         try {
-          await axios.post(`${API}/drivers/${driver.id}/location`, {
-            latitude,
-            longitude,
-            heading,
-            speed
+          const token = localStorage.getItem('token');
+          const params = { latitude, longitude };
+          if (typeof heading === 'number' && !Number.isNaN(heading)) params.heading = heading;
+          if (typeof speed === 'number' && !Number.isNaN(speed)) params.speed = speed;
+          await axios.post(`${API}/drivers/${driver.id}/location`, null, {
+            params,
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
         } catch (error) {
           console.error('Error updating location:', error);

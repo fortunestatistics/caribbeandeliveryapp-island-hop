@@ -1,0 +1,44 @@
+{
+  "summary": "Iter35 verification: (1) NEW unified Merchant Product Manager (GET/POST/PUT/DELETE /api/merchant/products) works for non-restaurant merchants (convenience/pharmacy), (2) GPS fix for POST /api/drivers/{id}/location as query params. Backend pytest: 12/12 passing incl. cross-merchant 404 isolation, storefront reflects added products (menu_items source of truth), price validation (400 on bad/negative price, empty name), non-merchant customer -> 404, driver location accepts query params (200) and rejects JSON-body-only (422). Frontend: /merchant/products page loads for approved 'business' user, form add creates row, toggle/edit/delete all work end-to-end, 'Products & Menu' (manage-products-btn) on /vendor-dashboard navigates to /merchant/products. Public /restaurant/{vendor_id} for convenience merchant shows real shop name ('UI QA Shop ...') + real product ('UI_TEST_Cheese'), no fallback to 'Island Spice Kitchen' demo. Location disclosure modal (location-disclosure-modal) still appears when clicking 'Use Current Location' in AddressManagement flow; accept/decline buttons present (location-disclosure-accept-btn, location-disclosure-decline-btn). DriverDashboard.js:161 confirmed to POST with axios params + Authorization header (fix in place).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/drivers/{driver_id}/location", "issue": "Endpoint has NO authentication requirement — any client can push arbitrary lat/lng for any driver_id (even fake ones), inserting rows into driver_locations. Consider requiring auth and verifying current_user is the driver owner."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AddressManagement 'Use Current Location' button", "issue": "Missing data-testid (relied on text 'Use Current Location'). Nice-to-have.", "selector": "button", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Vendor Dashboard stats/orders after login for newly-approved business", "issue": "Console shows repeated 401 'Error fetching stats/orders' on /vendor-dashboard — auth header appears not sent from that page for these calls (or endpoint requires restaurant/business role that isn't fully applied until token refresh). Merchant product manager itself works because it uses correct header.", "affected_selectors": ["/api/vendor/... (stats,orders)"]}
+    ],
+    "design_issues": [
+      {"screen": "/restaurant/{vendor_id} storefront price display", "issues": ["Product created with TTD price 35 displays as 'TT$237.30' — appears the storefront/RestaurantMenu multiplies by ~6.78 (USD→TTD rate) even though the input label already says 'Price (TTD)'. Currency conversion is likely double-applying. Please verify unit price handling in RestaurantMenu.js display path."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_merchant_products_gps.py",
+    "/app/test_reports/pytest/iter35_merchant_products_gps.xml"
+  ],
+  "action_items": [
+    "Fix currency display for merchant products on public storefront — TT-priced item showing 6.78x its value in TT$.",
+    "Investigate 401s on /vendor-dashboard stats/orders after fresh business approval (may need explicit Authorization header or role-based route).",
+    "(Optional/security) Add auth+ownership check to POST /api/drivers/{id}/location (currently open).",
+    "(Nice-to-have) Add data-testid to AddressManagement 'Use Current Location' button."
+  ],
+  "critical_code_review_comments": [
+    "server.py continues to sprawl (11k+ lines) — new merchant/products endpoints live at lines ~1465-1545, still in the mega-file. Extract into merchant_router.py.",
+    "POST /api/drivers/{driver_id}/location is unauthenticated; any actor can insert driver_locations rows for arbitrary driver_ids, corrupting location history and firing WS pushes. Add auth + ownership assertion.",
+    "_provision_merchant_vendor is idempotent for restaurants/businesses but doesn't cover car_rental despite _resolve_vendor_for_user handling it — car-rental merchants approved via admin will 404 the product manager.",
+    "Storefront price double-conversion (see design_issues) implies the currency context is treating stored numeric prices as USD; either persist explicit currency or bypass conversion on merchant-owned items."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter35_merchant_products_gps.py (new)"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "95% (core CRUD + storefront + location modal verified; TT$ price display bug noted)"},
+  "test_credentials": "Admin owner tracyfortune@islandhoptt.com / IslandHopAdmin2026! works. Created qa_ui_merch_1783710942@gmail.com / TestPass123! (approved convenience merchant) for UI reuse.",
+  "seed_data_creation": "One approved convenience merchant (qa_ui_merch_1783710942@gmail.com) + a few TEST_-prefixed products; two pytest merchants (convenience + pharmacy) per run — safe to ignore.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter35 shipped: /merchant/products (data-testid: merchant-products-page, product-name-input, product-price-input, product-category-input, product-available-switch, product-description-input, product-save-btn, product-cancel-btn, product-row-{id}, product-toggle-{id}, product-edit-{id}, product-delete-{id}, products-back-btn, products-error, products-empty); VendorDashboard has manage-products-btn linking to /merchant/products. Public store page /restaurant/{vendor_id} now uses real vendor identity (name + menu_items collection). GPS: DriverDashboard sends lat/lng as axios params + Authorization; backend endpoint accepts them as query params. Location disclosure modal: location-disclosure-modal + accept/decline buttons unchanged. KNOWN bug: storefront price is 6.78x displayed (currency double-conversion).",
+  "rca of the issue": "Storefront price display bug RCA: user enters TT$ value; API stores as-is; RestaurantMenu.js likely runs value through a currency-context formatter that treats stored numbers as USD and multiplies by USD->TTD rate for display. Fix: either (a) always store USD canonical + convert on read, or (b) pass a currency flag with the item and bypass conversion when currency matches display currency."
+}

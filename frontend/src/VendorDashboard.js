@@ -237,9 +237,14 @@ const VendorDashboard = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Orders</span>
-              <Button size="sm" variant="outline" onClick={() => fetchOrders()}>
-                Refresh
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => navigate('/merchant/products')} className="bg-gold-gradient text-white" data-testid="manage-products-btn">
+                  Products &amp; Menu
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => fetchOrders()}>
+                  Refresh
+                </Button>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent>

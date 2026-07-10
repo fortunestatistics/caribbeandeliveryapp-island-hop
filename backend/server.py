@@ -1462,6 +1462,87 @@ async def get_menu_categories():
     ]
     return categories
 
+
+# --- Unified merchant product/menu manager (works for restaurants, pharmacies,
+# groceries and any other merchant type; stored in the shared menu_items collection). ---
+@api_router.get("/merchant/products")
+async def merchant_list_products(request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    items = await db.menu_items.find({"restaurant_id": vendor_id}, {"_id": 0}).limit(500).to_list(length=500)
+    return {"vendor_id": vendor_id, "vendor_type": vendor_type, "products": items}
+
+
+@api_router.post("/merchant/products")
+async def merchant_add_product(payload: dict, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Product name is required")
+    try:
+        price = round(float(payload.get("price") or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Price must be a number")
+    if price < 0:
+        raise HTTPException(status_code=400, detail="Price cannot be negative")
+    item = {
+        "id": str(uuid.uuid4()),
+        "restaurant_id": vendor_id,
+        "name": name,
+        "description": (payload.get("description") or "").strip(),
+        "price": price,
+        "category": (payload.get("category") or "General").strip(),
+        "available": bool(payload.get("available", True)),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.menu_items.insert_one(dict(item))
+    return item
+
+
+@api_router.put("/merchant/products/{item_id}")
+async def merchant_update_product(item_id: str, payload: dict, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    existing = await db.menu_items.find_one({"id": item_id}, {"_id": 0})
+    if not existing or existing.get("restaurant_id") != vendor_id:
+        raise HTTPException(status_code=404, detail="Product not found")
+    updates = {}
+    if "name" in payload:
+        nm = (payload.get("name") or "").strip()
+        if not nm:
+            raise HTTPException(status_code=400, detail="Product name is required")
+        updates["name"] = nm
+    if "description" in payload:
+        updates["description"] = (payload.get("description") or "").strip()
+    if "price" in payload:
+        try:
+            p = round(float(payload.get("price") or 0), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Price must be a number")
+        if p < 0:
+            raise HTTPException(status_code=400, detail="Price cannot be negative")
+        updates["price"] = p
+    if "category" in payload:
+        updates["category"] = (payload.get("category") or "General").strip()
+    if "available" in payload:
+        updates["available"] = bool(payload.get("available"))
+    if updates:
+        await db.menu_items.update_one({"id": item_id}, {"$set": updates})
+    return {**existing, **updates}
+
+
+@api_router.delete("/merchant/products/{item_id}")
+async def merchant_delete_product(item_id: str, request: Request):
+    current_user = await get_current_user_from_request(request)
+    vendor_id, _ = await _resolve_vendor_for_user(current_user)
+    existing = await db.menu_items.find_one({"id": item_id}, {"_id": 0, "restaurant_id": 1})
+    if not existing or existing.get("restaurant_id") != vendor_id:
+        raise HTTPException(status_code=404, detail="Product not found")
+    await db.menu_items.delete_one({"id": item_id})
+    return {"success": True}
+
+
 # Vendor Dashboard Routes
 @api_router.get("/vendors/my-orders")
 async def get_vendor_orders(request: Request):
@@ -6696,6 +6777,15 @@ async def update_my_storefront(payload: StorefrontUpdate, request: Request):
     return {"success": True, "storefront": doc}
 
 
+async def _vendor_menu_items(vendor_id: str, fallback_field):
+    """Menu/products for a vendor: the menu_items collection is the source of truth
+    (managed via the Merchant Portal); fall back to the doc's embedded field (seed data)."""
+    items = await db.menu_items.find({"restaurant_id": vendor_id}, {"_id": 0}).limit(500).to_list(length=500)
+    if items:
+        return items
+    return fallback_field or []
+
+
 @api_router.get("/merchants/{vendor_id}/storefront")
 async def get_public_storefront(vendor_id: str):
     """Public storefront for a merchant (used by the customer-facing store page).
@@ -6717,16 +6807,18 @@ async def get_public_storefront(vendor_id: str):
             "description": r.get("description", ""), "rating": r.get("rating"),
             "cuisine_type": r.get("cuisine_type"), "delivery_fee": r.get("delivery_fee"),
             "minimum_order": r.get("minimum_order"), "estimated_delivery_time": r.get("estimated_delivery_time"),
-            "address": r.get("address"), "menu_items": r.get("menu_items") or [],
+            "address": r.get("address"),
         })
+        out["menu_items"] = await _vendor_menu_items(vendor_id, r.get("menu_items"))
         return out
     b = await db.businesses.find_one({"id": vendor_id}, {"_id": 0})
     if b:
         out.update({
             "name": b.get("business_name"), "vendor_type": b.get("business_type") or "business",
             "description": b.get("business_description", ""),
-            "address": b.get("address"), "menu_items": b.get("products") or b.get("menu_items") or [],
+            "address": b.get("address"),
         })
+        out["menu_items"] = await _vendor_menu_items(vendor_id, b.get("products") or b.get("menu_items"))
     return out
 
 
