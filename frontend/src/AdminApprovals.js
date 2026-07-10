@@ -27,6 +27,12 @@ const CATEGORIES = [
 const APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', car_rental: 'car-rentals', business: 'businesses' };
 const PENDING_STATUSES = ['pending', 'pending_approval'];
 
+// Application-style categories flow through a "pending" review queue; the others
+// (live restaurants, car-rental companies, user accounts) are created active, so
+// their sensible default view is "All Records" — otherwise their tab looks empty.
+const APPLICATION_CATEGORIES = new Set(['drivers', 'businesses']);
+const defaultStatusFor = (cat) => (APPLICATION_CATEGORIES.has(cat) ? 'pending' : 'all');
+
 const statusBadge = (status) => {
   const s = (status || '').toLowerCase();
   if (['active', 'approved', 'verified', 'online'].includes(s)) return 'bg-green-500/15 text-green-700 border-green-500/30';
@@ -360,7 +366,7 @@ const AdminApprovals = () => {
             <Button
               key={c.key}
               variant={active === c.key ? 'default' : 'outline'}
-              onClick={() => setActive(c.key)}
+              onClick={() => { setActive(c.key); setStatusFilter(defaultStatusFor(c.key)); }}
               data-testid={`approvals-cat-${c.key}`}
               size="sm"
             >
@@ -396,7 +402,11 @@ const AdminApprovals = () => {
             <div className="py-12 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
           ) : displayRecords.length === 0 ? (
             <p className="py-12 text-center text-muted-foreground" data-testid="approvals-empty">
-              {readyOnly ? `No "ready to approve" ${activeCat?.label.toLowerCase()} — all pending items are missing documents.` : `No ${activeCat?.label.toLowerCase()} found.`}
+              {readyOnly
+                ? `No "ready to approve" ${activeCat?.label.toLowerCase()} — all pending items are missing documents.`
+                : statusFilter === 'pending'
+                  ? `No new ${activeCat?.label.toLowerCase()} awaiting approval. Switch to "All Records" to see existing ones.`
+                  : `No ${activeCat?.label.toLowerCase()} found.`}
             </p>
           ) : (
             <div className="divide-y divide-border">

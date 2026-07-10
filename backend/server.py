@@ -10029,6 +10029,19 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
     acct_by_user: Dict[str, int] = {}
     if category != "users":
         uids = [r.get("user_id") for r in records if r.get("user_id")]
+        # Driver docs carry no name/email — enrich each row from the linked user account.
+        if category == "drivers" and uids:
+            users_by_id: Dict[str, dict] = {}
+            async for u in db.users.find(
+                {"id": {"$in": uids}}, {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1}
+            ):
+                users_by_id[u["id"]] = u
+            for r in records:
+                u = users_by_id.get(r.get("user_id"))
+                if u:
+                    r["name"] = r.get("name") or u.get("name")
+                    r["email"] = r.get("email") or u.get("email")
+                    r["phone"] = r.get("phone") or u.get("phone")
         if uids:
             agg = db.driver_documents.aggregate([
                 {"$match": {"user_id": {"$in": uids}, "is_deleted": False}},
