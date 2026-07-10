@@ -47,6 +47,8 @@ const ClaimsPage = lazy(() => import('./ClaimsPage'));
 const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const ForgotPassword = lazy(() => import('./ForgotPassword'));
+const ResetPassword = lazy(() => import('./ResetPassword'));
 const MerchantProducts = lazy(() => import('./MerchantProducts'));
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 const DriverSubscription = lazy(() => import('./DriverSubscription'));
@@ -2037,6 +2039,8 @@ function App() {
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
             <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
             <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />

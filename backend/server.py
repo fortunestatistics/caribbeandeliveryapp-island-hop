@@ -901,24 +901,55 @@ async def get_my_modes(current_user: User = Depends(get_current_user)):
 
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: PasswordReset):
-    """Initiate password reset"""
+    """Initiate password reset: email the user a one-hour reset link via M365/Graph."""
     user = await db.users.find_one({"email": data.email})
+    generic = {"message": "If an account exists for that email, a password reset link has been sent."}
     if not user:
-        # Don't reveal if email exists
-        return {"message": "If the email exists, a reset link has been sent"}
-    
-    # Create reset token (expires in 1 hour)
+        return generic  # Don't reveal whether the email exists.
+
+    # OAuth-only accounts (Google/Microsoft) have no password to reset.
+    if not user.get("hashed_password"):
+        provider = (user.get("auth_provider") or "google").lower()
+        provider_label = "Microsoft" if provider == "microsoft" else "Google"
+        raise HTTPException(
+            status_code=400,
+            detail=f"This account uses {provider_label} sign-in and has no password to reset. "
+                   f"Please use the Continue with {provider_label} button.",
+        )
+
     reset_token = create_access_token(
-        data={"sub": user['id'], "email": user['email'], "type": "password_reset"},
-        expires_delta=timedelta(hours=1)
+        data={"sub": user["id"], "email": user["email"], "type": "password_reset"},
+        expires_delta=timedelta(hours=1),
     )
-    
-    # In production, send email with reset link
-    # For now, just return the token
-    return {
-        "message": "Password reset token generated",
-        "token": reset_token  # Remove this in production
-    }
+    base = (data.origin_url or os.environ.get("FRONTEND_URL", "")).rstrip("/")
+    reset_link = f"{base}/reset-password?token={reset_token}"
+
+    # Send the email (best-effort; never leak whether the address exists).
+    try:
+        if graph_mail.is_real_email(user["email"]):
+            name = user.get("name") or "there"
+            subject = "Reset your IslandHop password"
+            html = (
+                f"<p>Hi {name},</p>"
+                f"<p>We received a request to reset your IslandHop password. "
+                f"Click the button below to choose a new one. This link expires in 1 hour.</p>"
+                f'<p><a href="{reset_link}" style="background:#FF6A00;color:#fff;padding:10px 18px;'
+                f'border-radius:8px;text-decoration:none;">Reset my password</a></p>'
+                f'<p>Or paste this link into your browser:<br/><a href="{reset_link}">{reset_link}</a></p>'
+                f"<p>If you didn't request this, you can safely ignore this email — your password won't change.</p>"
+                f"<p>— The IslandHop Team 🌴</p>"
+            )
+            await graph_mail.send_mail(user["email"], subject, html, mailbox=graph_mail.notify_mailbox("support"))
+    except graph_mail.GraphNotConfigured:
+        logging.warning("Password reset email skipped: M365/Graph not configured")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Password reset email failed for {user['email']}: {exc}")
+
+    resp = dict(generic)
+    # In non-production (preview) surface the token so the flow is testable without a live inbox.
+    if os.environ.get("EXPOSE_RESET_TOKEN", "true").lower() == "true":
+        resp["dev_token"] = reset_token
+    return resp
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
