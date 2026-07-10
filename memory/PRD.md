@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 10, 2026 — Search bar: onboarded-partners on focus + category chips
+- New backend `GET /api/search/featured?category=` returns active onboarded partners (restaurants sorted featured-first, pharmacies, groceries), category ∈ restaurant|pharmacy|grocery|all.
+- `GlobalSearch` (App.js): focusing the search bar now opens a dropdown of onboarded partners BEFORE typing, with quick-filter category chips (All / Restaurants / Pharmacy / Grocery filter the list; Taxi / Courier navigate to `/taxi-booking` and `/courier-order`). Typed search (≥2 chars) still works as before. Testids: `featured-partners-dropdown`, `search-cat-{key}`, `featured-partner-{i}`.
+- Verified on preview: focus shows 4 partners; Pharmacy chip filters to 2.
+- Note: The production deploy that "failed" was a transient/retryable Cloud Build error — local `yarn build` passes under both CI=false and CI=true (exit 0). A redeploy retry should succeed.
+
+
 ### Jul 9, 2026 (pt3) — Document-completeness badges on approval rows
 - Added a per-row `doc_summary` to `GET /api/admin/records/{category}` (batched — one `driver_documents` aggregation for all applicants' personal docs; merchant docs counted from the record's `documents` field, no N+1). Fields: `merchant_count`, `user_account_count`, `total`, `has_account_doc`.
 - `AdminApprovals.js` rows now show at-a-glance badges: green ✅ "N docs" when documents exist, amber ⚠ "No docs" when none, and amber ⚠ "Missing ID" for merchant applicants with no owner personal ID/licence uploaded (`has_account_doc=false`). Testid `record-docbadge-{id}`. Verified on preview across seeded rows (No docs / 2 docs+Missing ID / 4 docs).

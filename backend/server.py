@@ -1265,6 +1265,48 @@ async def global_search(q: str):
 
     return {"results": results[:20]}  # Limit to top 20 results
 
+@api_router.get("/search/featured")
+async def search_featured(category: Optional[str] = None, limit: int = 12):
+    """Onboarded partners to show the moment the search bar is focused (before typing).
+    Optional `category`: restaurant | pharmacy | grocery (blank/all = mixed)."""
+    want = (category or "").lower().strip()
+    results = []
+
+    if want in ("", "all", "restaurant", "food"):
+        restaurants = await db.restaurants.find(
+            {"status": "active"}, {"_id": 0, "id": 1, "name": 1, "description": 1, "cuisine": 1, "featured": 1, "rating": 1}
+        ).limit(50).to_list(length=50)
+        restaurants.sort(key=lambda x: (0 if x.get("featured") else 1, -(x.get("rating") or 0)))
+        for r in restaurants:
+            results.append({
+                "id": r.get("id"), "name": r.get("name"), "type": "vendor",
+                "vendor_type": "restaurant", "description": r.get("description", ""),
+                "featured": bool(r.get("featured")), "rating": r.get("rating"),
+            })
+
+    if want in ("", "all", "pharmacy"):
+        pharmacies = await db.businesses.find(
+            {"business_type": "pharmacy", "status": "active"}, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1}
+        ).limit(20).to_list(length=20)
+        for p in pharmacies:
+            results.append({
+                "id": p.get("id"), "name": p.get("business_name"), "type": "vendor",
+                "vendor_type": "pharmacy", "description": p.get("business_description", ""),
+            })
+
+    if want in ("", "all", "grocery"):
+        groceries = await db.businesses.find(
+            {"business_type": "grocery", "status": "active"}, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1}
+        ).limit(20).to_list(length=20)
+        for g in groceries:
+            results.append({
+                "id": g.get("id"), "name": g.get("business_name"), "type": "vendor",
+                "vendor_type": "grocery", "description": g.get("business_description", ""),
+            })
+
+    return {"results": results[: max(1, min(limit, 50))]}
+
+
 @api_router.get("/restaurants", response_model=List[Restaurant])
 async def get_restaurants():
     """Get all active restaurants, Featured (Pro/Premium) merchants first."""

@@ -143,8 +143,46 @@ const GlobalSearch = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [featured, setFeatured] = useState([]);
+  const [featCat, setFeatCat] = useState('all');
+  const [loadingFeat, setLoadingFeat] = useState(false);
   const navigate = useNavigate();
   const searchRef = React.useRef(null);
+
+  const loadFeatured = React.useCallback(async (cat) => {
+    setLoadingFeat(true);
+    try {
+      const response = await axios.get(`${API}/search/featured`, { params: { category: cat, limit: 12 } });
+      setFeatured(response.data.results || []);
+    } catch (e) {
+      setFeatured([]);
+    } finally {
+      setLoadingFeat(false);
+    }
+  }, []);
+
+  // Categories shown as quick-filter chips when the search bar is focused.
+  const searchCategories = [
+    { key: 'all', label: 'All' },
+    { key: 'restaurant', label: 'Restaurants' },
+    { key: 'pharmacy', label: 'Pharmacy' },
+    { key: 'grocery', label: 'Grocery' },
+    { key: 'taxi', label: 'Taxi', route: '/taxi-booking' },
+    { key: 'courier', label: 'Courier', route: '/courier-order' },
+  ];
+
+  const handleCategoryChip = (cat) => {
+    if (cat.route) { setShowResults(false); navigate(cat.route); return; }
+    setFeatCat(cat.key);
+    loadFeatured(cat.key);
+  };
+
+  const openFeatured = () => {
+    setShowResults(true);
+    if (searchQuery.trim().length < 2 && featured.length === 0) {
+      loadFeatured(featCat);
+    }
+  };
 
   // Debounce search
   useEffect(() => {
@@ -224,7 +262,7 @@ const GlobalSearch = () => {
             placeholder="Search restaurants, food, pharmacies..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
+            onFocus={openFeatured}
             data-testid="global-search-input"
             className="pl-11 pr-4 py-3 h-12 w-full text-base bg-matte-800/80 border-2 border-gold-500/30 rounded-l-xl rounded-r-none focus:border-gold-500 focus:ring-2 focus:ring-gold-500/30 placeholder:text-muted-foreground"
           />
@@ -245,8 +283,64 @@ const GlobalSearch = () => {
         </button>
       </div>
 
+      {/* Onboarded partners dropdown — shown on focus before the user types */}
+      {showResults && searchQuery.trim().length < 2 && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50" data-testid="featured-partners-dropdown">
+          <div className="p-2 flex flex-wrap gap-2 border-b border-border/50 sticky top-0 bg-card">
+            {searchCategories.map((cat) => (
+              <button
+                key={cat.key}
+                type="button"
+                onClick={() => handleCategoryChip(cat)}
+                data-testid={`search-cat-${cat.key}`}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  !cat.route && featCat === cat.key
+                    ? 'bg-gold-gradient text-white'
+                    : 'bg-background text-muted-foreground hover:text-foreground border border-border'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+          <div className="p-2">
+            <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Onboarded Partners</div>
+            {loadingFeat ? (
+              <div className="py-6 text-center text-muted-foreground text-sm">Loading partners…</div>
+            ) : featured.length === 0 ? (
+              <div className="py-6 text-center text-muted-foreground text-sm" data-testid="featured-empty">No partners onboarded in this category yet.</div>
+            ) : (
+              featured.map((result, index) => {
+                const vendorIconMap = { restaurant: '🍽️', pharmacy: '💊', grocery: '🛒' };
+                const gradientMap = { restaurant: 'from-red-500 to-orange-500', pharmacy: 'from-neon-cyan to-gold-500', grocery: 'from-green-500 to-emerald-500' };
+                return (
+                  <button
+                    key={`feat-${index}`}
+                    type="button"
+                    onClick={() => handleResultClick(result)}
+                    data-testid={`featured-partner-${index}`}
+                    className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors flex items-center space-x-3"
+                  >
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${gradientMap[result.vendor_type] || 'from-slate-400 to-slate-600'} flex items-center justify-center text-white text-xl`}>
+                      {vendorIconMap[result.vendor_type] || '🏪'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-foreground truncate flex items-center gap-2">
+                        {result.name}
+                        {result.featured && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gold-500/15 text-gold-700 border border-gold-500/30">Featured</span>}
+                      </div>
+                      <div className="text-sm text-muted-foreground capitalize">{result.vendor_type}</div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search Results Dropdown */}
-      {showResults && searchResults.length > 0 && (
+      {showResults && searchQuery.trim().length >= 2 && searchResults.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50">
           {/* Vendors */}
           {searchResults.filter(r => r.type === 'vendor').length > 0 && (
