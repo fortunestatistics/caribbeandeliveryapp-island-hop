@@ -1250,7 +1250,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
     """Onboarded partners to show the moment the search bar is focused (before typing).
     Optional `category`: restaurant | pharmacy | grocery | shop (blank/all = mixed)."""
     want = (category or "").lower().strip()
-    results = []
+    rest_results, biz_results = [], []
 
     if want in ("", "all", "restaurant", "food"):
         restaurants = await db.restaurants.find(
@@ -1258,7 +1258,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
         ).limit(50).to_list(length=50)
         restaurants.sort(key=lambda x: (0 if x.get("featured") else 1, -(x.get("rating") or 0)))
         for r in restaurants:
-            results.append({
+            rest_results.append({
                 "id": r.get("id"), "name": r.get("name"), "type": "vendor",
                 "vendor_type": "restaurant", "description": r.get("description", ""),
                 "featured": bool(r.get("featured")), "rating": r.get("rating"),
@@ -1276,13 +1276,28 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
             biz_query, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1, "business_type": 1}
         ).limit(40).to_list(length=40)
         for b in businesses:
-            results.append({
+            biz_results.append({
                 "id": b.get("id"), "name": b.get("business_name"), "type": "vendor",
                 "vendor_type": b.get("business_type") or "business",
                 "description": b.get("business_description", ""),
             })
 
-    return {"results": results[: max(1, min(limit, 50))]}
+    cap = max(1, min(limit, 50))
+    # Interleave so businesses stay visible under "All" even with many restaurants.
+    if rest_results and biz_results:
+        results = []
+        ri = bi = 0
+        while (ri < len(rest_results) or bi < len(biz_results)) and len(results) < cap:
+            # ~2 restaurants for every 1 business
+            for _ in range(2):
+                if ri < len(rest_results) and len(results) < cap:
+                    results.append(rest_results[ri]); ri += 1
+            if bi < len(biz_results) and len(results) < cap:
+                results.append(biz_results[bi]); bi += 1
+    else:
+        results = (rest_results + biz_results)[:cap]
+
+    return {"results": results}
 
 
 @api_router.get("/drivers/online-count")
@@ -1303,7 +1318,7 @@ async def public_track_order(order_id: str):
     driver_location = None
     did = o.get("driver_id")
     # Only expose live driver location while the order is actively in transit.
-    in_transit = (o.get("status") or "") in ("assigned", "accepted", "picked_up", "out_for_delivery", "arriving")
+    in_transit = (o.get("status") or "") in ("accepted", "ready", "picked_up", "in_transit", "arriving")
     if did:
         d = await db.drivers.find_one({"id": did}, {"_id": 0, "name": 1, "current_location": 1})
         if d:
@@ -9577,7 +9592,7 @@ _CLEANUP_SEED_RESTAURANTS = {"island spice kitchen", "tropical grill", "beach bi
 _CLEANUP_TEST_RE = re.compile(
     r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|\bprobe\b|"
     r"tier hut|ui eatery|ui merch|ad spice kitchen|featured_iter|jerk hut|"
-    r"\bfe diner\b|\bi14|diner\s*\d|\d{8,}|@example\.com|@x\.tt|\+test|noreply\+)",
+    r"\bfe diner\b|\bi14|diner\s*\d|@example\.com|@x\.tt|\+test|noreply\+)",
     re.I,
 )
 _CLEANUP_PROTECTED_USER_TYPES = {"admin", "staff", "owner"}
@@ -9662,13 +9677,19 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
 
     deleted_vendor_ids = set(del_rest_ids) | set(del_biz_ids) | set(del_cr_ids)
     deleted_user_ids_all = set(del_user_ids) | set(del_driver_user_ids)
-    del_order_ids = []
-    async for o in db.orders.find({}, {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "customer_id": 1, "customer_phone": 1, "notes": 1}):
-        if (o.get("restaurant_id") in deleted_vendor_ids or o.get("vendor_id") in deleted_vendor_ids
-                or o.get("customer_id") in deleted_user_ids_all
-                or _cleanup_is_test(o.get("customer_phone"), o.get("notes"))):
+    del_order_ids, order_labels = [], []
+    async for o in db.orders.find({}, {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "customer_id": 1, "customer_phone": 1, "notes": 1, "restaurant_name": 1, "status": 1}):
+        reason = None
+        if o.get("restaurant_id") in deleted_vendor_ids or o.get("vendor_id") in deleted_vendor_ids:
+            reason = "test vendor"
+        elif o.get("customer_id") in deleted_user_ids_all:
+            reason = "test customer"
+        elif _cleanup_is_test(o.get("customer_phone"), o.get("notes")):
+            reason = "test data"
+        if reason:
             del_order_ids.append(o.get("id"))
-    plan["orders"] = {"ids": del_order_ids, "labels": []}
+            order_labels.append(f"{o.get('restaurant_name') or 'order'} #{str(o.get('id'))[:8]} ({o.get('status')}) — {reason}")
+    plan["orders"] = {"ids": del_order_ids, "labels": order_labels}
 
     return plan
 

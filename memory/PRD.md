@@ -27,6 +27,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 10, 2026 (pt4) — Code review fixes
+- **HIGH: Public tracking status mismatch.** `PublicTrack.js` timeline + backend `public-track` in-transit gate used non-existent statuses (`out_for_delivery`); aligned to canonical `pending→confirmed→preparing→ready→picked_up→in_transit→delivered`. Live driver location now exposed for `ready/picked_up/in_transit/accepted/arriving`.
+- **HIGH: Cleanup over-matching.** Removed the `\d{8,}` rule from `_CLEANUP_TEST_RE` (could match real phone/licence numbers and cascade-delete real orders). Test data still caught via keywords. Added reviewable labels to the orders cleanup plan (was empty).
+- **MEDIUM: `/search/featured` "All" hid businesses** when restaurants filled the limit — now interleaves ~2 restaurants : 1 business so every merchant type stays visible.
+- Verified: featured "all" returns mixed vendor types; cleanup preview no longer false-positives; public-track 404 works.
+
+
 ### Jul 10, 2026 (pt3) — Merchant approval→portal fix, test-data purge, storefront populate/load
 - **Approved merchants couldn't reach their portal (FIXED):** business approval now (a) promotes the account `user_type` to `business`/`restaurant` (was staying `customer`, so `ROLES_VENDOR_ADMIN` blocked the portal), (b) creates the actual `businesses`/`restaurants` vendor record so `/merchant/storefront` works, (c) sends an **email** notification (WhatsApp-only before → many never notified). Verified: approve → role promoted → storefront 200.
 - **Storefronts now populate under Business & load real data (FIXED):** `/api/search` + `/api/search/featured` now return ALL active businesses (any `business_type`, was pharmacy/grocery-only); added a "Shops" category chip (browse + header). Public `/api/merchants/{id}/storefront` enriched with real name/type/description/rating/menu; `RestaurantMenu.js` now renders the real vendor (name, menu, address) instead of hardcoded demo "Island Spice Kitchen". Verified: Island Convenience shows under Shops; Roti Palace store page shows its real menu.

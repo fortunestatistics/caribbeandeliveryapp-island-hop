@@ -6,13 +6,14 @@ import { MapPin, Package, CheckCircle2, Truck, Clock } from 'lucide-react';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const STEPS = ['pending', 'confirmed', 'preparing', 'picked_up', 'out_for_delivery', 'delivered'];
+const STEPS = ['pending', 'confirmed', 'preparing', 'ready', 'picked_up', 'in_transit', 'delivered'];
 const STEP_LABELS = {
   pending: 'Order placed',
   confirmed: 'Confirmed',
   preparing: 'Preparing',
+  ready: 'Ready',
   picked_up: 'Picked up',
-  out_for_delivery: 'On the way',
+  in_transit: 'On the way',
   delivered: 'Delivered',
 };
 
