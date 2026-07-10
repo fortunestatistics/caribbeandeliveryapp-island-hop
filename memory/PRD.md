@@ -27,6 +27,17 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 ## What's Implemented (CHANGELOG)
 
+### Jul 10, 2026 (pt2) — "Business" nav + Browse Businesses page + 5 improvements
+- **Nav change:** replaced top-nav "Restaurants" + "Car Rentals" with a single **"Business"** link → `/businesses` (routes to old pages still exist). Customer portal Quick Action **"Place Order"** now routes to `/businesses` (`quick-action-place-order`).
+- **New `/businesses` Browse Businesses page** (`BusinessSearch.js`): orange hero + search, category chips (All/Restaurants/Pharmacy/Grocery filter the grid; Taxi/Courier → booking pages with live "N online" hint), partner cards with Featured badge/rating; card click routes to the correct vendor/order page.
+- **Improvement (a) seed partners:** idempotent `_seed_marketplace_partners()` adds 4 restaurants (with menus, backfilled for existing) + 2 pharmacies + 2 groceries, all `status:active`.
+- **Improvement (b) search polish:** header GlobalSearch focus shows featured partners + Recent (localStorage) + Popular chips; no-results block now shows "Try one of these" suggestions + "Browse all businesses".
+- **Improvement (c) Approvals:** "Ready to approve" toggle (`approvals-ready-toggle`) filters to complete-doc applications; incomplete/"Missing ID" rows sink to bottom otherwise.
+- **Improvement (d) share tracking:** public `GET /api/orders/{id}/public-track` (safe subset; driver location only exposed while in-transit) + `/t/:orderId` public page (`PublicTrack.js`) + "Share tracking" button on OrderTrackingPage (native share / clipboard).
+- **Improvement (e) live availability:** public `GET /api/drivers/online-count`; Taxi/Courier chips show "· N online".
+- Verified: testing_agent iteration_34 — backend 12/12, frontend 100%, retest_needed=false. Post-fixes (menu backfill, driver-location gating) self-verified via curl.
+
+
 ### Jul 10, 2026 — Search bar: onboarded-partners on focus + category chips
 - New backend `GET /api/search/featured?category=` returns active onboarded partners (restaurants sorted featured-first, pharmacies, groceries), category ∈ restaurant|pharmacy|grocery|all.
 - `GlobalSearch` (App.js): focusing the search bar now opens a dropdown of onboarded partners BEFORE typing, with quick-filter category chips (All / Restaurants / Pharmacy / Grocery filter the list; Taxi / Courier navigate to `/taxi-booking` and `/courier-order`). Typed search (≥2 chars) still works as before. Testids: `featured-partners-dropdown`, `search-cat-{key}`, `featured-partner-{i}`.

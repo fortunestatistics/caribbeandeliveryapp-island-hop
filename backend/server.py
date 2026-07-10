@@ -1324,11 +1324,14 @@ async def public_track_order(order_id: str):
     driver_name = None
     driver_location = None
     did = o.get("driver_id")
+    # Only expose live driver location while the order is actively in transit.
+    in_transit = (o.get("status") or "") in ("assigned", "accepted", "picked_up", "out_for_delivery", "arriving")
     if did:
         d = await db.drivers.find_one({"id": did}, {"_id": 0, "name": 1, "current_location": 1})
         if d:
-            driver_location = d.get("current_location")
             driver_name = (d.get("name") or "").split(" ")[0] or None
+            if in_transit:
+                driver_location = d.get("current_location")
     addr = o.get("delivery_address") or {}
     return {
         "order_id": order_id,
@@ -10473,6 +10476,33 @@ async def _seed_marketplace_partners():
     look populated at launch. Safe to run repeatedly (matches by name)."""
     try:
         now = datetime.now(timezone.utc).isoformat()
+
+        def _mi(name, desc, price, cat):
+            return {"id": str(uuid.uuid4()), "name": name, "description": desc, "price": price,
+                    "category": cat, "available": True, "preparation_time": 15}
+
+        menus = {
+            "Roti Palace": [
+                _mi("Chicken Roti", "Buss-up-shut with curried chicken, potato and channa.", 45.0, "Roti"),
+                _mi("Goat Roti", "Tender curried goat wrapped in soft dhalpuri.", 55.0, "Roti"),
+                _mi("Doubles (2)", "Two soft baras with curried channa and pepper.", 12.0, "Sides"),
+            ],
+            "Bake & Shark Hut": [
+                _mi("Classic Bake & Shark", "Fried shark in fresh bake with all the toppings.", 40.0, "Mains"),
+                _mi("Bake & Kingfish", "Golden kingfish fillet in seasoned bake.", 42.0, "Mains"),
+                _mi("Fresh Lime Juice", "Cold-pressed local lime.", 10.0, "Drinks"),
+            ],
+            "Island Grill House": [
+                _mi("Jerk Chicken Platter", "Char-grilled jerk chicken with rice & peas.", 60.0, "Mains"),
+                _mi("BBQ Pork Ribs", "Slow-cooked ribs in island BBQ glaze.", 75.0, "Mains"),
+                _mi("Pepper Shrimp", "Spicy sautéed shrimp with garlic.", 65.0, "Mains"),
+            ],
+            "Doubles Express": [
+                _mi("Doubles (2)", "Two classic doubles with slight pepper.", 12.0, "Doubles"),
+                _mi("Aloo Pie", "Fried potato pie with tamarind.", 8.0, "Sides"),
+                _mi("Saheena", "Dasheen leaf and split-pea fritter.", 8.0, "Sides"),
+            ],
+        }
         restaurants = [
             {"name": "Roti Palace", "description": "Authentic Trini roti, doubles and curries.", "cuisine_type": "Caribbean", "rating": 4.7, "featured": True},
             {"name": "Bake & Shark Hut", "description": "Maracas Bay-style bake and shark with all the toppings.", "cuisine_type": "Street Food", "rating": 4.6, "featured": True},
@@ -10480,7 +10510,8 @@ async def _seed_marketplace_partners():
             {"name": "Doubles Express", "description": "Fresh doubles, aloo pies and saheena all day.", "cuisine_type": "Breakfast", "rating": 4.4, "featured": False},
         ]
         for r in restaurants:
-            if not await db.restaurants.find_one({"name": r["name"]}, {"_id": 1}):
+            existing = await db.restaurants.find_one({"name": r["name"]}, {"_id": 1, "menu_items": 1})
+            if not existing:
                 await db.restaurants.insert_one({
                     "id": str(uuid.uuid4()), "user_id": "seed_partner",
                     "name": r["name"], "description": r["description"],
@@ -10488,10 +10519,13 @@ async def _seed_marketplace_partners():
                     "address": {"street": "Ariapita Ave", "city": "Port of Spain", "parish": "POS", "country": "Trinidad & Tobago"},
                     "phone": "+1-868-555-0100", "email": f"hello@{r['name'].lower().replace(' ', '')}.tt",
                     "status": "active", "rating": r["rating"], "delivery_fee": 8.0,
-                    "minimum_order": 30.0, "estimated_delivery_time": 35, "menu_items": [],
+                    "minimum_order": 30.0, "estimated_delivery_time": 35,
+                    "menu_items": menus.get(r["name"], []),
                     "subscription_tier": "professional" if r["featured"] else "standard",
                     "featured": r["featured"], "created_at": now,
                 })
+            elif not existing.get("menu_items"):
+                await db.restaurants.update_one({"_id": existing["_id"]}, {"$set": {"menu_items": menus.get(r["name"], [])}})
         businesses = [
             {"business_name": "MedPlus Pharmacy", "business_type": "pharmacy", "business_description": "Prescriptions, OTC meds and health essentials delivered."},
             {"business_name": "CarePoint Drugs", "business_type": "pharmacy", "business_description": "Your neighbourhood pharmacy — fast, reliable delivery."},
