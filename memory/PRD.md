@@ -15,7 +15,9 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 ## Session Log — Jul 11, 2026 (fork, cont.) — AI Assistant integration
-**Live vendor search (ordering concierge):** Assistant now does retrieval-augmented recommendations — `_find_relevant_vendors()` in `routers/assistant.py` matches the customer's message (keywords + category hints: pharmacy/grocery/food) against active `restaurants` + `businesses` and injects a "LIVE vendors" list into the model context so it recommends REAL vendors with `/restaurant/{id}` (or `/businesses`) links. Frontend `AssistantWidget.js` renders `**bold**` + tappable internal links (`renderContent`, uses react-router `navigate`). Verified: "roti/food" → Roti Palace/Caribbean Spice Kitchen/Bake & Shark Hut with clickable links; "cold/medicine" → real pharmacies.
+**Quick-reply chips:** Widget shows tap-to-start chips (🍛 Find food, 💊 Order from a pharmacy, 📦 Track my order, 🚗 Become a driver) until the customer sends their first message. Verified.
+
+**PRODUCTION verified (Jul 11):** repair + self-heal batch is LIVE on islandhop-mvp.emergent.host. Kulture D Teacher REPAIRED — now has an active driver profile (record 2f58214a…, status active, name shows). Storefront self-heal deployed & preview-verified; 0 approved merchants on prod currently to break, future approvals provision + self-heal.
 
 
 

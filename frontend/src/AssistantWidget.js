@@ -18,6 +18,13 @@ const WELCOME = {
   content: "Hey there! 🌴 I'm your IslandHop Assistant. Ask me to find a shop, pharmacy, restaurant or ride — or how to track an order or become a partner.",
 };
 
+const QUICK_REPLIES = [
+  { label: '🍛 Find food', message: 'Where can I order local food or a good meal?' },
+  { label: '💊 Order from a pharmacy', message: 'I need to order from a pharmacy and have it delivered.' },
+  { label: '📦 Track my order', message: 'How do I track my order?' },
+  { label: '🚗 Become a driver', message: 'How do I become a driver on IslandHop?' },
+];
+
 const AssistantWidget = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -50,10 +57,10 @@ const AssistantWidget = () => {
     })();
   }, [open, loadedHistory]);
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (overrideText) => {
+    const text = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!text || sending) return;
-    setInput('');
+    if (typeof overrideText !== 'string') setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setSending(true);
     try {
@@ -163,6 +170,22 @@ const AssistantWidget = () => {
               </div>
             )}
           </div>
+
+          {/* Quick replies (shown until the customer sends their first message) */}
+          {messages.filter((m) => m.role === 'user').length === 0 && !sending && (
+            <div className="flex flex-wrap gap-2 border-t border-border bg-background px-3 pt-3" data-testid="assistant-quick-replies">
+              {QUICK_REPLIES.map((q) => (
+                <button
+                  key={q.label}
+                  onClick={() => send(q.message)}
+                  className="rounded-full border border-gold-500/40 bg-gold-500/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-gold-500/20"
+                  data-testid={`assistant-quick-${q.label}`}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Input */}
           <div className="flex items-end gap-2 border-t border-border bg-background p-3">
