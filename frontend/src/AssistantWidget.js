@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -18,6 +19,7 @@ const WELCOME = {
 };
 
 const AssistantWidget = () => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState('');
@@ -77,6 +79,32 @@ const AssistantWidget = () => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
+  // Render assistant text: **bold** + tappable internal links (e.g. /restaurant/<id>).
+  const PATH_SPLIT = /(\/(?:restaurant|restaurants|businesses|store|orders|become-a-partner|become-a-driver|support|pricing)(?:\/[A-Za-z0-9-]+)?)/g;
+  const isPath = (s) => /^\/(?:restaurant|restaurants|businesses|store|orders|become-a-partner|become-a-driver|support|pricing)(?:\/[A-Za-z0-9-]+)?$/.test(s);
+  const goto = (path) => { setOpen(false); navigate(path); };
+  const renderContent = (text) => (text || '').split('\n').map((line, li) => {
+    const nodes = [];
+    line.split(/(\*\*[^*]+\*\*)/g).forEach((part, pi) => {
+      if (/^\*\*[^*]+\*\*$/.test(part)) {
+        nodes.push(<strong key={`b${li}-${pi}`}>{part.slice(2, -2)}</strong>);
+      } else {
+        part.split(PATH_SPLIT).forEach((s, si) => {
+          if (isPath(s)) {
+            nodes.push(
+              <button key={`l${li}-${pi}-${si}`} onClick={() => goto(s)} className="font-medium text-gold-600 underline hover:text-gold-500" data-testid="assistant-link">
+                {s}
+              </button>
+            );
+          } else if (s) {
+            nodes.push(<span key={`t${li}-${pi}-${si}`}>{s}</span>);
+          }
+        });
+      }
+    });
+    return <div key={li}>{nodes.length ? nodes : '\u00A0'}</div>;
+  });
+
   return (
     <>
       {!open && (
@@ -121,7 +149,7 @@ const AssistantWidget = () => {
                       : 'bg-background border border-border text-foreground rounded-bl-sm'
                   }`}
                 >
-                  {m.content}
+                  {renderContent(m.content)}
                 </div>
               </div>
             ))}
