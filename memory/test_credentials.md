@@ -1,5 +1,11 @@
 # IslandHop Test Credentials
 
+## Orphan-driver repair test user (preview) — Jul 2026
+- **Email:** `repair_test_driver@islandhop-demo.com` / **Password:** `RepairQA1234!`
+- Seeded as an orphaned driver: `user_type=driver`, `active`, but NO record in `drivers` collection.
+- Used to test Approvals → User Accounts → 🔧 "Repair driver profile" button. After repair it becomes `customer` + gains a `pending` driver profile (re-seed to retest).
+
+
 ## Admin (for UI / admin-endpoint testing) — Jun 2026
 - **Email:** `admin.qa@islandhop-demo.com`
 - **Password:** `AdminQA1234!`
