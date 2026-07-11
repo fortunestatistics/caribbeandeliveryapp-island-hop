@@ -30,7 +30,6 @@ const ResetPassword = () => {
     try {
       await authAPI.resetPassword(token, password);
       setDone(true);
-      setTimeout(() => navigate('/login'), 2500);
     } catch (err) {
       setError(err?.response?.data?.detail || 'This reset link is invalid or has expired. Please request a new one.');
     } finally {
@@ -67,7 +66,7 @@ const ResetPassword = () => {
             <div className="text-center space-y-3 py-4" data-testid="reset-success">
               <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto" />
               <p className="text-foreground font-medium">Password updated</p>
-              <p className="text-sm text-muted-foreground">Redirecting you to login…</p>
+              <p className="text-sm text-muted-foreground">You can now sign in with your new password.</p>
               <Button className="w-full mt-2" onClick={() => navigate('/login')} data-testid="reset-go-login-btn">
                 Go to login
               </Button>

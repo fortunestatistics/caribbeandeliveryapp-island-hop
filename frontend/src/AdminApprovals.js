@@ -352,6 +352,7 @@ const AdminApprovals = () => {
             variant={readyOnly ? 'default' : 'outline'}
             onClick={() => setReadyOnly((v) => !v)}
             data-testid="approvals-ready-toggle"
+            aria-pressed={readyOnly}
             title="Show only applications with complete documents"
           >
             <CheckCircle className="h-4 w-4 mr-2" />Ready to approve
@@ -363,6 +364,7 @@ const AdminApprovals = () => {
                 size="sm"
                 variant={statusFilter === val ? 'default' : 'ghost'}
                 onClick={() => setStatusFilter(val)}
+                aria-pressed={statusFilter === val}
                 data-testid={`approvals-status-${val}`}
               >
                 {label}
@@ -401,7 +403,7 @@ const AdminApprovals = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && load(active, query, statusFilter)}
-            data-testid="approvals-search"
+            data-testid="approvals-search-input"
           />
         </div>
         <Button variant="outline" onClick={() => load(active, query, statusFilter)} disabled={loading} data-testid="approvals-refresh">
