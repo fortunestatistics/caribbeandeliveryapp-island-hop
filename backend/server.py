@@ -1678,6 +1678,47 @@ async def set_user_status(user_id: str, payload: UserStatusUpdate, request: Requ
     return {"success": True, "id": user_id, "status": status}
 
 
+@api_router.post("/admin/users/{user_id}/repair-driver-profile")
+async def repair_driver_profile(user_id: str, request: Request):
+    """Admin: fix an orphaned driver account — a user whose role is 'driver' but who
+    has no record in the drivers collection (so they never appear in Approvals and
+    can't operate). Creates a fresh 'pending' driver application and resets the role
+    to 'customer' so the normal review → approve flow can run and re-promote them."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "id": 1})
+    if existing:
+        raise HTTPException(status_code=400, detail="This user already has a driver profile — nothing to repair.")
+
+    driver = Driver(
+        user_id=user_id,
+        license_number="",
+        vehicle_type="",
+        vehicle_plate="",
+        personal_info={
+            "name": target.get("name"),
+            "email": target.get("email"),
+            "phone": target.get("phone"),
+        },
+        status="pending",
+    )
+    await db.drivers.insert_one(prepare_for_mongo(driver.dict()))
+    if not await db.driver_wallets.find_one({"driver_id": driver.id}, {"_id": 1}):
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=driver.id).dict())
+    # Reset role so the standard approval flow governs activation.
+    await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
+    return {
+        "success": True,
+        "driver_id": driver.id,
+        "message": "Driver profile created as 'pending'. Review it under Approvals → Driver Applications, then Approve to activate.",
+    }
+
+
+
 class AdminUserMessage(BaseModel):
     subject: str
     body: str
@@ -6624,6 +6665,24 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
     rental = await db.car_rental_companies.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
     if rental:
         return rental["id"], "car_rental"
+    # Self-heal: merchants approved under an older build may have a verified
+    # application but no provisioned vendor record (so the storefront 404s).
+    # Provision it on the fly from their approved application, then retry once.
+    app_doc = await db.business_applications.find_one(
+        {"user_id": current_user.id, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0}
+    )
+    if app_doc:
+        try:
+            from routers.admin_records import _provision_merchant_vendor
+            await _provision_merchant_vendor(app_doc)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Storefront self-heal provisioning failed for {current_user.id}: {exc}")
+        restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+        if restaurant:
+            return restaurant["id"], "restaurant"
+        business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1, "business_type": 1})
+        if business:
+            return business["id"], business.get("business_type") or "business"
     raise HTTPException(status_code=404, detail="No merchant account found for this user")
 
 

@@ -14,6 +14,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jul 11, 2026 (fork, cont.)
+**Orphaned driver ("Kulture D Teacher" / omarcarter64@gmail.com):** Diagnosed on PRODUCTION — user has `user_type=driver`/`active` in `users` but NO record in the `drivers` collection (isolated: 1 of 261 users), so he never appears in Approvals → Driver Applications and has no operable driver profile. Fix: new admin endpoint `POST /api/admin/users/{user_id}/repair-driver-profile` (creates a `pending` shell Driver + wallet, resets role to `customer` so the normal review→approve flow re-promotes; idempotent 400 if a profile exists) + a **wrench "Repair driver profile" button** on driver-type rows in the Approvals → User Accounts tab (`AdminApprovals.js`). Verified e2e on preview.
+
+**Storefront "Could not load storefront" — root cause + self-heal:** On PROD there are 0 users with `user_type` restaurant/business — the old build's approval never provisions the vendor record / promotes the role, so approved merchants' `GET /merchant/storefront` → 404. Made `_resolve_vendor_for_user` **self-healing**: if a user has a `verified`/`approved` business_application but no vendor record, it auto-runs `_provision_merchant_vendor` on the fly and retries (idempotent). Recovers merchants approved under any older build even before re-approval. Verified e2e on preview (verified-app + no vendor → storefront 200 + record created). Regression: 52 tests pass (approvals, storefront coupons, merchant products/GPS, reviews).
+
+**Reminder:** All the above (and the Jul 10 password + Live Shops work) is PREVIEW ONLY. Deploy builds from the last GitHub commit → user must **Save to GitHub → Deploy**, then verify on islandhop-mvp.emergent.host. After deploy, click the wrench on Kulture's User Accounts row to repair him.
+
+
 ## Session Log — Jul 10, 2026 (fork, cont.)
 **Password reset — FIXED (was fully broken):** Backend `/api/auth/forgot-password` never sent an email (had a TODO) and the frontend `/forgot-password` route/page didn't exist. Now: backend emails a 1-hour reset link via M365/Graph (`Mail.Send` confirmed granted); OAuth-only accounts get a "use Continue with Google/Microsoft" message; added `origin_url` to `PasswordReset` model so links match the environment. New pages `frontend/src/ForgotPassword.js` + `ResetPassword.js`, routes `/forgot-password` & `/reset-password` in App.js, `authAPI.forgotPassword` now passes `origin_url`. Verified e2e: forgot→reset(200)→login new pw(200)→old pw(401); reset email sent with no errors.
 

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
-  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag,
+  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -320,6 +320,19 @@ const AdminApprovals = () => {
     }
   };
 
+  const repairDriver = async (rec) => {
+    setBusyId(rec.id);
+    try {
+      const res = await axios.post(`${API}/admin/users/${rec.id}/repair-driver-profile`, {}, { headers: authHeaders() });
+      toast.success(res.data?.message || 'Driver profile repaired — check Driver Applications.');
+      load(active, query, statusFilter);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not repair driver profile');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const activeCat = CATEGORIES.find((c) => c.key === active);
 
   return (
@@ -483,6 +496,11 @@ const AdminApprovals = () => {
                         )}
                         {active === 'users' && (
                           <>
+                            {rec.full?.user_type === 'driver' && (
+                              <Button size="sm" variant="outline" className="text-blue-700 border-blue-300 hover:bg-blue-50" title="Repair driver profile (creates a pending driver application if one is missing)" disabled={busyId === rec.id} onClick={() => repairDriver(rec)} data-testid={`record-repair-driver-${rec.id}`}>
+                                {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+                              </Button>
+                            )}
                             {(rec.status || 'active') !== 'active' && (
                               <Button size="sm" className="bg-green-600 hover:bg-green-700" title="Approve (set active)" disabled={busyId === rec.id} onClick={() => setUserStatus(rec, 'active')} data-testid={`record-approve-user-${rec.id}`}>
                                 <UserCheck className="h-4 w-4" />
