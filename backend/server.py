@@ -10607,6 +10607,8 @@ app.include_router(api_router)
 # Extracted domain routers
 from routers.admin_records import router as admin_records_router
 app.include_router(admin_records_router)
+from routers.assistant import router as assistant_router
+app.include_router(assistant_router)
 
 # CORS: when origins are wildcard we must use a reflecting regex instead of
 # allow_origins=["*"], because browsers forbid "*" together with credentials.

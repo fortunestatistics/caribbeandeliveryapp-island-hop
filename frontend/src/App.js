@@ -49,6 +49,7 @@ const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
 const ForgotPassword = lazy(() => import('./ForgotPassword'));
 const ResetPassword = lazy(() => import('./ResetPassword'));
+const AssistantWidget = lazy(() => import('./AssistantWidget'));
 const MerchantProducts = lazy(() => import('./MerchantProducts'));
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 const DriverSubscription = lazy(() => import('./DriverSubscription'));
@@ -2112,6 +2113,9 @@ function App() {
 
           <Footer />
           <Toaster />
+          <Suspense fallback={null}>
+            <AssistantWidget />
+          </Suspense>
         </div>
       </Router>
       </LocationConsentProvider>
