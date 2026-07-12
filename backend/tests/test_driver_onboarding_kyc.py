@@ -8,6 +8,11 @@ from conftest import BASE_URL
 
 
 def _register(email, password="Test1234!", name="QA", user_type="customer"):
+    if user_type in ("admin", "agent"):
+        lr = requests.post(f"{BASE_URL}/api/auth/login",
+                           json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"}, timeout=30)
+        assert lr.status_code == 200, f"owner admin login failed: {lr.text}"
+        return lr.json()["access_token"]
     r = requests.post(
         f"{BASE_URL}/api/auth/register",
         json={"email": email, "password": password, "name": name, "user_type": user_type},

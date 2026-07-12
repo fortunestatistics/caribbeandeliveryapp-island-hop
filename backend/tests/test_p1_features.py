@@ -38,6 +38,33 @@ def _auth(token: str):
     return {"Authorization": f"Bearer {token}"}
 
 
+OWNER_EMAIL = "tracyfortune@islandhoptt.com"
+OWNER_PASSWORD = "IslandHopAdmin2026!"
+
+
+def _admin_login():
+    """Public register can no longer create admins — log in as the seeded owner admin."""
+    r = requests.post(f"{API}/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}, timeout=15)
+    assert r.status_code == 200, f"owner admin login failed: {r.status_code} {r.text}"
+    return r.json()
+
+
+def _make_driver(suffix: str):
+    """Register a customer, submit a driver application, admin-approve it, then re-login
+    so the account is a real user_type=driver (new applicants are NOT auto-promoted)."""
+    u = _register(suffix)
+    dr = requests.post(
+        f"{API}/drivers",
+        json={"user_id": u["user"]["id"], "license_number": "L", "vehicle_type": "car", "vehicle_plate": "P"},
+        headers=_auth(u["access_token"]), timeout=15,
+    ).json()
+    admin = _admin_login()
+    requests.post(f"{API}/admin/drivers/{dr['id']}/approve", json={"notes": "qa"},
+                  headers=_auth(admin["access_token"]), timeout=15)
+    lg = requests.post(f"{API}/auth/login", json={"email": f"{suffix}@test.com", "password": "Test1234!"}, timeout=15)
+    return lg.json()
+
+
 # ----------------------------------------------------------------------
 # OTP
 # ----------------------------------------------------------------------
@@ -131,7 +158,7 @@ class TestProofOfDelivery:
         assert r.status_code == 403
 
     def test_missing_order_returns_404(self):
-        driver = _register(f"pod_drv_{_ts()}", user_type="driver")
+        driver = _make_driver(f"pod_drv_{_ts()}")
         r = requests.post(
             f"{API}/orders/order_missing/proof",
             json={"photo_base64": self.PX},
@@ -145,7 +172,7 @@ class TestProofOfDelivery:
 # ----------------------------------------------------------------------
 class TestServiceZones:
     def _admin_token(self):
-        admin = _register(f"zone_adm_{_ts()}", user_type="admin")
+        admin = _admin_login()
         return admin["access_token"]
 
     def test_list_zones_is_public(self):
@@ -226,10 +253,14 @@ class TestWhatsApp:
             f"{API}/webhook/whatsapp",
             data={"From": f"whatsapp:{phone}", "Body": "Hello support", "MessageSid": f"SM{_ts()}"},
         )
+        # Twilio expects a TwiML (XML) 200 response, not JSON.
         assert r.status_code == 200
-        body = r.json()
-        assert body["received"] is True
-        assert body["message"]["direction"] == "inbound"
+        assert "<Response" in r.text
+        # Verify the inbound message was actually recorded (admin can see the conversation).
+        admin = _admin_login()
+        convos = requests.get(f"{API}/whatsapp/conversations", headers=_auth(admin["access_token"])).json()
+        assert any(phone[-7:] in (c.get("phone") or "") for c in convos), \
+            f"inbound message from {phone} not recorded in conversations"
 
     def test_only_admin_can_send_outbound(self):
         user = _register(f"wa_user_{_ts()}", user_type="customer")
@@ -241,7 +272,7 @@ class TestWhatsApp:
         assert r.status_code == 403
 
     def test_admin_can_send_outbound(self):
-        admin = _register(f"wa_adm_{_ts()}", user_type="admin")
+        admin = _admin_login()
         r = requests.post(
             f"{API}/whatsapp/send",
             json={"to": "+18681113333", "body": "Hi from support"},
@@ -253,7 +284,7 @@ class TestWhatsApp:
         assert body["message"]["direction"] == "outbound"
 
     def test_admin_can_list_conversations(self):
-        admin = _register(f"wa_adm2_{_ts()}", user_type="admin")
+        admin = _admin_login()
         # seed one inbound
         phone = f"+186812{int(time.time()) % 100000:05d}"
         requests.post(f"{API}/webhook/whatsapp", data={"From": f"whatsapp:{phone}", "Body": "hi"})
@@ -267,7 +298,7 @@ class TestWhatsApp:
 # ----------------------------------------------------------------------
 class TestAdminApprovals:
     def test_pending_approvals_endpoint(self):
-        admin = _register(f"appr_adm_{_ts()}", user_type="admin")
+        admin = _admin_login()
         r = requests.get(f"{API}/admin/pending-approvals", headers=_auth(admin["access_token"]))
         assert r.status_code == 200
         body = r.json()
@@ -280,7 +311,7 @@ class TestAdminApprovals:
         assert r.status_code == 403
 
     def test_approve_missing_driver_returns_404(self):
-        admin = _register(f"appr_adm2_{_ts()}", user_type="admin")
+        admin = _admin_login()
         r = requests.post(
             f"{API}/admin/drivers/nope_id/approve",
             json={"notes": "test"},

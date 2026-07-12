@@ -16,13 +16,17 @@ from conftest import BASE_URL
 
 # ---- HTTP behaviour in preview (unconfigured) ----
 
-def test_login_url_unconfigured_returns_503():
+def test_login_url_returns_url_or_503():
     r = requests.get(
         f"{BASE_URL}/api/auth/social/microsoft/login-url",
         params={"redirect_uri": "https://x/auth/microsoft/callback", "state": "s"},
         timeout=30,
     )
-    assert r.status_code == 503, r.text
+    # Preview/prod may or may not have real Azure creds. Configured → 200 authorize URL; unconfigured → 503.
+    if r.status_code == 200:
+        assert "login.microsoftonline.com" in r.json().get("url", ""), r.text
+    else:
+        assert r.status_code == 503, r.text
 
 
 def test_login_url_missing_params_returns_422():
@@ -30,13 +34,14 @@ def test_login_url_missing_params_returns_422():
     assert r.status_code == 422, r.text
 
 
-def test_code_exchange_unconfigured_returns_503():
+def test_code_exchange_junk_code():
     r = requests.post(
         f"{BASE_URL}/api/auth/social/microsoft",
         json={"code": "junk", "redirect_uri": "https://x/auth/microsoft/callback"},
         timeout=30,
     )
-    assert r.status_code == 503, r.text
+    # Unconfigured → 503; configured → junk code is rejected by Microsoft (400/401/502).
+    assert r.status_code in (503, 400, 401, 502), r.text
 
 
 # ---- In-process happy-path (configured, mocked Microsoft) ----
@@ -54,11 +59,16 @@ def test_code_exchange_creates_user_and_mints_jwt():
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__.return_value = mock_client
 
+        mock_users = AsyncMock()
+        mock_users.find_one.return_value = None  # new user path
+
         with patch.object(server, "_ms_configured", return_value=True), \
              patch.object(server, "MS_TENANT_ID", "tenant-123"), \
              patch.object(server, "MS_CLIENT_ID", "client-abc"), \
              patch.object(server, "MS_CLIENT_SECRET", "secret"), \
              patch("server.httpx.AsyncClient", return_value=mock_ctx), \
+             patch.object(server.db, "users", mock_users), \
+             patch.object(server, "_persist_pending_referral", new=AsyncMock()), \
              patch.object(server, "_verify_ms_id_token", new=AsyncMock(return_value={
                  "email": email, "name": "MS Tester", "sub": "ms-sub-1"})):
             payload = server.MicrosoftAuthRequest(code="goodcode", redirect_uri="https://app/cb")
@@ -68,7 +78,6 @@ def test_code_exchange_creates_user_and_mints_jwt():
         assert result["access_token"]
         assert result["user"]["email"] == email
         assert result["user"]["user_type"] == "customer"
-        await server.db.users.delete_one({"email": email})
 
     asyncio.run(_run())
 

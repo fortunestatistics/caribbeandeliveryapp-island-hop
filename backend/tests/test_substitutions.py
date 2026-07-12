@@ -71,10 +71,15 @@ def _setup(base_url):
     return {"customer": cust, "merchant": rest_owner, "driver": drv_owner, "order_id": oid}
 
 
+def _order_total(base_url, oid, token):
+    return round(requests.get(f"{base_url}/api/orders/{oid}", headers=_hdr(token)).json()["total"], 2)
+
+
 class TestSubstitutions:
     def test_merchant_proposes_then_customer_accepts(self, base_url):
         ctx = _setup(base_url)
         oid = ctx["order_id"]
+        base_total = _order_total(base_url, oid, ctx["customer"]["token"])
 
         # Merchant proposes a swap (+$1.50)
         r = requests.post(
@@ -105,14 +110,15 @@ class TestSubstitutions:
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "accepted"
 
-        # Order should reflect new item + total = 23 + 1.50
+        # Order should reflect new item + total = base + 1.50
         order = requests.get(f"{base_url}/api/orders/{oid}", headers=_hdr(ctx["customer"]["token"])).json()
         assert any(i["name"] == "Pepperoni Pizza" for i in order["items"])
-        assert round(order["total"], 2) == 24.50
+        assert round(order["total"], 2) == round(base_total + 1.50, 2)
 
     def test_customer_declines_no_total_change(self, base_url):
         ctx = _setup(base_url)
         oid = ctx["order_id"]
+        base_total = _order_total(base_url, oid, ctx["customer"]["token"])
 
         prop = requests.post(
             f"{base_url}/api/orders/{oid}/substitutions",
@@ -135,7 +141,7 @@ class TestSubstitutions:
         # Order unchanged
         order = requests.get(f"{base_url}/api/orders/{oid}", headers=_hdr(ctx["customer"]["token"])).json()
         assert any(i["name"] == "Margherita Pizza" for i in order["items"])
-        assert round(order["total"], 2) == 23.00
+        assert round(order["total"], 2) == base_total
 
     def test_only_merchant_can_propose(self, base_url):
         ctx = _setup(base_url)
@@ -166,6 +172,7 @@ class TestSubstitutions:
     def test_unavailable_item_marker(self, base_url):
         ctx = _setup(base_url)
         oid = ctx["order_id"]
+        base_total = _order_total(base_url, oid, ctx["customer"]["token"])
         prop = requests.post(
             f"{base_url}/api/orders/{oid}/substitutions",
             headers=_hdr(ctx["merchant"]["token"]),
@@ -182,7 +189,7 @@ class TestSubstitutions:
             headers=_hdr(ctx["customer"]["token"]),
         )
         order = requests.get(f"{base_url}/api/orders/{oid}", headers=_hdr(ctx["customer"]["token"])).json()
-        assert round(order["total"], 2) == 3.00  # 23 - 20
+        assert round(order["total"], 2) == round(base_total - 20, 2)  # remove a $20 item
 
     def test_unread_summary_aggregates_orders(self, base_url):
         ctx = _setup(base_url)

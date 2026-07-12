@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Sparkles, ShoppingBag } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -74,7 +74,7 @@ const AssistantWidget = () => {
         throw new Error(err.detail || 'Something went wrong');
       }
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply, vendors: data.vendors || [] }]);
     } catch (e) {
       setMessages((prev) => [...prev, { role: 'assistant', content: `Sorry — ${e.message}. Please try again.` }]);
     } finally {
@@ -148,16 +148,44 @@ const AssistantWidget = () => {
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4" data-testid="assistant-messages">
             {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`assistant-message-${i}`}>
-                <div
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
-                    m.role === 'user'
-                      ? 'bg-gold-gradient text-white rounded-br-sm'
-                      : 'bg-background border border-border text-foreground rounded-bl-sm'
-                  }`}
-                >
-                  {renderContent(m.content)}
+              <div key={i} data-testid={`assistant-message-${i}`}>
+                <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
+                      m.role === 'user'
+                        ? 'bg-gold-gradient text-white rounded-br-sm'
+                        : 'bg-background border border-border text-foreground rounded-bl-sm'
+                    }`}
+                  >
+                    {renderContent(m.content)}
+                  </div>
                 </div>
+                {m.role === 'assistant' && Array.isArray(m.vendors) && m.vendors.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2" data-testid={`assistant-vendors-${i}`}>
+                    {m.vendors.map((v, vi) => (
+                      <div
+                        key={`${i}-${vi}`}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-gold-500/40 bg-gold-500/5 px-3 py-2"
+                        data-testid={`assistant-vendor-card-${vi}`}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-foreground">{v.name}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {v.subtitle || v.type}{v.rating ? ` · ★${v.rating}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => goto(v.link)}
+                          className="flex shrink-0 items-center gap-1 rounded-full bg-gold-gradient px-3 py-1.5 text-xs font-semibold text-white transition-transform hover:scale-105 active:scale-95"
+                          data-testid={`assistant-vendor-cta-${vi}`}
+                        >
+                          <ShoppingBag className="h-3.5 w-3.5" />
+                          {v.cta || 'View'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {sending && (

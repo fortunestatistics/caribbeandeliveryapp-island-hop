@@ -83,8 +83,8 @@ async def _find_relevant_vendors(message: str, limit: int = 8) -> List[Dict]:
         {"_id": 0, "id": 1, "name": 1, "cuisine_type": 1, "rating": 1, "delivery_fee": 1},
     ).limit(limit):
         vendors.append({
-            "name": r.get("name"), "type": "restaurant", "rating": r.get("rating"),
-            "subtitle": r.get("cuisine_type"), "link": f"/restaurant/{r.get('id')}",
+            "id": r.get("id"), "name": r.get("name"), "type": "restaurant", "rating": r.get("rating"),
+            "subtitle": r.get("cuisine_type"), "link": f"/restaurant/{r.get('id')}", "cta": "Start order",
         })
 
     biz_or = []
@@ -94,9 +94,11 @@ async def _find_relevant_vendors(message: str, limit: int = 8) -> List[Dict]:
         {"status": "active", "$or": biz_or},
         {"_id": 0, "id": 1, "business_name": 1, "business_type": 1},
     ).limit(limit):
+        btype = (b.get("business_type") or "shop").lower()
+        link = "/pharmacy-order" if "pharm" in btype else "/grocery-order" if "grocer" in btype else "/businesses"
         vendors.append({
-            "name": b.get("business_name"), "type": b.get("business_type") or "shop",
-            "rating": None, "subtitle": b.get("business_type"), "link": "/businesses",
+            "id": b.get("id"), "name": b.get("business_name"), "type": b.get("business_type") or "shop",
+            "rating": None, "subtitle": b.get("business_type"), "link": link, "cta": "View shop",
         })
     return vendors[:limit]
 
@@ -156,7 +158,7 @@ async def assistant_chat(payload: ChatRequest):
         {"session_id": sid, "role": "user", "content": text, "created_at": now},
         {"session_id": sid, "role": "assistant", "content": reply, "created_at": now},
     ])
-    return {"reply": reply, "session_id": sid}
+    return {"reply": reply, "session_id": sid, "vendors": vendors}
 
 
 @router.get("/assistant/history/{session_id}")
