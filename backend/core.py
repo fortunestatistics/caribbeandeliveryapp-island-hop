@@ -222,3 +222,36 @@ async def promote_user_role(user_id: str, new_role: str) -> bool:
         return False
     await db.users.update_one({"id": user_id}, {"$set": {"user_type": new_role}})
     return True
+
+
+
+# ---------------------------------------------------------------------------
+# Lightweight in-memory rate limiter (per-pod). Protects unauthenticated,
+# cost/abuse-prone endpoints (LLM chat, file uploads) from scripted floods.
+# ---------------------------------------------------------------------------
+import time as _time
+from collections import defaultdict, deque
+
+_RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
+
+
+def client_ip(request: Request) -> str:
+    """Best-effort client IP (honours the proxy's X-Forwarded-For)."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit_ok(key: str, max_calls: int, window_seconds: int) -> bool:
+    """Sliding-window limiter. Returns False when `key` has exceeded `max_calls`
+    within `window_seconds`."""
+    now = _time.time()
+    dq = _RATE_BUCKETS[key]
+    cutoff = now - window_seconds
+    while dq and dq[0] <= cutoff:
+        dq.popleft()
+    if len(dq) >= max_calls:
+        return False
+    dq.append(now)
+    return True

@@ -10,10 +10,10 @@ import re
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from core import db, EMERGENT_LLM_KEY
+from core import db, EMERGENT_LLM_KEY, client_ip, rate_limit_ok
 
 router = APIRouter(prefix="/api")
 
@@ -111,12 +111,18 @@ def _clean(docs):
 
 
 @router.post("/assistant/chat")
-async def assistant_chat(payload: ChatRequest):
+async def assistant_chat(payload: ChatRequest, request: Request):
     """Send a message to the IslandHop Assistant and get a reply (multi-turn)."""
+    # Rate limit: the assistant is public and calls a paid model — cap per-IP + per-session.
+    ip = client_ip(request)
+    if not rate_limit_ok(f"assistant:{ip}", max_calls=20, window_seconds=60):
+        raise HTTPException(status_code=429, detail="You're sending messages too quickly. Please wait a moment and try again.")
     sid = (payload.session_id or "").strip()
-    text = (payload.message or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="session_id is required")
+    if not rate_limit_ok(f"assistant-sess:{sid}", max_calls=30, window_seconds=60):
+        raise HTTPException(status_code=429, detail="You're sending messages too quickly. Please wait a moment and try again.")
+    text = (payload.message or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if len(text) > 2000:

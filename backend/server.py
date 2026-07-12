@@ -43,6 +43,7 @@ from core import (
     verify_password, get_password_hash, create_access_token,
     _account_block_detail, get_current_user, get_current_user_from_request,
     prepare_for_mongo, parse_from_mongo, promote_user_role,
+    client_ip, rate_limit_ok,
 )
 
 # Create the main app without a prefix
@@ -917,10 +918,14 @@ async def forgot_password(data: PasswordReset):
                    f"Please use the Continue with {provider_label} button.",
         )
 
+    reset_jti = str(uuid.uuid4())
     reset_token = create_access_token(
-        data={"sub": user["id"], "email": user["email"], "type": "password_reset"},
+        data={"sub": user["id"], "email": user["email"], "type": "password_reset", "jti": reset_jti},
         expires_delta=timedelta(hours=1),
     )
+    # Persist the token id so the token is single-use and any previously issued reset
+    # token is invalidated (only the most recent request is valid).
+    await db.users.update_one({"id": user["id"]}, {"$set": {"reset_password_jti": reset_jti}})
     base = (data.origin_url or os.environ.get("FRONTEND_URL", "")).rstrip("/")
     reset_link = f"{base}/reset-password?token={reset_token}"
 
@@ -946,30 +951,52 @@ async def forgot_password(data: PasswordReset):
         logging.warning(f"Password reset email failed for {user['email']}: {exc}")
 
     resp = dict(generic)
-    # In non-production (preview) surface the token so the flow is testable without a live inbox.
-    if os.environ.get("EXPOSE_RESET_TOKEN", "true").lower() == "true":
+    # SECURITY: never return the reset token in the response by default. Only preview/dev
+    # may opt in via EXPOSE_RESET_TOKEN=true (absent/false everywhere else, incl. prod).
+    if os.environ.get("EXPOSE_RESET_TOKEN", "false").lower() == "true":
         resp["dev_token"] = reset_token
     return resp
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
-    """Reset password with token"""
+    """Reset password with a single-use token."""
     try:
         payload = jwt.decode(data.token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "password_reset":
             raise HTTPException(status_code=400, detail="Invalid reset token")
-        
+
         user_id = payload.get("sub")
+        jti = payload.get("jti")
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "reset_password_jti": 1, "hashed_password": 1})
+        if not user or not user.get("hashed_password"):
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        # Single-use: the token's jti must match the one stored at request time.
+        if not jti or user.get("reset_password_jti") != jti:
+            raise HTTPException(status_code=400, detail="This reset link has already been used or has expired. Please request a new one.")
+
         hashed_password = get_password_hash(data.new_password)
-        
+        # Consume the token (unset the jti) so it cannot be replayed.
         await db.users.update_one(
             {"id": user_id},
-            {"$set": {"hashed_password": hashed_password}}
+            {"$set": {"hashed_password": hashed_password}, "$unset": {"reset_password_jti": ""}},
         )
-        
         return {"message": "Password reset successfully"}
+    except HTTPException:
+        raise
     except JWTError:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+
+@api_router.post("/auth/media-token")
+async def create_media_token(request: Request):
+    """Mint a short-lived (5 min) token for the current user, used in media/document
+    download URLs (`?auth=`) so long-lived login JWTs never end up in URLs/logs."""
+    current_user = await get_current_user_from_request(request)
+    token = create_access_token(
+        data={"sub": current_user.id, "type": "media"},
+        expires_delta=timedelta(minutes=5),
+    )
+    return {"token": token, "expires_in": 300}
 
 # Authentication Routes
 @api_router.post("/auth/session")
@@ -1062,8 +1089,9 @@ async def global_search(q: str):
     """
     if not q or len(q) < 2:
         return {"results": []}
-    
-    search_query = {"$regex": q, "$options": "i"}
+
+    # Escape user input and cap length to prevent ReDoS on the public search endpoint.
+    search_query = {"$regex": re.escape(q.strip()[:80]), "$options": "i"}
     results = []
     
     # Search Restaurants
@@ -3869,6 +3897,11 @@ async def upload_business_document(
         uid = cu.id
     except Exception:  # noqa: BLE001
         uid = None
+
+    # Rate limit uploads (endpoint allows anonymous applicants) to prevent storage abuse.
+    rl_key = f"bizdoc:{uid or client_ip(request)}"
+    if not rate_limit_ok(rl_key, max_calls=20, window_seconds=300):
+        raise HTTPException(status_code=429, detail="Too many uploads. Please wait a few minutes and try again.")
 
     data = await file.read()
     if not data:
@@ -6742,25 +6775,15 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
     rental = await db.car_rental_companies.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
     if rental:
         return rental["id"], "car_rental"
-    # Self-heal: merchants approved under an older build (or approved as a website
-    # lead before they created an account) may have a verified application that is
-    # NOT linked to their account by user_id — so match by email too, backfill the
-    # link, then provision the vendor record on the fly.
-    email = (getattr(current_user, "email", "") or "").strip().lower()
-    app_query = {
-        "verification_status": {"$in": ["verified", "approved"]},
-        "$or": [{"user_id": current_user.id}],
-    }
-    if email:
-        app_query["$or"] += [{"email": email}, {"business_owner.email": email}]
-    app_doc = await db.business_applications.find_one(app_query, {"_id": 0})
+    # Self-heal: a merchant approved under an older build may have a verified application
+    # linked to their account by user_id but no provisioned vendor record yet — provision
+    # it on the fly. Matching is by user_id ONLY: email-based linking is never done here
+    # (it would allow account takeover by registering with a merchant's email); that
+    # linking happens only in the admin-authorized approval path.
+    app_doc = await db.business_applications.find_one(
+        {"user_id": current_user.id, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0}
+    )
     if app_doc:
-        # Backfill the account link so provisioning + all future lookups work.
-        if app_doc.get("user_id") != current_user.id:
-            app_doc["user_id"] = current_user.id
-            await db.business_applications.update_one(
-                {"id": app_doc["id"]}, {"$set": {"user_id": current_user.id}}
-            )
         try:
             from routers.admin_records import _provision_merchant_vendor
             await _provision_merchant_vendor(app_doc)
@@ -6773,10 +6796,9 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
         if business:
             return business["id"], business.get("business_type") or "business"
     # Distinguish "still pending" from "never applied" so the merchant sees a clear message.
-    pending_query = {"verification_status": {"$in": ["pending", "pending_approval"]}, "$or": [{"user_id": current_user.id}]}
-    if email:
-        pending_query["$or"] += [{"email": email}, {"business_owner.email": email}]
-    if await db.business_applications.find_one(pending_query, {"_id": 1}):
+    if await db.business_applications.find_one(
+        {"user_id": current_user.id, "verification_status": {"$in": ["pending", "pending_approval"]}}, {"_id": 1}
+    ):
         raise HTTPException(status_code=403, detail="Your merchant application is still pending admin approval. You'll be able to build your storefront once it's approved.")
     raise HTTPException(status_code=404, detail="No merchant account found for this user")
 

@@ -14,6 +14,17 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jun 2026 (fork, cont.) — Security audit remediation (SEC-001..005)
+Ran full security audit (verdict was FAIL). Fixed & verified all reported Critical/High/Medium findings:
+- **SEC-001 (CRITICAL) password-reset takeover:** `forgot-password` no longer returns the reset token (`EXPOSE_RESET_TOKEN` now defaults **false**); reset tokens are **single-use** via a `reset_password_jti` stored on the user and cleared on use (any prior token invalidated). Verified: response has no token; reuse → 400 "already used".
+- **SEC-002 (HIGH) merchant takeover by email:** removed automatic email-based self-heal from the merchant-facing `_resolve_vendor_for_user` (server.py) — it now matches approved applications by **user_id only**. Email-based linking of website-lead applications was moved into the **admin-only** approval path (`_provision_merchant_vendor` in admin_records.py links an unlinked app to the account owning its email during admin approval). Verified: merchant-side email self-heal → 404; admin approval → links + provisions (modeltec2000-style fix preserved, now admin-gated).
+- **SEC-003 (MED) long-lived JWT in `?auth=` URLs:** added `POST /api/auth/media-token` (5-min token); admin DocsDialog mints and uses it for document download URLs instead of the 7-day login JWT.
+- **SEC-004 (MED) unauth abuse:** added in-memory sliding-window rate limiter (`core.rate_limit_ok`/`client_ip`) — assistant chat 20/min per IP + 30/min per session; business-doc upload 20/5min per IP/user. Verified 429 after limit.
+- **SEC-005 (MED) ReDoS:** `/api/search` now `re.escape`s input and caps length.
+Regression: test_iter36_approvals, iter35 merchant, iter27 storefront coupons all green (33 tests). **REQUIRES REDEPLOY.**
+Remaining P3 hardening (not done): JWTs in localStorage → httpOnly cookies, `OTP_DEV_RETURN_CODE` default-off in prod, CORS wildcard-with-credentials, auth brute-force rate limiting, Stripe/PayPal webhook signature verification (not audited deeply).
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Merchant onboarding documents fix + storefront-setup banner
 **Bug:** merchant application documents never showed in Admin → Approvals → Merchants ("No docs"), because the onboarding wizard's file `<input>`s (`BusinessOnboarding.js`) had NO `onChange` handler — selected files were discarded and applications submitted with `documents: []` (confirmed: 0 of all preview apps had documents).
 **Fix (object-storage pattern, mirrors driver docs):**

@@ -576,10 +576,24 @@ async def _notify_merchant_status(application_id: str, decision: str, notes: Opt
 
 async def _provision_merchant_vendor(app_doc: dict):
     """On approval, create the actual vendor record (so the Merchant Portal & storefront
-    work) and promote the applicant's account role. Idempotent — never duplicates."""
+    work) and promote the applicant's account role. Idempotent — never duplicates.
+    This runs from the ADMIN approval path, so linking an unlinked (website-lead)
+    application to the account that owns its email is an admin-authorized action."""
     uid = app_doc.get("user_id")
     if not uid:
-        return  # external lead with no account yet — nothing to provision
+        # Admin-authorized linking: attach the approved application to the account that
+        # registered with its email, then persist the link. (Never done automatically on
+        # the merchant side — that would allow email-based account takeover.)
+        owner = app_doc.get("business_owner", {}) or {}
+        lead_email = (app_doc.get("email") or owner.get("email") or "").strip().lower()
+        if lead_email:
+            acct = await db.users.find_one({"email": lead_email}, {"_id": 0, "id": 1})
+            if acct:
+                uid = acct["id"]
+                app_doc["user_id"] = uid
+                await db.business_applications.update_one({"id": app_doc.get("id")}, {"$set": {"user_id": uid}})
+        if not uid:
+            return  # external lead with no account yet — nothing to provision
     details = app_doc.get("business_details", {}) or {}
     btype = str(details.get("business_type") or app_doc.get("business_type") or "").lower().strip()
     owner = app_doc.get("business_owner", {}) or {}

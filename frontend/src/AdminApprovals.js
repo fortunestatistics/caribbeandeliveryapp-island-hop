@@ -134,16 +134,24 @@ const OrderHistoryDialog = ({ open, onClose, record, category }) => {
 const DocumentsDialog = ({ open, onClose, record, category }) => {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [mediaToken, setMediaToken] = useState(null);
 
-  const urlFor = (d) => d.kind === 'driver_doc'
-    ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(token())}`
-    : d.kind === 'business_doc'
-    ? `${API}/business/documents/${d.document_id}/download?auth=${encodeURIComponent(token())}`
-    : (d.url || '');
+  const urlFor = (d) => {
+    const t = mediaToken || token();
+    return d.kind === 'driver_doc'
+      ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(t)}`
+      : d.kind === 'business_doc'
+      ? `${API}/business/documents/${d.document_id}/download?auth=${encodeURIComponent(t)}`
+      : (d.url || '');
+  };
 
   useEffect(() => {
     if (!open || !record) return;
     setLoading(true);
+    // Mint a short-lived media token so document URLs don't carry a long-lived login JWT.
+    axios.post(`${API}/auth/media-token`, {}, { headers: authHeaders() })
+      .then((res) => setMediaToken(res.data.token))
+      .catch(() => setMediaToken(null));
     axios.get(`${API}/admin/records/${category}/${record.id}/documents`, { headers: authHeaders() })
       .then((res) => setDocs(res.data.documents || []))
       .catch(() => toast.error('Failed to load documents'))
