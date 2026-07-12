@@ -14,6 +14,11 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jun 2026 (fork, cont.) — Verification & redeploy
+**Admin-lockout P0 confirmed FIXED & verified:** `promote_user_role` guard in `core.py` (lines 211-224) blocks demotion of `is_owner`/`admin`/`agent` accounts. Owner login (tracyfortune@islandhoptt.com) returns `user_type: admin`. The previously-reported P0 pytest failure `test_iter36_approvals.py::test_businesses_pending_has_route_diner` is NO LONGER failing — all 6 approvals tests pass (it was transient DB state, not a code bug). No code changes made this session.
+**Full backend suite:** 342 passed / 63 failed / 22 errors. All failures are the documented pre-existing STALE tests: `test_wallet*`/`test_wallet_requests_refunds` (CariPay deposit-flow removal), `test_fraud_queue` (live-state), `test_microsoft_social_login`/`test_mercury_and_google_auth` (M365 placeholder creds in preview). No new regressions.
+**Deployment scan:** PASSED — no blockers (env vars correct, no hardcoded secrets/URLs, CORS `*`, ports 8001/3000, code compiles). User instructed to Deploy (Save to GitHub → Deploy) to ship this session's work to production.
+
 ## Session Log — Jul 11, 2026 (fork, cont.) — AI Assistant integration
 **Quick-reply chips:** Widget shows tap-to-start chips (🍛 Find food, 💊 Order from a pharmacy, 📦 Track my order, 🚗 Become a driver) until the customer sends their first message. Verified.
 
