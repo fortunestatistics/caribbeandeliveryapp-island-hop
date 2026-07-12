@@ -42,7 +42,7 @@ from core import (
     pwd_context, security, ConnectionManager, manager,
     verify_password, get_password_hash, create_access_token,
     _account_block_detail, get_current_user, get_current_user_from_request,
-    prepare_for_mongo, parse_from_mongo,
+    prepare_for_mongo, parse_from_mongo, promote_user_role,
 )
 
 # Create the main app without a prefix
@@ -1049,11 +1049,8 @@ async def create_restaurant(restaurant: Restaurant, request: Request):
     restaurant_dict = prepare_for_mongo(restaurant.dict())
     await db.restaurants.insert_one(restaurant_dict)
     
-    # Update user type
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$set": {"user_type": "restaurant"}}
-    )
+    # Promote to restaurant role (never demotes an admin/agent/owner)
+    await promote_user_role(current_user.id, "restaurant")
     
     return restaurant
 
@@ -1709,8 +1706,10 @@ async def repair_driver_profile(user_id: str, request: Request):
     await db.drivers.insert_one(prepare_for_mongo(driver.dict()))
     if not await db.driver_wallets.find_one({"driver_id": driver.id}, {"_id": 1}):
         await db.driver_wallets.insert_one(DriverWallet(driver_id=driver.id).dict())
-    # Reset role so the standard approval flow governs activation.
-    await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
+    # Reset role so the standard approval flow governs activation — but never
+    # demote an admin/agent/owner who happens to also have a driver profile.
+    if not target.get("is_owner") and target.get("user_type") not in ("admin", "agent"):
+        await db.users.update_one({"id": user_id}, {"$set": {"user_type": "customer"}})
     return {
         "success": True,
         "driver_id": driver.id,
@@ -4002,7 +4001,7 @@ async def _apply_identity_result(driver: dict, session) -> str:
         if newly_approved:
             update["status"] = "active"
             update["approval_method"] = "auto_kyc"
-        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+        await promote_user_role(driver["user_id"], "driver")
 
     await db.drivers.update_one({"id": driver["id"]}, {"$set": update})
 

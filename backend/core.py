@@ -200,3 +200,25 @@ def parse_from_mongo(item):
             elif isinstance(value, dict):
                 item[key] = parse_from_mongo(value)
     return item
+
+
+# ---------------------------------------------------------------------------
+# Role management
+# ---------------------------------------------------------------------------
+_PROTECTED_ROLES = {"admin", "agent"}
+
+
+async def promote_user_role(user_id: str, new_role: str) -> bool:
+    """Set a user's account role to a partner role (driver/restaurant/business),
+    but NEVER demote a privileged account. An admin/agent/owner keeps their role
+    even if they also submit a driver/merchant application — so testing partner
+    onboarding can't strip their admin access. Returns True if the role changed."""
+    if not user_id:
+        return False
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "user_type": 1, "is_owner": 1})
+    if not u:
+        return False
+    if u.get("is_owner") or (u.get("user_type") in _PROTECTED_ROLES):
+        return False
+    await db.users.update_one({"id": user_id}, {"$set": {"user_type": new_role}})
+    return True

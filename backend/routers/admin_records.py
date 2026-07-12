@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 import graph_mail
-from core import db, get_current_user_from_request
+from core import db, get_current_user_from_request, promote_user_role
 
 router = APIRouter(prefix="/api")
 
@@ -414,7 +414,7 @@ async def admin_approve_driver(driver_id: str, payload: ApprovalAction, request:
     # Promote the user to a driver now that identity has been reviewed & approved.
     driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
     if driver and driver.get("user_id"):
-        await db.users.update_one({"id": driver["user_id"]}, {"$set": {"user_type": "driver"}})
+        await promote_user_role(driver["user_id"], "driver")
         await _notify_driver_status(driver["user_id"], "approved")
         await _award_promo_reward(driver["user_id"], "driver", "driver_approved", require_first_order=True)
         await _release_held_promo_rewards(driver["user_id"])
@@ -585,7 +585,7 @@ async def _provision_merchant_vendor(app_doc: dict):
                 "minimum_order": 30.0, "estimated_delivery_time": 35, "menu_items": [],
                 "subscription_tier": "standard", "featured": False, "created_at": now,
             })
-        await db.users.update_one({"id": uid}, {"$set": {"user_type": "restaurant"}})
+        await promote_user_role(uid, "restaurant")
     else:
         if not await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
             await db.businesses.insert_one({
@@ -594,4 +594,4 @@ async def _provision_merchant_vendor(app_doc: dict):
                 "email": email, "phone": phone, "address": address,
                 "status": "active", "created_at": now,
             })
-        await db.users.update_one({"id": uid}, {"$set": {"user_type": "business"}})
+        await promote_user_role(uid, "business")
