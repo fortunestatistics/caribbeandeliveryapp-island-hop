@@ -137,6 +137,8 @@ const DocumentsDialog = ({ open, onClose, record, category }) => {
 
   const urlFor = (d) => d.kind === 'driver_doc'
     ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(token())}`
+    : d.kind === 'business_doc'
+    ? `${API}/business/documents/${d.document_id}/download?auth=${encodeURIComponent(token())}`
     : (d.url || '');
 
   useEffect(() => {

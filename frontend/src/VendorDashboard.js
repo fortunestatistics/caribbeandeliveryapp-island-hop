@@ -45,6 +45,7 @@ const VendorDashboard = () => {
   useEffect(() => {
     fetchOrders();
     fetchStats();
+    fetchSetupStatus();
     
     // Refresh every 30 seconds
     const interval = setInterval(() => {
@@ -54,6 +55,29 @@ const VendorDashboard = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  const [setup, setSetup] = useState(null);
+  const [setupDismissed, setSetupDismissed] = useState(
+    () => localStorage.getItem('storefront_setup_dismissed') === '1'
+  );
+  const fetchSetupStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const [sf, pr] = await Promise.all([
+        axios.get(`${API}/merchant/storefront`, cfg),
+        axios.get(`${API}/merchant/products`, cfg),
+      ]);
+      setSetup({
+        hasLogo: !!sf.data?.logo,
+        hasCover: !!sf.data?.cover,
+        hasBio: !!(sf.data?.bio && sf.data.bio.trim()),
+        hasProducts: (pr.data?.products || []).length > 0,
+      });
+    } catch (e) {
+      setSetup(null); // not a merchant yet / not resolvable — hide banner
+    }
+  };
 
   const fetchOrders = async () => {
     try {
@@ -168,7 +192,62 @@ const VendorDashboard = () => {
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Storefront completion checklist — helps newly-approved merchants go live in search */}
+          {setup && !setupDismissed && (() => {
+            const steps = [
+              { key: 'hasLogo', label: 'Add a logo', done: setup.hasLogo, to: '/merchant/storefront' },
+              { key: 'hasCover', label: 'Add a cover photo', done: setup.hasCover, to: '/merchant/storefront' },
+              { key: 'hasBio', label: 'Write a short bio', done: setup.hasBio, to: '/merchant/storefront' },
+              { key: 'hasProducts', label: 'Add your first product', done: setup.hasProducts, to: '/merchant/products' },
+            ];
+            const doneCount = steps.filter((s) => s.done).length;
+            if (doneCount === steps.length) return null;
+            const next = steps.find((s) => !s.done);
+            return (
+              <div className="mb-6 rounded-xl border border-gold-500/40 bg-gold-500/5 p-4" data-testid="storefront-setup-banner">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Store className="h-5 w-5 text-gold-500" />
+                      <h3 className="text-base font-semibold text-foreground">Finish setting up your storefront</h3>
+                      <span className="text-xs text-muted-foreground">{doneCount}/{steps.length} done</span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Complete these so your store looks great and shows up in customer search.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {steps.map((s) => (
+                        <button
+                          key={s.key}
+                          onClick={() => navigate(s.to)}
+                          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            s.done
+                              ? 'border-green-500/30 bg-green-500/10 text-green-700'
+                              : 'border-border hover:border-gold-500 text-foreground'
+                          }`}
+                          data-testid={`setup-step-${s.key}`}
+                        >
+                          {s.done ? <CheckCircle className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-current inline-block" />}
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <Button size="sm" className="bg-gold-gradient text-white" onClick={() => navigate(next.to)} data-testid="setup-continue-btn">
+                      {next.label}
+                    </Button>
+                    <button
+                      onClick={() => { setSetupDismissed(true); localStorage.setItem('storefront_setup_dismissed', '1'); }}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      data-testid="setup-dismiss-btn"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
               <CardContent className="p-6">

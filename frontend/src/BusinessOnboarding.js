@@ -174,6 +174,48 @@ const BusinessOnboarding = () => {
     }
   };
 
+  // Upload one or more selected files to object storage and attach the returned
+  // document refs to formData.documents (keyed by docType so re-uploads replace).
+  const [uploading, setUploading] = useState({});
+  const handleDocUpload = async (docType, label, fileList, { multiple = false } = {}) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setUploading((u) => ({ ...u, [docType]: true }));
+    const authToken = localStorage.getItem('token');
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('doc_type', docType);
+        fd.append('file', file);
+        const res = await axios.post(`${API}/business/documents`, fd, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        });
+        uploaded.push({
+          type: docType,
+          label,
+          document_id: res.data.document_id,
+          filename: res.data.filename || file.name,
+          is_image: !!res.data.is_image,
+        });
+      }
+      setFormData((prev) => {
+        const others = multiple
+          ? prev.documents
+          : prev.documents.filter((d) => d.type !== docType);
+        return { ...prev, documents: [...others, ...uploaded] };
+      });
+      toast({ title: 'Uploaded', description: `${files.length} file(s) added to ${label}.` });
+    } catch (err) {
+      toast({ title: 'Upload failed', description: err?.response?.data?.detail || 'Could not upload file.', variant: 'destructive' });
+    } finally {
+      setUploading((u) => ({ ...u, [docType]: false }));
+    }
+  };
+
+  const docsFor = (docType) => formData.documents.filter((d) => d.type === docType);
+
+
   const handleSubmit = async () => {
     try {
       const applicationData = {
@@ -884,14 +926,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="businessLicenseUpload"
                             data-testid="business-license-upload"
+                            onChange={(e) => handleDocUpload('businessLicense', 'Business License', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['businessLicense']}
                             onClick={() => document.getElementById('businessLicenseUpload').click()}
                           >
-                            Choose File
+                            {uploading['businessLicense'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('businessLicense').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="business-license-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -906,14 +953,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="taxIdUpload"
                             data-testid="tax-id-upload"
+                            onChange={(e) => handleDocUpload('taxId', 'Tax ID / EIN', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['taxId']}
                             onClick={() => document.getElementById('taxIdUpload').click()}
                           >
-                            Choose File
+                            {uploading['taxId'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('taxId').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="tax-id-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -928,14 +980,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="addressProofUpload"
                             data-testid="address-proof-upload"
+                            onChange={(e) => handleDocUpload('proofOfAddress', 'Proof of Address', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['proofOfAddress']}
                             onClick={() => document.getElementById('addressProofUpload').click()}
                           >
-                            Choose File
+                            {uploading['proofOfAddress'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('proofOfAddress').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="address-proof-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -951,14 +1008,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="businessPhotosUpload"
                             data-testid="business-photos-upload"
+                            onChange={(e) => handleDocUpload('businessPhoto', 'Business Photo', e.target.files, { multiple: true })}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['businessPhoto']}
                             onClick={() => document.getElementById('businessPhotosUpload').click()}
                           >
-                            Choose Files
+                            {uploading['businessPhoto'] ? 'Uploading…' : 'Choose Files'}
                           </Button>
+                          {docsFor('businessPhoto').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="business-photo-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
                     </div>

@@ -233,7 +233,7 @@ def _count_url_docs(raw) -> int:
         n = 0
         for it in raw:
             if isinstance(it, dict):
-                if it.get("url") or it.get("value") or it.get("file_url"):
+                if it.get("url") or it.get("value") or it.get("file_url") or it.get("document_id"):
                     n += 1
             elif it:
                 n += 1
@@ -307,7 +307,26 @@ async def admin_record_documents(category: str, record_id: str, request: Request
         # Merchant / restaurant / rental application documents.
         if rec:
             raw = rec.get("documents") or (rec.get("business_details") or {}).get("documents") or {}
-            docs += _url_docs(raw, "merchant")
+            # Object-storage-backed docs (uploaded via /business/documents) carry a
+            # document_id and are streamed with auth like driver docs; legacy/lead
+            # applications may instead carry raw URLs — handle both.
+            if isinstance(raw, list):
+                url_only = []
+                for it in raw:
+                    if isinstance(it, dict) and it.get("document_id"):
+                        docs.append({
+                            "kind": "business_doc",
+                            "document_id": it["document_id"],
+                            "label": it.get("label") or it.get("doc_type") or it.get("type") or "document",
+                            "filename": it.get("filename"),
+                            "is_image": bool(it.get("is_image")),
+                            "group": "merchant",
+                        })
+                    else:
+                        url_only.append(it)
+                docs += _url_docs(url_only, "merchant")
+            else:
+                docs += _url_docs(raw, "merchant")
         # PLUS the owner/applicant's personal account documents (Personal ID, Licence).
         if uid:
             docs += await _user_account_docs(uid)
