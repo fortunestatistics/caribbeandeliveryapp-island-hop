@@ -10603,11 +10603,18 @@ async def initialize_data():
 # Include the router in the main app
 app.include_router(api_router)
 
-# Extracted domain routers
-from routers.admin_records import router as admin_records_router
-app.include_router(admin_records_router)
-from routers.assistant import router as assistant_router
-app.include_router(assistant_router)
+# Extracted domain routers — imported defensively so a single optional-dependency
+# failure in one router can never crash the whole backend at startup (readiness).
+try:
+    from routers.admin_records import router as admin_records_router
+    app.include_router(admin_records_router)
+except Exception as _e:  # noqa: BLE001
+    logging.error(f"Failed to load admin_records router: {_e}")
+try:
+    from routers.assistant import router as assistant_router
+    app.include_router(assistant_router)
+except Exception as _e:  # noqa: BLE001
+    logging.error(f"Failed to load assistant router: {_e}")
 
 # CORS: when origins are wildcard we must use a reflecting regex instead of
 # allow_origins=["*"], because browsers forbid "*" together with credentials.

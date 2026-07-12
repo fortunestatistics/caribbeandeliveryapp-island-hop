@@ -13,8 +13,6 @@ from typing import Optional, List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-
 from core import db, EMERGENT_LLM_KEY
 
 router = APIRouter(prefix="/api")
@@ -145,6 +143,10 @@ async def assistant_chat(payload: ChatRequest):
         system = f"{system}\n\nLIVE vendors on IslandHop matching this request:\n" + "\n".join(lines)
 
     try:
+        # Imported lazily: emergentintegrations installs from a private index, so a
+        # missing/failed install must NOT crash the whole backend at startup — only
+        # degrade this one endpoint.
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY, session_id=sid, system_message=system
         ).with_model(*ASSISTANT_MODEL)
