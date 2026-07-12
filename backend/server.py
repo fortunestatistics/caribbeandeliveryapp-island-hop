@@ -6664,13 +6664,25 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
     rental = await db.car_rental_companies.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
     if rental:
         return rental["id"], "car_rental"
-    # Self-heal: merchants approved under an older build may have a verified
-    # application but no provisioned vendor record (so the storefront 404s).
-    # Provision it on the fly from their approved application, then retry once.
-    app_doc = await db.business_applications.find_one(
-        {"user_id": current_user.id, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0}
-    )
+    # Self-heal: merchants approved under an older build (or approved as a website
+    # lead before they created an account) may have a verified application that is
+    # NOT linked to their account by user_id — so match by email too, backfill the
+    # link, then provision the vendor record on the fly.
+    email = (getattr(current_user, "email", "") or "").strip().lower()
+    app_query = {
+        "verification_status": {"$in": ["verified", "approved"]},
+        "$or": [{"user_id": current_user.id}],
+    }
+    if email:
+        app_query["$or"] += [{"email": email}, {"business_owner.email": email}]
+    app_doc = await db.business_applications.find_one(app_query, {"_id": 0})
     if app_doc:
+        # Backfill the account link so provisioning + all future lookups work.
+        if app_doc.get("user_id") != current_user.id:
+            app_doc["user_id"] = current_user.id
+            await db.business_applications.update_one(
+                {"id": app_doc["id"]}, {"$set": {"user_id": current_user.id}}
+            )
         try:
             from routers.admin_records import _provision_merchant_vendor
             await _provision_merchant_vendor(app_doc)
@@ -6682,6 +6694,12 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
         business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1, "business_type": 1})
         if business:
             return business["id"], business.get("business_type") or "business"
+    # Distinguish "still pending" from "never applied" so the merchant sees a clear message.
+    pending_query = {"verification_status": {"$in": ["pending", "pending_approval"]}, "$or": [{"user_id": current_user.id}]}
+    if email:
+        pending_query["$or"] += [{"email": email}, {"business_owner.email": email}]
+    if await db.business_applications.find_one(pending_query, {"_id": 1}):
+        raise HTTPException(status_code=403, detail="Your merchant application is still pending admin approval. You'll be able to build your storefront once it's approved.")
     raise HTTPException(status_code=404, detail="No merchant account found for this user")
 
 
