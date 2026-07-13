@@ -19,6 +19,7 @@ import {
 import MerchantReviews from './MerchantReviews';
 import axios from 'axios';
 import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
+import { getBusinessConfig } from './businessTypeConfig';
 
 const STOREFRONT_API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -85,10 +86,11 @@ const RestaurantMenu = () => {
 
   // Real vendor data (from the storefront endpoint) with a safe demo fallback.
   const sf = storefront || {};
+  const vendorCfg = getBusinessConfig(sf.vendor_type);
   const restaurant = {
     id: restaurantId || 'island-spice',
     name: sf.name || 'Island Spice Kitchen',
-    cuisine: sf.cuisine_type || sf.vendor_type || 'Caribbean',
+    cuisine: sf.cuisine_type || (sf.vendor_type ? vendorCfg.customerLabel : 'Caribbean'),
     rating: sf.rating != null ? sf.rating : 4.8,
     reviews: 342,
     deliveryTime: sf.estimated_delivery_time ? `${sf.estimated_delivery_time} min` : '25-35 min',
@@ -100,7 +102,14 @@ const RestaurantMenu = () => {
     description: sf.description || '',
   };
 
-  const categories = ['All', 'Popular', 'Mains', 'Sides', 'Drinks', 'Desserts'];
+  // Category filter chips reflect the vendor's actual catalog; fall back to the
+  // categories that match this business type (menu for restaurants, etc.).
+  const derivedCats = Array.from(new Set((sf.menu_items || []).map((m) => m.category).filter(Boolean)));
+  const categories = derivedCats.length > 0
+    ? ['All', 'Popular', ...derivedCats]
+    : (sf.vendor_type
+        ? ['All', ...vendorCfg.categories.slice(0, 6)]
+        : ['All', 'Popular', 'Mains', 'Sides', 'Drinks', 'Desserts']);
 
   const realMenu = (sf.menu_items || []).map((m, i) => ({
     id: m.id || i + 1,

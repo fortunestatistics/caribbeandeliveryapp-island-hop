@@ -73,6 +73,7 @@ const BusinessSearch = () => {
   const openVendor = (v) => {
     if (v.vendor_type === 'pharmacy') navigate('/pharmacy-order');
     else if (v.vendor_type === 'grocery') navigate('/grocery-order');
+    else if (v.vendor_type === 'car_rental') navigate('/car-rentals');
     else navigate(`/restaurant/${v.id}`);
   };
 

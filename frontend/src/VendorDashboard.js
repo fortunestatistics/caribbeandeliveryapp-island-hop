@@ -24,6 +24,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
+import { getBusinessConfig } from './businessTypeConfig';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -59,6 +60,7 @@ const VendorDashboard = () => {
 
   const [setup, setSetup] = useState(null);
   const [savings, setSavings] = useState(null);
+  const [vendorType, setVendorType] = useState('');
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
@@ -86,6 +88,7 @@ const VendorDashboard = () => {
         hasBio: !!(sf.data?.bio && sf.data.bio.trim()),
         hasProducts: (pr.data?.products || []).length > 0,
       });
+      if (pr.data?.vendor_type) setVendorType(pr.data.vendor_type);
     } catch (e) {
       setSetup(null); // not a merchant yet / not resolvable — hide banner
     }
@@ -177,10 +180,16 @@ const VendorDashboard = () => {
               <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => navigate('/menu-management')} variant="outline">
-                <ChefHat className="h-5 w-5 mr-2" />
-                Manage Menu
-              </Button>
+              {(() => {
+                const cfg = getBusinessConfig(vendorType);
+                const Icon = vendorType === 'restaurant' ? ChefHat : Package;
+                return (
+                  <Button onClick={() => navigate(cfg.manageRoute)} variant="outline" data-testid="vendor-manage-catalog-btn">
+                    <Icon className="h-5 w-5 mr-2" />
+                    {cfg.manageLabel}
+                  </Button>
+                );
+              })()}
               <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
                 <Store className="h-5 w-5 mr-2" />
                 My Storefront

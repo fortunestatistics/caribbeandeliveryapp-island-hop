@@ -8,14 +8,16 @@ import { Textarea } from './components/ui/textarea';
 import { Label } from './components/ui/label';
 import { Switch } from './components/ui/switch';
 import { Badge } from './components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { toast } from 'sonner';
 import { ArrowLeft, Plus, Trash2, Package, Loader2, Pencil } from 'lucide-react';
+import { getBusinessConfig } from './businessTypeConfig';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
-const emptyForm = { name: '', price: '', category: 'General', description: '', available: true };
+const emptyForm = { name: '', price: '', category: '', description: '', available: true };
 
 const MerchantProducts = () => {
   const navigate = useNavigate();
@@ -26,6 +28,7 @@ const MerchantProducts = () => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
+  const [otherMode, setOtherMode] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,7 +46,7 @@ const MerchantProducts = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const resetForm = () => { setForm(emptyForm); setEditingId(null); };
+  const resetForm = () => { setForm(emptyForm); setEditingId(null); setOtherMode(false); };
 
   const submit = async () => {
     if (!form.name.trim()) { toast.error('Please enter a product name'); return; }
@@ -75,7 +78,8 @@ const MerchantProducts = () => {
 
   const startEdit = (p) => {
     setEditingId(p.id);
-    setForm({ name: p.name || '', price: String(p.price ?? ''), category: p.category || 'General', description: p.description || '', available: p.available !== false });
+    setForm({ name: p.name || '', price: String(p.price ?? ''), category: p.category || '', description: p.description || '', available: p.available !== false });
+    setOtherMode(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -100,7 +104,11 @@ const MerchantProducts = () => {
     }
   };
 
-  const itemNoun = vendorType === 'restaurant' ? 'Menu Item' : 'Product';
+  const cfg = getBusinessConfig(vendorType);
+  const itemNoun = cfg.itemNoun;
+  const catalogCategories = cfg.categories;
+  const isCustomCategory = !!form.category && !catalogCategories.includes(form.category);
+  const OTHER = '__other__';
 
   return (
     <div className="min-h-screen bg-background py-8 px-4" data-testid="merchant-products-page">
@@ -108,8 +116,8 @@ const MerchantProducts = () => {
         <Button variant="ghost" onClick={() => navigate('/vendor-dashboard')} className="mb-4" data-testid="products-back-btn">
           <ArrowLeft className="h-4 w-4 mr-2" />Back to Dashboard
         </Button>
-        <h1 className="text-3xl font-bold text-foreground mb-1">Products &amp; Menu</h1>
-        <p className="text-muted-foreground mb-6">Add the items customers can order from your storefront.</p>
+        <h1 className="text-3xl font-bold text-foreground mb-1">Manage {cfg.catalogLabel}</h1>
+        <p className="text-muted-foreground mb-6">Add the {itemNoun.toLowerCase()}s customers can {vendorType === 'car_rental' ? 'rent' : 'order'} from your storefront.</p>
 
         <Card className="mb-6">
           <CardHeader>
@@ -122,7 +130,7 @@ const MerchantProducts = () => {
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <Label>Name</Label>
-                <Input data-testid="product-name-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Chicken Roti" />
+                <Input data-testid="product-name-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={{ restaurant: 'e.g. Chicken Roti', pharmacy: 'e.g. Paracetamol 500mg', grocery: 'e.g. Fresh Tomatoes (1kg)', car_rental: 'e.g. Toyota Corolla 2023' }[vendorType] || 'e.g. Wireless Headphones'} />
               </div>
               <div>
                 <Label>Price (TTD)</Label>
@@ -132,7 +140,22 @@ const MerchantProducts = () => {
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <Label>Category</Label>
-                <Input data-testid="product-category-input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Mains / Medicine / Produce" />
+                <Select
+                  value={(isCustomCategory || otherMode) ? OTHER : (form.category || undefined)}
+                  onValueChange={(v) => {
+                    if (v === OTHER) { setOtherMode(true); setForm({ ...form, category: '' }); }
+                    else { setOtherMode(false); setForm({ ...form, category: v }); }
+                  }}
+                >
+                  <SelectTrigger data-testid="product-category-select"><SelectValue placeholder={`Select a ${cfg.catalogLabel.toLowerCase()} category`} /></SelectTrigger>
+                  <SelectContent>
+                    {catalogCategories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    <SelectItem value={OTHER}>Other…</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(isCustomCategory || otherMode) && (
+                  <Input className="mt-2" data-testid="product-category-input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Custom category" />
+                )}
               </div>
               <div className="flex items-center gap-3 pt-6">
                 <Switch data-testid="product-available-switch" checked={form.available} onCheckedChange={(v) => setForm({ ...form, available: v })} />

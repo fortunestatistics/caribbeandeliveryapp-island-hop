@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 40 retest+new. DriverSettings null-safe merge fix VERIFIED: after saving vehicle details on a driver with null banking_info, Banking card remains rendered/editable and banking save succeeds. Password<8 now shows inline toast on driver page (matches backend). Business-type awareness verified end-to-end for RESTAURANT (Manage Menu + 12 menu categories + Other→custom input) and GROCERY (Manage Products + Manage Catalog h1 + 9 grocery categories, no restaurant leak). Public storefront (/restaurant/{grocery_id}) shows real vendor categories (Fresh Produce) instead of hardcoded Mains/Sides/Drinks/Desserts. 8/8 backend tests pass (1 storefront skip is intentional; separately verified via curl).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Customer storefront for non-restaurant (grocery)", "issues": [
+        "Breadcrumb still says '← Back to Restaurants' regardless of vendor type. For pharmacy/grocery/car-rental this reads oddly — should say 'Back to Businesses' or the business-type customerLabel.",
+        "Fallback numbers (4.8 rating, 342 reviews, 25-35 min, Delivery TT$81.36, Min TT$101.70) are shown even when the merchant has no real values yet. Fine for demo, but the review count '342 reviews' hardcoded fallback looks fake on a brand-new grocer.",
+        "Select component warning in console: 'Select is changing from uncontrolled to controlled…' when picking a category on MerchantProducts.js — cosmetic but should give the Select a controlled `value` prop tied to state."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter40_business_type.py",
+    "/app/test_reports/pytest/iter40.xml"
+  ],
+  "action_items": [
+    "Optional polish: change '← Back to Restaurants' label in RestaurantMenu.js to be type-aware (uses getBusinessConfig(sf.vendor_type).customerLabel plural or generic 'Businesses').",
+    "Optional: give MerchantProducts category <Select> a controlled `value={otherMode ? '__other__' : form.category}` to silence the uncontrolled→controlled React warning.",
+    "Optional: hide/show fallback rating/reviews numbers only when the vendor has real values (avoid fake 4.8 (342 reviews) on brand-new merchants)."
+  ],
+  "critical_code_review_comments": [
+    "DriverSettings.saveVehicle now uses the same null-safe merge pattern — good. Consider extracting a `normalizeDriver(d)` helper so the initial load, saveVehicle, and saveBank all normalize banking_info/personal_info/vehicle_info to their default object shapes in one place.",
+    "businessTypeConfig.js is a nice single source of truth. Consider surfacing it to the backend too (or a small shared JSON) so /api/merchant/products can validate `category` against allowed categories per business_type.",
+    "RestaurantMenu.js has ~350 lines of hardcoded fallback demo menu (lines ~119-250). Extract into a separate demoMenu.js or gate behind a `?demo=1` query param — currently ships to production and gets rendered for any storefront that hasn't added items."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter40_business_type.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Ephemeral TEST_ui40_* users created per run (driver/restaurant/grocery). Password Test1234!. Kept in test DB.",
+  "seed_data_creation": "3 ephemeral users this run: TEST_ui40_drv_<uid>@gmail.com (driver, active, no banking initially), TEST_ui40_rest_<uid>@gmail.com (restaurant 'UI40 Bistro'), TEST_ui40_groc_<uid>@gmail.com (grocery 'UI40 Grocer' with 1 seeded product Bananas @ Fresh Produce). All in test_database.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Storefront endpoint is /api/merchants/{id}/storefront (returns vendor_type + menu_items). Merchant products endpoint returns vendor_type field used by MerchantProducts.js and VendorDashboard.js to pick config. Business-type config lives in /app/frontend/src/businessTypeConfig.js. Password backend threshold is 8 chars.",
+  "rca of the issue": "N/A — previously-reported DriverSettings null-crash is fully resolved. Root cause was setDriver spreading PUT /drivers/profile response with banking_info:null over UI-initialised nested object. Fix (null-safe merge in saveVehicle) verified in this iteration."
+}
