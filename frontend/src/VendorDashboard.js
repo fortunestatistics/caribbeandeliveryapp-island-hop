@@ -46,6 +46,7 @@ const VendorDashboard = () => {
     fetchOrders();
     fetchStats();
     fetchSetupStatus();
+    fetchSavings();
     
     // Refresh every 30 seconds
     const interval = setInterval(() => {
@@ -57,9 +58,20 @@ const VendorDashboard = () => {
   }, []);
 
   const [setup, setSetup] = useState(null);
+  const [savings, setSavings] = useState(null);
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
+  const fetchSavings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const { data } = await axios.get(`${API}/merchant/fee-savings`, cfg);
+      setSavings(data);
+    } catch (e) {
+      setSavings(null);
+    }
+  };
   const fetchSetupStatus = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -191,6 +203,56 @@ const VendorDashboard = () => {
               </Button>
             </div>
           </div>
+
+          {/* Premium fee-savings ROI banner — shows commission saved vs the Standard 10% base */}
+          {savings && (() => {
+            const money = (n) => `${savings.currency || 'TTD'} $${Number(n || 0).toFixed(2)}`;
+            const isPremium = savings.tier === 'premium';
+            const isPro = savings.tier === 'pro';
+            // Premium/Pro: celebrate savings. Standard: upsell with potential savings.
+            const headline = isPremium
+              ? `You saved ${money(savings.saved)} in fees this month`
+              : isPro
+              ? `You saved ${money(savings.saved)} this month with Professional`
+              : savings.potential_extra_savings > 0
+              ? `You could have saved ${money(savings.potential_extra_savings)} this month on Premium`
+              : null;
+            if (!headline) return null;
+            const sub = isPremium
+              ? `${savings.orders} order${savings.orders === 1 ? '' : 's'} • 0% commission on Premium (Standard would have cost ${money(savings.standard_commission)}).`
+              : savings.upgrade_tier === 'premium'
+              ? `Upgrade to Premium (0% commission) and keep an extra ${money(savings.potential_extra_savings)} a month.`
+              : '';
+            return (
+              <div
+                className="mb-6 rounded-xl border border-gold-500/40 bg-gold-gradient/5 bg-gradient-to-r from-gold-500/10 to-neon-cyan/5 p-4"
+                data-testid="fee-savings-banner"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-gold-500/15 p-2.5">
+                      <TrendingUp className="h-5 w-5 text-gold-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground" data-testid="fee-savings-headline">{headline}</h3>
+                      {sub && <p className="mt-1 text-sm text-muted-foreground">{sub}</p>}
+                      <p className="mt-0.5 text-xs text-muted-foreground">{savings.month}</p>
+                    </div>
+                  </div>
+                  {!isPremium && (
+                    <Button
+                      size="sm"
+                      className="bg-gold-gradient text-white shrink-0"
+                      onClick={() => navigate('/merchant/subscription')}
+                      data-testid="fee-savings-upgrade-btn"
+                    >
+                      Upgrade to Premium
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Storefront completion checklist — helps newly-approved merchants go live in search */}
           {setup && !setupDismissed && (() => {
