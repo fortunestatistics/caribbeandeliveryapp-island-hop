@@ -4344,6 +4344,34 @@ async def _log_admin_action(actor_id, actor_email, action, target_email=None, ro
         logging.warning(f"Audit log write failed ({action}): {exc}")
 
 
+async def backfill_approved_merchants():
+    """One-time/idempotent self-heal: merchants approved under an older build may have a
+    verified application linked to their account (by user_id) but no provisioned vendor
+    record and an un-promoted `customer` role — so the Merchant panel/storefront is blocked.
+    Provision + promote them here. SECURE: only applications that ALREADY carry a user_id
+    are touched (never email-matched), so this cannot link an account it shouldn't."""
+    from routers.admin_records import _provision_merchant_vendor
+    healed = 0
+    cursor = db.business_applications.find(
+        {"verification_status": {"$in": ["verified", "approved"]}, "user_id": {"$nin": [None, ""]}},
+        {"_id": 0},
+    )
+    async for app_doc in cursor:
+        uid = app_doc.get("user_id")
+        has_r = await db.restaurants.find_one({"user_id": uid}, {"_id": 1})
+        has_b = await db.businesses.find_one({"user_id": uid}, {"_id": 1})
+        if has_r or has_b:
+            continue  # already provisioned
+        try:
+            await _provision_merchant_vendor(app_doc)
+            healed += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"backfill_approved_merchants: failed for app {app_doc.get('id')}: {exc}")
+    if healed:
+        logging.info(f"✅ backfill_approved_merchants: provisioned {healed} approved merchant(s)")
+
+
+
 async def seed_owner_admin():
     """Idempotently create the owner/super-admin from env. Never demotes an
     existing owner; updates the password only if the env value changed."""
@@ -5111,10 +5139,17 @@ async def get_current_driver(request: Request):
         raise HTTPException(status_code=404, detail="Driver not found")
     return driver
 
+class DriverStatusUpdate(BaseModel):
+    status: str
+
+
 @api_router.put("/drivers/status")
-async def update_driver_status(status: str, request: Request):
+async def update_driver_status(payload: DriverStatusUpdate, request: Request):
     """Update driver online/offline status. Blocked until the driver is approved."""
     current_user = await get_current_user_from_request(request)
+    status = payload.status
+    if status not in ("online", "offline"):
+        raise HTTPException(status_code=400, detail="status must be 'online' or 'offline'")
     driver = await db.drivers.find_one({"user_id": current_user.id})
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
@@ -5128,7 +5163,7 @@ async def update_driver_status(status: str, request: Request):
         {"id": driver["id"]},
         {"$set": {"status": status}}
     )
-    
+
     return {"success": True, "status": status}
 
 @api_router.get("/drivers/order-requests")
@@ -10331,6 +10366,11 @@ async def initialize_data():
         await seed_owner_admin()
     except Exception as e:
         print(f"⚠️ Could not seed owner admin: {e}")
+
+    try:
+        await backfill_approved_merchants()
+    except Exception as e:
+        print(f"⚠️ Could not backfill approved merchants: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)

@@ -14,6 +14,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+## Session Log — Jun 2026 (fork, cont.) — Driver go-live, earnings screen, approved-merchant self-heal
+Three production issues fixed & verified on preview (REQUIRES REDEPLOY):
+- **Driver "failed to update" going online:** `PUT /api/drivers/status` declared `status: str` as a **query param** but the frontend sends it in the JSON body → 422. Changed to a `DriverStatusUpdate` Pydantic body model. Verified online/offline toggle → 200.
+- **Driver earnings "test screen":** `DriverEarningsDashboard.js` was 100% hardcoded demo data (fake TXNs, $15,678, John Doe, fake bank). Rewrote to fetch **real** data from `/api/drivers/me` + `/api/drivers/{id}/wallet` (balance/pending/total_earned/completed) with graceful empty states ("No deliveries yet"), kept the real 80/90/100% fee-tier info, removed all fabricated data. Screenshot-verified ($0.00 + empty state).
+- **Approved merchants can't see Merchant panel / create storefront (modeltec2000 + all approved):** root cause — merchants approved under older code were never **role-promoted** (still `user_type: customer`), and `SubAppsDropdown`/`/vendor-dashboard` gate on role, so they're blocked; the merchant-side email self-heal was also removed in SEC-002. Fix: added idempotent startup `backfill_approved_merchants()` that provisions the vendor + promotes the role for every verified application that ALREADY has a `user_id` (secure — no email matching). Verified: `customer` → `business`, storefront → 200. Merchant-side resolver stays user_id-only; admin approval still links website-leads by email (admin-gated).
+  - CAVEAT: an approved application whose `user_id` is null (applied via public form without logging in) is NOT auto-healed — admin must re-approve/link it (approval path links by email).
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Security audit remediation (SEC-001..005)
 Ran full security audit (verdict was FAIL). Fixed & verified all reported Critical/High/Medium findings:
 - **SEC-001 (CRITICAL) password-reset takeover:** `forgot-password` no longer returns the reset token (`EXPOSE_RESET_TOKEN` now defaults **false**); reset tokens are **single-use** via a `reset_password_jti` stored on the user and cleared on use (any prior token invalidated). Verified: response has no token; reuse → 400 "already used".
