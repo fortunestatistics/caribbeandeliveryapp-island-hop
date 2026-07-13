@@ -514,6 +514,47 @@ async def admin_reject_business(application_id: str, payload: ApprovalAction, re
     return result
 
 
+class LinkProvisionRequest(BaseModel):
+    email: Optional[str] = None  # optionally link to the account with this email
+
+
+@router.post("/admin/businesses/{application_id}/link-provision")
+async def admin_link_and_provision_business(application_id: str, payload: LinkProvisionRequest, request: Request):
+    """Admin one-click fix: link an approved application to the account that owns its
+    email (or an explicitly provided email) and provision the vendor + promote the role.
+    Use for approved merchants who still can't see their Merchant panel/storefront."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app_doc.get("verification_status") not in ("verified", "approved"):
+        raise HTTPException(status_code=400, detail="Application must be approved before linking a merchant account.")
+
+    override_email = (payload.email or "").strip().lower()
+    if override_email:
+        acct = await db.users.find_one({"email": override_email}, {"_id": 0, "id": 1})
+        if not acct:
+            raise HTTPException(status_code=404, detail=f"No user account found for {override_email}. Ask them to sign up first, then link.")
+        app_doc["user_id"] = acct["id"]
+        await db.business_applications.update_one({"id": application_id}, {"$set": {"user_id": acct["id"], "email": override_email}})
+
+    await _provision_merchant_vendor(app_doc)
+
+    refreshed = await db.business_applications.find_one({"id": application_id}, {"_id": 0, "user_id": 1})
+    uid = (refreshed or {}).get("user_id")
+    if not uid:
+        raise HTTPException(status_code=409, detail="No account is linked to this application yet. Provide the merchant's signup email to link it.")
+    r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+    b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1, "business_type": 1})
+    vendor_type = "restaurant" if r else (b.get("business_type") if b else None)
+    if not (r or b):
+        raise HTTPException(status_code=500, detail="Linked the account but provisioning did not create a vendor record.")
+    return {"success": True, "user_id": uid, "vendor_type": vendor_type}
+
+
 async def _notify_merchant_status(application_id: str, decision: str, notes: Optional[str] = None):
     """WhatsApp-first notification to a merchant on an application decision. Never raises."""
     from server import _wa_notify

@@ -302,6 +302,26 @@ const AdminApprovals = () => {
     }
   };
 
+  const linkProvision = async (rec) => {
+    let email = rec.user_id ? null : (rec.email || rec.full?.email || '');
+    if (!rec.user_id) {
+      email = window.prompt("Enter the merchant's signup email to link their account:", email || '');
+      if (email === null) return; // cancelled
+      email = (email || '').trim();
+      if (!email) { toast.error('Email is required to link an account.'); return; }
+    }
+    setBusyId(rec.id);
+    try {
+      const res = await axios.post(`${API}/admin/businesses/${rec.id}/link-provision`, { email }, { headers: authHeaders() });
+      toast.success(`Storefront provisioned (${res.data.vendor_type}). The merchant can now access their panel.`);
+      load(active, query, statusFilter);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to link & provision');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const setUserStatus = async (rec, status) => {
     setBusyId(rec.id);
     try {
@@ -494,6 +514,11 @@ const AdminApprovals = () => {
                         {rec.user_id && (
                           <Button size="sm" variant="outline" disabled={busyId === rec.id} onClick={() => impersonate(rec)} data-testid={`record-portal-${rec.id}`}>
                             {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+                          </Button>
+                        )}
+                        {active === 'businesses' && !isPending && (
+                          <Button size="sm" variant="outline" className="text-gold-600 border-gold-500/40 hover:bg-gold-500/10" title="Link the merchant's account & provision their storefront" disabled={busyId === rec.id} onClick={() => linkProvision(rec)} data-testid={`record-link-provision-${rec.id}`}>
+                            {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Store className="h-4 w-4 mr-1" />Link & provision</>}
                           </Button>
                         )}
                         {isPending && activeCat?.approveKind && (

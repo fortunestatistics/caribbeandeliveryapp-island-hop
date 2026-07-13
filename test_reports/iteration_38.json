@@ -1,0 +1,43 @@
+{
+  "summary": "Iter38 pre-go-live REAL TEST RUN of IslandHop core marketplace loops. Backend pytest: 11/11 passing. Frontend: driver go-live toggle works (button flips Go Online -> Go Offline, offline banner clears), driver earnings page shows REAL data ($0/$0/$0/0 for a fresh driver + 'No deliveries yet' empty state, no demo names/amounts), Admin Approvals shows 23 Link & provision buttons with correct data-testid on all VERIFIED merchant records.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "DriverDashboard", "issues": ["Go Online / Go Offline toggle button lacks a stable data-testid. Currently only distinguishable by button text — brittle for automation. Recommend adding data-testid=\"driver-online-toggle\"."]},
+      {"screen": "DriverDashboard", "issues": ["Location consent modal auto-appears on first visit and can intercept clicks on the toggle. get_by_role() blocked by overlay; direct query_selector still works but tests must handle the modal."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38_pregolive.py",
+    "/app/test_reports/pytest/iter38_results.xml"
+  ],
+  "action_items": [
+    "(Nice-to-have) Add data-testid=\"driver-online-toggle\" to the Go Online / Go Offline button on DriverDashboard.js for reliable UI testing.",
+    "(Nice-to-have) When a driver logs into DriverDashboard, consider deferring the location-consent modal or auto-dismissing behind their first go-online click so it doesn't block the toggle for scripted flows.",
+    "None of the tested flows have blocking bugs — app is green for the listed go-live features."
+  ],
+  "critical_code_review_comments": [
+    "server.py is still >10.8k lines; keep migrating admin, driver, and merchant endpoints into routers/ (admin_records.py already exists, follow that pattern).",
+    "_resolve_vendor_for_user self-heal correctly matches by user_id only (no email-based takeover surface) — good.",
+    "Order.total is currently client-supplied then recomputed server-side in calculate_order_financials — consider fully ignoring client's `total` to make tampering impossible.",
+    "PLATFORM_SERVICE_FEE is env-configurable (good) and stamped 100% server-side on every order (verified $3.00)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter38_pregolive.py (new — 11 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% on the 3 primary flows tested (driver toggle, earnings real-data, admin link-provision UI)"
+  },
+  "test_credentials": "Admin owner tracyfortune@islandhoptt.com / IslandHopAdmin2026! (login 200). Ephemeral test users created inline with prefix test_drv_/test_cust_/test_merch_/test_selfheal_/test_linkprov_@islandhop-qa.com.",
+  "seed_data_creation": "Backend test creates ephemeral users/drivers/restaurants/orders/business_applications; self-heal and link-provision tests clean up their own business_applications and businesses rows via pymongo. Ephemeral users, drivers, orders, and one TEST restaurant per merchant_ctx remain in DB (uuid-suffixed, safely identifiable by test_ email prefix).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 6 review-request bullets verified: (1) driver go-live PUT /api/drivers/status with JSON body {status:...} returns 200 online/offline (backend + UI), (2) DriverEarningsDashboard now uses real data + earnings-empty testid + no John Doe/$15,678 strings, (3) POST /api/orders applies $3 service_fee and correct total, (4) merchant storefront + first product both work (200), (5) approved-merchant self-heal via GET /api/merchant/storefront promotes user_type customer -> business and provisions vendor (verified in DB), (6) admin link-provision returns success+vendor_type and 403 for non-admin; UI shows record-link-provision-{id} on all verified merchant records. Test file /app/backend/tests/test_iter38_pregolive.py is the regression suite for this pre-go-live surface.",
+  "rca of the issue": "No blocking issues found. Design nits only (missing data-testid on driver online toggle, location consent modal can intercept). The four fixes described in the review request — body-vs-query on drivers/status, real earnings, backfill+self-heal for approved merchants, admin link-provision — all verified end-to-end."
+}
