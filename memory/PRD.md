@@ -14,6 +14,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+
+## Session Log — Jun 2026 (fork, cont.) — Commission verify + server.py wallet extraction (refactor)
+- **Commission rates verified (10% / 5% / 0%):** `MERCHANT_PLAN_COMMISSION = {standard:10, pro:5, premium:0}` and the plan catalogue are correct. Fixed stale docstrings/comments in server.py that still said 20/15/5. API math proof (subtotal $100): Standard → commission $10 / payout $90; Pro → $5 / $95; Premium → $0 / $100; service_fee $3 (all tiers). Updated the stale `tests/test_subscription_tiers_iter29.py` commission assertions to 10/5/0.
+- **server.py refactor — WALLET domain extracted (Task 2 continued):** created `backend/wallet_service.py` (shared helpers `_round_money`, `_get_or_create_wallet`, `_credit_wallet`, `_debit_wallet`, `_record_txn`, `_credit_wallet_with_txn` — imported by server.py for orders/refunds/promo flows AND by the new router) and `backend/routers/wallet.py` (all `/api/wallet/*` + admin funding-request routes; mounted defensively via try/except like the other routers). server.py: **10,814 → 10,306 lines**. Currency-rates endpoint kept in server.py. Pattern (service module + router + shared import, no lazy shims) is the cleaner successor to the lazy-import approach and should be reused for the next domains.
+- **Also fixed 5 stale driver tests** (`test_e2e_dryrun_iter12`, `test_driver_onboarding_kyc`, `test_identity_kyc_review`) that still called `PUT /api/drivers/status?status=online` as a query param — switched to the current JSON body `{"status":"online"}`.
+- **Verified:** wallet routes curl-verified end-to-end (get/funding-request/transactions/requests/currency); full backend suite **415 passed, 2 skipped, 0 failed**; homepage smoke screenshot OK. REQUIRES REDEPLOY to reach production.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Driver go-live, earnings screen, approved-merchant self-heal
 Three production issues fixed & verified on preview (REQUIRES REDEPLOY):
 - **Driver "failed to update" going online:** `PUT /api/drivers/status` declared `status: str` as a **query param** but the frontend sends it in the JSON body → 422. Changed to a `DriverStatusUpdate` Pydantic body model. Verified online/offline toggle → 200.

@@ -63,7 +63,7 @@ def test_driver_kyc_full_flow():
     driver_id = driver["id"]
 
     # Cannot go online while pending
-    r = requests.put(f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(applicant), timeout=30)
+    r = requests.put(f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(applicant), timeout=30)
     assert r.status_code == 403
 
     # Owner can download own doc; other user cannot
@@ -90,7 +90,7 @@ def test_driver_kyc_full_flow():
     assert r.status_code == 200
     r = requests.get(f"{BASE_URL}/api/auth/me", headers=_hdr(applicant), timeout=30)
     assert r.json()["user_type"] == "driver"
-    r = requests.put(f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(applicant), timeout=30)
+    r = requests.put(f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(applicant), timeout=30)
     assert r.status_code == 200
 
 

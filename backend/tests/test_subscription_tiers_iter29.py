@@ -133,9 +133,9 @@ class TestMerchantSubscriptionAndCommission:
         assert by_tier["standard"]["price_ttd"] == 0
         assert by_tier["pro"]["price_ttd"] == 800
         assert by_tier["premium"]["price_ttd"] == 1600
-        assert by_tier["standard"]["commission_pct"] == 20
-        assert by_tier["pro"]["commission_pct"] == 15
-        assert by_tier["premium"]["commission_pct"] == 5
+        assert by_tier["standard"]["commission_pct"] == 10
+        assert by_tier["pro"]["commission_pct"] == 5
+        assert by_tier["premium"]["commission_pct"] == 0
         assert by_tier["standard"]["featured"] is False
         assert by_tier["pro"]["featured"] is True
         assert by_tier["premium"]["featured"] is True
@@ -180,11 +180,11 @@ class TestMerchantSubscriptionAndCommission:
         rid = merchant_ctx["restaurant_id"]
         tok = merchant_ctx["token"]
 
-        # ----- STANDARD: 20% -----
+        # ----- STANDARD: 10% -----
         o1 = self._create_order(cust["token"], rid)
-        assert o1.get("commission_rate") == 20, o1
-        assert round(o1.get("commission_amount", -1), 2) == 20.0
-        assert round(o1.get("vendor_payout", -1), 2) == 80.0
+        assert o1.get("commission_rate") == 10, o1
+        assert round(o1.get("commission_amount", -1), 2) == 10.0
+        assert round(o1.get("vendor_payout", -1), 2) == 90.0
         assert round(o1.get("service_fee", -1), 2) == 3.0
 
         # ----- Upgrade to PRO -----
@@ -196,9 +196,9 @@ class TestMerchantSubscriptionAndCommission:
         assert check.get("plan", {}).get("featured") is True, check
 
         o2 = self._create_order(cust["token"], rid)
-        assert o2.get("commission_rate") == 15, o2
-        assert round(o2.get("commission_amount", -1), 2) == 15.0
-        assert round(o2.get("vendor_payout", -1), 2) == 85.0
+        assert o2.get("commission_rate") == 5, o2
+        assert round(o2.get("commission_amount", -1), 2) == 5.0
+        assert round(o2.get("vendor_payout", -1), 2) == 95.0
         assert round(o2.get("service_fee", -1), 2) == 3.0
 
         # ----- Upgrade to PREMIUM -----
@@ -210,7 +210,7 @@ class TestMerchantSubscriptionAndCommission:
         assert check2.get("plan", {}).get("featured") is True
 
         o3 = self._create_order(cust["token"], rid)
-        assert o3.get("commission_rate") == 5, o3
-        assert round(o3.get("commission_amount", -1), 2) == 5.0
-        assert round(o3.get("vendor_payout", -1), 2) == 95.0
+        assert o3.get("commission_rate") == 0, o3
+        assert round(o3.get("commission_amount", -1), 2) == 0.0
+        assert round(o3.get("vendor_payout", -1), 2) == 100.0
         assert round(o3.get("service_fee", -1), 2) == 3.0

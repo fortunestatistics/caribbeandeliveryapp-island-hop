@@ -176,7 +176,8 @@ class TestPhase2Driver:
 
     def test_pending_cannot_go_online(self, actors, state):
         r = requests.put(
-            f"{BASE_URL}/api/drivers/status?status=online",
+            f"{BASE_URL}/api/drivers/status",
+            json={"status": "online"},
             headers=_hdr(actors["driver"]["token"]),
         )
         assert r.status_code == 403, f"expected 403, got {r.status_code} {r.text}"
@@ -197,7 +198,8 @@ class TestPhase2Driver:
 
     def test_driver_can_go_online(self, actors, state):
         r = requests.put(
-            f"{BASE_URL}/api/drivers/status?status=online",
+            f"{BASE_URL}/api/drivers/status",
+            json={"status": "online"},
             headers=_hdr(actors["driver"]["token"]),
         )
         assert r.status_code == 200, f"go online failed: {r.status_code} {r.text}"
