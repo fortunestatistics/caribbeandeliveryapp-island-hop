@@ -51,7 +51,7 @@ export default function MerchantSettings() {
         setLoading(false);
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const saveAccount = async () => {
     setSavingAccount(true);

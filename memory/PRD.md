@@ -15,6 +15,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
+## Session Log — Jun 2026 (fork, cont.) — Type-specific customer storefront + PRODUCTION BUILD FIX
+- **DEPLOY BLOCKER FIXED:** the production build (`CI=true yarn build`) was failing with `Definition for rule 'react-hooks/exhaustive-deps' was not found` in `MerchantSettings.js`/`DriverSettings.js` — my `// eslint-disable-next-line react-hooks/exhaustive-deps` comments referenced a rule this project's ESLint config doesn't register, which is a hard error under CI. Removed both comments; `yarn build` now succeeds. This was the cause of the failed `islandhop-mvp` production deploy.
+- **IMPROVEMENT — type-specific customer storefront (`RestaurantMenu.js`, now generic):** extended `businessTypeConfig.js` with per-type `itemIcon`, `addLabel`, `searchPlaceholder`, `heroCta`. Storefront now adapts: pharmacy shows a "Have a prescription? Upload your Rx…" CTA (`storefront-type-cta` → `/pharmacy-order`), grocery/car-rental show tailored hero copy, search placeholder + item thumbnail icon + Add button label all match the business type. Verified via screenshot (CarePlus Pharmacy storefront).
+- **Verified:** production build green; pharmacy storefront CTA + labels render correctly. REQUIRES REDEPLOY (now unblocked).
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Functional Merchant & Driver Settings + business-type-aware menu/catalog options
 - **NEW — Merchant Settings page (`/vendor/settings`, `MerchantSettings.js`):** was a dead link; now fully functional. Sections: Account (name/phone via `PUT /api/users/me`), Business Profile (name/description/cuisine[restaurant-only]/phone/email/address/delivery_fee/min_order via new `GET`+`PUT /api/merchant/profile`), Change Password (`POST /api/auth/change-password`), quick links to Storefront/Coupons/Subscription. Lets merchants fix misspellings / update their profile.
 - **NEW — Driver Settings page (`/driver/settings`, `DriverSettings.js`):** Account, Vehicle & License + Banking (via new `PUT /api/drivers/profile`), Change Password. Added Settings buttons to both dashboards (`vendor-settings-btn`, `driver-settings-btn`).

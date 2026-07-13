@@ -117,7 +117,7 @@ const RestaurantMenu = () => {
     description: m.description || '',
     price: m.price || 0,
     category: m.category || 'Mains',
-    image: '🍽️',
+    image: vendorCfg.itemIcon || '🍽️',
     popular: !!m.popular,
     spicy: !!m.spicy,
   }));
@@ -385,13 +385,36 @@ const RestaurantMenu = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Menu Section */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Business-type CTA banner (pharmacy Rx upload, grocery/fleet messaging) */}
+            {vendorCfg.heroCta && (
+              <Card className="border-gold-500/40 bg-gradient-to-r from-gold-500/10 to-neon-cyan/5" data-testid="storefront-type-cta">
+                <CardContent className="p-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">{vendorCfg.itemIcon}</span>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{vendorCfg.heroCta.title}</h3>
+                      <p className="text-sm text-muted-foreground">{vendorCfg.heroCta.subtitle}</p>
+                    </div>
+                  </div>
+                  {vendorCfg.heroCta.label && (
+                    <Button
+                      className="bg-gold-gradient text-white shrink-0"
+                      onClick={() => navigate(vendorCfg.heroCta.route)}
+                      data-testid="storefront-cta-btn"
+                    >
+                      {vendorCfg.heroCta.label}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             {/* Search & Filter */}
             <Card>
               <CardContent className="p-4">
                 <div className="relative mb-4">
                   <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
                   <Input
-                    placeholder="Search menu items..."
+                    placeholder={vendorCfg.searchPlaceholder || 'Search menu items...'}
                     className="pl-10"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -444,7 +467,7 @@ const RestaurantMenu = () => {
                           onClick={() => addToCart(item)}
                         >
                           <Plus className="h-4 w-4 mr-2" />
-                          Add to Cart
+                          {vendorCfg.addLabel || 'Add to Cart'}
                         </Button>
                       </div>
                     </div>
