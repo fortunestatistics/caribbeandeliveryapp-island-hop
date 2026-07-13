@@ -197,7 +197,7 @@ const VendorDashboard = () => {
                 <DollarSign className="h-5 w-5 mr-2" />
                 Subscription
               </Button>
-              <Button onClick={() => navigate('/vendor/settings')} variant="outline">
+              <Button onClick={() => navigate('/vendor/settings')} variant="outline" data-testid="vendor-settings-btn">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
               </Button>

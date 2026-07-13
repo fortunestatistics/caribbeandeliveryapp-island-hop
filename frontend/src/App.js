@@ -47,6 +47,8 @@ const ClaimsPage = lazy(() => import('./ClaimsPage'));
 const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const MerchantSettings = lazy(() => import('./MerchantSettings'));
+const DriverSettings = lazy(() => import('./DriverSettings'));
 const ForgotPassword = lazy(() => import('./ForgotPassword'));
 const ResetPassword = lazy(() => import('./ResetPassword'));
 const AssistantWidget = lazy(() => import('./AssistantWidget'));
@@ -2086,6 +2088,7 @@ function App() {
             <Route path="/driver" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverRegistration /></ProtectedRoute>} />
             <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverEarningsDashboard /></ProtectedRoute>} />
             <Route path="/driver/subscription" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSubscription /></ProtectedRoute>} />
+            <Route path="/driver/settings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSettings /></ProtectedRoute>} />
 
             {/* Merchant / Vendor only */}
             <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
@@ -2096,6 +2099,7 @@ function App() {
             <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
             <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
             <Route path="/merchant/ads" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantAds /></ProtectedRoute>} />
+            <Route path="/vendor/settings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSettings /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />

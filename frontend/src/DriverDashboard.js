@@ -8,7 +8,8 @@ import {
   Power,
   AlertCircle,
   Star,
-  DollarSign
+  DollarSign,
+  Settings
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
@@ -287,6 +288,10 @@ const DriverDashboard = () => {
               <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
                 <DollarSign className="h-5 w-5 mr-2" />
                 Subscription
+              </Button>
+              <Button onClick={() => navigate('/driver/settings')} variant="outline" data-testid="driver-settings-btn">
+                <Settings className="h-5 w-5 mr-2" />
+                Settings
               </Button>
             </div>
           </div>

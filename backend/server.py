@@ -4988,6 +4988,31 @@ class DriverStatusUpdate(BaseModel):
     status: str
 
 
+class DriverProfileUpdate(BaseModel):
+    license_number: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
+@api_router.put("/drivers/profile")
+async def update_driver_profile(payload: DriverProfileUpdate, request: Request):
+    """Update the signed-in driver's profile — license, vehicle & banking details.
+    Lets drivers fix typos / keep their info current. Does not change approval status."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.drivers.update_one({"id": driver["id"]}, {"$set": update})
+    doc = await db.drivers.find_one({"id": driver["id"]}, {"_id": 0})
+    return {"success": True, "driver": doc}
+
+
 @api_router.put("/drivers/status")
 async def update_driver_status(payload: DriverStatusUpdate, request: Request):
     """Update driver online/offline status. Blocked until the driver is approved."""
@@ -6681,6 +6706,102 @@ async def _resolve_vendor_for_user(current_user) -> tuple:
     ):
         raise HTTPException(status_code=403, detail="Your merchant application is still pending admin approval. You'll be able to build your storefront once it's approved.")
     raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+
+async def _find_vendor_doc(user_id: str):
+    """Return (collection_name, doc) for the signed-in merchant's business record."""
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"user_id": user_id}, {"_id": 0})
+        if doc:
+            return coll, doc
+    return None, None
+
+
+def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
+    """Normalize a vendor record (restaurants/businesses) to a common profile shape."""
+    if coll == "businesses":
+        return {
+            "collection": coll,
+            "name": doc.get("business_name"),
+            "description": doc.get("business_description", ""),
+            "business_type": doc.get("business_type") or "business",
+            "phone": doc.get("phone", ""),
+            "email": doc.get("email", ""),
+            "address": doc.get("address") or {},
+            "delivery_fee": doc.get("delivery_fee"),
+            "minimum_order": doc.get("minimum_order"),
+        }
+    # restaurants / car rental companies use canonical fields
+    return {
+        "collection": coll,
+        "name": doc.get("name"),
+        "description": doc.get("description", ""),
+        "business_type": "restaurant" if coll == "restaurants" else "car_rental",
+        "cuisine_type": doc.get("cuisine_type"),
+        "phone": doc.get("phone", ""),
+        "email": doc.get("email", ""),
+        "address": doc.get("address") or {},
+        "delivery_fee": doc.get("delivery_fee"),
+        "minimum_order": doc.get("minimum_order"),
+    }
+
+
+class MerchantProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    cuisine_type: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[Dict[str, str]] = None
+    delivery_fee: Optional[float] = None
+    minimum_order: Optional[float] = None
+
+
+@api_router.get("/merchant/profile")
+async def get_merchant_profile(request: Request):
+    """Get the signed-in merchant's business profile (name, contact, address)."""
+    current_user = await get_current_user_from_request(request)
+    # Ensure vendor is provisioned (self-heals approved merchants), then load the doc.
+    await _resolve_vendor_for_user(current_user)
+    coll, doc = await _find_vendor_doc(current_user.id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+    return _normalize_vendor_profile(coll, doc)
+
+
+@api_router.put("/merchant/profile")
+async def update_merchant_profile(payload: MerchantProfileUpdate, request: Request):
+    """Update the signed-in merchant's business profile — fix misspellings / keep info current."""
+    current_user = await get_current_user_from_request(request)
+    await _resolve_vendor_for_user(current_user)
+    coll, doc = await _find_vendor_doc(current_user.id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+    fields = {k: v for k, v in payload.dict().items() if v is not None}
+    update = {}
+    if coll == "businesses":
+        # Map canonical → businesses field names
+        if "name" in fields:
+            update["business_name"] = fields["name"].strip()
+        if "description" in fields:
+            update["business_description"] = fields["description"]
+        for k in ("phone", "email", "address"):
+            if k in fields:
+                update[k] = fields[k]
+    else:
+        for k in ("name", "description", "cuisine_type", "phone", "email",
+                  "address", "delivery_fee", "minimum_order"):
+            if k in fields:
+                update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db[coll].update_one({"id": doc["id"]}, {"$set": update})
+    new_doc = await db[coll].find_one({"id": doc["id"]}, {"_id": 0})
+    return {"success": True, "profile": _normalize_vendor_profile(coll, new_doc)}
+
+
 
 
 def _validate_storefront_images(payload: StorefrontUpdate):
