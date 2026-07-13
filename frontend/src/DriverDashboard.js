@@ -275,6 +275,7 @@ const DriverDashboard = () => {
               <Button
                 onClick={toggleOnlineStatus}
                 className={isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}
+                data-testid="driver-online-toggle"
               >
                 <Power className="h-5 w-5 mr-2" />
                 {isOnline ? 'Go Offline' : 'Go Online'}

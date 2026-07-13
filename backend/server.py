@@ -162,14 +162,14 @@ def _derive_vendor_type(service_type: str) -> str:
 
 
 # Merchant subscription catalogue (prices in TTD). Commission is on the item subtotal.
-MERCHANT_PLAN_COMMISSION = {"standard": 20.0, "pro": 15.0, "premium": 5.0}
+MERCHANT_PLAN_COMMISSION = {"standard": 10.0, "pro": 5.0, "premium": 0.0}
 MERCHANT_SUBSCRIPTION_PLANS = [
     {
         "tier": "standard", "name": "Standard", "price_ttd": 0,
-        "commission_pct": 20, "featured": False,
+        "commission_pct": 10, "featured": False,
         "tagline": "Free to join. Start selling today.",
         "features": [
-            "20% commission on orders",
+            "10% commission on orders",
             "Standard search placement",
             "Order & menu management",
             "Weekly payouts",
@@ -177,10 +177,10 @@ MERCHANT_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "pro", "name": "Professional", "price_ttd": 800,
-        "commission_pct": 15, "featured": True,
+        "commission_pct": 5, "featured": True,
         "tagline": "Lower fees + Featured Partner status.",
         "features": [
-            "15% commission on orders",
+            "5% commission on orders",
             "Featured Partner — higher search visibility",
             "Order & menu management",
             "Weekly payouts",
@@ -188,10 +188,10 @@ MERCHANT_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "premium", "name": "Premium", "price_ttd": 1600,
-        "commission_pct": 5, "featured": True,
+        "commission_pct": 0, "featured": True,
         "tagline": "Lowest fees + Premium Marketing & Priority Support.",
         "features": [
-            "5% commission on orders",
+            "0% commission — keep 100% of every order",
             "Featured Partner — top search visibility",
             "Premium Marketing placement",
             "Priority Support",
