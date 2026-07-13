@@ -349,10 +349,10 @@ const RestaurantMenu = () => {
           <CardContent className="p-6">
             <Button
               variant="ghost"
-              onClick={() => navigate('/restaurants')}
+              onClick={() => navigate(sf.vendor_type && sf.vendor_type !== 'restaurant' ? '/businesses' : '/restaurants')}
               className="mb-4"
             >
-              ← Back to Restaurants
+              ← Back to {sf.vendor_type && sf.vendor_type !== 'restaurant' ? 'Businesses' : 'Restaurants'}
             </Button>
             <div className="flex items-start justify-between">
               <div>
