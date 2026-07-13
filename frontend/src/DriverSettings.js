@@ -73,7 +73,12 @@ export default function DriverSettings() {
         license_number: driver.license_number, vehicle_type: driver.vehicle_type, vehicle_plate: driver.vehicle_plate,
       }, authCfg());
       toast({ title: 'Vehicle details updated', description: 'Your license & vehicle info were saved.' });
-      setDriver((d) => ({ ...d, ...data.driver }));
+      setDriver((d) => ({
+        ...d,
+        license_number: data.driver?.license_number ?? d.license_number,
+        vehicle_type: data.driver?.vehicle_type ?? d.vehicle_type,
+        vehicle_plate: data.driver?.vehicle_plate ?? d.vehicle_plate,
+      }));
     } catch (e) {
       toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
     } finally { setSavingVehicle(false); }
@@ -90,7 +95,7 @@ export default function DriverSettings() {
   };
 
   const changePassword = async () => {
-    if (pw.new_password.length < 6) { toast({ title: 'Password too short', description: 'Use at least 6 characters.', variant: 'destructive' }); return; }
+    if (pw.new_password.length < 8) { toast({ title: 'Password too short', description: 'Use at least 8 characters.', variant: 'destructive' }); return; }
     if (pw.new_password !== pw.confirm) { toast({ title: 'Passwords do not match', variant: 'destructive' }); return; }
     setSavingPw(true);
     try {

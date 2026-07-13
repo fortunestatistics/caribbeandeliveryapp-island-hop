@@ -84,8 +84,8 @@ export default function MerchantSettings() {
   };
 
   const changePassword = async () => {
-    if (pw.new_password.length < 6) {
-      toast({ title: 'Password too short', description: 'Use at least 6 characters.', variant: 'destructive' }); return;
+    if (pw.new_password.length < 8) {
+      toast({ title: 'Password too short', description: 'Use at least 8 characters.', variant: 'destructive' }); return;
     }
     if (pw.new_password !== pw.confirm) {
       toast({ title: 'Passwords do not match', variant: 'destructive' }); return;
