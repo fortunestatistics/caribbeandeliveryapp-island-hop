@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+// Load signing secrets from a git-ignored keystore.properties (never commit passwords).
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasSigningConfig = keystorePropertiesFile.exists()
+if (hasSigningConfig) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "com.islandhop.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -18,17 +26,20 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file("../keystore/islandhop-upload.jks")
-            storePassword "islandhop2026"
-            keyAlias "islandhop"
-            keyPassword "islandhop2026"
+            if (hasSigningConfig) {
+                storeFile file(keystoreProperties['storeFile'] ?: "../keystore/islandhop-upload.jks")
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
         }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // Falls back to debug signing if keystore.properties is absent (e.g. CI without secrets).
+            signingConfig hasSigningConfig ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

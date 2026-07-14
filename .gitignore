@@ -105,3 +105,9 @@ frontend/node_modules/.cache/default-development/14.pack
 .env
 .env.*
 *.env
+
+# Android signing secrets — never commit these
+frontend/android/keystore.properties
+*.jks
+*.keystore
+
