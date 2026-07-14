@@ -165,7 +165,7 @@ const MerchantStorefrontEditor = () => {
           <CardContent>
             <div className="grid grid-cols-3 gap-3" data-testid="storefront-gallery-grid">
               {gallery.map((g, i) => (
-                <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-matte-800 group">
+                <div key={`${g}-${i}`} className="relative aspect-square rounded-lg overflow-hidden bg-matte-800 group">
                   <img src={g} alt={`gallery-${i}`} className="h-full w-full object-cover" />
                   <button
                     type="button"

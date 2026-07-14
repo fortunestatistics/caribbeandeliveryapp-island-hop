@@ -29,17 +29,22 @@ const DriverSubscription = () => {
   const [selecting, setSelecting] = useState(null);
 
   const load = async () => {
+    // Plans are public — always render them regardless of driver/auth state.
     try {
-      const [p, s] = await Promise.all([
-        axios.get(`${API}/driver/subscription/plans`),
-        axios.get(`${API}/driver/subscription`, { headers: authHeaders() }),
-      ]);
+      const p = await axios.get(`${API}/driver/subscription/plans`);
       setPlans(p.data || []);
-      setCurrentTier(s.data?.tier || 'standard');
     } catch (e) {
       toast({ title: 'Could not load plans', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
     } finally {
       setLoading(false);
+    }
+    // Current subscription is best-effort (needs a driver account) — never blocks plans.
+    try {
+      const s = await axios.get(`${API}/driver/subscription`, { headers: authHeaders() });
+      setCurrentTier(s.data?.tier || 'standard');
+    } catch (e) {
+      console.warn('Driver current-subscription fetch failed (defaulting to standard):', e?.message);
+      // Not a driver yet / not logged in — leave tier at default 'standard'.
     }
   };
 

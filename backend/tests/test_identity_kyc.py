@@ -63,6 +63,9 @@ def test_apply_identity_result_auto_approves(monkeypatch):
         async def update_one(self, query, update):
             self.updates.append((query, update))
             return None
+        async def find_one(self, query, projection=None):
+            # promote_user_role reads the user first; return a non-privileged account so it promotes.
+            return {"user_type": "customer", "is_owner": False}
 
     drivers = FakeColl()
     users = FakeColl()
@@ -72,9 +75,11 @@ def test_apply_identity_result_auto_approves(monkeypatch):
     driver = {"id": "drv1", "user_id": "usr1", "status": "pending"}
     session = {"id": "vs_1", "status": "verified", "last_error": None}
 
-    status = asyncio.get_event_loop().run_until_complete(
-        server._apply_identity_result(driver, session)
-    )
+    loop = asyncio.new_event_loop()
+    try:
+        status = loop.run_until_complete(server._apply_identity_result(driver, session))
+    finally:
+        loop.close()
     assert status == "verified"
     # driver updated to active
     drv_update = drivers.updates[0][1]["$set"]

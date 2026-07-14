@@ -1,0 +1,22 @@
+# IslandHop
+
+> IslandHop is the Caribbean's all-in-one on-demand delivery and logistics platform — food delivery, pharmacy, groceries, courier, taxi, and car rental in one premium app, built for Trinidad & Tobago and the wider Caribbean.
+
+## Services
+
+- [Food Delivery](https://islandhopapp.com/restaurants): Order from local restaurants for fast Caribbean cuisine delivery.
+- [Car Rentals](https://islandhopapp.com/car-rentals): Airport and city car rental services across the islands.
+- [Pricing](https://islandhopapp.com/pricing): Delivery fees, service fees, and partner subscription tiers.
+
+## Partners & Drivers
+
+- [Become a Partner](https://islandhopapp.com/partner): Restaurants, pharmacies, grocery stores, and suppliers can join the network. Standard (free, 15% commission), Pro (TT$800/mo, 10%), and Premium (TT$1,600/mo, 5%) tiers.
+- [Drive with Us](https://islandhopapp.com/driver-onboarding): Earn as a driver with Standard, Pro (TT$700/mo), and Premium (TT$1,400/mo) subscription tiers.
+- [Promote & Earn](https://islandhopapp.com/promote): Share a referral QR code and earn for every business onboarded.
+
+## Company
+
+- [About](https://islandhopapp.com/about): Our mission to power Caribbean logistics.
+- [Support](https://islandhopapp.com/support): Customer support and FAQs.
+- [Privacy Policy](https://islandhopapp.com/privacy)
+- [Terms of Service](https://islandhopapp.com/terms)

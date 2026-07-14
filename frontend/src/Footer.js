@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import axios from 'axios';
 import {
   Headphones,
   Store,
@@ -7,7 +8,17 @@ import {
   Landmark,
   ExternalLink,
   Instagram,
+  Send,
+  Loader2,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
+import { Input } from './components/ui/input';
+import { Textarea } from './components/ui/textarea';
+import { Button } from './components/ui/button';
+import { Label } from './components/ui/label';
+import { toast } from 'sonner';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // Single source of truth for IslandHop social profiles.
 export const SOCIAL_LINKS = [
@@ -15,16 +26,47 @@ export const SOCIAL_LINKS = [
 ];
 
 // Single source of truth for every official IslandHop contact address.
-// Update here when emails change — nothing else in the codebase hardcodes them.
+// `key` maps to the backend CONTACT_MAILBOXES routing (server sends to the correct mailbox).
 export const CONTACT_EMAILS = [
-  { key: 'support',  label: 'Customer Support',     email: 'support@islandhoptt.com',          icon: Headphones, desc: 'Order issues, claims, account help' },
-  { key: 'partner',  label: 'Merchant Partnerships', email: 'partner@islandhoptt.com',          icon: Store,      desc: 'List your business with us' },
-  { key: 'drivers',  label: 'Driver Onboarding',     email: 'drivers@islandhoptt.com',          icon: Truck,      desc: 'Drive with IslandHop' },
-  { key: 'investors', label: 'Investor Relations',   email: 'investors@islandhoptt.com',        icon: LineChart,  desc: 'Press & investment enquiries' },
-  { key: 'banking',  label: 'Banking Partners',      email: 'banking.partners@islandhoptt.com', icon: Landmark,   desc: 'Treasury & payment partnerships' },
+  { key: 'support',   label: 'Customer Support',      email: 'support@islandhoptt.com',          icon: Headphones, desc: 'Order issues, claims, account help' },
+  { key: 'partner',   label: 'Merchant Partnerships', email: 'partners@islandhoptt.com',         icon: Store,      desc: 'List your business with us' },
+  { key: 'drivers',   label: 'Driver Onboarding',     email: 'drivers@islandhoptt.com',          icon: Truck,      desc: 'Drive with IslandHop' },
+  { key: 'investors', label: 'Investor Relations',    email: 'investors@islandhoptt.com',        icon: LineChart,  desc: 'Press & investment enquiries' },
+  { key: 'banking',   label: 'Banking Partners',      email: 'banking.partners@islandhoptt.com', icon: Landmark,   desc: 'Treasury & payment partnerships' },
 ];
 
 const Footer = () => {
+  const [dept, setDept] = useState(null); // active contact department object
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const openContact = (c) => {
+    setDept(c);
+    setName(''); setEmail(''); setMessage('');
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || message.trim().length < 5) {
+      toast.error('Please enter your email and a short message.');
+      return;
+    }
+    setSending(true);
+    try {
+      await axios.post(`${API}/contact`, {
+        department: dept.key, name: name.trim() || 'Website visitor', email: email.trim(), message: message.trim(),
+      });
+      toast.success(`Message sent to ${dept.label}. We'll be in touch shortly.`);
+      setDept(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Could not send your message. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <footer
       data-testid="site-footer"
@@ -59,21 +101,23 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* Contact emails — compact inline pills */}
+          {/* Contact — opens an in-app form that delivers to the correct mailbox */}
           <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground mr-1 hidden sm:inline">Get in touch:</span>
             {CONTACT_EMAILS.map((c) => {
               const Icon = c.icon;
               return (
-                <a
+                <button
                   key={c.key}
-                  href={`mailto:${c.email}`}
+                  type="button"
+                  onClick={() => openContact(c)}
                   data-testid={`contact-${c.key}`}
-                  title={c.email}
+                  title={`Message ${c.label}`}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-matte-800/80 text-xs text-muted-foreground hover:border-gold-500/40 hover:text-gold-300 transition-colors"
                 >
                   <Icon className="h-3.5 w-3.5 text-gold-500" />
                   {c.label}
-                </a>
+                </button>
               );
             })}
           </div>
@@ -93,37 +137,54 @@ const Footer = () => {
             >
               www.islandhoptt.com <ExternalLink className="h-3 w-3" />
             </a>
-            <a
-              href="/about"
-              data-testid="footer-about"
-              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
-            >
-              About
-            </a>
-            <a
-              href="/promote"
-              data-testid="footer-promote"
-              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
-            >
-              Promote &amp; Earn
-            </a>
-            <a
-              href="/privacy-policy"
-              data-testid="footer-privacy"
-              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
-            >
-              Privacy Policy
-            </a>
-            <a
-              href="/terms-and-conditions"
-              data-testid="footer-terms"
-              className="text-xs text-muted-foreground hover:text-gold-500 transition-colors"
-            >
-              Terms &amp; Conditions
-            </a>
+            <a href="/about" data-testid="footer-about" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">About</a>
+            <a href="/promote" data-testid="footer-promote" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Promote &amp; Earn</a>
+            <a href="/privacy-policy" data-testid="footer-privacy" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Privacy Policy</a>
+            <a href="/terms-and-conditions" data-testid="footer-terms" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Terms &amp; Conditions</a>
           </div>
         </div>
       </div>
+
+      {/* Contact form dialog */}
+      <Dialog open={!!dept} onOpenChange={(o) => !o && setDept(null)}>
+        <DialogContent data-testid="contact-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {dept && <dept.icon className="h-5 w-5 text-gold-500" />} Contact {dept?.label}
+            </DialogTitle>
+            <DialogDescription>
+              {dept?.desc} — your message goes straight to <span className="font-medium">{dept?.email}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submit} className="space-y-3">
+            <div>
+              <Label htmlFor="contact-name" className="text-xs">Your name</Label>
+              <Input id="contact-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" data-testid="contact-name" />
+            </div>
+            <div>
+              <Label htmlFor="contact-email" className="text-xs">Your email *</Label>
+              <Input id="contact-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" data-testid="contact-email" />
+            </div>
+            <div>
+              <Label htmlFor="contact-message" className="text-xs">Message *</Label>
+              <Textarea id="contact-message" required rows={4} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="How can we help?" data-testid="contact-message" />
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <a
+                href={dept ? `mailto:${dept.email}` : '#'}
+                className="text-xs text-muted-foreground hover:text-gold-500 underline"
+                data-testid="contact-mailto-fallback"
+              >
+                or email directly
+              </a>
+              <Button type="submit" disabled={sending} data-testid="contact-submit">
+                {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                Send message
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </footer>
   );
 };

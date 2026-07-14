@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import CurrencyConverter from './CurrencyConverter';
-import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Banknote } from 'lucide-react';
+import { CreditCard, ShieldCheck, Loader2, CheckCircle2, XCircle, ArrowLeft, Heart, Tag, X, Banknote, Wallet } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,6 +29,8 @@ export const CheckoutPage = () => {
   const [promoInput, setPromoInput] = useState('');
   const [promoSaving, setPromoSaving] = useState(false);
   const [promoFeedback, setPromoFeedback] = useState(null); // {type: 'success'|'error', text}
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [payingWallet, setPayingWallet] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -44,6 +46,13 @@ export const CheckoutPage = () => {
         setError(e?.response?.data?.detail || 'Order not found');
       } finally {
         setLoading(false);
+      }
+      // Best-effort wallet balance for the "Pay with wallet" option.
+      try {
+        const w = await axios.get(`${API}/wallet`, { headers: authHeaders() });
+        setWalletBalance(Number(w.data?.balances?.USD || 0));
+      } catch (_) {
+        setWalletBalance(null);
       }
     };
     load();
@@ -140,6 +149,18 @@ export const CheckoutPage = () => {
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to place order');
       setCreating(false);
+    }
+  };
+
+  const handleWallet = async () => {
+    setPayingWallet(true);
+    setError('');
+    try {
+      await axios.post(`${API}/wallet/pay-order`, { order_id: orderId }, { headers: authHeaders() });
+      navigate(`/payment/success?order_id=${orderId}&via=wallet`);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Wallet payment failed');
+      setPayingWallet(false);
     }
   };
 
@@ -371,7 +392,29 @@ export const CheckoutPage = () => {
             {/* Secondary: pay online now (optional) */}
             {!isPaid && (
               <div className="pt-2 border-t border-border space-y-3">
-                <p className="text-xs text-muted-foreground text-center">Prefer to pay online now? (optional)</p>
+                <p className="text-xs text-muted-foreground text-center">Prefer to pay now? (optional)</p>
+                {walletBalance != null && (
+                  <>
+                    <Button
+                      onClick={handleWallet}
+                      disabled={creating || payingWallet || tipSaving || walletBalance < Number(order.total || 0)}
+                      variant="outline"
+                      className="w-full"
+                      data-testid="checkout-pay-wallet-btn"
+                    >
+                      {payingWallet ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Paying from wallet…</>
+                      ) : (
+                        <><Wallet className="h-4 w-4 mr-2" /> Pay with IslandHop Wallet (Balance: {format(walletBalance)})</>
+                      )}
+                    </Button>
+                    {walletBalance < Number(order.total || 0) && (
+                      <p className="text-xs text-muted-foreground text-center -mt-1" data-testid="checkout-wallet-insufficient">
+                        Wallet balance too low for this order. <button type="button" onClick={() => navigate('/wallet')} className="text-gold-600 underline">Add funds</button>
+                      </p>
+                    )}
+                  </>
+                )}
                 <Button
                   onClick={handleWiPay}
                   disabled={creating || tipSaving}
@@ -419,7 +462,7 @@ export const PaymentSuccess = () => {
       return () => { cancelled = true; };
     }
     // WiPay: callback already settled the order server-side. Confirm by reading the order.
-    if (via === 'wipay') {
+    if (via === 'wipay' || via === 'wallet') {
       let cancelled = false;
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -462,6 +505,7 @@ export const PaymentSuccess = () => {
     };
     poll(0);
     return () => { cancelled = true; };
+    // eslint-disable-next-line -- poll defined inline; re-run on payment identifiers only
   }, [sessionId, via, orderId]);
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-teal-50 to-blue-50">

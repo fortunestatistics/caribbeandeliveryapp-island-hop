@@ -8,6 +8,7 @@ import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
 import CurrencyConverter from './CurrencyConverter';
 import { Badge } from './components/ui/badge';
+import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
 import { 
   ShoppingCart, 
   MapPin, 
@@ -122,9 +123,11 @@ const GroceryOrderForm = () => {
     return calculateSubtotal() + getDeliveryFee();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    if (!isLoggedIn()) { navigate('/login'); return; }
+
     if (!selectedStore) {
       alert('Please select a store');
       return;
@@ -141,19 +144,33 @@ const GroceryOrderForm = () => {
       return;
     }
 
-    const groceryOrder = {
-      service_type: 'grocery',
-      store_id: selectedStore,
-      store_name: store.name,
-      items: cart,
-      delivery_address: deliveryAddress,
-      delivery_instructions: deliveryInstructions,
-      subtotal: calculateSubtotal(),
-      delivery_fee: getDeliveryFee(),
-      total: calculateTotal()
-    };
+    const profile = await fetchProfile();
+    const addr = (deliveryAddress || '').trim() || formatProfileAddress(profile.address);
+    if (!addr) {
+      alert('Please enter a delivery address to continue.');
+      return;
+    }
 
-    navigate('/checkout', { state: { orderData: groceryOrder, serviceType: 'grocery' } });
+    try {
+      const order = await createOrder({
+        customer_id: 'x',
+        service_type: 'grocery',
+        vendor_id: selectedStore,
+        items: cart.map(i => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
+        subtotal: calculateSubtotal(),
+        delivery_fee: getDeliveryFee(),
+        tip: 0,
+        total: calculateTotal(),
+        pickup_address: { location: store.name, full_address: store.name },
+        delivery_address: { location: addr, full_address: addr, instructions: deliveryInstructions || '' },
+        customer_phone: profile.phone || '',
+        payment_method: 'cod',
+        notes: deliveryInstructions || '',
+      });
+      navigate(`/checkout/${order.id}`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
+    }
   };
 
   return (
@@ -189,6 +206,7 @@ const GroceryOrderForm = () => {
                     {stores.map((store) => (
                       <Card
                         key={store.id}
+                        data-testid={`grocery-store-card-${store.id}`}
                         className={`cursor-pointer transition-all ${
                           selectedStore === store.id
                             ? 'border-2 border-green-500 bg-green-50'
@@ -251,6 +269,7 @@ const GroceryOrderForm = () => {
                             <Button
                               type="button"
                               size="sm"
+                              data-testid={`grocery-add-btn-${item.id}`}
                               className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white"
                               onClick={() => addToCart(item)}
                             >
@@ -350,6 +369,7 @@ const GroceryOrderForm = () => {
                               className="pl-9 text-sm"
                               value={deliveryAddress}
                               onChange={(e) => setDeliveryAddress(e.target.value)}
+                              data-testid="grocery-delivery-address-input"
                               required
                             />
                           </div>
@@ -390,6 +410,7 @@ const GroceryOrderForm = () => {
                       <Button
                         type="submit"
                         className="w-full"
+                        data-testid="grocery-checkout-btn"
                       >
                         Checkout
                       </Button>

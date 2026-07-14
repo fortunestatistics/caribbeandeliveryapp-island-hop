@@ -670,7 +670,7 @@ const RestaurantOnboarding = () => {
                     <div>
                       <h4 className="font-semibold text-green-900 mb-1">Secure Weekly Payments</h4>
                       <p className="text-sm text-green-800">
-                        Restaurant earnings are transferred weekly after deducting the 15% commission. 
+                        Restaurant earnings are transferred weekly after deducting the 20% Standard-plan commission (upgrade to Professional for 15%). 
                         Payments typically arrive within 1-2 business days.
                       </p>
                     </div>

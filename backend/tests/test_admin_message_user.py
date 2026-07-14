@@ -81,7 +81,7 @@ def real_user_id(all_users):
     if me:
         return me["id"]
     # fallback: any real-email customer
-    from backend import graph_mail
+    import graph_mail
     real = next((u for u in all_users if graph_mail.is_real_email(u.get("email"))), None)
     if not real:
         pytest.skip("No user with a real email found")
@@ -90,7 +90,7 @@ def real_user_id(all_users):
 
 # ---------- is_real_email unit ----------
 def test_is_real_email_unit():
-    from backend import graph_mail  # noqa: E402
+    import graph_mail  # noqa: E402
     assert graph_mail.is_real_email("real.person@gmail.com") is True
     assert graph_mail.is_real_email("id_start_demo_qa@gmail.com") is False
     assert graph_mail.is_real_email("id_noapp_abc@gmail.com") is False

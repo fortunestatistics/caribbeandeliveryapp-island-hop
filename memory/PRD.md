@@ -14,6 +14,121 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **MVP rollout** P1 features (Feb 2026): OTP signup, Referrals, Proof of Delivery, Service Zones, WhatsApp support, Admin approvals.
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
+
+## Session Log — Jun 2026 (fork, cont.) — Type-specific customer storefront + PRODUCTION BUILD FIX
+- **DEPLOY BLOCKER FIXED:** the production build (`CI=true yarn build`) was failing with `Definition for rule 'react-hooks/exhaustive-deps' was not found` in `MerchantSettings.js`/`DriverSettings.js` — my `// eslint-disable-next-line react-hooks/exhaustive-deps` comments referenced a rule this project's ESLint config doesn't register, which is a hard error under CI. Removed both comments; `yarn build` now succeeds. This was the cause of the failed `islandhop-mvp` production deploy.
+- **IMPROVEMENT — type-specific customer storefront (`RestaurantMenu.js`, now generic):** extended `businessTypeConfig.js` with per-type `itemIcon`, `addLabel`, `searchPlaceholder`, `heroCta`. Storefront now adapts: pharmacy shows a "Have a prescription? Upload your Rx…" CTA (`storefront-type-cta` → `/pharmacy-order`), grocery/car-rental show tailored hero copy, search placeholder + item thumbnail icon + Add button label all match the business type. Verified via screenshot (CarePlus Pharmacy storefront).
+- **Verified:** production build green; pharmacy storefront CTA + labels render correctly. REQUIRES REDEPLOY (now unblocked).
+
+
+
+## Session Log — Jun 2026 (fork, cont.) — Functional Merchant & Driver Settings + business-type-aware menu/catalog options
+- **NEW — Merchant Settings page (`/vendor/settings`, `MerchantSettings.js`):** was a dead link; now fully functional. Sections: Account (name/phone via `PUT /api/users/me`), Business Profile (name/description/cuisine[restaurant-only]/phone/email/address/delivery_fee/min_order via new `GET`+`PUT /api/merchant/profile`), Change Password (`POST /api/auth/change-password`), quick links to Storefront/Coupons/Subscription. Lets merchants fix misspellings / update their profile.
+- **NEW — Driver Settings page (`/driver/settings`, `DriverSettings.js`):** Account, Vehicle & License + Banking (via new `PUT /api/drivers/profile`), Change Password. Added Settings buttons to both dashboards (`vendor-settings-btn`, `driver-settings-btn`).
+- **NEW backend endpoints:** `GET/PUT /api/merchant/profile` (normalizes restaurants + businesses + car_rental_companies collections to a common shape via `_find_vendor_doc`/`_normalize_vendor_profile`), `PUT /api/drivers/profile`. + 3 CI tests `tests/test_merchant_fee_savings.py` (prior) and settings covered by testing agent iter39/iter40.
+- **NEW — Business-type-aware menu/catalog options (fixes 'restaurant options showing for all businesses'):** single source of truth `frontend/src/businessTypeConfig.js` → `getBusinessConfig(type)` with per-type itemNoun/catalogLabel/manageLabel/manageRoute/showCuisine/categories for restaurant, pharmacy, grocery, car_rental, business(retail). Applied to: VendorDashboard primary button (`vendor-manage-catalog-btn` → 'Manage Menu' vs 'Manage Products' vs 'Manage Fleet'), MerchantProducts (type-aware title/itemNoun/placeholder + category **dropdown** `product-category-select` from the taxonomy + 'Other…' custom input), customer storefront `RestaurantMenu.js` (category chips derived from the vendor's real product categories, cuisine label only for restaurants, 'Back to Businesses' for non-restaurants), and `BusinessSearch.openVendor` routing (car_rental → /car-rentals).
+- **Bug fixed (iter39→iter40):** DriverSettings null-crash when saving vehicle with null banking_info → null-safe merge. Frontend password min length aligned to backend (8 chars).
+- **Verified:** testing agent iteration_40 = **100% backend + 100% frontend** (restaurant shows menu options, grocery shows grocery options, no restaurant leak, driver crash gone). Self-verified via screenshots for restaurant + grocery. REQUIRES REDEPLOY for production.
+- **Deferred polish (optional, from iter40):** MerchantProducts `<Select>` uncontrolled→controlled console warning (cosmetic); hide fake fallback rating/"342 reviews" on brand-new merchants; extract RestaurantMenu ~350-line hardcoded demo menu; optionally validate `category` server-side against per-type taxonomy.
+
+
+
+## Session Log — Jun 2026 (fork, cont.) — Premium fee-savings ROI banner + documents-router extraction
+- **NEW FEATURE — Premium fee-savings banner (Vendor Dashboard):** `GET /api/merchant/fee-savings` returns this-month `{tier, orders, subtotal, commission_paid, standard_commission, saved, upgrade_tier, potential_extra_savings, currency}` (savings = Standard-10% base minus commission actually paid). `VendorDashboard.js` renders a gold/cyan banner (`fee-savings-banner`): Premium → "You saved TTD $X in fees this month (0% commission)"; Pro → savings + upgrade nudge; Standard → "You could have saved $X on Premium" + `fee-savings-upgrade-btn` → `/merchant/subscription`. Verified: curl (premium $100 order → saved $10), screenshot (banner shows "saved TTD $25.00"), + 3 CI tests (`tests/test_merchant_fee_savings.py`).
+- **Refactor — documents domain extracted:** moved the 4 object-storage document endpoints (`POST/GET /api/drivers/documents…` + `POST/GET /api/business/documents…`) and their constants into `backend/routers/documents.py` (mounted defensively). server.py: **10,306 → 10,214 lines** net (feature added ~60 lines, extraction removed ~161). Paths unchanged (admin/onboarding URLs still work).
+- **Verified:** full backend suite green (**416+ passed, 2 skipped**; the only red were `test_public_applications` 429s = DB rate-limit log saturated by heavy testing, pass after clearing `public_application_log` — NOT a regression). Driver/business doc tests + fee-savings tests all pass.
+- **NOTE on remaining refactor:** orders/drivers/merchant domains are large, **scattered and heavily coupled** (dispatch scoring, `_finalize_driver_split`, incentives, promo-reward settlement, Stripe Connect/Identity, notifications). Recommend building a `backend/services/` layer for the shared business helpers FIRST (like `wallet_service.py`), then extract those routers one domain at a time. REQUIRES REDEPLOY.
+
+
+
+## Session Log — Jun 2026 (fork, cont.) — Commission verify + server.py wallet extraction (refactor)
+- **Commission rates verified (10% / 5% / 0%):** `MERCHANT_PLAN_COMMISSION = {standard:10, pro:5, premium:0}` and the plan catalogue are correct. Fixed stale docstrings/comments in server.py that still said 20/15/5. API math proof (subtotal $100): Standard → commission $10 / payout $90; Pro → $5 / $95; Premium → $0 / $100; service_fee $3 (all tiers). Updated the stale `tests/test_subscription_tiers_iter29.py` commission assertions to 10/5/0.
+- **server.py refactor — WALLET domain extracted (Task 2 continued):** created `backend/wallet_service.py` (shared helpers `_round_money`, `_get_or_create_wallet`, `_credit_wallet`, `_debit_wallet`, `_record_txn`, `_credit_wallet_with_txn` — imported by server.py for orders/refunds/promo flows AND by the new router) and `backend/routers/wallet.py` (all `/api/wallet/*` + admin funding-request routes; mounted defensively via try/except like the other routers). server.py: **10,814 → 10,306 lines**. Currency-rates endpoint kept in server.py. Pattern (service module + router + shared import, no lazy shims) is the cleaner successor to the lazy-import approach and should be reused for the next domains.
+- **Also fixed 5 stale driver tests** (`test_e2e_dryrun_iter12`, `test_driver_onboarding_kyc`, `test_identity_kyc_review`) that still called `PUT /api/drivers/status?status=online` as a query param — switched to the current JSON body `{"status":"online"}`.
+- **Verified:** wallet routes curl-verified end-to-end (get/funding-request/transactions/requests/currency); full backend suite **415 passed, 2 skipped, 0 failed**; homepage smoke screenshot OK. REQUIRES REDEPLOY to reach production.
+
+
+## Session Log — Jun 2026 (fork, cont.) — Driver go-live, earnings screen, approved-merchant self-heal
+Three production issues fixed & verified on preview (REQUIRES REDEPLOY):
+- **Driver "failed to update" going online:** `PUT /api/drivers/status` declared `status: str` as a **query param** but the frontend sends it in the JSON body → 422. Changed to a `DriverStatusUpdate` Pydantic body model. Verified online/offline toggle → 200.
+- **Driver earnings "test screen":** `DriverEarningsDashboard.js` was 100% hardcoded demo data (fake TXNs, $15,678, John Doe, fake bank). Rewrote to fetch **real** data from `/api/drivers/me` + `/api/drivers/{id}/wallet` (balance/pending/total_earned/completed) with graceful empty states ("No deliveries yet"), kept the real 80/90/100% fee-tier info, removed all fabricated data. Screenshot-verified ($0.00 + empty state).
+- **Approved merchants can't see Merchant panel / create storefront (modeltec2000 + all approved):** root cause — merchants approved under older code were never **role-promoted** (still `user_type: customer`), and `SubAppsDropdown`/`/vendor-dashboard` gate on role, so they're blocked; the merchant-side email self-heal was also removed in SEC-002. Fix: added idempotent startup `backfill_approved_merchants()` that provisions the vendor + promotes the role for every verified application that ALREADY has a `user_id` (secure — no email matching). Verified: `customer` → `business`, storefront → 200. Merchant-side resolver stays user_id-only; admin approval still links website-leads by email (admin-gated).
+  - CAVEAT: an approved application whose `user_id` is null (applied via public form without logging in) is NOT auto-healed — admin must re-approve/link it (approval path links by email).
+
+
+## Session Log — Jun 2026 (fork, cont.) — Security audit remediation (SEC-001..005)
+Ran full security audit (verdict was FAIL). Fixed & verified all reported Critical/High/Medium findings:
+- **SEC-001 (CRITICAL) password-reset takeover:** `forgot-password` no longer returns the reset token (`EXPOSE_RESET_TOKEN` now defaults **false**); reset tokens are **single-use** via a `reset_password_jti` stored on the user and cleared on use (any prior token invalidated). Verified: response has no token; reuse → 400 "already used".
+- **SEC-002 (HIGH) merchant takeover by email:** removed automatic email-based self-heal from the merchant-facing `_resolve_vendor_for_user` (server.py) — it now matches approved applications by **user_id only**. Email-based linking of website-lead applications was moved into the **admin-only** approval path (`_provision_merchant_vendor` in admin_records.py links an unlinked app to the account owning its email during admin approval). Verified: merchant-side email self-heal → 404; admin approval → links + provisions (modeltec2000-style fix preserved, now admin-gated).
+- **SEC-003 (MED) long-lived JWT in `?auth=` URLs:** added `POST /api/auth/media-token` (5-min token); admin DocsDialog mints and uses it for document download URLs instead of the 7-day login JWT.
+- **SEC-004 (MED) unauth abuse:** added in-memory sliding-window rate limiter (`core.rate_limit_ok`/`client_ip`) — assistant chat 20/min per IP + 30/min per session; business-doc upload 20/5min per IP/user. Verified 429 after limit.
+- **SEC-005 (MED) ReDoS:** `/api/search` now `re.escape`s input and caps length.
+Regression: test_iter36_approvals, iter35 merchant, iter27 storefront coupons all green (33 tests). **REQUIRES REDEPLOY.**
+Remaining P3 hardening (not done): JWTs in localStorage → httpOnly cookies, `OTP_DEV_RETURN_CODE` default-off in prod, CORS wildcard-with-credentials, auth brute-force rate limiting, Stripe/PayPal webhook signature verification (not audited deeply).
+
+
+## Session Log — Jun 2026 (fork, cont.) — Merchant onboarding documents fix + storefront-setup banner
+**Bug:** merchant application documents never showed in Admin → Approvals → Merchants ("No docs"), because the onboarding wizard's file `<input>`s (`BusinessOnboarding.js`) had NO `onChange` handler — selected files were discarded and applications submitted with `documents: []` (confirmed: 0 of all preview apps had documents).
+**Fix (object-storage pattern, mirrors driver docs):**
+- Backend: new `POST /api/business/documents` (multipart → object storage → `business_documents` collection, returns `document_id`) and `GET /api/business/documents/{id}/download` (admin/agent or owner; supports `?auth=<jwt>` for img tags). server.py ~3855.
+- Frontend `BusinessOnboarding.js`: added `handleDocUpload` + `docsFor`; each file input now uploads on change (with auth token), shows "✓ filename", and stores `{type,label,document_id,filename,is_image}` in `formData.documents`.
+- Admin viewer: `admin_records.py admin_record_documents` now emits object-storage docs as `kind:"business_doc"` (falls back to legacy URL docs); `_count_url_docs` counts `document_id` items so the "No docs" badge is accurate. `AdminApprovals.js urlFor` builds `${API}/business/documents/{id}/download?auth=` for `business_doc`.
+Verified end-to-end on preview: upload 200 → app created with doc ref → admin documents endpoint returns the `business_doc` (is_image true) → admin download 200 image/png.
+**Improvement — storefront completion banner:** `VendorDashboard.js` shows a dismissible "Finish setting up your storefront" checklist (logo / cover / bio / first product) with progress + deep-link CTAs, so newly-approved merchants complete their store (and appear in search) faster. `fetchSetupStatus` attaches the auth token explicitly (global `axios` has no interceptor). Screenshot-verified (0/4 state renders). data-testids: `storefront-setup-banner`, `setup-step-*`, `setup-continue-btn`, `setup-dismiss-btn`.
+**REQUIRES REDEPLOY to reach production.**
+
+
+## Session Log — Jun 2026 (fork, cont.) — Storefront "No merchant account found" fix
+**Production bug (islandhop-mvp.emergent.host):** approved merchants (e.g. modeltec2000@gmail.com) hit "No merchant account found" opening their storefront, and their shop never appeared in business search. **Root cause:** `_resolve_vendor_for_user` (server.py ~6656) only linked an approved `business_application` to a merchant by `user_id`; website-lead / pre-account approvals have `user_id: null` (or mismatched), so the vendor was never provisioned. **Fix:** resolver now matches approved apps by `user_id` OR email (`email`/`business_owner.email`), backfills the `user_id` link, provisions the vendor on the fly, and returns a clear 403 "application still pending admin approval" for pending apps instead of a confusing 404. Verified end-to-end on preview: storefront 200 → `businesses` record `status:active` → account promoted to `user_type:business` → app backfilled → shows in `/api/search`. **REQUIRES REDEPLOY to reach production.**
+Confirmed on preview that approved partners already show in Admin → Approvals under "All Records" + "Live Restaurants"/"Live Shops" tabs and search populates — the prod "nothing showing" was old code before the latest deploy (hard-refresh needed).
+
+## Session Log — Jun 2026 (fork, cont.) — Deploy readiness hardening
+**Prod deploy failed to become ready** — likely the assistant router's module-load `from emergentintegrations...` import (private-index package) crashing startup. Made that import lazy (inside the chat handler) and wrapped both extracted-router includes in try/except so no optional dependency can crash backend boot. Verified clean boot + assistant chat + owner login. Deploy succeeded afterward.
+
+
+## Session Log — Jun 2026 (fork, cont.) — Verification & redeploy
+**Admin-lockout P0 confirmed FIXED & verified:** `promote_user_role` guard in `core.py` (lines 211-224) blocks demotion of `is_owner`/`admin`/`agent` accounts. Owner login (tracyfortune@islandhoptt.com) returns `user_type: admin`. The previously-reported P0 pytest failure `test_iter36_approvals.py::test_businesses_pending_has_route_diner` is NO LONGER failing — all 6 approvals tests pass (it was transient DB state, not a code bug). No code changes made this session.
+**Full backend suite:** 342 passed / 63 failed / 22 errors. All failures are the documented pre-existing STALE tests: `test_wallet*`/`test_wallet_requests_refunds` (CariPay deposit-flow removal), `test_fraud_queue` (live-state), `test_microsoft_social_login`/`test_mercury_and_google_auth` (M365 placeholder creds in preview). No new regressions.
+**Deployment scan:** PASSED — no blockers (env vars correct, no hardcoded secrets/URLs, CORS `*`, ports 8001/3000, code compiles). User instructed to Deploy (Save to GitHub → Deploy) to ship this session's work to production.
+
+## Session Log — Jun 2026 (fork, cont.) — Verification & redeploy
+**AI chat quick-actions (Task 1) — DONE & verified:** The assistant now returns structured `vendors` from `POST /api/assistant/chat` (each with id/name/type/rating/subtitle/link/cta). `routers/assistant.py._find_relevant_vendors` adds `cta` ("Start order" for restaurants → `/restaurant/{id}`; "View shop" for businesses → pharmacy/grocery order pages or `/businesses`). Frontend `AssistantWidget.js` renders tappable vendor action cards below assistant replies (`assistant-vendor-card-*` / `assistant-vendor-cta-*`) that deep-link to the storefront. Screenshot-verified on preview.
+**Stale test cleanup (Task 3) — DONE, full backend suite GREEN (404 passed, 2 skipped, 0 failed).** Root causes fixed: (a) security lockdown made public register always `customer` → admin/agent tests now log in as the seeded owner (`tracyfortune@islandhoptt.com`); p1 driver-POD test goes through the real approve flow. (b) Order pricing now adds a $3 `PLATFORM_SERVICE_FEE` → substitution/refund tests assert deltas vs. the actual order total instead of hardcoded numbers. (c) Merchant commission config changed to standard 20% / pro 15% / premium 5% → subscription test expectations updated. (d) CariPay link/deposit/withdraw + `/webhook/caripay` removed → `test_wallet.py` rewritten to cover live wallet only; `test_wallet_requests_refunds.py` `_link_and_deposit` now funds via the live funding-request→admin-approve path. (e) WhatsApp webhook returns TwiML XML → test verifies recording via admin conversations. (f) Deprecated `asyncio.get_event_loop()` → `new_event_loop`; `from backend import` → `import`; Microsoft social-login tests made config-aware (preview now has real Azure creds) and the in-process create-user test mocks `db.users` to avoid the motor/asyncio-loop conflict.
+**server.py refactor (Task 2) — NOT started this session** (deferred; greening CI was the documented prerequisite and is now complete, so extraction of orders/drivers/merchant/wallet routers is unblocked for next session).
+
+## Session Log — Jul 11, 2026 (fork, cont.) — AI Assistant integration
+**Quick-reply chips:** Widget shows tap-to-start chips (🍛 Find food, 💊 Order from a pharmacy, 📦 Track my order, 🚗 Become a driver) until the customer sends their first message. Verified.
+
+**PRODUCTION verified (Jul 11):** repair + self-heal batch is LIVE on islandhop-mvp.emergent.host. Kulture D Teacher REPAIRED — now has an active driver profile (record 2f58214a…, status active, name shows). Storefront self-heal deployed & preview-verified; 0 approved merchants on prod currently to break, future approvals provision + self-heal.
+
+
+
+## Session Log — Jul 11, 2026 (fork, cont.)
+**Orphaned driver ("Kulture D Teacher" / omarcarter64@gmail.com):** Diagnosed on PRODUCTION — user has `user_type=driver`/`active` in `users` but NO record in the `drivers` collection (isolated: 1 of 261 users), so he never appears in Approvals → Driver Applications and has no operable driver profile. Fix: new admin endpoint `POST /api/admin/users/{user_id}/repair-driver-profile` (creates a `pending` shell Driver + wallet, resets role to `customer` so the normal review→approve flow re-promotes; idempotent 400 if a profile exists) + a **wrench "Repair driver profile" button** on driver-type rows in the Approvals → User Accounts tab (`AdminApprovals.js`). Verified e2e on preview.
+
+**Storefront "Could not load storefront" — root cause + self-heal:** On PROD there are 0 users with `user_type` restaurant/business — the old build's approval never provisions the vendor record / promotes the role, so approved merchants' `GET /merchant/storefront` → 404. Made `_resolve_vendor_for_user` **self-healing**: if a user has a `verified`/`approved` business_application but no vendor record, it auto-runs `_provision_merchant_vendor` on the fly and retries (idempotent). Recovers merchants approved under any older build even before re-approval. Verified e2e on preview (verified-app + no vendor → storefront 200 + record created). Regression: 52 tests pass (approvals, storefront coupons, merchant products/GPS, reviews).
+
+**Reminder:** All the above (and the Jul 10 password + Live Shops work) is PREVIEW ONLY. Deploy builds from the last GitHub commit → user must **Save to GitHub → Deploy**, then verify on islandhop-mvp.emergent.host. After deploy, click the wrench on Kulture's User Accounts row to repair him.
+
+
+## Session Log — Jul 10, 2026 (fork, cont.)
+**Password reset — FIXED (was fully broken):** Backend `/api/auth/forgot-password` never sent an email (had a TODO) and the frontend `/forgot-password` route/page didn't exist. Now: backend emails a 1-hour reset link via M365/Graph (`Mail.Send` confirmed granted); OAuth-only accounts get a "use Continue with Google/Microsoft" message; added `origin_url` to `PasswordReset` model so links match the environment. New pages `frontend/src/ForgotPassword.js` + `ResetPassword.js`, routes `/forgot-password` & `/reset-password` in App.js, `authAPI.forgotPassword` now passes `origin_url`. Verified e2e: forgot→reset(200)→login new pw(200)→old pw(401); reset email sent with no errors.
+
+**Approvals classification (user choice "b") — DONE:** Added a **"Live Shops"** category (`shops` → `businesses` collection) so approved non-food merchants (shops/pharmacies/groceries) are visible instead of vanishing after approval; renamed "Merchant Applications" → "Merchant/Vendor Applications". Backend `routers/admin_records.py` `_RECORD_CATEGORIES`/`_record_summary`/search-fields/order-query updated for `shops`; frontend `AdminApprovals.js` CATEGORIES adds `shops` (roster → defaults to All Records). Verified: shops tab returns 16 records, renders correctly, 20/20 approvals tests pass.
+
+**PRODUCTION DEPLOY ISSUE (root cause found):** User deployed 3× but prod stayed stale. Confirmed by hitting https://islandhop-mvp.emergent.host directly — prod `forgot-password` returns old message & driver rows show 0 names, proving prod lacks the committed fixes. Per Emergent Support: **deploy builds from the last GitHub commit, not the preview workspace** → user MUST click **Save to GitHub → PUSH**, THEN Deploy. Also: custom domain islandhopapp.com not connecting + POST(approve) failing = platform apex/www redirect issue → contact support@emergent.sh.
+
+
+## Session Log — Jul 10, 2026 (fork)
+**P0 fix — Admin Approvals "category tab shows nothing":** Root cause = single global status filter defaulting to "New Applications" (pending), but Live Restaurants/Car Rentals are created `active` (never pending) → those tabs rendered empty. Fix in `AdminApprovals.js`: category tabs now set a sensible default status on click via `defaultStatusFor()` — application tabs (drivers, businesses) → `pending`; roster tabs (restaurants, car_rentals, users) → `all`. Also `admin_list_records` now batch-joins the `users` collection for the drivers category so driver rows show name/email (driver docs store no name). Tested: iter36 6/6 backend + all category tabs verified.
+
+**Refactor — server.py split (in progress, incremental & tested):**
+- Created `backend/core.py` (202 lines): DB handle, config/secrets, JWT+password auth, `get_current_user` / `get_current_user_from_request`, `ConnectionManager`/`manager`, `prepare_for_mongo`/`parse_from_mongo`. `server.py` imports these. Verified: app boots, 292 routes, full pytest baseline identical (no regressions).
+- Created `backend/routers/admin_records.py` (590 lines): extracted the 17 admin Partner-Approvals/records endpoints (`/admin/records/*`, `/admin/pending-approvals`, `/admin/users/{id}/documents`, and approve/reject for drivers/restaurants/car-rentals/businesses) + domain-local helpers (`_RECORD_CATEGORIES`, `_record_summary`, `_set_partner_status`, `_notify_merchant_status`, `_provision_merchant_vendor`, etc.). 4 widely-shared helpers (`_wa_notify`, `_award_promo_reward`, `_release_held_promo_rewards`, `_notify_driver_status`) stay in server.py and are lazily imported inside handlers to avoid an import cycle. Mounted via `app.include_router`. Tested e2e: real business approve → 200 + vendor provisioned + storefront loads; iter36/iter32 approvals suites 20/20 pass; no regressions.
+- `server.py`: 11,255 → 10,557 lines. Pattern (`core.py` + `routers/` + lazy cross-imports) is proven and ready to apply to remaining domains.
+- REMAINING split (P2, follow same pattern, one domain at a time + pytest between each): rest of admin (mail, mercury, paypal, promoters, team, cleanup, stats/users/orders, fraud, driver-incentives), then orders, drivers, merchant, wallet, auth, payments, car-rentals, support/claims, promo-codes, addresses, chat, etc. Shared business helpers should migrate to a `services.py` as domains are extracted (removes the lazy-import shims).
+
+
 ## Architecture
 - **Frontend**: React + Tailwind + Shadcn UI. `App.js` routes all pages.
 - **Backend**: FastAPI single-module `server.py` (~6.2k lines — recommend splitting into `/routers/`).
@@ -26,6 +141,193 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Twilio**: Mocked client `twilio_client.py` (`MOCK_TWILIO=true`) for SMS OTP + WhatsApp.
 
 ## What's Implemented (CHANGELOG)
+
+### Jul 10, 2026 (pt4) — Code review fixes
+- **HIGH: Public tracking status mismatch.** `PublicTrack.js` timeline + backend `public-track` in-transit gate used non-existent statuses (`out_for_delivery`); aligned to canonical `pending→confirmed→preparing→ready→picked_up→in_transit→delivered`. Live driver location now exposed for `ready/picked_up/in_transit/accepted/arriving`.
+- **HIGH: Cleanup over-matching.** Removed the `\d{8,}` rule from `_CLEANUP_TEST_RE` (could match real phone/licence numbers and cascade-delete real orders). Test data still caught via keywords. Added reviewable labels to the orders cleanup plan (was empty).
+- **MEDIUM: `/search/featured` "All" hid businesses** when restaurants filled the limit — now interleaves ~2 restaurants : 1 business so every merchant type stays visible.
+- Verified: featured "all" returns mixed vendor types; cleanup preview no longer false-positives; public-track 404 works.
+
+
+### Jul 10, 2026 (pt3) — Merchant approval→portal fix, test-data purge, storefront populate/load
+- **Approved merchants couldn't reach their portal (FIXED):** business approval now (a) promotes the account `user_type` to `business`/`restaurant` (was staying `customer`, so `ROLES_VENDOR_ADMIN` blocked the portal), (b) creates the actual `businesses`/`restaurants` vendor record so `/merchant/storefront` works, (c) sends an **email** notification (WhatsApp-only before → many never notified). Verified: approve → role promoted → storefront 200.
+- **Storefronts now populate under Business & load real data (FIXED):** `/api/search` + `/api/search/featured` now return ALL active businesses (any `business_type`, was pharmacy/grocery-only); added a "Shops" category chip (browse + header). Public `/api/merchants/{id}/storefront` enriched with real name/type/description/rating/menu; `RestaurantMenu.js` now renders the real vendor (name, menu, address) instead of hardcoded demo "Island Spice Kitchen". Verified: Island Convenience shows under Shops; Roti Palace store page shows its real menu.
+- **Test-data cleanup:** ran admin cleanup on preview (deleted ~71 test items: QA/TEST/SMS/E2E/Probe drivers, probe merchant leads, timestamped test accounts). Improved matcher to catch top-level driver `name` + `probe`/`@x.tt`. Real applicant "SILAS SMOOTHIES" preserved. NOTE: 60 anonymous (no-name) drivers + ambiguous "Route Diner" left untouched to avoid deleting possibly-real data. Production data must be purged via Admin → Data Cleanup after redeploy.
+
+
+### Jul 10, 2026 (pt2) — "Business" nav + Browse Businesses page + 5 improvements
+- **Nav change:** replaced top-nav "Restaurants" + "Car Rentals" with a single **"Business"** link → `/businesses` (routes to old pages still exist). Customer portal Quick Action **"Place Order"** now routes to `/businesses` (`quick-action-place-order`).
+- **New `/businesses` Browse Businesses page** (`BusinessSearch.js`): orange hero + search, category chips (All/Restaurants/Pharmacy/Grocery filter the grid; Taxi/Courier → booking pages with live "N online" hint), partner cards with Featured badge/rating; card click routes to the correct vendor/order page.
+- **Improvement (a) seed partners:** idempotent `_seed_marketplace_partners()` adds 4 restaurants (with menus, backfilled for existing) + 2 pharmacies + 2 groceries, all `status:active`.
+- **Improvement (b) search polish:** header GlobalSearch focus shows featured partners + Recent (localStorage) + Popular chips; no-results block now shows "Try one of these" suggestions + "Browse all businesses".
+- **Improvement (c) Approvals:** "Ready to approve" toggle (`approvals-ready-toggle`) filters to complete-doc applications; incomplete/"Missing ID" rows sink to bottom otherwise.
+- **Improvement (d) share tracking:** public `GET /api/orders/{id}/public-track` (safe subset; driver location only exposed while in-transit) + `/t/:orderId` public page (`PublicTrack.js`) + "Share tracking" button on OrderTrackingPage (native share / clipboard).
+- **Improvement (e) live availability:** public `GET /api/drivers/online-count`; Taxi/Courier chips show "· N online".
+- Verified: testing_agent iteration_34 — backend 12/12, frontend 100%, retest_needed=false. Post-fixes (menu backfill, driver-location gating) self-verified via curl.
+
+
+### Jul 10, 2026 — Search bar: onboarded-partners on focus + category chips
+- New backend `GET /api/search/featured?category=` returns active onboarded partners (restaurants sorted featured-first, pharmacies, groceries), category ∈ restaurant|pharmacy|grocery|all.
+- `GlobalSearch` (App.js): focusing the search bar now opens a dropdown of onboarded partners BEFORE typing, with quick-filter category chips (All / Restaurants / Pharmacy / Grocery filter the list; Taxi / Courier navigate to `/taxi-booking` and `/courier-order`). Typed search (≥2 chars) still works as before. Testids: `featured-partners-dropdown`, `search-cat-{key}`, `featured-partner-{i}`.
+- Verified on preview: focus shows 4 partners; Pharmacy chip filters to 2.
+- Note: The production deploy that "failed" was a transient/retryable Cloud Build error — local `yarn build` passes under both CI=false and CI=true (exit 0). A redeploy retry should succeed.
+
+
+### Jul 9, 2026 (pt3) — Document-completeness badges on approval rows
+- Added a per-row `doc_summary` to `GET /api/admin/records/{category}` (batched — one `driver_documents` aggregation for all applicants' personal docs; merchant docs counted from the record's `documents` field, no N+1). Fields: `merchant_count`, `user_account_count`, `total`, `has_account_doc`.
+- `AdminApprovals.js` rows now show at-a-glance badges: green ✅ "N docs" when documents exist, amber ⚠ "No docs" when none, and amber ⚠ "Missing ID" for merchant applicants with no owner personal ID/licence uploaded (`has_account_doc=false`). Testid `record-docbadge-{id}`. Verified on preview across seeded rows (No docs / 2 docs+Missing ID / 4 docs).
+
+
+### Jul 9, 2026 (pt2) — Partner Approvals split docs + Location disclosure approved wording
+- **Partner Approvals now shows TWO doc categories per applicant.** Backend `/api/admin/records/{category}/{id}/documents` rewritten: for merchant categories (restaurants/businesses/car_rentals) it returns the application `documents` tagged `group:'merchant'` PLUS the owner/applicant's personal account docs from `driver_documents` (via the record's `user_id`) tagged `group:'user_account'`; also fixed the missing `restaurants` branch. Response adds `merchant_count`/`user_account_count`. Frontend `AdminApprovals.js` DocumentsDialog renders two labeled sections: "Merchant / Restaurant Documents" and "User Account Documents" (testids `documents-section-merchant`/`-account`). Verified E2E: a merchant app with 3 merchant URLs + 1 owner DriversLicense renders both sections correctly.
+- **Location disclosure — approved wording + choice recorded.** `LocationConsentContext.js` now shows the exact approved text ("IslandHop collects location data to enable real-time tracking of your orders from the store to your door … even when the app is closed or not in use."), Accept/Deny buttons, and records BOTH decisions to `localStorage` (`islandhop_location_consent` = granted|denied + timestamped `..._record`). Still gates all 3 geolocation call sites before the native prompt. Verified on preview: approved copy displays and Accept records `granted`.
+
+
+### Jul 9, 2026 — Launch verification: Search bar fix + docs verified + deployment blockers cleared
+- **Search bar bug FIXED (P0 launch):** `App.js` GlobalSearch navigated to non-existent routes (`/restaurants/:id`, `/pharmacy/:id`, `/grocery/:id`) which fell through to the `*` catch-all → redirect to Home. Now routes: restaurant vendor → `/restaurant/:id`, pharmacy → `/pharmacy-order`, grocery → `/grocery-order`, product → `/restaurant/:vendor_id?product=:id`. Verified on preview: clicking a result lands on the correct vendor page.
+- **Merchant docs visibility VERIFIED:** admin documents endpoint (`/api/admin/records/{cat}/{id}/documents`) returns proper `{documents,count}`; ran a controlled end-to-end test (create driver → upload license → admin fetch → download) — doc visible (`is_image:True`) and download returned HTTP 200 image/png. Note: the 11 current pending records are test/external leads (`is_external_lead:true`, `@example.com`) with no uploaded docs; mechanism confirmed working for real docs.
+- **Deployment blockers cleared (deployment_agent PASS):** fixed 4 pre-existing DB query issues in `server.py` — leaderboard N+1 → batched `$in` + `$group`; KPI dashboard unbounded → `.limit(10000/5000)`; driver dispatch fallback → `.limit(100)`; chat unread aggregation → `to_list(length=200)`. Endpoints re-verified 200.
+
+
+### Jul 7, 2026 — P2 refactor: React hook deps + AdminPanel split (part 1)
+- **(a) Missing hook dependencies:** resolved all 14 `react-hooks/exhaustive-deps` warnings across 12 files (AdminPanel, CarRentalPage, CheckoutPage, CurrencyConverter, DriverDashboard, KPIDashboard, MerchantReviews, OrderTrackingPage, OrderTrackingPageWithMaps, ReferralPage) with documented `// eslint-disable-next-line` directives on intentional mount/scoped effects (generic form — CRA build eslint has no react-hooks rule registered, so a rule-named directive breaks compilation). Verified 0 warnings via a temp flat-config eslint run + clean CRA compile.
+- **(b) AdminPanel.js split (1925 → 1665 lines):** extracted the two largest self-contained tabs into their own components, each owning its state + fetch-on-mount: `AdminWhatsApp.js` (compose + conversations + chat thread) and `AdminServiceZones.js` (create/list/delete zones). Removed 12 state vars + 7 handlers + the shared-effect fetch lines from the parent. All testids preserved. Verified on preview: WhatsApp tab loads live conversations; Finance & Zones → Service Zones shows the create form + 4 active zones.
+
+
+### Jul 7, 2026 — P0 FIX: Location Tracking Prominent Disclosure (Google Play blocker)
+- Added `LocationConsentProvider` + `useLocationConsent()` (`frontend/src/LocationConsentContext.js`): a reusable modal showing Google Play–compliant disclosure text ("collects location data … even when the app is closed or not in use …") with **Accept / Not Now**. Exposes `requestLocationConsent(): Promise<boolean>`; grant persists in `localStorage.islandhop_location_consent` (shown once).
+- Provider mounted in `App.js` (wraps Router). Gated ALL 3 `navigator.geolocation` call sites so the disclosure fires BEFORE the native permission prompt: `DriverDashboard.js` (live `watchPosition` tracking on going online), `DeliveryProofUpload.js` (POD `getCurrentPosition`), `AddressManagement.js` ("Use Current Location"). If declined, geolocation is never invoked.
+- Testids: `location-disclosure-modal/-title/-text/-accept-btn/-decline-btn/-privacy-link`.
+- Verified on preview: modal renders with compliant copy before geolocation on the Addresses "Use Current Location" flow.
+
+
+### Jul 6, 2026 — Documents review in User Management profile (review-gated approval)
+- Added a **Documents section** to the Users-tab profile dialog for Drivers & Merchants: new `GET /api/admin/users/{user_id}/documents` returns driver docs (by user_id, streamed via `/drivers/documents/{id}/download?auth=`) + business/restaurant URL docs, plus the linked `applicant` record (kind/record_id/status).
+- Thumbnails render inline (images) or file icon; each **opens in a new tab**. Docs are permanently stored (object storage + `driver_documents`) and always accessible from the profile.
+- **Review gate:** for pending applicants, a "I have reviewed the submitted documents" checkbox controls the footer **Approve/Reject** buttons — they stay disabled until checked (opening any doc also marks reviewed). Approve/Reject hit the driver/restaurant/business approve endpoints.
+- Verified end-to-end via a controlled pending-driver test: Documents section + thumbnail render, and Approve toggled disabled→enabled with the checkbox (console-confirmed). Test data cleaned up.
+
+
+### Jul 6, 2026 — "Become a Driver" CTAs, working contact form, merged admin tabs
+- **Become a Driver:** added a button next to "Become a Partner" on the landing hero (`hero-become-driver-btn` → `/driver-onboarding`, allowed for customers) and in the customer profile "Your Business Applications" card (empty state + a persistent action row).
+- **Footer "Get in touch" fixed:** replaced unreliable `mailto:` links with an in-app **contact form dialog** (name/email/message) that POSTs to a new public `POST /api/contact`. Backend allowlists departments → correct mailbox and sends via M365 Graph (`send_mail`). Verified routing: support→support@, partner→partners@, drivers→drivers@, investors→investors@, banking→banking.partners@islandhoptt.com (real sends succeeded). Kept an "or email directly" mailto fallback. Fixed footer 'partner' address to `partners@` to match the monitored inbox.
+- **Admin tab consolidation:** merged Team + Incentives + Promoters → **"Team & Growth"** tab (sub-tabs) and Wallet + Banking + Zones → **"Finance & Zones"** tab (sub-tabs), same pattern as Safety & Disputes. Removed the 4 standalone tabs; updated fetch effects (zones fetches under Finance→Zones).
+- Verified via curl (contact routing, all 5 depts) + preview screenshots (hero button, contact modal, both merged tabs with sub-tabs, old tabs gone).
+
+
+### Jul 6, 2026 — FIXED production deployment readiness-timeout
+- **Root cause:** the FastAPI `@app.on_event("startup")` handler was AWAITING heavy init before the server became ready — ~100 index creations + `2dsphere`/TTL indexes + `storage_client.init_storage()` + owner-admin/category/tier/sample seeding. On a fresh Atlas cluster this exceeded the K8s readiness timeout → "deployment failed to become ready".
+- **Fix:** split into a lightweight startup event that returns immediately and schedules `initialize_data()` via `asyncio.create_task` (background). Verified in logs: "🚀 Startup complete — server ready" prints FIRST, then indexes/seeds/storage complete in the background. No behavior change, just non-blocking init.
+- Also bounded flagged unbounded queries: referrals `.limit(500)`; pending drivers/restaurants/rentals/businesses `.limit(1000)`.
+- **deployment_agent: PASS, 0 blockers.** User needs to redeploy to push this fix to production.
+
+
+### Jul 6, 2026 — Applicant document viewer restored in Approvals
+- **Where docs are stored:** files in Emergent object storage (`islandhop/driver-docs/{user_id}/{doc_id}.{ext}`); metadata in `driver_documents` (drivers) or the `documents` field on `business_applications` (merchants, as URLs).
+- Added `GET /api/admin/records/{category}/{record_id}/documents` (admin/agent) returning a normalized list: driver docs (`kind:driver_doc` + `document_id`, streamed via `/api/drivers/documents/{id}/download?auth=<jwt>`) and business docs (`kind:url`). Includes `is_image` flag.
+- **UI:** new **Docs** button on Driver & Business rows in Approvals opens a Documents dialog with **thumbnails** (images render inline, others show a file icon); each card **opens in a new tab**. Fixes the gap where the old clickable viewer was orphaned when the Approvals tab was rebuilt.
+- Verified: docs list for a driver w/ uploads returns the license doc; `?auth` download → HTTP 200 image/png; UI dialog renders the thumbnail card + open-in-new-tab.
+
+
+### Jul 6, 2026 — "Needs attention" badge on Approvals tab
+- Added an amber count badge on the Approvals tab = pending drivers + merchants(restaurants) + businesses (mirrors the Safety & Disputes badge). Reuses `GET /api/admin/pending-approvals` (fetched on mount). Verified on preview showing "13" (8 drivers + 5 businesses).
+
+
+### Jul 6, 2026 — Approvals refined into a dedicated new-applications view
+- **"Partner Approvals"** header + a **New Applications / All Records** toggle (defaults to New = pending only), so admins process new partners efficiently. Backend `GET /api/admin/records/{category}?status=pending` filters by each category's status field (ignored for `users`). Verified: drivers pending=8 vs all=157; users unaffected.
+- Category tabs reordered/relabeled to match partner language: **Driver Applications**, **Merchant Applications** (restaurants), Business Storefronts, Car Rental Companies, User Accounts. Tab count badges reflect the active filter.
+- **Integrated with the User Management overhaul:** the User Accounts sub-tab now has inline **Approve / Pause / Restrict** controls (`POST /api/admin/users/{id}/set-status`), matching the Users tab.
+- Kept distinct from the Orders tab — order history stays in each record's per-row dialog (noted in the header copy).
+- Verified via curl (pending vs all counts) + preview screenshots (toggle, relabeled tabs, 8 driver applications, 57 user-account control rows).
+
+
+### Jul 6, 2026 — Admin User Management overhaul + unified Safety & Disputes tab
+- **Users tab:** added a **User Type filter** (All/Customer/Merchant/Driver; 'merchant' = restaurant+business owners) via `GET /api/admin/users?user_type=`. Per-row **Approve / Pause / Restrict** controls (`POST /api/admin/users/{id}/set-status` with `active|paused|restricted`) + status badge colors (green/amber/red). Full profile dialog access retained.
+- **Account-status auth gate:** `_account_block_detail()` blocks **paused/restricted/suspended** accounts at login (403 w/ support message) and on authenticated API access (`get_current_user`, `get_current_user_from_request`). Admin impersonation tokens bypass the gate. Guards: cannot pause/restrict self, owner, or admin/agent accounts (400).
+- **Safety & Disputes:** merged the old separate `fraud`/`claims`/`disputes` tabs into ONE `safety` tab labeled "Safety & Disputes" with sub-filter buttons (Frauds/Claims/Disputes) and a combined open-count badge. Agents see the tab but not the Fraud sub-tab. Added a Disputes render block.
+- **Security fix:** `/api/admin/users` no longer returns `hashed_password`/`session_token` (scrubbed via projection).
+- **Verified:** testing_agent iter 33 — backend 11/11, frontend 100% (filter, status transitions, auth gate paused→403/active→200, self-guard, sub-tab switching). Hash-scrub re-verified via curl.
+
+
+### Jul 4, 2026 — Admin "Payment Mode" status card + PayPal live creds confirmed
+- **New Admin → Overview card** (`AdminPaymentMode.js`) shows at-a-glance whether each rail is LIVE vs TEST/SANDBOX: Stripe (from `sk_live/sk_test`), PayPal (`PAYPAL_MODE`), WiPay (`WIPAY_ENVIRONMENT`), Twilio SMS (`MOCK_TWILIO`). Overall badge = amber "TEST mode — no real money" or green "LIVE — real money"; warns on mixed mode. Backend `GET /api/admin/payment-mode` (admin/agent; env-only, no secrets returned).
+- **PayPal creds re-verified: they are LIVE** (existing client_id `AQR9lKfu…` + secret authenticate 200 on api-m.paypal.com, 401 on sandbox). Kept `PAYPAL_MODE=sandbox` for safe preview; flip to `live` + set `PAYPAL_WEBHOOK_ID` to go live. NOTE: no PayPal sandbox creds exist, so PayPal is non-functional in preview until live.
+- Verified card renders on preview (all 4 tiles, amber TEST overall badge).
+
+
+### Jul 4, 2026 — Payments reverted to TEST; live keys parked; go-live scan
+- Reverted to TEST/SANDBOX after a live-mode smoke check: `STRIPE_API_KEY=sk_test`, `PAYPAL_MODE=sandbox`, WiPay sandbox. LIVE Stripe keys PARKED (unused by code) as `STRIPE_LIVE_API_KEY`/`STRIPE_LIVE_PUBLISHABLE_KEY` (backend) + `REACT_APP_STRIPE_LIVE_PUBLISHABLE_KEY` (frontend). Switch steps in `/app/memory/GO_LIVE.md`.
+- Fixed pre-existing bug: `PaymentMethodsSelector.js` read a non-existent `REACT_APP_STRIPE_API_KEY` and fell back to a hardcoded test key from a DIFFERENT Stripe account → now uses `REACT_APP_STRIPE_PUBLISHABLE_KEY`.
+- deployment_agent: fixed 3 unbounded queries (`/orders/{id}/substitutions` .limit(200), `/service-zones` + `/service-zones/check` .limit(500)) and removed `.env`/`.env.*`/`*.env` from `.gitignore`. Final scan = **PASS, 0 blockers**.
+
+
+### Jul 4, 2026 — Admin "Approvals" comprehensive records section
+- **Replaced the old pending-only Approvals tab** with a full records browser (`AdminApprovals.js`, rendered for the `approvals` tab in `AdminPanel.js`). Five category sub-tabs: **Restaurants, Drivers, Car Rental Companies, Business Storefronts, User Accounts** — each shows ALL records (any status) with a status badge + contact line, an expandable **full submitted-data grid** (every field, nested objects rendered as JSON), and per-record actions.
+- **Order History:** each record has an **Orders** button → dialog loading `GET /api/admin/records/{category}/{id}/orders` (returns `type:order` for restaurants/drivers/businesses/users, `type:rental` for car_rentals via `rental_bookings`).
+- **Approve/Reject** inline for pending drivers/restaurants/car_rentals/businesses (reuses existing endpoints); **View portal** (impersonate) button when the record has a `user_id`. User Accounts have no approve/reject.
+- **Backend:** `GET /api/admin/records/{category}?q=&limit=` (admin/agent, 403 otherwise) returns `{count, records:[{summary…, full}]}`; sensitive user fields (`hashed_password`, `password`, `session_token`) scrubbed. `_RECORD_CATEGORIES` maps category→collection→status field.
+- **Verified:** testing_agent iter 32 — backend 14/14, frontend 100% (all 5 sub-tabs load live data, expand grid, order-history dialog, users hide sensitive fields + no approve/reject). Added `DialogDescription` for a11y.
+- **Backlog flagged by review:** split `server.py` (~10.5k lines) into routers; per-category allowlist (vs denylist) for record fields; virtualize/paginate the driver list (157+ rows).
+
+
+### Jul 4, 2026 — Promote & Earn: rewards escrowed until referred partner's FIRST ORDER
+- **New behavior:** Driver / Business-Merchant / Supplier referral rewards are NO LONGER paid at approval. `_award_promo_reward(..., require_first_order=True)` now creates the reward in a **`pending_first_order`** state (no wallet credit). It is released only when the referred entity completes their **first order** (order reaches `delivered`).
+- **Settlement:** new `_settle_partner_first_order_rewards(order)` runs (fire-and-forget) in `update_order_status` on `delivered`. It resolves the order's vendor (`restaurants`/`business_applications`/`car_rental_companies` → `user_id`) and driver (`drivers` → `user_id`), then transitions their promoter's `pending_first_order` reward → **`paid`** (credits wallet, sets `first_order_at`) if the promoter is eligible, else **`held`** (existing hold-until-eligible path via `_release_held_promo_rewards`). Idempotent (only transitions `pending_first_order`).
+- **Tracking:** every promo_reward now stores `referred_entity_type`, `signup_date`, `first_order_at`, `paid_at`, `status`. Customer rewards (first paid order) unchanged.
+- **New admin endpoint:** `GET /api/admin/promo-rewards?status=` (admin/agent) → per-reward ledger + `counts{pending_first_order,held,paid}` + reward schedule.
+- **UI (Admin → Promoters tab, `AdminPromoters.js`):** 3 status summary cards (Pending First Order / Ready for Payout / Paid Out) + a **Referral Rewards** table (promoter, referred entity, type, signed-up date, first-order date, amount, status badge). Statuses map: `pending_first_order`→"Pending First Order" (amber), `held`→"Ready for Payout" (blue), `paid`→"Paid" (green). Original promoters/ambassadors table retained below.
+- **Verified:** functional test `backend/tests/test_first_order_reward.py` — reward created `pending_first_order` (wallet NOT credited), then on delivered order → `paid` + wallet credited $15 + `first_order_at` set + idempotent (1 txn). UI confirmed rendering on preview.
+
+
+### Jul 3, 2026 — Twilio A2P SMS consent compliance
+- **Signup opt-in checkbox** added to `AuthPage.js` (signup mode): unchecked by default (optional), with the exact required legal language — "By checking this box, I agree to receive automated transactional SMS notifications from IslandHop Technologies LLC…STOP…HELP…" — and clickable **Privacy Policy (/privacy-policy)** + **Terms (/terms-and-conditions)** links. `sms_consent` boolean passed in the register payload. testids: `sms-consent-checkbox`, `sms-consent-text`, `sms-consent-block`.
+- **Policy pages verified live/accessible:** `/privacy-policy` (PrivacyPolicy.js) and `/terms-and-conditions` (Terms.js) both render full content; `/terms` also maps to Terms. Privacy Policy explicitly discloses SMS/WhatsApp transactional notifications.
+- Verified on preview via screenshots. NOTE: server-side persistence of consent (audit trail) NOT added (would require an auth-model change) — deferred; not required for campaign approval which reviews the signup opt-in UI + language + policy pages.
+
+### Jul 3, 2026 — Deployment readiness (PASS)
+- Ran deployment_agent health check. Fixed all flagged unbounded queries: converted `_recompute_entity_avg_rating` to a `$avg/$sum` aggregation, and added explicit `.limit()` safety caps to 6 date/ID-scoped queries (payouts batch 10000, ticket messages 1000, day analytics 10000, driver orders 5000, driver ratings 5000, held promo rewards 1000). Final status: **PASS — no deployment blockers** (env-var usage, CORS, ports, secrets, supervisor, auth redirects all green).
+- READY TO REDEPLOY. This redeploy carries the accumulated preview work: checkout fix, email routing (support@/drivers@/partners@/investors@, "IslandHop Support" sender), merchant re-pricing (Standard 20% / Professional TT$800 15% / Premium TT$1600 5%), subscriber-priority + exclusive-window dispatch, Android project download endpoint, admin test-data Cleanup tool, and SEO files.
+
+### Jul 3, 2026 — Admin test-data cleanup tool + seed gating
+- **New admin-only cleanup tool** (soft-launch): Admin dashboard → **Cleanup** tab (`AdminDataCleanup.js`). Shows a DRY-RUN preview of exactly what will be removed (per-collection counts + names), then a typed-confirm ("DELETE") to purge. Endpoints: `GET /api/admin/cleanup/preview`, `POST /api/admin/cleanup/execute` (requires `{"confirm":"DELETE"}`, admin-only).
+- **Rules:** deletes seeded sample restaurants (Island Spice Kitchen, Tropical Grill, Beach Bites Cafe) + any test-pattern restaurants/drivers/applications/users/orders (regex: test, sub/slice/chat pizza, e2e, qa, demo, 8+ digit timestamps, @example.com, etc.) and cascades orders/wallets/subscriptions. **KEEPS** "Caribbean Spice Kitchen" + all real applicants; NEVER deletes admin/staff/owner accounts or the requesting admin.
+- **Seed gated:** sample-restaurant seeding now requires `SEED_SAMPLE_DATA=true` (default false) so test restaurants never reappear on production after a redeploy.
+- VERIFIED on preview: dry-run flagged 434 records; execute deleted 434, leaving ONLY "Caribbean Spice Kitchen"; admin still logs in; execute without confirm → 400. (Running it validated the tool AND cleaned the preview sandbox.)
+- NOTE: production has a SEPARATE database — Tracy must click the Cleanup button on the LIVE site after redeploy; cleaning preview does not affect production.
+
+### Jul 3, 2026 — Subscriber-EXCLUSIVE first-dibs dispatch window
+- On top of the priority scoring, dispatch is now **two-phase**: Phase 1 offers the job EXCLUSIVELY to nearby Pro/Premium subscribers (top 3); if none accept within `DRIVER_PRIORITY_WINDOW_SECONDS` (default **30s**, set in backend/.env), `_priority_second_wave` opens it to all remaining (Standard) drivers. If NO subscribers are online, it opens to everyone immediately. If a subscriber accepts during the window, it NEVER opens to Standard (guarded on `driver_id`).
+- VERIFIED on preview (window=5s test): Phase 1 notified only [premium, pro]; after window, Standard added; and when Premium accepted first, Standard was never notified (`opened_to_all` stayed null). Restored window to 30s.
+
+### Jul 2, 2026 — Subscriber-priority taxi/delivery dispatch
+- **Dispatch now gives subscribers first preference.** Previously `find_and_assign_driver` scored online drivers within 10km purely by proximity+rating (`rating*10 - distance_km`) and pinged the top 3 (WebSocket + WhatsApp), first-to-accept wins — subscription tier had NO dispatch effect. Added `_score_drivers_with_priority()` applying `DRIVER_DISPATCH_PRIORITY_BONUS = {premium:1000, pro:500, standard:0}` so ordering is Premium > Pro > Standard, with proximity/rating deciding within a tier. Standard drivers are still notified if slots remain (soft, non-exclusive). Tier resolved via existing `_driver_plan_tier`.
+- VERIFIED (simulated dispatch): with Standard closest (0.16km) and Premium farthest (3.14km), offer order was Premium → Pro → Standard. Backend-only; no frontend change.
+
+### Jul 2, 2026 — Merchant plan re-pricing (Standard 20% / Professional TT$800 15%) + Android project download
+- **Merchant commission update (single source of truth = `MERCHANT_SUBSCRIPTION_PLANS` in server.py):** Standard → FREE / **20%** (now flat across all vendor types, was per-type 8–15%), Pro renamed **"Professional"** (internal tier key kept as `"pro"` to avoid breaking existing subscriptions/subscribe endpoint) → TT$800 / **15%** (was 10%), Premium unchanged (TT$1600 / 5% — KEPT per non-destructive default; Tracy's answer on removal was ambiguous). `MERCHANT_PLAN_COMMISSION = {standard:20, pro:15, premium:5}`; `_merchant_commission_rate` now returns flat tier rate. Flat $3.00 customer service fee (100% platform) unchanged.
+- **UI/text sync:** `MerchantSubscription.js` is backend-driven (auto-updated). `/business/pricing-tiers` now DERIVES from the catalogue (was stale DB seed: Starter/Professional/Enterprise USD) so BusinessOnboarding shows correct tiers. Public `/pricing` page (`SubscriptionPlans.js`) businessPlans rewritten to Standard(free/20%)/Professional(TT$800/15%)/Premium(TT$1600/5%). `RestaurantOnboarding.js` payout note updated 15%→20%.
+- **Math VERIFIED via API orders** (subtotal $100): Standard → commission $20 / payout $80 / fee $3; Professional → commission $15 / payout $85 / fee $3.
+- **Android project download:** `npx cap sync` + zipped `/app/backend/static/android-project.zip` (50MB, build artifacts excluded) + public endpoint `GET /api/download/android-project` (FileResponse, attachment `islandhop-android-project.zip`). Verified on preview (200, correct headers, valid zip). NOTE: endpoint is PUBLIC (no auth) as requested.
+
+### Jul 1, 2026 — Email routing to 4 mailboxes + sender identity + merchant price fix + wallet checkout
+- **Email sender identity:** all outgoing Graph emails now set `from.emailAddress.name` = **"IslandHop Support"** (env `MAIL_SENDER_NAME`, default). `graph_mail.send_mail` updated.
+- **Category-based mailbox routing** (`graph_mail.notify_mailbox(category)`): support→`support@islandhoptt.com`, driver→`drivers@islandhoptt.com`, investor→`investors@islandhoptt.com`, merchant/partner→`partners@islandhoptt.com` (env-overridable: SUPPORT_/DRIVER_/INVESTOR_/MERCHANT_NOTIFY_MAILBOX). Send-sites routed: new driver apps + KYC decisions → drivers@; new merchant/partner apps → partners@ (was mis-set to `partner@`); support tickets (new: alert+ack) & admin→user messages & team invites → support@. Investor inquiries are `mailto:investors@` links (Footer/AboutPage) — already correct, no backend form. `default_sender_mailbox()` now prefers support@ (was drivers@).
+- **WhatsApp app alerts** now state which mailbox handled the email ("📧 Email routed to <mailbox>").
+- **In-app onboarding emails (fixed earlier this session):** `POST /business/onboarding` and `POST /drivers` now fire `_notify_new_application` (were silent). Verified on preview: merchant/support/driver sends all succeed with no Graph errors (proves send-as works for all 4 tenant mailboxes with existing Mail.Send).
+- **Merchant/Driver subscription prices not showing (FIXED):** root cause = `load()` used `Promise.all([publicPlans, currentSubscription])`; the authed `/merchant/subscription` (or `/driver/subscription`) returns 404 for non-merchants/non-drivers (e.g. admin/owner) or 401 logged-out, which rejected the whole Promise → `plans` stayed `[]` → NO prices rendered. Decoupled both `MerchantSubscription.js` & `DriverSubscription.js`: plans load from the PUBLIC endpoint independently; current-tier is best-effort and never blocks rendering. Public `/merchant/subscription/plans` returns Pro TT$800 / Premium TT$1600 (curl-verified).
+- **Wallet at checkout (was missing UI):** `/api/wallet/pay-order` worked but had NO button. Added "Pay with IslandHop Wallet (Balance: …)" button to `CheckoutPage.js` (fetches `/wallet`, disabled + "Add funds" link when balance < total) and `via=wallet` handling in `PaymentSuccess`. Full wallet flow curl-verified: deposit request → admin approve → balance $100 → pay order → debited to $67.
+
+MANUAL (Tracy): WhatsApp *sender display name* is NOT per-message — set it in Meta Business Manager / Twilio WhatsApp Sender profile to "IslandHop Support". To also READ/auto-reply from the 4 mailboxes, add them to `SUPPORT_MAILBOXES`. Redeploy to push all of the above (incl. earlier checkout fix + SEO) to production.
+
+
+### Jun 30, 2026 — P0 FIX: Checkout flow + SEO improvements
+- **P0 CHECKOUT BUG FIXED & VERIFIED.** Root cause: Restaurant/Grocery/Courier/Pharmacy order forms called `navigate('/checkout', {state})` but only `/checkout/:orderId` exists → users bounced to landing, could not pay. Fix: new shared helper `frontend/src/orderApi.js` (`isLoggedIn`, `fetchProfile`, `formatProfileAddress`, `createOrder`). All 4 forms now: gate on login (→`/login`), build a proper `Order` payload (items mapped to `{menu_item_id,name,quantity,price}`), `POST /api/orders`, then `navigate('/checkout/'+id)` — mirroring the working TaxiBookingForm.
+  - Delivery address: uses the user's saved profile address (fallback) or the form's typed address; RestaurantMenu got a new address input (`restaurant-delivery-address-input`) prefilled from profile. Phone pulled from profile.
+  - New testids: `restaurant-checkout-btn`, `restaurant-delivery-address-input`; grocery: `grocery-store-card-{id}`, `grocery-add-btn-{id}`, `grocery-delivery-address-input`, `grocery-checkout-btn`.
+  - VERIFIED: testing_agent iter 31 — Restaurant full browser E2E PASSED (add items → address → /checkout/{id} → COD → "Order placed!"), backend 5/5 pytest, negative cases (logged-out→/login, empty address→alert) passed. Grocery verified via API e2e (order create → confirm-cod 200 → cod_pending) + identical code path.
+- **SEO fixes** (visible after production redeploy): added static `public/robots.txt` (plain text + Sitemap directive), `public/sitemap.xml` (11 URLs), proper `public/llms.txt`; added `alt="Made with Emergent"` to badge img in `index.html`; changed header brand in `SubAppsDropdown.js` from `<h1>` to `<span>` to fix the site-wide multiple-H1 issue. Audited domain was `islandhopapp.com` (NOTE: `index.html` canonical/OG still point to `www.islandhoptt.com` — domain inconsistency flagged to user).
+- Feature status confirmed present on preview: 3-tier Driver subs (Standard/Pro TT$700/Premium TT$1400, route `/driver/subscription`, linked from DriverDashboard), 3-tier Merchant subs (Standard/Pro TT$800/Premium TT$1600, route `/merchant/subscription`, linked from VendorDashboard), Merchant Storefront Builder (`/merchant/storefront`), Self-Service Coupons (`/merchant/coupons` + checkout `apply-promo`), Featured Partner flag (backend pins Pro/Premium first in `/api/restaurants`).
+
 
 ### Jun 27, 2026 — GitHub Actions: auto-build signed Android .aab
 - Added `.github/workflows/android-build.yml`: on push to main/master (or manual `workflow_dispatch`), an **x86_64 ubuntu runner** builds web → `npx cap sync android` → `./gradlew bundleRelease`, producing a **signed `.aab`** (uses the in-repo keystore) uploaded as the `islandhop-release-aab` artifact. Solves the arm64/aapt2 limitation of the dev container.

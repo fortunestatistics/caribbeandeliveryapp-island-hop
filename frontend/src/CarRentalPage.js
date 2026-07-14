@@ -54,6 +54,7 @@ const CarRentalPage = () => {
 
   useEffect(() => {
     fetchRentalCompanies();
+    // eslint-disable-next-line -- load once on mount
   }, []);
 
   const fetchRentalCompanies = async () => {

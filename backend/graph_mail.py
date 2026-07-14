@@ -196,15 +196,33 @@ async def reply_to_message(mailbox: str, message_id: str, reply_html: str) -> No
 
 
 def default_sender_mailbox() -> Optional[str]:
-    """Mailbox used as the From address for outbound notifications.
+    """Mailbox used as the From address for generic outbound notifications.
 
-    Prefers DRIVER_NOTIFY_MAILBOX, else the first configured support mailbox.
+    Prefers the support mailbox, then the first configured support mailbox.
     """
-    explicit = os.environ.get("DRIVER_NOTIFY_MAILBOX")
+    explicit = os.environ.get("SUPPORT_NOTIFY_MAILBOX")
     if explicit:
         return explicit.strip()
     boxes = get_support_mailboxes()
-    return boxes[0] if boxes else None
+    if boxes:
+        return boxes[0]
+    return "support@islandhoptt.com"
+
+
+def notify_mailbox(category: str) -> str:
+    """Return the correct M365 mailbox to send a given notification category FROM.
+
+    Categories: 'support', 'driver', 'investor', 'merchant'.
+    All four are shared/active mailboxes in the same tenant; the app's Mail.Send
+    application permission lets it send as any of them. Overridable via env.
+    """
+    mapping = {
+        "support": os.environ.get("SUPPORT_NOTIFY_MAILBOX", "support@islandhoptt.com"),
+        "driver": os.environ.get("DRIVER_NOTIFY_MAILBOX", "drivers@islandhoptt.com"),
+        "investor": os.environ.get("INVESTOR_NOTIFY_MAILBOX", "investors@islandhoptt.com"),
+        "merchant": os.environ.get("MERCHANT_NOTIFY_MAILBOX", "partners@islandhoptt.com"),
+    }
+    return mapping.get(category, mapping["support"]).strip()
 
 
 async def send_mail(to_email: str, subject: str, html_body: str, mailbox: Optional[str] = None) -> None:
@@ -216,10 +234,12 @@ async def send_mail(to_email: str, subject: str, html_body: str, mailbox: Option
     sender = mailbox or default_sender_mailbox()
     if not sender:
         raise GraphNotConfigured("No sender mailbox configured (SUPPORT_MAILBOXES/DRIVER_NOTIFY_MAILBOX)")
+    sender_name = os.environ.get("MAIL_SENDER_NAME", "IslandHop Support")
     body = {
         "message": {
             "subject": subject,
             "body": {"contentType": "HTML", "content": html_body},
+            "from": {"emailAddress": {"name": sender_name, "address": sender}},
             "toRecipients": [{"emailAddress": {"address": to_email}}],
         },
         "saveToSentItems": True,

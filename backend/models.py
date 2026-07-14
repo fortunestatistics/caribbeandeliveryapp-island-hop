@@ -61,6 +61,7 @@ class ChangePassword(BaseModel):
 
 class PasswordReset(BaseModel):
     email: EmailStr
+    origin_url: Optional[str] = None
 
 
 class PasswordResetConfirm(BaseModel):

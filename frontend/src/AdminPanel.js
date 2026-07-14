@@ -7,6 +7,7 @@ import { Textarea } from './components/ui/textarea';
 import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './components/ui/dialog';
+import { toast } from 'sonner';
 import AnalyticsPromotions from './AnalyticsPromotions';
 import { 
   Users, 
@@ -35,6 +36,9 @@ import {
   CreditCard,
   Banknote,
   AlertTriangle,
+  PauseCircle,
+  ShieldOff,
+  ExternalLink,
   Plus
 } from 'lucide-react';
 import axios from 'axios';
@@ -46,6 +50,11 @@ import AdminMercuryBanking from './AdminMercuryBanking';
 import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
+import AdminApprovals from './AdminApprovals';
+import AdminPaymentMode from './AdminPaymentMode';
+import AdminDataCleanup from './AdminDataCleanup';
+import AdminWhatsApp from './AdminWhatsApp';
+import AdminServiceZones from './AdminServiceZones';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -87,22 +96,16 @@ const AdminPanel = () => {
   const [orders, setOrders] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [approvals, setApprovals] = useState({ drivers: [], restaurants: [], car_rentals: [], businesses: [], total: 0 });
-  const [zones, setZones] = useState([]);
-  const [zoneForm, setZoneForm] = useState({ name: '', polygon: '', allowed_services: '', description: '' });
-  const [whConvos, setWhConvos] = useState([]);
-  const [whSelectedPhone, setWhSelectedPhone] = useState('');
-  const [whMessages, setWhMessages] = useState([]);
-  const [whReplyBody, setWhReplyBody] = useState('');
-  const [whComposePhone, setWhComposePhone] = useState('');
-  const [whComposeBody, setWhComposeBody] = useState('');
-  const [whComposeSending, setWhComposeSending] = useState(false);
-  const [whComposeFeedback, setWhComposeFeedback] = useState(null); // {type, text}
   const [fraudFlags, setFraudFlags] = useState([]);
   const [fraudOpenCount, setFraudOpenCount] = useState(0);
   const [fraudFilter, setFraudFilter] = useState('open');
   const [claims, setClaims] = useState([]);
   const [claimsFilter, setClaimsFilter] = useState('open');
   const [claimsOpenCount, setClaimsOpenCount] = useState(0);
+  const [userTypeFilter, setUserTypeFilter] = useState('all');
+  const [safetySub, setSafetySub] = useState('fraud');
+  const [growthSub, setGrowthSub] = useState('team');
+  const [financeSub, setFinanceSub] = useState('wallet');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [myRole, setMyRole] = useState('admin');
   const [searchQuery, setSearchQuery] = useState('');
@@ -123,6 +126,9 @@ const AdminPanel = () => {
   const [profileUser, setProfileUser] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileDocs, setProfileDocs] = useState(null);
+  const [docsReviewed, setDocsReviewed] = useState(false);
+  const [docActionBusy, setDocActionBusy] = useState(false);
   // Driver cash-outstanding (COD reconciliation)
   const [cashOutstanding, setCashOutstanding] = useState(null);
 
@@ -131,6 +137,7 @@ const AdminPanel = () => {
     fetchUsers();
     fetchOrders();
     fetchDisputes();
+    fetchApprovals();
     // Lightweight fetch of fraud count for tab badge (silent on failure)
     axios
       .get(`${API}/admin/fraud-queue?status=open&limit=1`, { headers: authHeaders() })
@@ -140,16 +147,24 @@ const AdminPanel = () => {
       .get(`${API}/admin/claims?status=open&limit=500`, { headers: authHeaders() })
       .then((r) => setClaimsOpenCount(Array.isArray(r.data) ? r.data.length : 0))
       .catch(() => {});
+    // eslint-disable-next-line -- initial data load on mount only
   }, []);
 
   useEffect(() => {
     if (selectedTab === 'approvals') fetchApprovals();
-    if (selectedTab === 'zones') fetchZones();
-    if (selectedTab === 'whatsapp') fetchWhConvos();
-    if (selectedTab === 'fraud') fetchFraudQueue();
-    if (selectedTab === 'claims') fetchClaims();
+    if (selectedTab === 'safety') {
+      if (safetySub === 'fraud' && myRole !== 'agent') fetchFraudQueue();
+      if (safetySub === 'claims') fetchClaims();
+      if (safetySub === 'disputes') fetchDisputes();
+    }
     if (selectedTab === 'orders') fetchCashOutstanding();
-  }, [selectedTab, fraudFilter, claimsFilter]);
+    // eslint-disable-next-line -- fetchers are stable; re-run only on tab/filter change
+  }, [selectedTab, safetySub, financeSub, fraudFilter, claimsFilter]);
+
+  // Agents cannot see the Fraud sub-tab; default them to Claims.
+  useEffect(() => {
+    if (myRole === 'agent' && safetySub === 'fraud') setSafetySub('claims');
+  }, [myRole, safetySub]);
 
   const fetchCashOutstanding = async () => {
     try {
@@ -177,11 +192,13 @@ const AdminPanel = () => {
     if (selectedTab !== 'users') return;
     const t = setTimeout(() => fetchUsers(searchQuery), 350);
     return () => clearTimeout(t);
-  }, [searchQuery, selectedTab]);
+    // eslint-disable-next-line -- debounced fetch; fetchUsers is stable
+  }, [searchQuery, selectedTab, userTypeFilter]);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'wallet', 'fraud', 'claims', 'incentives', 'promoters', 'mail', 'banking', 'team', 'zones', 'whatsapp', 'disputes', 'analytics'];
-  const AGENT_TABS = ['overview', 'claims', 'mail', 'disputes'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
+  const AGENT_TABS = ['overview', 'safety', 'mail'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
+  const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth' };
 
   const fetchClaims = async () => {
     try {
@@ -277,85 +294,6 @@ const AdminPanel = () => {
     }
   };
 
-  const fetchZones = async () => {
-    try {
-      const res = await axios.get(`${API}/service-zones`, { headers: authHeaders() });
-      setZones(res.data);
-    } catch (e) { console.error(e); }
-  };
-
-  const createZone = async () => {
-    let polygonParsed;
-    try {
-      polygonParsed = JSON.parse(zoneForm.polygon);
-      if (!Array.isArray(polygonParsed) || polygonParsed.length < 3) throw new Error();
-    } catch {
-      alert('Polygon must be valid JSON like [[lat,lng],[lat,lng],[lat,lng],...] with 3+ points');
-      return;
-    }
-    const services = zoneForm.allowed_services.split(',').map(s => s.trim()).filter(Boolean);
-    try {
-      await axios.post(`${API}/service-zones`, {
-        name: zoneForm.name,
-        polygon: polygonParsed,
-        allowed_services: services,
-        active: true,
-        description: zoneForm.description || undefined,
-      }, { headers: authHeaders() });
-      setZoneForm({ name: '', polygon: '', allowed_services: '', description: '' });
-      fetchZones();
-    } catch (e) {
-      alert(e.response?.data?.detail || 'Failed to create zone');
-    }
-  };
-
-  const deleteZone = async (id) => {
-    if (!window.confirm('Delete this zone?')) return;
-    try {
-      await axios.delete(`${API}/service-zones/${id}`, { headers: authHeaders() });
-      fetchZones();
-    } catch (e) { alert(e.response?.data?.detail || 'Failed'); }
-  };
-
-  const fetchWhConvos = async () => {
-    try {
-      const res = await axios.get(`${API}/whatsapp/conversations`, { headers: authHeaders() });
-      setWhConvos(res.data);
-    } catch (e) { console.error(e); }
-  };
-
-  const openWhConvo = async (phone) => {
-    setWhSelectedPhone(phone);
-    try {
-      const res = await axios.get(`${API}/whatsapp/messages?phone=${encodeURIComponent(phone)}`, { headers: authHeaders() });
-      setWhMessages(res.data.reverse());
-    } catch (e) { console.error(e); }
-  };
-
-  const sendWhReply = async () => {
-    if (!whSelectedPhone || !whReplyBody.trim()) return;
-    try {
-      await axios.post(`${API}/whatsapp/send`, { to: whSelectedPhone, body: whReplyBody }, { headers: authHeaders() });
-      setWhReplyBody('');
-      openWhConvo(whSelectedPhone);
-      fetchWhConvos();
-    } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
-  };
-
-  const sendWhCompose = async () => {
-    if (!whComposePhone.trim() || !whComposeBody.trim()) return;
-    setWhComposeSending(true);
-    setWhComposeFeedback(null);
-    try {
-      await axios.post(`${API}/whatsapp/send`, { to: whComposePhone.trim(), body: whComposeBody.trim() }, { headers: authHeaders() });
-      setWhComposeFeedback({ type: 'success', text: `WhatsApp message queued to ${whComposePhone.trim()}` });
-      setWhComposeBody('');
-      fetchWhConvos();
-    } catch (e) {
-      setWhComposeFeedback({ type: 'error', text: e.response?.data?.detail || 'Failed to send WhatsApp message' });
-    } finally { setWhComposeSending(false); }
-  };
-
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
@@ -371,8 +309,11 @@ const AdminPanel = () => {
 
   const fetchUsers = async (search) => {
     try {
-      const params = search && search.trim() ? `?q=${encodeURIComponent(search.trim())}` : '';
-      const response = await axios.get(`${API}/admin/users${params}`, {
+      const params = new URLSearchParams();
+      if (search && search.trim()) params.set('q', search.trim());
+      if (userTypeFilter && userTypeFilter !== 'all') params.set('user_type', userTypeFilter);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const response = await axios.get(`${API}/admin/users${qs}`, {
         headers: authHeaders(), withCredentials: false
       });
       setUsers(response.data);
@@ -415,6 +356,17 @@ const AdminPanel = () => {
     }
   };
 
+  const handleSetUserStatus = async (userId, status) => {
+    try {
+      await axios.post(`${API}/admin/users/${userId}/set-status`, { status }, {
+        headers: authHeaders(), withCredentials: false
+      });
+      fetchUsers(searchQuery);
+    } catch (error) {
+      alert(error?.response?.data?.detail || `Failed to set status to ${status}`);
+    }
+  };
+
   const openMessageUser = (user) => {
     setMsgUser(user);
     setMsgSubject('');
@@ -448,6 +400,8 @@ const AdminPanel = () => {
   const openUserProfile = async (user) => {
     setProfileUser(user);
     setProfileData(null);
+    setProfileDocs(null);
+    setDocsReviewed(false);
     setProfileLoading(true);
     try {
       const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: false });
@@ -456,6 +410,30 @@ const AdminPanel = () => {
       setProfileData({ error: e.response?.data?.detail || 'Failed to load profile' });
     } finally {
       setProfileLoading(false);
+    }
+    // Load documents + linked applicant record (non-blocking)
+    try {
+      const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: false });
+      setProfileDocs(d.data);
+    } catch (e) {
+      setProfileDocs({ documents: [], applicant: null });
+    }
+  };
+
+  const APPLICANT_APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', business: 'businesses' };
+
+  const handleApplicantApproval = async (applicant, action) => {
+    if (!applicant?.record_id) return;
+    setDocActionBusy(true);
+    try {
+      await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: false });
+      toast.success(`Applicant ${action === 'approve' ? 'approved' : 'rejected'}`);
+      setProfileUser(null); setProfileData(null); setProfileDocs(null);
+      fetchUsers(searchQuery);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || `Failed to ${action}`);
+    } finally {
+      setDocActionBusy(false);
     }
   };
 
@@ -538,12 +516,14 @@ const AdminPanel = () => {
               onClick={() => setSelectedTab(tab)}
               data-testid={`admin-tab-${tab}`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'fraud' && fraudOpenCount > 0 && (
-                <Badge variant="destructive" className="ml-2">{fraudOpenCount}</Badge>
+              {TAB_LABELS[tab] || (tab.charAt(0).toUpperCase() + tab.slice(1))}
+              {tab === 'approvals' && ((approvals.drivers?.length || 0) + (approvals.restaurants?.length || 0) + (approvals.businesses?.length || 0)) > 0 && (
+                <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500" data-testid="approvals-pending-badge">
+                  {(approvals.drivers?.length || 0) + (approvals.restaurants?.length || 0) + (approvals.businesses?.length || 0)}
+                </Badge>
               )}
-              {tab === 'claims' && claimsOpenCount > 0 && (
-                <Badge variant="destructive" className="ml-2">{claimsOpenCount}</Badge>
+              {tab === 'safety' && (fraudOpenCount + claimsOpenCount) > 0 && (
+                <Badge variant="destructive" className="ml-2">{fraudOpenCount + claimsOpenCount}</Badge>
               )}
             </Button>
           ))}
@@ -578,7 +558,9 @@ const AdminPanel = () => {
 
         {/* Content based on selected tab */}
         {selectedTab === 'overview' && (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <AdminPaymentMode />
+            <div className="grid md:grid-cols-2 gap-6">
             {/* Recent Orders */}
             <Card>
               <CardHeader>
@@ -631,12 +613,29 @@ const AdminPanel = () => {
               </CardContent>
             </Card>
           </div>
+          </div>
         )}
 
         {selectedTab === 'users' && (
           <Card>
             <CardHeader>
-              <CardTitle>Users Management ({filteredUsers.length})</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle>Users Management ({filteredUsers.length})</CardTitle>
+                <div className="flex items-center gap-2" data-testid="user-type-filter">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  {[['all', 'All'], ['customer', 'Customer'], ['merchant', 'Merchant'], ['driver', 'Driver']].map(([val, label]) => (
+                    <Button
+                      key={val}
+                      size="sm"
+                      variant={userTypeFilter === val ? 'default' : 'outline'}
+                      onClick={() => setUserTypeFilter(val)}
+                      data-testid={`user-type-${val}`}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -671,7 +670,11 @@ const AdminPanel = () => {
                           <Badge variant="outline">{user.user_type || 'customer'}</Badge>
                         </td>
                         <td className="p-3">
-                          <Badge className={user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          <Badge className={
+                            (user.status === 'paused') ? 'bg-amber-100 text-amber-800'
+                            : (user.status === 'restricted' || user.status === 'suspended') ? 'bg-red-100 text-red-800'
+                            : 'bg-green-100 text-green-800'
+                          }>
                             {user.status || 'active'}
                           </Badge>
                         </td>
@@ -699,21 +702,38 @@ const AdminPanel = () => {
                             >
                               <Mail className="h-4 w-4" />
                             </Button>
-                            {user.status === 'active' ? (
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={() => handleUserAction(user.id, 'suspend')}
-                              >
-                                <Ban className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <Button 
+                            {(user.status || 'active') !== 'active' && (
+                              <Button
                                 size="sm"
-                                className="bg-green-600"
-                                onClick={() => handleUserAction(user.id, 'activate')}
+                                className="bg-green-600 hover:bg-green-700"
+                                title="Approve (set active)"
+                                data-testid={`approve-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'active')}
                               >
                                 <UserCheck className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(user.status || 'active') !== 'paused' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                                title="Pause account"
+                                data-testid={`pause-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'paused')}
+                              >
+                                <PauseCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(user.status || 'active') !== 'restricted' && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                title="Restrict account"
+                                data-testid={`restrict-user-btn-${user.id}`}
+                                onClick={() => handleSetUserStatus(user.id, 'restricted')}
+                              >
+                                <ShieldOff className="h-4 w-4" />
                               </Button>
                             )}
                           </div>
@@ -809,98 +829,28 @@ const AdminPanel = () => {
           </>
         )}
 
-        {selectedTab === 'approvals' && (
-          <Card data-testid="admin-approvals-content">
-            <CardHeader>
-              <CardTitle>Pending Approvals ({approvals.total})</CardTitle>
-              <p className="text-sm text-muted-foreground">Review and approve new drivers, restaurants, car rentals, and business onboarding applications.</p>
-            </CardHeader>
-            <CardContent>
-              {approvals.total === 0 ? (
-                <div className="text-center py-12 text-muted-foreground" data-testid="approvals-empty">
-                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
-                  <p>No pending approvals at the moment.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {[['drivers','driver','Drivers'], ['restaurants','restaurant','Restaurants'], ['car_rentals','car_rental','Car Rentals'], ['businesses','business','Businesses']].map(([key, kind, label]) => (
-                    approvals[key] && approvals[key].length > 0 && (
-                      <div key={key} data-testid={`approval-section-${key}`}>
-                        <h3 className="font-semibold mb-3 text-gold-500">{label} ({approvals[key].length})</h3>
-                        <div className="space-y-2">
-                          {approvals[key].map((row) => (
-                            <div key={row.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`approval-row-${row.id}`}>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium">{row.name || row.id}</p>
-                                  <p className="text-sm text-muted-foreground">{row.email || row.phone || '—'}</p>
-                                  {row.source && (
-                                    <span data-testid={`lead-source-${row.id}`} className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
-                                      🌐 Lead from {row.source}
-                                    </span>
-                                  )}
-                                  {row.created_at && <p className="text-xs text-muted-foreground">Applied {new Date(row.created_at).toLocaleDateString()}</p>}
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button data-testid={`view-applicant-btn-${row.id}`} size="sm" variant="outline" onClick={() => setDetailApproval({ ...row, kind })}>
-                                    <Eye className="h-4 w-4 mr-1" />View
-                                  </Button>
-                                  <Button data-testid={`approve-btn-${row.id}`} size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproval(kind, row.id, 'approve')}>
-                                    <CheckCircle className="h-4 w-4 mr-1" />Approve
-                                  </Button>
-                                  <Button data-testid={`reject-btn-${row.id}`} size="sm" variant="destructive" onClick={() => handleApproval(kind, row.id, 'reject')}>
-                                    <X className="h-4 w-4 mr-1" />Reject
-                                  </Button>
-                                </div>
-                              </div>
-                              {kind === 'driver' && row.raw?.identity_verification && (
-                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-kyc-${row.id}`}>
-                                  <span className="text-xs font-semibold text-gold-500">Automated KYC (Stripe Identity): </span>
-                                  <Badge
-                                    className={row.raw.identity_verification.status === 'verified'
-                                      ? 'bg-green-600/20 text-green-400'
-                                      : 'bg-yellow-600/20 text-yellow-400'}
-                                  >
-                                    {row.raw.identity_verification.status || 'not started'}
-                                  </Badge>
-                                </div>
-                              )}
-                              {kind === 'driver' && row.raw?.documents && Object.keys(row.raw.documents).length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-border" data-testid={`approval-docs-${row.id}`}>
-                                  <p className="text-xs font-semibold text-gold-500 mb-2">Identity Documents (click to review)</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {Object.entries(row.raw.documents).map(([docType, docId]) => (
-                                      <Button
-                                        key={docType}
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => viewDocument(docId)}
-                                        data-testid={`view-doc-${row.id}-${docType}`}
-                                      >
-                                        <FileText className="h-3.5 w-3.5 mr-1" />{DOC_LABELS[docType] || docType}
-                                      </Button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              {kind === 'driver' && (!row.raw?.documents || Object.keys(row.raw.documents).length === 0) && (
-                                <p className="mt-3 pt-3 border-t border-border text-xs text-yellow-500" data-testid={`approval-nodocs-${row.id}`}>
-                                  ⚠ No identity documents were submitted with this application.
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {selectedTab === 'approvals' && <AdminApprovals />}
+
+        {selectedTab === 'safety' && (
+          <div className="flex gap-2 mb-4" data-testid="safety-subtabs">
+            {[['fraud', 'Frauds', fraudOpenCount], ['claims', 'Claims', claimsOpenCount], ['disputes', 'Disputes', 0]]
+              .filter(([key]) => !(key === 'fraud' && myRole === 'agent'))
+              .map(([key, label, count]) => (
+                <Button
+                  key={key}
+                  variant={safetySub === key ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSafetySub(key)}
+                  data-testid={`safety-subtab-${key}`}
+                >
+                  {label}
+                  {count > 0 && <Badge variant="destructive" className="ml-2">{count}</Badge>}
+                </Button>
+              ))}
+          </div>
         )}
 
-        {selectedTab === 'fraud' && (
+        {selectedTab === 'safety' && safetySub === 'fraud' && myRole !== 'agent' && (
           <Card data-testid="admin-fraud-content">
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1013,7 +963,7 @@ const AdminPanel = () => {
           </Card>
         )}
 
-        {selectedTab === 'claims' && (
+        {selectedTab === 'safety' && safetySub === 'claims' && (
           <Card data-testid="admin-claims-content">
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1114,206 +1064,93 @@ const AdminPanel = () => {
           </Card>
         )}
 
-        {selectedTab === 'zones' && (
-          <div className="space-y-6" data-testid="admin-zones-content">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5 text-gold-500" />Create Service Zone</CardTitle>
-                <p className="text-sm text-muted-foreground">Define a polygon (3+ [lat,lng] points) to restrict operations to a specific geo region.</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label>Zone Name</Label>
-                  <Input data-testid="zone-name-input" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Port of Spain Central" />
+        {selectedTab === 'safety' && safetySub === 'disputes' && (
+          <Card data-testid="admin-disputes-content">
+            <CardHeader>
+              <CardTitle>Customer Disputes ({disputes.length})</CardTitle>
+              <p className="text-sm text-muted-foreground">Review and resolve customer disputes. Approve with a wallet credit, or reject.</p>
+            </CardHeader>
+            <CardContent>
+              {disputes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="disputes-empty">
+                  <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
+                  <p>No open disputes.</p>
                 </div>
-                <div>
-                  <Label>Polygon (JSON: [[lat,lng],[lat,lng],…])</Label>
-                  <Textarea data-testid="zone-polygon-input" value={zoneForm.polygon} onChange={(e) => setZoneForm({ ...zoneForm, polygon: e.target.value })} placeholder='[[10.6,-61.6],[10.7,-61.6],[10.7,-61.45],[10.6,-61.45]]' />
-                </div>
-                <div>
-                  <Label>Allowed Services (comma-separated)</Label>
-                  <Input data-testid="zone-services-input" value={zoneForm.allowed_services} onChange={(e) => setZoneForm({ ...zoneForm, allowed_services: e.target.value })} placeholder="food,taxi,grocery,pharmacy" />
-                </div>
-                <div>
-                  <Label>Description (optional)</Label>
-                  <Input data-testid="zone-description-input" value={zoneForm.description} onChange={(e) => setZoneForm({ ...zoneForm, description: e.target.value })} />
-                </div>
-                <Button data-testid="create-zone-btn" onClick={createZone} className="bg-gold-gradient text-white" disabled={!zoneForm.name || !zoneForm.polygon}>
-                  <Plus className="h-4 w-4 mr-2" />Create Zone
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-teal-700" />Active Zones ({zones.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {zones.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8" data-testid="zones-empty">No service zones defined yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {zones.map((z) => (
-                      <div key={z.id} className="flex items-center justify-between p-4 bg-matte-900/40 rounded-lg" data-testid={`zone-row-${z.id}`}>
+              ) : (
+                <div className="space-y-3">
+                  {disputes.map((d) => (
+                    <div key={d.id} className="p-4 bg-matte-900/40 rounded-lg" data-testid={`dispute-row-${d.id}`}>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <div>
-                          <p className="font-medium">{z.name}</p>
-                          <p className="text-sm text-muted-foreground">{z.country} • {z.polygon?.length || 0} vertices</p>
-                          {z.allowed_services && z.allowed_services.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {z.allowed_services.map((s) => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
-                            </div>
-                          )}
+                          <p className="font-medium">{d.subject || d.reason || `Dispute #${(d.id || '').slice(0, 8)}`}</p>
+                          <p className="text-sm text-muted-foreground">{d.customer_name || d.customer_id || '—'}{d.order_id ? ` · Order #${String(d.order_id).slice(0, 8)}` : ''}</p>
+                          {d.created_at && <p className="text-xs text-muted-foreground">{new Date(d.created_at).toLocaleString()}</p>}
                         </div>
-                        <Button data-testid={`delete-zone-btn-${z.id}`} size="sm" variant="destructive" onClick={() => deleteZone(z.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <Badge variant="outline">{d.status || 'open'}</Badge>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                      {d.description && <p className="text-sm mt-2 text-muted-foreground">{d.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+
+        {selectedTab === 'wallet' && financeSub === 'zones' && (
+          <AdminServiceZones />
         )}
 
         {selectedTab === 'whatsapp' && (
-          <div className="space-y-4" data-testid="admin-whatsapp-content">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-gold-500" />Send a WhatsApp message</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <Input
-                    data-testid="wa-compose-phone"
-                    value={whComposePhone}
-                    onChange={(e) => setWhComposePhone(e.target.value)}
-                    placeholder="To: +1868… (driver/merchant)"
-                    className="sm:col-span-1"
-                  />
-                  <Input
-                    data-testid="wa-compose-body"
-                    value={whComposeBody}
-                    onChange={(e) => setWhComposeBody(e.target.value)}
-                    placeholder="Message…"
-                    onKeyDown={(e) => e.key === 'Enter' && sendWhCompose()}
-                    className="sm:col-span-2"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-xs text-muted-foreground">
-                    Note: Customers must message <span className="font-semibold">+1 (252) 374-6444</span> first to receive WhatsApp notifications (WhatsApp's 24h session rule). Once your message templates are approved by Meta, this restriction is lifted and notifications send freely.
-                  </p>
-                  <Button
-                    data-testid="wa-compose-send-btn"
-                    onClick={sendWhCompose}
-                    disabled={whComposeSending || !whComposePhone.trim() || !whComposeBody.trim()}
-                    className="bg-gold-gradient text-white"
-                  >
-                    {whComposeSending ? 'Sending…' : 'Send WhatsApp'}
-                  </Button>
-                </div>
-                {whComposeFeedback && (
-                  <p data-testid="wa-compose-feedback" className={`text-xs ${whComposeFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                    {whComposeFeedback.text}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="grid md:grid-cols-3 gap-4">
-            <Card className="md:col-span-1">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-gold-500" />Conversations</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 max-h-[500px] overflow-y-auto">
-                {whConvos.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8" data-testid="whatsapp-no-convos">No WhatsApp messages yet.</p>
-                ) : (
-                  whConvos.map((c) => (
-                    <div key={c.phone} onClick={() => openWhConvo(c.phone)} className={`p-3 rounded-lg cursor-pointer ${whSelectedPhone === c.phone ? 'bg-gold-500/10 border border-gold-500/30' : 'bg-matte-900/40 hover:bg-matte-900/60'}`} data-testid={`wa-convo-${c.phone}`}>
-                      <p className="font-medium font-mono text-sm">{c.phone}</p>
-                      <p className="text-xs text-muted-foreground truncate">{c.last_message}</p>
-                      <p className="text-xs text-muted-foreground/70 mt-1">{c.count} msg • {new Date(c.last_at).toLocaleString()}</p>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>{whSelectedPhone ? `Chat with ${whSelectedPhone}` : 'Select a conversation'}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!whSelectedPhone ? (
-                  <p className="text-center text-muted-foreground py-12">Pick a conversation from the left.</p>
-                ) : (
-                  <>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4" data-testid="wa-thread">
-                      {whMessages.map((m) => (
-                        <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.direction === 'inbound' ? 'bg-matte-900/40 mr-auto' : 'bg-gold-500/15 ml-auto text-right'}`} data-testid={`wa-msg-${m.id}`}>
-                          <p className="text-sm">{m.body}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {new Date(m.created_at).toLocaleTimeString()}
-                            {m.direction === 'outbound' && m.status && (
-                              <span
-                                className={`ml-2 font-medium ${
-                                  ['delivered', 'read', 'sent'].includes(m.status) ? 'text-green-600'
-                                  : ['failed', 'undelivered'].includes(m.status) ? 'text-red-600'
-                                  : 'text-muted-foreground'
-                                }`}
-                                data-testid={`wa-status-${m.id}`}
-                              >
-                                · {m.status}
-                              </span>
-                            )}
-                          </p>
-                          {m.direction === 'outbound' && ['failed', 'undelivered'].includes(m.status) && (
-                            <p className="text-[11px] text-red-600 mt-1" data-testid={`wa-error-${m.id}`}>
-                              {String(m.error_code) === '63005' || String(m.error_code) === '63016'
-                                ? 'Not delivered — the customer is outside WhatsApp\u2019s 24-hour window. Business-initiated messages require an approved template.'
-                                : `Not delivered${m.error_code ? ` (error ${m.error_code})` : ''}.`}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Input data-testid="wa-reply-input" value={whReplyBody} onChange={(e) => setWhReplyBody(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendWhReply()} />
-                      <Button data-testid="wa-send-btn" onClick={sendWhReply} className="bg-gold-gradient text-white">
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-          </div>
+          <AdminWhatsApp />
         )}
         {selectedTab === 'mail' && (
           <AdminMailInbox />
         )}
 
         {selectedTab === 'wallet' && (
+          <div className="flex gap-2 mb-4" data-testid="finance-subtabs">
+            {[['wallet', 'Wallet Requests'], ['banking', 'Banking'], ['zones', 'Service Zones']].map(([key, label]) => (
+              <Button key={key} variant={financeSub === key ? 'default' : 'outline'} size="sm" onClick={() => setFinanceSub(key)} data-testid={`finance-subtab-${key}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {selectedTab === 'wallet' && financeSub === 'wallet' && (
           <AdminWalletRequests />
         )}
 
-        {selectedTab === 'banking' && (
+        {selectedTab === 'wallet' && financeSub === 'banking' && (
           <AdminMercuryBanking />
         )}
 
         {selectedTab === 'team' && (
+          <div className="flex gap-2 mb-4" data-testid="growth-subtabs">
+            {[['team', 'Team'], ['incentives', 'Incentives'], ['promoters', 'Promoters']].map(([key, label]) => (
+              <Button key={key} variant={growthSub === key ? 'default' : 'outline'} size="sm" onClick={() => setGrowthSub(key)} data-testid={`growth-subtab-${key}`}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {selectedTab === 'team' && growthSub === 'team' && (
           <AdminTeam />
         )}
 
-        {selectedTab === 'incentives' && (
+        {selectedTab === 'team' && growthSub === 'incentives' && (
           <AdminDriverIncentives />
         )}
 
-        {selectedTab === 'promoters' && (
+        {selectedTab === 'team' && growthSub === 'promoters' && (
           <AdminPromoters />
+        )}
+
+        {selectedTab === 'cleanup' && (
+          <AdminDataCleanup />
         )}
 
 
@@ -1386,6 +1223,45 @@ const AdminPanel = () => {
                       <p className="text-xs text-muted-foreground">Referred by <span className="font-medium text-foreground">{profileData.referrer.name || profileData.referrer.email}</span></p>
                     )}
 
+                    {/* Documents (drivers & merchants) — permanently stored, click to review */}
+                    {profileDocs && (profileDocs.documents?.length > 0 || ['driver', 'restaurant', 'business', 'merchant'].includes((profileData.user.user_type || '').toLowerCase())) && (
+                      <div data-testid="profile-documents-section">
+                        <p className="font-semibold mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-gold-500" />Documents ({profileDocs.documents?.length || 0})</p>
+                        {(!profileDocs.documents || profileDocs.documents.length === 0) ? (
+                          <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />No documents were submitted with this application.</p>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3" data-testid="profile-documents-grid">
+                            {profileDocs.documents.map((d, i) => {
+                              const url = d.kind === 'driver_doc'
+                                ? `${API}/drivers/documents/${d.document_id}/download?auth=${encodeURIComponent(localStorage.getItem('token') || '')}`
+                                : (d.url || '');
+                              const label = d.doc_type || d.label || d.filename || `Doc ${i + 1}`;
+                              return (
+                                <a key={d.document_id || d.url || i} href={url} target="_blank" rel="noopener noreferrer"
+                                  className="group border border-border rounded-lg overflow-hidden hover:border-gold-500 transition-colors"
+                                  data-testid={`profile-document-${i}`} title="Open in new tab"
+                                  onClick={() => setDocsReviewed(true)}>
+                                  <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
+                                    {d.is_image ? <img src={url} alt={label} className="w-full h-full object-cover" loading="lazy" /> : <FileText className="h-8 w-8 text-muted-foreground" />}
+                                  </div>
+                                  <div className="p-1.5 flex items-center justify-between gap-1">
+                                    <span className="text-[10px] font-medium capitalize truncate">{String(label).replace(/_/g, ' ')}</span>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-gold-500 shrink-0" />
+                                  </div>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {profileDocs.applicant && ['pending', 'pending_approval'].includes((profileDocs.applicant.status || '').toLowerCase()) && (
+                          <label className="flex items-center gap-2 mt-3 text-xs cursor-pointer" data-testid="docs-reviewed-toggle">
+                            <input type="checkbox" checked={docsReviewed} onChange={(e) => setDocsReviewed(e.target.checked)} className="h-4 w-4 accent-gold-500" data-testid="docs-reviewed-checkbox" />
+                            I have reviewed the submitted documents
+                          </label>
+                        )}
+                      </div>
+                    )}
+
                     {/* Order stats */}
                     <div className="grid grid-cols-4 gap-2">
                       {[['Orders', profileData.stats.order_count], ['Spent', money(profileData.stats.total_spent)], ['Delivered', profileData.stats.delivered], ['Active', profileData.stats.active]].map(([label, val]) => (
@@ -1421,6 +1297,28 @@ const AdminPanel = () => {
                   </div>
                 )}
                 <DialogFooter className="gap-2">
+                  {profileDocs?.applicant && ['pending', 'pending_approval'].includes((profileDocs.applicant.status || '').toLowerCase()) && (
+                    <>
+                      <Button
+                        data-testid="profile-reject-applicant-btn"
+                        variant="destructive"
+                        disabled={!docsReviewed || docActionBusy}
+                        title={!docsReviewed ? 'Review the documents first' : 'Reject applicant'}
+                        onClick={() => handleApplicantApproval(profileDocs.applicant, 'reject')}
+                      >
+                        <X className="h-4 w-4 mr-1" />Reject
+                      </Button>
+                      <Button
+                        data-testid="profile-approve-applicant-btn"
+                        className="bg-green-600 hover:bg-green-700"
+                        disabled={!docsReviewed || docActionBusy}
+                        title={!docsReviewed ? 'Review the documents first' : 'Approve applicant'}
+                        onClick={() => handleApplicantApproval(profileDocs.applicant, 'approve')}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />Approve
+                      </Button>
+                    </>
+                  )}
                   {profileData?.user && (
                     <Button
                       data-testid="profile-message-btn"
@@ -1510,7 +1408,7 @@ const AdminPanel = () => {
                       <p className="font-semibold mb-1">Items</p>
                       <div className="border rounded-lg divide-y">
                         {detailOrder.items.map((it, i) => (
-                          <div key={i} className="flex justify-between p-2">
+                          <div key={`${it.name}-${i}`} className="flex justify-between p-2">
                             <span>{it.quantity}× {it.name}</span>
                             <span className="font-medium">{money(it.price * it.quantity)}</span>
                           </div>

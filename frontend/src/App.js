@@ -47,6 +47,12 @@ const ClaimsPage = lazy(() => import('./ClaimsPage'));
 const AboutPage = lazy(() => import('./AboutPage'));
 const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
 const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const MerchantSettings = lazy(() => import('./MerchantSettings'));
+const DriverSettings = lazy(() => import('./DriverSettings'));
+const ForgotPassword = lazy(() => import('./ForgotPassword'));
+const ResetPassword = lazy(() => import('./ResetPassword'));
+const AssistantWidget = lazy(() => import('./AssistantWidget'));
+const MerchantProducts = lazy(() => import('./MerchantProducts'));
 const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
 const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
@@ -74,7 +80,8 @@ import { useToast } from './hooks/use-toast';
 import { Toaster } from './components/ui/toaster';
 import { 
   Building2, 
-  Utensils, 
+  Utensils,
+  Store, 
   Pill, 
   ShoppingCart, 
   Package, 
@@ -135,6 +142,9 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
+import { LocationConsentProvider } from './LocationConsentContext';
+import BusinessSearch from './BusinessSearch';
+import PublicTrack from './PublicTrack';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -142,8 +152,67 @@ const GlobalSearch = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [featured, setFeatured] = useState([]);
+  const [featCat, setFeatCat] = useState('all');
+  const [loadingFeat, setLoadingFeat] = useState(false);
+  const [recent, setRecent] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('islandhop_recent_searches') || '[]'); } catch { return []; }
+  });
+  const [onlineCount, setOnlineCount] = useState(null);
   const navigate = useNavigate();
   const searchRef = React.useRef(null);
+
+  const POPULAR_SEARCHES = ['Roti', 'Pharmacy', 'Groceries', 'Jerk Chicken', 'Doubles'];
+
+  useEffect(() => {
+    axios.get(`${API}/drivers/online-count`).then((r) => setOnlineCount(r.data.online)).catch(() => {});
+  }, []);
+
+  const rememberSearch = React.useCallback((term) => {
+    const t = (term || '').trim();
+    if (t.length < 2) return;
+    setRecent((prev) => {
+      const next = [t, ...prev.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 5);
+      try { localStorage.setItem('islandhop_recent_searches', JSON.stringify(next)); } catch (e) { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  const loadFeatured = React.useCallback(async (cat) => {
+    setLoadingFeat(true);
+    try {
+      const response = await axios.get(`${API}/search/featured`, { params: { category: cat, limit: 12 } });
+      setFeatured(response.data.results || []);
+    } catch (e) {
+      setFeatured([]);
+    } finally {
+      setLoadingFeat(false);
+    }
+  }, []);
+
+  // Categories shown as quick-filter chips when the search bar is focused.
+  const searchCategories = [
+    { key: 'all', label: 'All' },
+    { key: 'restaurant', label: 'Restaurants' },
+    { key: 'pharmacy', label: 'Pharmacy' },
+    { key: 'grocery', label: 'Grocery' },
+    { key: 'shop', label: 'Shops' },
+    { key: 'taxi', label: 'Taxi', route: '/taxi-booking' },
+    { key: 'courier', label: 'Courier', route: '/courier-order' },
+  ];
+
+  const handleCategoryChip = (cat) => {
+    if (cat.route) { setShowResults(false); navigate(cat.route); return; }
+    setFeatCat(cat.key);
+    loadFeatured(cat.key);
+  };
+
+  const openFeatured = () => {
+    setShowResults(true);
+    if (searchQuery.trim().length < 2 && featured.length === 0) {
+      loadFeatured(featCat);
+    }
+  };
 
   // Debounce search
   useEffect(() => {
@@ -186,21 +255,23 @@ const GlobalSearch = () => {
   };
 
   const handleResultClick = (result) => {
+    if (searchQuery.trim().length >= 2) rememberSearch(searchQuery);
     setShowResults(false);
     setSearchQuery('');
-    
-    // Navigate based on result type
+
+    // Navigate based on result type. Route names must match App.js <Routes>:
+    //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
-      if (result.vendor_type === 'restaurant') {
-        navigate(`/restaurants/${result.id}`);
-      } else if (result.vendor_type === 'pharmacy') {
-        navigate(`/pharmacy/${result.id}`);
+      if (result.vendor_type === 'pharmacy') {
+        navigate('/pharmacy-order');
       } else if (result.vendor_type === 'grocery') {
-        navigate(`/grocery/${result.id}`);
+        navigate('/grocery-order');
+      } else {
+        navigate(`/restaurant/${result.id}`);
       }
     } else if (result.type === 'product') {
       // Navigate to vendor page with product highlighted
-      navigate(`/restaurants/${result.vendor_id}?product=${result.id}`);
+      navigate(`/restaurant/${result.vendor_id}?product=${result.id}`);
     }
   };
 
@@ -222,7 +293,7 @@ const GlobalSearch = () => {
             placeholder="Search restaurants, food, pharmacies..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
+            onFocus={openFeatured}
             data-testid="global-search-input"
             className="pl-11 pr-4 py-3 h-12 w-full text-base bg-matte-800/80 border-2 border-gold-500/30 rounded-l-xl rounded-r-none focus:border-gold-500 focus:ring-2 focus:ring-gold-500/30 placeholder:text-muted-foreground"
           />
@@ -243,8 +314,95 @@ const GlobalSearch = () => {
         </button>
       </div>
 
+      {/* Onboarded partners dropdown — shown on focus before the user types */}
+      {showResults && searchQuery.trim().length < 2 && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50" data-testid="featured-partners-dropdown">
+          <div className="p-2 flex flex-wrap gap-2 border-b border-border/50 sticky top-0 bg-card">
+            {searchCategories.map((cat) => {
+              const hint = (cat.key === 'taxi' || cat.key === 'courier') && onlineCount != null ? ` · ${onlineCount} online` : '';
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => handleCategoryChip(cat)}
+                  data-testid={`search-cat-${cat.key}`}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    !cat.route && featCat === cat.key
+                      ? 'bg-gold-gradient text-white'
+                      : 'bg-background text-muted-foreground hover:text-foreground border border-border'
+                  }`}
+                >
+                  {cat.label}{hint}
+                </button>
+              );
+            })}
+          </div>
+          {(recent.length > 0 || POPULAR_SEARCHES.length > 0) && (
+            <div className="px-3 pt-2 space-y-2 border-b border-border/50 pb-2">
+              {recent.length > 0 && (
+                <div data-testid="recent-searches">
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Recent</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recent.map((term) => (
+                      <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`recent-search-${term}`}
+                        className="text-xs px-2.5 py-1 rounded-full bg-background border border-border text-foreground hover:border-gold-500">
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div data-testid="popular-searches">
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Popular</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_SEARCHES.map((term) => (
+                    <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`popular-search-${term}`}
+                      className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="p-2">
+            <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Onboarded Partners</div>
+            {loadingFeat ? (
+              <div className="py-6 text-center text-muted-foreground text-sm">Loading partners…</div>
+            ) : featured.length === 0 ? (
+              <div className="py-6 text-center text-muted-foreground text-sm" data-testid="featured-empty">No partners onboarded in this category yet.</div>
+            ) : (
+              featured.map((result, index) => {
+                const vendorIconMap = { restaurant: '🍽️', pharmacy: '💊', grocery: '🛒' };
+                const gradientMap = { restaurant: 'from-red-500 to-orange-500', pharmacy: 'from-neon-cyan to-gold-500', grocery: 'from-green-500 to-emerald-500' };
+                return (
+                  <button
+                    key={`feat-${index}`}
+                    type="button"
+                    onClick={() => handleResultClick(result)}
+                    data-testid={`featured-partner-${index}`}
+                    className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors flex items-center space-x-3"
+                  >
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${gradientMap[result.vendor_type] || 'from-slate-400 to-slate-600'} flex items-center justify-center text-white text-xl`}>
+                      {vendorIconMap[result.vendor_type] || '🏪'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-foreground truncate flex items-center gap-2">
+                        {result.name}
+                        {result.featured && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gold-500/15 text-gold-700 border border-gold-500/30">Featured</span>}
+                      </div>
+                      <div className="text-sm text-muted-foreground capitalize">{result.vendor_type}</div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search Results Dropdown */}
-      {showResults && searchResults.length > 0 && (
+      {showResults && searchQuery.trim().length >= 2 && searchResults.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50">
           {/* Vendors */}
           {searchResults.filter(r => r.type === 'vendor').length > 0 && (
@@ -301,10 +459,25 @@ const GlobalSearch = () => {
 
       {/* No Results */}
       {showResults && searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50" data-testid="search-no-results">
           <div className="text-center text-muted-foreground">
             <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/70" />
             <p>No results found for &quot;{searchQuery}&quot;</p>
+          </div>
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5 text-center">Try one of these</div>
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {POPULAR_SEARCHES.map((term) => (
+                <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`no-results-suggestion-${term}`}
+                  className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                  {term}
+                </button>
+              ))}
+              <button type="button" onClick={() => navigate('/businesses')} data-testid="no-results-browse-all"
+                className="text-xs px-2.5 py-1 rounded-full bg-background border border-border hover:border-gold-500">
+                Browse all businesses
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -323,8 +496,7 @@ const Header = () => {
   //   `show: 'authed'`          — any logged-in user
   //   `show: ['admin', 'driver']` — restricted to listed user_type(s)
   const allNavigationItems = [
-    { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
-    { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
+    { to: "/businesses",        label: "Business",          icon: Store,       show: 'everyone' },
     { to: "/promote",           label: "Promote & Earn",    icon: Megaphone,   show: 'authed' },
     { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
     { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
@@ -642,6 +814,16 @@ const LandingPage = () => {
                 onClick={() => navigate('/partner')}
               >
                 Become a Partner
+              </Button>
+              <Button 
+                size="lg" 
+                variant="outline"
+                className="rounded-full border-2 border-slate-200 text-secondary hover:border-primary hover:bg-primary/5 px-10 py-7 text-lg transition-all"
+                onClick={() => navigate('/driver-onboarding')}
+                data-testid="hero-become-driver-btn"
+              >
+                <Truck className="mr-2 h-5 w-5" />
+                Become a Driver
               </Button>
             </div>
 
@@ -1346,7 +1528,8 @@ const Dashboard = () => {
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
-                  onClick={() => navigate('/services')}
+                  onClick={() => navigate('/businesses')}
+                  data-testid="quick-action-place-order"
                 >
                   <Package className="h-6 w-6" />
                   <span className="text-sm">Place Order</span>
@@ -1468,8 +1651,25 @@ const Dashboard = () => {
               ) : (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground mb-4">No business applications yet</p>
-                  <Button onClick={() => navigate('/partner')}>
-                    Become a Partner
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    <Button onClick={() => navigate('/partner')} data-testid="profile-become-partner-btn">
+                      Become a Partner
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn">
+                      <Truck className="mr-2 h-4 w-4" />
+                      Become a Driver
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!loading && applications.length > 0 && (
+                <div className="mt-4 pt-4 border-t flex flex-wrap gap-3">
+                  <Button variant="outline" size="sm" onClick={() => navigate('/partner')} data-testid="profile-add-partner-btn">
+                    Add Another Partner Application
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn-2">
+                    <Truck className="mr-2 h-4 w-4" />
+                    Become a Driver
                   </Button>
                 </div>
               )}
@@ -1831,6 +2031,7 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <CurrencyProvider>
+        <LocationConsentProvider>
         <Router>
           <div className="min-h-screen bg-background">
             <Header />
@@ -1841,12 +2042,16 @@ function App() {
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
             <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
             <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
+            <Route path="/businesses" element={<BusinessSearch />} />
+            <Route path="/t/:orderId" element={<PublicTrack />} />
             <Route path="/restaurant/:restaurantId" element={<RestaurantMenu />} />
             <Route path="/taxi-booking" element={<TaxiBookingForm />} />
             <Route path="/courier-order" element={<CourierOrderForm />} />
@@ -1883,15 +2088,18 @@ function App() {
             <Route path="/driver" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverRegistration /></ProtectedRoute>} />
             <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverEarningsDashboard /></ProtectedRoute>} />
             <Route path="/driver/subscription" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSubscription /></ProtectedRoute>} />
+            <Route path="/driver/settings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSettings /></ProtectedRoute>} />
 
             {/* Merchant / Vendor only */}
             <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
             <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ONBOARD}><RestaurantOnboarding /></ProtectedRoute>} />
             <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
             <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
+            <Route path="/merchant/products" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantProducts /></ProtectedRoute>} />
             <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
             <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
             <Route path="/merchant/ads" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantAds /></ProtectedRoute>} />
+            <Route path="/vendor/settings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSettings /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
@@ -1909,8 +2117,12 @@ function App() {
 
           <Footer />
           <Toaster />
+          <Suspense fallback={null}>
+            <AssistantWidget />
+          </Suspense>
         </div>
       </Router>
+      </LocationConsentProvider>
       </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>

@@ -43,18 +43,25 @@ def _register(prefix: str = "req"):
     }
 
 
+def _admin_headers():
+    r = requests.post(f"{BASE_URL}/api/auth/login",
+                      json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"}, timeout=30)
+    assert r.status_code == 200, f"owner admin login failed: {r.text}"
+    return {"Authorization": f"Bearer {r.json()['access_token']}", "Content-Type": "application/json"}
+
+
 def _link_and_deposit(user, amount: float = 100.0, currency: str = "USD"):
-    """Link a unique CariPay handle and deposit funds to the wallet."""
-    handle = f"h_{uuid.uuid4().hex[:10]}"
-    r = requests.post(f"{BASE_URL}/api/wallet/link",
-                      json={"handle": handle, "country": "JM"},
+    """Fund a wallet via the live path (CariPay link/deposit removed): user files a
+    deposit funding-request, admin approves it."""
+    r = requests.post(f"{BASE_URL}/api/wallet/funding-request",
+                      json={"direction": "deposit", "method": "bank", "amount": amount, "currency": currency},
                       headers=user["headers"], timeout=20)
-    assert r.status_code == 200, r.text
-    r = requests.post(f"{BASE_URL}/api/wallet/deposit",
-                      json={"amount": amount, "currency": currency},
-                      headers=user["headers"], timeout=20)
-    assert r.status_code == 200, f"deposit failed: {r.text}"
-    return r.json()
+    assert r.status_code == 200, f"funding-request failed: {r.text}"
+    rid = r.json()["request"]["id"]
+    ar = requests.post(f"{BASE_URL}/api/admin/wallet/funding-requests/{rid}/approve",
+                       headers=_admin_headers(), timeout=20)
+    assert ar.status_code == 200, f"funding approve failed: {ar.text}"
+    return ar.json()
 
 
 def _balance(user, ccy: str = "USD") -> float:
@@ -373,6 +380,9 @@ def refund_user():
 class TestRefundToWallet:
     def test_full_refund_credits_wallet(self, refund_user):
         oid = _create_and_pay_order(refund_user, total=25.0)
+        # Full refund returns the order's actual charged total (subtotal + service fee, etc.).
+        order = requests.get(f"{BASE_URL}/api/orders/{oid}", headers=refund_user["headers"], timeout=20).json()
+        charged = round(float(order["total"]), 2)
         before = _balance(refund_user)
 
         r = requests.post(f"{BASE_URL}/api/orders/{oid}/refund",
@@ -382,10 +392,10 @@ class TestRefundToWallet:
         body = r.json()
         assert body["method"] == "wallet"
         assert body["status"] == "refunded"
-        assert body["amount"] == pytest.approx(25.0)
+        assert body["amount"] == pytest.approx(charged)
 
         # wallet credited
-        assert _balance(refund_user) == pytest.approx(before + 25.0, abs=1e-6)
+        assert _balance(refund_user) == pytest.approx(before + charged, abs=1e-6)
 
         # order updated
         o = requests.get(f"{BASE_URL}/api/orders/{oid}",
@@ -445,37 +455,31 @@ class TestRefundToWallet:
 class TestAmountRounding:
     def test_deposit_rounds_to_two_decimals(self):
         u = _register("roundU")
-        _link_and_deposit.__wrapped__ if False else None  # noqa - placeholder
-        # link first
-        requests.post(f"{BASE_URL}/api/wallet/link",
-                      json={"handle": f"h_{uuid.uuid4().hex[:10]}", "country": "JM"},
-                      headers=u["headers"], timeout=20)
-
-        r = requests.post(f"{BASE_URL}/api/wallet/deposit",
-                          json={"amount": 10.105, "currency": "USD"},
+        # File a deposit funding-request with a >2dp amount; server applies _round_money.
+        r = requests.post(f"{BASE_URL}/api/wallet/funding-request",
+                          json={"direction": "deposit", "method": "bank", "amount": 10.105, "currency": "USD"},
                           headers=u["headers"], timeout=20)
         assert r.status_code == 200, r.text
-        body = r.json()
-        # Response amount should be rounded — NOT 10.105
-        assert "transaction" in body
-        amt_resp = float(body["transaction"]["amount"])
-        assert abs(amt_resp - 10.105) > 1e-9, (
-            f"deposit amount not rounded server-side: {amt_resp}"
-        )
-        assert amt_resp in (10.10, 10.11), f"expected 10.10 or 10.11, got {amt_resp}"
+        req_amt = float(r.json()["request"]["amount"])
+        assert abs(req_amt - 10.105) > 1e-9, f"amount not rounded server-side: {req_amt}"
+        assert req_amt in (10.10, 10.11), f"expected 10.10 or 10.11, got {req_amt}"
+        rid = r.json()["request"]["id"]
 
-        # /wallet/transactions must show same rounded value
+        ar = requests.post(f"{BASE_URL}/api/admin/wallet/funding-requests/{rid}/approve",
+                           headers=_admin_headers(), timeout=20)
+        assert ar.status_code == 200, ar.text
+
+        # /wallet/transactions must show the same rounded value
         txns = requests.get(f"{BASE_URL}/api/wallet/transactions",
                             headers=u["headers"], timeout=20).json()
         assert txns, "no txns returned"
-        latest = txns[0]
-        amt_txn = float(latest["amount"])
-        assert amt_txn == amt_resp
+        amt_txn = float(txns[0]["amount"])
+        assert amt_txn == req_amt
         assert amt_txn in (10.10, 10.11)
 
         # Balance reflects rounded amount
         bal = _balance(u)
-        assert bal == pytest.approx(amt_resp, abs=1e-6)
+        assert bal == pytest.approx(req_amt, abs=1e-6)
 
 
 # ============================================================================

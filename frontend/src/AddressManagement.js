@@ -16,6 +16,7 @@ import {
   Navigation as NavigationIcon
 } from 'lucide-react';
 import axios from 'axios';
+import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -26,6 +27,7 @@ const AddressManagement = () => {
   const [editingAddress, setEditingAddress] = useState(null);
   const [loading, setLoading] = useState(true);
   const [useCurrentLocation, setUseCurrentLocation] = useState(false);
+  const { requestLocationConsent } = useLocationConsent();
   
   const [formData, setFormData] = useState({
     label: 'home',
@@ -57,45 +59,46 @@ const AddressManagement = () => {
     }
   };
 
-  const getCurrentLocation = () => {
-    setUseCurrentLocation(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          
-          setFormData(prev => ({ ...prev, latitude, longitude }));
-          
-          // Reverse geocode to get address (using a free service)
-          try {
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
-            );
-            const data = await response.json();
-            
-            setFormData(prev => ({
-              ...prev,
-              street_address: data.display_name || '',
-              city: data.address?.city || data.address?.town || '',
-              state: data.address?.state || '',
-              postal_code: data.address?.postcode || ''
-            }));
-          } catch (error) {
-            console.error('Error reverse geocoding:', error);
-          }
-          
-          setUseCurrentLocation(false);
-        },
-        (error) => {
-          console.error('Geolocation error:', error);
-          alert('Could not get your location');
-          setUseCurrentLocation(false);
-        }
-      );
-    } else {
+  const getCurrentLocation = async () => {
+    if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser');
-      setUseCurrentLocation(false);
+      return;
     }
+    const granted = await requestLocationConsent();
+    if (!granted) return;
+    setUseCurrentLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+
+        setFormData(prev => ({ ...prev, latitude, longitude }));
+
+        // Reverse geocode to get address (using a free service)
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
+          );
+          const data = await response.json();
+
+          setFormData(prev => ({
+            ...prev,
+            street_address: data.display_name || '',
+            city: data.address?.city || data.address?.town || '',
+            state: data.address?.state || '',
+            postal_code: data.address?.postcode || ''
+          }));
+        } catch (error) {
+          console.error('Error reverse geocoding:', error);
+        }
+
+        setUseCurrentLocation(false);
+      },
+      (error) => {
+        console.error('Geolocation error:', error);
+        alert('Could not get your location');
+        setUseCurrentLocation(false);
+      }
+    );
   };
 
   const handleSubmit = async (e) => {

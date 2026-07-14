@@ -19,14 +19,13 @@ TS = int(time.time())
 
 @pytest.fixture(scope="module")
 def admin_token():
-    payload = {
-        "email": f"someadmin_{TS}@gmail.com",
-        "password": "Admin1234!",
-        "name": "Test Admin",
-        "user_type": "admin",
-    }
-    r = requests.post(f"{BASE_URL}/api/auth/register", json=payload, timeout=20)
-    assert r.status_code in (200, 201), f"register admin failed: {r.status_code} {r.text}"
+    # Public register can no longer create admins — log in as the seeded owner admin.
+    r = requests.post(
+        f"{BASE_URL}/api/auth/login",
+        json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"owner admin login failed: {r.status_code} {r.text}"
     token = r.json().get("access_token")
     assert token, f"no access_token in response: {r.text}"
     return token

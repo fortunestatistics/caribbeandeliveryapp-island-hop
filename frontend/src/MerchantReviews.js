@@ -98,7 +98,10 @@ const MerchantReviews = ({ merchantId }) => {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [merchantId]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line -- reload reviews when merchant changes
+  }, [merchantId]);
 
   const submitReview = async () => {
     if (!myRating) { toast.error('Please select a star rating'); return; }

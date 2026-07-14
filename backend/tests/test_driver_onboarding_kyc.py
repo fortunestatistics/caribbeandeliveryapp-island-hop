@@ -8,6 +8,11 @@ from conftest import BASE_URL
 
 
 def _register(email, password="Test1234!", name="QA", user_type="customer"):
+    if user_type in ("admin", "agent"):
+        lr = requests.post(f"{BASE_URL}/api/auth/login",
+                           json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"}, timeout=30)
+        assert lr.status_code == 200, f"owner admin login failed: {lr.text}"
+        return lr.json()["access_token"]
     r = requests.post(
         f"{BASE_URL}/api/auth/register",
         json={"email": email, "password": password, "name": name, "user_type": user_type},
@@ -58,7 +63,7 @@ def test_driver_kyc_full_flow():
     driver_id = driver["id"]
 
     # Cannot go online while pending
-    r = requests.put(f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(applicant), timeout=30)
+    r = requests.put(f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(applicant), timeout=30)
     assert r.status_code == 403
 
     # Owner can download own doc; other user cannot
@@ -85,7 +90,7 @@ def test_driver_kyc_full_flow():
     assert r.status_code == 200
     r = requests.get(f"{BASE_URL}/api/auth/me", headers=_hdr(applicant), timeout=30)
     assert r.json()["user_type"] == "driver"
-    r = requests.put(f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(applicant), timeout=30)
+    r = requests.put(f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(applicant), timeout=30)
     assert r.status_code == 200
 
 

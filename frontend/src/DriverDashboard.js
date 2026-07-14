@@ -8,18 +8,21 @@ import {
   Power,
   AlertCircle,
   Star,
-  DollarSign
+  DollarSign,
+  Settings
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
+  const { requestLocationConsent } = useLocationConsent();
   const [driver, setDriver] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -48,6 +51,7 @@ const DriverDashboard = () => {
     }, 10000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line -- polling interval set once on mount
   }, []);
 
   // Start location tracking when online
@@ -57,6 +61,7 @@ const DriverDashboard = () => {
     } else {
       stopLocationTracking();
     }
+    // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
   const fetchDriverData = async () => {
@@ -131,22 +136,32 @@ const DriverDashboard = () => {
     }
   };
 
-  const startLocationTracking = () => {
+  const startLocationTracking = async () => {
     if (!navigator.geolocation) {
       alert('Geolocation not supported');
       return;
     }
 
+    const granted = await requestLocationConsent();
+    if (!granted) return;
+
+    // Clear any existing watcher to avoid duplicate trackers.
+    if (locationTracking) {
+      navigator.geolocation.clearWatch(locationTracking);
+    }
+
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-        
+
         try {
-          await axios.post(`${API}/drivers/${driver.id}/location`, {
-            latitude,
-            longitude,
-            heading,
-            speed
+          const token = localStorage.getItem('token');
+          const params = { latitude, longitude };
+          if (typeof heading === 'number' && !Number.isNaN(heading)) params.heading = heading;
+          if (typeof speed === 'number' && !Number.isNaN(speed)) params.speed = speed;
+          await axios.post(`${API}/drivers/${driver.id}/location`, null, {
+            params,
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
         } catch (error) {
           console.error('Error updating location:', error);
@@ -261,6 +276,7 @@ const DriverDashboard = () => {
               <Button
                 onClick={toggleOnlineStatus}
                 className={isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}
+                data-testid="driver-online-toggle"
               >
                 <Power className="h-5 w-5 mr-2" />
                 {isOnline ? 'Go Offline' : 'Go Online'}
@@ -272,6 +288,10 @@ const DriverDashboard = () => {
               <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
                 <DollarSign className="h-5 w-5 mr-2" />
                 Subscription
+              </Button>
+              <Button onClick={() => navigate('/driver/settings')} variant="outline" data-testid="driver-settings-btn">
+                <Settings className="h-5 w-5 mr-2" />
+                Settings
               </Button>
             </div>
           </div>

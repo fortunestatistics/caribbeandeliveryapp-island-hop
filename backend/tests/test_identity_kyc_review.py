@@ -15,6 +15,11 @@ from conftest import BASE_URL
 
 
 def _register(email, password="Test1234!", name="QA", user_type="customer"):
+    if user_type in ("admin", "agent"):
+        lr = requests.post(f"{BASE_URL}/api/auth/login",
+                           json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"}, timeout=30)
+        assert lr.status_code == 200, f"owner admin login failed: {lr.text}"
+        return lr.json()
     r = requests.post(
         f"{BASE_URL}/api/auth/register",
         json={"email": email, "password": password, "name": name, "user_type": user_type},
@@ -92,7 +97,7 @@ def test_driver_remains_pending_after_identity_started():
     requests.post(f"{BASE_URL}/api/drivers/identity/start", headers=_hdr(tok), timeout=60)
     # cannot go online
     r = requests.put(
-        f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(tok), timeout=30
+        f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(tok), timeout=30
     )
     assert r.status_code == 403, r.text
     # /auth/me still customer
@@ -134,7 +139,7 @@ def test_admin_fallback_approval_still_works():
 
     # online toggle 200
     r = requests.put(
-        f"{BASE_URL}/api/drivers/status?status=online", headers=_hdr(dtok), timeout=30
+        f"{BASE_URL}/api/drivers/status", json={"status": "online"}, headers=_hdr(dtok), timeout=30
     )
     assert r.status_code == 200, r.text
 
