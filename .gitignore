@@ -111,3 +111,4 @@ frontend/android/keystore.properties
 *.jks
 *.keystore
 
+frontend/android/keystore/islandhop-upload.jks
