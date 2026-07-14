@@ -46,19 +46,25 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools build-tools;35.0.0'
+
+      - name: Remove stale aapt2 override
+        run: |
+          if [ -f "$HOME/.gradle/gradle.properties" ]; then
+            sed -i '/android\.aapt2FromMavenOverride/d' "$HOME/.gradle/gradle.properties"
+          fi
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
-      - name: Build signed release bundle
-        working-directory: frontend/android
-        run: |
-          chmod +x ./gradlew
-          ./gradlew bundleRelease --no-daemon
+      - name: Build AAB
+        working-directory: android
+        run: ./gradlew bundleRelease
 
-      - name: Upload .aab artifact
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: islandhop-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          name: app-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
