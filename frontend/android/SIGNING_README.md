@@ -14,7 +14,7 @@ must stay out of the repository.
    `android/app/build/outputs/bundle/release/app-release.aab`
 7. Upload that `.aab` to the Google Play Console.
 
-## Option B — command line (with Android SDK + JDK 17 installed)
+## Option B — command line (with Android SDK + JDK 21 installed)
 
 ```bash
 cd android
@@ -50,4 +50,5 @@ The workflow recreates `android/keystore/islandhop-upload.jks` and
 `android/keystore.properties` at runtime before `bundleRelease` runs.
 
 Package name (applicationId): **com.islandhop.app**
-versionCode 2 / versionName 1.1 — bump these in `android/app/build.gradle` for each release.
+The current release is `versionCode 3` / `versionName 1.2`; bump these in
+`android/app/build.gradle` for each release.
