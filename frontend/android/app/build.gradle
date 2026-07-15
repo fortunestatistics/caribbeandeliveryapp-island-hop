@@ -38,8 +38,10 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Falls back to debug signing if keystore.properties is absent (e.g. CI without secrets).
-            signingConfig hasSigningConfig ? signingConfigs.release : signingConfigs.debug
+            if (!hasSigningConfig) {
+                throw new GradleException("Release builds require android/keystore.properties and the original Play upload key.")
+            }
+            signingConfig signingConfigs.release
         }
     }
 }
