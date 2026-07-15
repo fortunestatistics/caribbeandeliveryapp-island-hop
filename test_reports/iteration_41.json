@@ -1,0 +1,35 @@
+{
+  "summary": "Launch-readiness QA sweep focused on the two reported bugs. BUG A (panel switcher first-click nav) is NOT REPRODUCIBLE in preview — verified as admin (all 4 panels) and customer (allowed panel + Forbidden403 for disallowed panels): every panel navigates on the FIRST click. BUG B (storefront image save 413) is VERIFIED FIXED — as a fresh restaurant merchant, uploaded a 3000x2000 ~4.5MB cover, ~5.4MB logo, and 3 large gallery photos, clicked Save → PUT /api/merchant/storefront returned 200, toast 'Storefront saved', and after full page reload cover/logo/3 gallery images all persist (client-side fileToConstrainedDataURL correctly shrinks each base64 under the 1.35M-char cap so the 1.5M server limit is never hit).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MerchantStorefrontEditor header (after promoting user to restaurant)", "issues": [
+        "Top-right role chip still says 'Customer' with the customer icon even though the logged-in user is now user_type=restaurant (see screenshot). Cosmetic but confusing — the header role selector should reflect the current user_type after re-login."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_41.json"
+  ],
+  "action_items": [
+    "BUG A (panel switcher first-click): NOT reproducible against current preview code (SubAppsDropdown.pick → setOpen(false)+navigate(route) works reliably). If the owner is still seeing this on the Play Store build, it's likely a stale Capacitor bundle — bump the WebView cache/version and re-publish. No frontend code change needed here.",
+    "BUG B (storefront 413): confirmed fixed by client-side constrained compression; nothing more to do.",
+    "Optional polish: keep the role chip in the top-right header in sync with user.user_type (currently shows 'Customer' for a restaurant merchant on /merchant/storefront)."
+  ],
+  "critical_code_review_comments": [
+    "SubAppsDropdown.pick() calls setOpen(false)+navigate() on the same tick — this is fine for react-router-dom v6 (navigate is synchronous). No race with useEffect cleanup. No changes required.",
+    "ProtectedRoute correctly shows a spinner while AuthContext.loading=true, then either renders Forbidden403 or the target page. It does NOT redirect to /login on wrong role (only on missing user), so a first-click Forbidden panel cannot inadvertently bounce through login and lose the intended route. Good.",
+    "MerchantStorefrontEditor.save posts { logo, cover, bio, gallery } as base64 strings. Payload can still be ~4-6MB total (4 images * ~1.35M chars). Consider adding a per-request timeout and streaming/multipart upload longer-term to reduce memory pressure, but not a launch blocker.",
+    "imageUtils.fileToConstrainedDataURL: 6-pass loop over quality [0.82..0.4] then dim*=0.8 is deterministic and terminates. Good; but note the last-resort branch at line 50 (`resolve(render(dim, 0.4))`) can still exceed maxChars for extreme inputs — a defensive reject or a hard minimum dim floor + toast would be safer."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "Ephemeral: TEST_qa_cust_1784115529@gmail.com (customer) and TEST_qa_merch_1784115585@gmail.com (restaurant merchant, 'QA Bistro') — password Test1234!, in test_database. Owner admin used: tracyfortune@islandhoptt.com / IslandHopAdmin2026!.",
+  "seed_data_creation": "One restaurant 'QA Bistro' (id c3e92049-d56c-4799-b02a-62cd34a0c9b3) with a merchant_storefronts doc containing 1 cover, 1 logo, 3 gallery images (all base64 JPEGs after client-side compression).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Panel switcher on web preview navigates correctly on first click for anonymous, customer and admin users. Forbidden panels render Forbidden403 ('Access restricted') on first click; no redirect to /login. Storefront image save works with client-side fileToConstrainedDataURL (imageUtils.js) capping base64 at 1.35M chars — server limit MAX_STOREFRONT_IMG_LEN=1_500_000 is safely never breached. Reported behaviour on production (Capacitor Play Store) may be a stale bundle rather than a code bug.",
+  "rca of the issue": "BUG A RCA: The reported symptom (first click doesn't navigate; second click after visiting Dashboard does) cannot be reproduced against the current preview build. SubAppsDropdown.pick calls setOpen(false)+navigate(route) synchronously; ProtectedRoute never redirects a mis-role click through /login (it renders Forbidden403 directly). Given the report is from the Play Store (Capacitor WebView), the most likely cause is a stale JS bundle cached by the WebView — the older SubAppsDropdown may have had setOpen inside a useEffect or an intermediate state that swallowed the first click. Recommend the owner bump the app version / cache-bust the WebView and re-publish. BUG B RCA (confirmed fixed): previously the raw FileReader result (~5MB base64) exceeded MAX_STOREFRONT_IMG_LEN=1_500_000, so PUT /api/merchant/storefront returned 413. Fix: imageUtils.fileToConstrainedDataURL iterates quality then dimensions until base64 length <=1.35M chars per image. Verified end-to-end: 4.5MB+ input JPEGs saved successfully, persisted after reload."
+}

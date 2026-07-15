@@ -6,7 +6,7 @@ import { Button } from './components/ui/button';
 import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import { useToast } from './hooks/use-toast';
-import { fileToResizedDataURL } from './imageUtils';
+import { fileToConstrainedDataURL } from './imageUtils';
 import { ArrowLeft, ImagePlus, Trash2, Store, Eye, Loader2, Save } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -50,7 +50,7 @@ const MerchantStorefrontEditor = () => {
   const pickImage = async (file, setter, maxDim) => {
     if (!file) return;
     try {
-      const data = await fileToResizedDataURL(file, maxDim);
+      const data = await fileToConstrainedDataURL(file, maxDim);
       setter(data);
     } catch {
       toast({ title: 'Image error', description: 'Could not process that image.', variant: 'destructive' });
@@ -65,7 +65,7 @@ const MerchantStorefrontEditor = () => {
         break;
       }
       // eslint-disable-next-line no-await-in-loop
-      const data = await fileToResizedDataURL(f, 800);
+      const data = await fileToConstrainedDataURL(f, 800);
       setGallery((g) => (g.length >= 6 ? g : [...g, data]));
     }
   };
