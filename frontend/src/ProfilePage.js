@@ -8,30 +8,7 @@ import { Camera, MapPin, User as UserIcon, Loader2, CheckCircle2 } from 'lucide-
 import { toast } from 'sonner';
 import { authAPI } from './services/api';
 import { useAuth } from './AuthContext';
-
-const MAX_DIM = 400; // resize avatar to keep base64 small
-
-// Resize + compress an image file into a base64 data URL.
-const fileToResizedDataURL = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      img.onerror = reject;
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+import { fileToConstrainedDataURL } from './imageUtils';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -64,10 +41,10 @@ const ProfilePage = () => {
       return;
     }
     try {
-      const dataUrl = await fileToResizedDataURL(file);
+      const dataUrl = await fileToConstrainedDataURL(file, 400, 2_800_000);
       setForm((f) => ({ ...f, picture: dataUrl }));
     } catch (_e) {
-      toast.error('Could not read that image. Try another.');
+      toast.error('Could not process that image. Please try a smaller one.');
     }
   };
 
