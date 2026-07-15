@@ -11,9 +11,10 @@ if [[ ! -f "$android_dir/keystore.properties" ]]; then
   exit 1
 fi
 
-if [[ ! -d "$android_dir/keystore" ]]; then
+keystore_file="$android_dir/keystore/islandhop-upload.jks"
+if [[ ! -f "$keystore_file" ]]; then
   printf 'Missing %s. Add the original Play upload keystore before building.\n' \
-    "$android_dir/keystore" >&2
+    "$keystore_file" >&2
   exit 1
 fi
 

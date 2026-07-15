@@ -19,9 +19,12 @@ mkdir -p keystore
 # Copy the original islandhop-upload.jks into keystore/
 ```
 
-If Google Play App Signing is enabled, use the registered upload key, not a
-new key. A new key will not produce an accepted update unless Google Play
-approves an upload-key reset.
+If Google Play App Signing is enabled, this local keystore must be the
+registered upload key. Google signs the distributed APKs with the app-signing
+key, while Play Console accepts bundles signed with the upload key. If App
+Signing is not enabled, use the original release keystore instead. In either
+case, a new key will not produce an accepted update unless Google Play approves
+the appropriate key change.
 
 ## Command line
 
