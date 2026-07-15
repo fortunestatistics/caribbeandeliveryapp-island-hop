@@ -60,13 +60,18 @@ export const ModeProvider = ({ children }) => {
     }
   }, []);
 
-  // On mount: load authorized modes; if persisted mode isn't authorized, fall back to customer.
+  // On mount: load authorized modes. If the user hasn't explicitly picked a mode
+  // yet, default to their highest-privilege role (so a merchant/driver/admin isn't
+  // shown as "Customer"). If a persisted mode is no longer authorized, fall back.
   useEffect(() => {
     refreshModes().then((modes) => {
-      // Read the persisted mode fresh — don't capture state via closure
       let persisted;
       try { persisted = localStorage.getItem(STORAGE_KEY); } catch (_e) { persisted = null; }
-      if (persisted && persisted !== MODES.CUSTOMER && !modes[persisted]) {
+      if (!persisted) {
+        // No explicit choice yet — pick the most relevant authorized role.
+        const best = [MODES.ADMIN, MODES.MERCHANT, MODES.DRIVER, MODES.CUSTOMER].find((m) => modes[m]);
+        if (best && best !== MODES.CUSTOMER) _setMode(best);
+      } else if (persisted !== MODES.CUSTOMER && !modes[persisted]) {
         _setMode(MODES.CUSTOMER);
         try { localStorage.setItem(STORAGE_KEY, MODES.CUSTOMER); } catch (e) { console.warn('localStorage unavailable:', e); }
       }

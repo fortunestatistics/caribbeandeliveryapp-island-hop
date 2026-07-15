@@ -46,8 +46,11 @@ export const fileToConstrainedDataURL = (file, maxDim = 1280, maxChars = 1_350_0
           }
           dim = Math.round(dim * 0.8); // shrink and retry
         }
-        // Last resort: smallest attempt (may still be large for extreme inputs).
-        resolve(render(dim, 0.4));
+        // Last resort: smallest sensible render. Reject if it still won't fit so
+        // the UI shows a clear error instead of the server returning 413.
+        const finalOut = render(Math.min(dim, 480), 0.4);
+        if (finalOut.length <= maxChars) { resolve(finalOut); return; }
+        reject(new Error('Image is too detailed to compress under the size limit. Please use a smaller image.'));
       };
       img.onerror = reject;
       img.src = e.target.result;
