@@ -5,9 +5,10 @@ Studio, not the repository root.
 
 ## Before building
 
-The application ID must remain `com.islandhop.app`. Each Play release must use
-a higher `versionCode` than the previous release; update `versionCode` and
-`versionName` in `app/build.gradle`.
+The application ID must remain `com.islandhop.app` so this bundle updates the
+existing Play Store listing rather than creating a new app. Each Play release
+must use a higher `versionCode` than the previous release; update
+`versionCode` and `versionName` in `app/build.gradle`.
 
 Use the same upload keystore used for the existing Play Store app. Do not
 commit the keystore or its passwords:
