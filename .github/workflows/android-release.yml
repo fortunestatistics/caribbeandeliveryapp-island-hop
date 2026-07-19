@@ -63,8 +63,13 @@ jobs:
 
       - name: Build signed release AAB
         working-directory: frontend/android
+        env:
+          # Auto-incrementing versionCode: offset keeps it above the current live
+          # value (2) and always ascending as run_number grows.
+          VERSION_CODE: ${{ github.run_number + 100 }}
         run: |
           chmod +x gradlew
+          echo "Building versionCode=$VERSION_CODE"
           ./gradlew clean bundleRelease --no-daemon
 
       - name: Upload AAB artifact

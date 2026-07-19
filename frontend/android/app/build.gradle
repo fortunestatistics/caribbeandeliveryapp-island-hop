@@ -15,8 +15,10 @@ android {
         applicationId "com.islandhop.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1"
+        // versionCode: CI passes VERSION_CODE (auto-incrementing). Local builds
+        // fall back to baseVersionCode below — bump it only if building by hand.
+        versionCode (System.getenv('VERSION_CODE') ? System.getenv('VERSION_CODE').toInteger() : 2)
+        versionName (System.getenv('VERSION_NAME') ?: "1.1")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
