@@ -43,7 +43,11 @@ jobs:
           key_alias="${ANDROID_KEY_ALIAS:-${KEY_ALIAS:-${ANDROID_UPLOAD_KEY_ALIAS:-}}}"
           key_password="${ANDROID_KEY_PASSWORD:-${KEY_PASSWORD:-${ANDROID_UPLOAD_KEY_PASSWORD:-}}}"
 
-          test -n "$keystore_b64" || { echo "::error::Missing keystore base64 secret. Expected one of: ANDROID_KEYSTORE_BASE64, KEYSTORE_BASE64, ANDROID_UPLOAD_KEYSTORE_BASE64"; exit 1; }
+          if [ -z "$keystore_b64" ]; then
+            echo "::warning::No keystore secrets found (ANDROID_KEYSTORE_BASE64 / KEYSTORE_BASE64 / ANDROID_UPLOAD_KEYSTORE_BASE64). The AAB will be signed with the debug key only and cannot be uploaded to the Play Store."
+            exit 0
+          fi
+
           test -n "$keystore_password" || { echo "::error::Missing keystore password secret. Expected one of: ANDROID_KEYSTORE_PASSWORD, KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEYSTORE_PASSWORD"; exit 1; }
           test -n "$key_alias" || { echo "::error::Missing key alias secret. Expected one of: ANDROID_KEY_ALIAS, KEY_ALIAS, ANDROID_UPLOAD_KEY_ALIAS"; exit 1; }
           test -n "$key_password" || { echo "::error::Missing key password secret. Expected one of: ANDROID_KEY_PASSWORD, KEY_PASSWORD, ANDROID_UPLOAD_KEY_PASSWORD"; exit 1; }
