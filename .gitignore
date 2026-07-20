@@ -114,4 +114,5 @@ frontend/android/keystore.properties
 *.jks
 *.keystore
 
-frontend/android/keystore/islandhop-upload.jks
+# Allow the bundled dev/CI keystore (credentials are known; production builds use secrets)
+!frontend/android/keystore/islandhop-upload.jks
