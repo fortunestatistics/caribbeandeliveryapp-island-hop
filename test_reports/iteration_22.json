@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend-only verification of three additive UI changes (homepage incentives widget, Business Onboarding business-model help, Admin Analytics 'Promotions & Earnings' card). All four review-request items now pass after fixing one critical missing import in AdminPanel.js that crashed the entire Analytics tab.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminPanel.js",
+        "issue": "FIXED by testing agent: <AnalyticsPromotions/> was rendered at line 1172 of AdminPanel.js but the component was never imported, causing an UNCAUGHT runtime error ('ReferenceError: AnalyticsPromotions is not defined') that white-screened the entire Admin Analytics tab. Added 'import AnalyticsPromotions from ./AnalyticsPromotions;' at the top of the file.",
+        "selector": "[data-testid=\"admin-tab-analytics\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/homepage_widget.png",
+    "/app/test_reports/business_model.png",
+    "/app/test_reports/admin_analytics_pass.png"
+  ],
+  "action_items": [
+    "Main agent: please review/keep the import fix in /app/frontend/src/AdminPanel.js (line ~8: 'import AnalyticsPromotions from ./AnalyticsPromotions;'). Without it the entire Admin Analytics tab crashes with a React ReferenceError.",
+    "Optional: there are pre-existing 500s on /api/admin/applications (Error fetching applications: AxiosError) when loading /admin — not part of this task but noisy in console. Worth investigating in a follow-up.",
+    "Optional: GET /api/auth/me returned 403 on initial login navigation (before retrying with token). Looks like a transient race during login redirect, but verify auth bootstrap order if this surfaces in user reports."
+  ],
+  "critical_code_review_comments": [
+    "AdminPanel.js is 1181 lines — should be split into smaller tab components (Users, Orders, Wallet, Analytics, etc.) for maintainability and to prevent missed-import regressions like this one.",
+    "The new Earn-with-IslandHop widget on the homepage was confirmed to lay out as a single horizontal band at 1920px (all 4 cards at top=495px). Good responsive grid usage.",
+    "BusinessOnboarding legend is well-implemented: description + optionDescriptions rendered through a generic renderField helper, so adding 'help' to other selects is now trivial."
+  ],
+  "updated_files": [
+    "/app/frontend/src/AdminPanel.js (added missing AnalyticsPromotions import)"
+  ],
+  "success_rate": { "backend": "n/a (skipped per request)", "frontend": "100% after import fix (4/4 review items pass)" },
+  "test_credentials": "Owner admin tracyfortune@islandhoptt.com / IslandHopAdmin2026! — login works, token issued, /admin accessible.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 review-request UI features verified on preview URL https://logistics-island.preview.emergentagent.com. (1) Homepage incentives-widget renders horizontally with all 4 cards (incentive-promote/refer/drive/partner) plus incentives-promote-cta which routes to /login (unauthed) or /promote. (2) BusinessOnboarding step 3 shows businessModel-description + businessModel-help with all 5 model explanations (B2C/B2B/B2B2C/Marketplace/Subscription). (3) Admin Analytics tab now renders analytics-promotions card with promo-stat-paid/held/onboards/ambassadors and analytics-no-promoters empty-state — was crashing until the missing import was added. Currency switcher TT$/US$ present in navbar. Promoter APIs (/api/admin/promoters, /api/promoter/leaderboard) both return 200.",
+  "rca_of_the_issue": "Root cause: AdminPanel.js referenced <AnalyticsPromotions/> JSX without importing it. React threw 'ReferenceError: AnalyticsPromotions is not defined' inside the Analytics tab render path, which the dev-mode error overlay caught and displayed as 'Uncaught runtime errors', preventing the tab from rendering at all. Reproduction: log in as owner admin -> /admin -> click 'Analytics' tab -> red overlay. Mitigation applied: added 'import AnalyticsPromotions from ./AnalyticsPromotions;' to AdminPanel.js. Verified post-fix: card renders, all 4 stat tiles present, analytics-no-promoters empty-state shown (expected, no promoter earnings yet), no console runtime errors."
+}

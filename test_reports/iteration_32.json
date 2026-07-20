@@ -1,0 +1,31 @@
+{
+  "summary": "Verified new admin Approvals section + Promoters (referral rewards) UI end-to-end on the preview URL, plus backend contract via pytest (14/14 passing). Approvals section loads, all 5 category sub-tabs render live data (restaurants=1, drivers=157, car_rentals=1, businesses=5, users=53). Toggle expands a full-detail grid, Orders button opens the order-history-dialog (drivers first record shows order-history-empty as expected). Users category correctly hides approve/reject buttons and detail grid contains no hashed_password/password/session_token strings. Promoters tab shows all 3 summary cards (pending_first_order/held/paid) and the Referral Rewards ledger (admin-referral-rewards). Backend pytest confirms: (a) GET /api/admin/records/{category} returns 200 with count+records+full for all 5 categories, 403 for non-admin, 401/403 unauth, 404 for unknown category; (b) GET /api/admin/records/{category}/{id}/orders returns type='order' for drivers and type='rental' for car_rentals, 403 for non-admin; (c) sensitive fields scrubbed from users records; (d) GET /api/admin/promo-rewards returns {rewards, counts:{pending_first_order,held,paid}, currency, reward_schedule}. First-order settlement logic remains covered by pre-existing test_first_order_reward.py.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "order-history-dialog & other Radix dialogs", "issues": ["Console warning: Missing `Description` or `aria-describedby` for DialogContent. Add a DialogDescription (or aria-describedby) for accessibility compliance."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_approvals_iter32.py",
+    "/app/test_reports/pytest/iter32_approvals.xml"
+  ],
+  "action_items": [
+    "(Minor a11y) Add DialogDescription/aria-describedby to the order-history-dialog and other Radix DialogContent uses to silence the accessibility warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to ~10.5k lines - please prioritize splitting into route modules (admin, orders, payments, drivers, promoters). Continuing to add features in one file will make regressions increasingly hard to catch.",
+    "GET /api/admin/records/{category} intentionally exposes the full document minus MongoDB _id (and sensitive fields for users). Consider a stricter allowlist per-category (e.g. never return raw tokens/OTP hashes/webhook secrets if any are ever added to other collections) rather than a denylist that only covers users.",
+    "AdminApprovals.js renders potentially 157 driver rows in a single flat list without virtualization. On slower devices this could jank; consider paginating or virtualizing when count > ~50."
+  ],
+  "updated_files": ["/app/backend/tests/test_admin_approvals_iter32.py (new)"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all Approvals + Promoters flows verified)"},
+  "test_credentials": "Admin admin.qa@islandhop-demo.com / AdminQA1234! (works). Customer register requires @gmail.com (or similar public domain) - .test TLD is rejected by pydantic EmailStr.",
+  "seed_data_creation": "None persisted beyond the throwaway customer used to verify 403 for non-admin (qa_iter32_<ts>@gmail.com).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin Approvals section fully implemented and working. Backend endpoints: GET /api/admin/records/{category} (5 categories), GET /api/admin/records/{category}/{id}/orders (type=order or type=rental for car_rentals), GET /api/admin/promo-rewards. Key data-testids: admin-tab-approvals, admin-approvals-section, approvals-cat-{restaurants|drivers|car_rentals|businesses|users}, record-{category}-{id}, record-toggle-{id}, record-status-{id}, record-orders-{id}, record-detail-{id}, record-approve-{id}, record-reject-{id}, record-portal-{id} (impersonation, do NOT click in tests as it replaces localStorage token), order-history-dialog, order-history-empty, order-row-{id}. Users category correctly omits approve/reject. Promoters tab: admin-tab-promoters, promo-summary-{pending_first_order|held|paid}, admin-referral-rewards. To auth in Playwright: POST /api/auth/login then localStorage.setItem('token', access_token) then goto /admin.",
+  "rca of the issue": "N/A - feature verification, no bug found."
+}

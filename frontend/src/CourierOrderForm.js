@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -6,6 +7,7 @@ import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
 import CurrencyConverter from './CurrencyConverter';
+import { createOrder, fetchProfile, isLoggedIn } from './orderApi';
 import { 
   Package, 
   MapPin, 
@@ -19,6 +21,7 @@ import {
 } from 'lucide-react';
 
 const CourierOrderForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [orderData, setOrderData] = useState({
     // Sender Information
@@ -97,16 +100,40 @@ const CourierOrderForm = () => {
     return baseFare.toFixed(2);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    const courierOrder = {
-      service_type: 'courier',
-      ...orderData,
-      total: parseFloat(calculateFare())
-    };
 
-    navigate('/checkout', { state: { orderData: courierOrder, serviceType: 'courier' } });
+    if (!isLoggedIn()) { navigate('/login'); return; }
+
+    const pickupAddr = (orderData.pickupAddress || '').trim();
+    const dropAddr = (orderData.deliveryAddress || '').trim();
+    if (!pickupAddr || !dropAddr) {
+      alert('Please enter both pickup and delivery addresses.');
+      return;
+    }
+
+    const fare = parseFloat(calculateFare());
+    const profile = await fetchProfile();
+
+    try {
+      const order = await createOrder({
+        customer_id: 'x',
+        service_type: 'courier',
+        items: [],
+        subtotal: 0,
+        delivery_fee: fare,
+        tip: 0,
+        total: fare,
+        pickup_address: { location: pickupAddr, full_address: pickupAddr, contact_name: orderData.senderName, instructions: orderData.pickupInstructions },
+        delivery_address: { location: dropAddr, full_address: dropAddr, contact_name: orderData.recipientName, instructions: orderData.deliveryInstructions },
+        customer_phone: orderData.senderPhone || profile.phone || '',
+        payment_method: 'cod',
+        notes: `Package: ${orderData.packageType} | Speed: ${orderData.deliverySpeed}`,
+      });
+      navigate(`/checkout/${order.id}`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
+    }
   };
 
   return (
@@ -274,7 +301,7 @@ const CourierOrderForm = () => {
                         <CardContent className="p-3 text-center">
                           <div className="text-2xl mb-1">{type.icon}</div>
                           <div className="text-xs font-semibold text-foreground">{type.name}</div>
-                          <div className="text-xs text-muted-foreground">${type.baseFare}</div>
+                          <div className="text-xs text-muted-foreground">{format(type.baseFare)}</div>
                         </CardContent>
                       </Card>
                     ))}
@@ -414,7 +441,7 @@ const CourierOrderForm = () => {
               <div className="bg-matte-800 border border-gold-500/30 p-6 rounded-lg shadow-gold-glow">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Total Delivery Cost</h3>
+                    <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
                   <CurrencyConverter amountUSD={parseFloat(calculateFare()) || 0} size="lg" />

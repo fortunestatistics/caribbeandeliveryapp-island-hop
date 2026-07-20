@@ -1,0 +1,34 @@
+{
+  "summary": "Iter36 regression test of Admin Approvals category-tab-empty + driver-blank-name fixes. Backend pytest: 6/6 passing. Frontend: all 4 partner-approval category tabs now display sensible defaults and correct records. Fix verified end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter36_approvals.py",
+    "/app/test_reports/pytest/iter36_approvals.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still >11k lines (admin_list_records at ~9994, driver join at ~10027). Continue extracting admin_router.py.",
+    "defaultStatusFor helper in AdminApprovals.js works but the design pattern (single global status filter mutated by category clicks) is fragile — a future category addition needs remembering to update the helper. Consider per-category preferred status persisted in a config object."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter36_approvals.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6)",
+    "frontend": "100% (all 4 category tabs verified)"
+  },
+  "test_credentials": "Admin owner tracyfortune@islandhoptt.com / IslandHopAdmin2026! — /api/auth/login returns access_token; put into localStorage.token then navigate /admin.",
+  "seed_data_creation": "None (read-only verification; did not click Approve/Reject).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "AdminApprovals.js category tabs: approvals-cat-restaurants, approvals-cat-car_rentals, approvals-cat-businesses, approvals-cat-drivers, approvals-cat-users. Status pills: approvals-status-all, approvals-status-pending, approvals-status-verified (Ready to approve = pending w/ docs). On tab click, JS sets statusFilter via defaultStatusFor: application categories (drivers, businesses) -> 'pending'; roster categories (restaurants, car_rentals, users) -> 'all'. Backend admin_list_records maps status='pending' to {$in:['pending','pending_approval']} and joins users collection for drivers (fills name/email/phone). Confirmed data: 5 active restaurants, 1 active car rental (Caribbean Wheels), 1 pending business (Route Diner), driver Tracy Fortune's row now has non-null name/email via join. Merchant impersonation storefront call HTTP 200. No regressions found.",
+  "rca of the issue": "Original bug: single global statusFilter defaulted to 'pending', but restaurants/car_rentals are always created as 'active'. Fix defaults application tabs to pending and roster tabs to 'all'. Backend driver name was blank because drivers collection stores no personal info; fix does a $lookup/batch-join against users on user_id to hydrate name/email/phone."
+}

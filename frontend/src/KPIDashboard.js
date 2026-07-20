@@ -41,6 +41,7 @@ const KPIDashboard = () => {
     fetchKPIData();
     fetchDailyOperations();
     fetchFinancialSummary();
+    // eslint-disable-next-line -- re-fetch analytics on date change only
   }, [selectedDate]);
 
   const fetchKPIData = async () => {
@@ -514,8 +515,8 @@ const KPIDashboard = () => {
                       </div>
 
                       <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
-                        <PieChart className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
-                        <div className="text-3xl font-bold text-neon-cyan mb-2">
+                        <PieChart className="h-12 w-12 text-teal-700 mx-auto mb-4" />
+                        <div className="text-3xl font-bold text-teal-700 mb-2">
                           ${financialData.profitability.net_profit}
                         </div>
                         <div className="text-sm text-muted-foreground">Net Profit</div>

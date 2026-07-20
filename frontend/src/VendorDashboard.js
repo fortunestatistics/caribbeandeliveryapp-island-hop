@@ -18,9 +18,13 @@ import {
   Settings,
   BarChart3,
   Users,
+  Store,
+  Ticket,
+  Megaphone,
   MessageCircle
 } from 'lucide-react';
 import axios from 'axios';
+import { getBusinessConfig } from './businessTypeConfig';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -42,6 +46,8 @@ const VendorDashboard = () => {
   useEffect(() => {
     fetchOrders();
     fetchStats();
+    fetchSetupStatus();
+    fetchSavings();
     
     // Refresh every 30 seconds
     const interval = setInterval(() => {
@@ -52,10 +58,46 @@ const VendorDashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const [setup, setSetup] = useState(null);
+  const [savings, setSavings] = useState(null);
+  const [vendorType, setVendorType] = useState('');
+  const [setupDismissed, setSetupDismissed] = useState(
+    () => localStorage.getItem('storefront_setup_dismissed') === '1'
+  );
+  const fetchSavings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const { data } = await axios.get(`${API}/merchant/fee-savings`, cfg);
+      setSavings(data);
+    } catch (e) {
+      setSavings(null);
+    }
+  };
+  const fetchSetupStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const [sf, pr] = await Promise.all([
+        axios.get(`${API}/merchant/storefront`, cfg),
+        axios.get(`${API}/merchant/products`, cfg),
+      ]);
+      setSetup({
+        hasLogo: !!sf.data?.logo,
+        hasCover: !!sf.data?.cover,
+        hasBio: !!(sf.data?.bio && sf.data.bio.trim()),
+        hasProducts: (pr.data?.products || []).length > 0,
+      });
+      if (pr.data?.vendor_type) setVendorType(pr.data.vendor_type);
+    } catch (e) {
+      setSetup(null); // not a merchant yet / not resolvable — hide banner
+    }
+  };
+
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/vendors/my-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setOrders(response.data);
       setLoading(false);
@@ -68,7 +110,7 @@ const VendorDashboard = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/vendors/stats`, {
-        withCredentials: true
+        withCredentials: false
       });
       setStats(response.data);
     } catch (error) {
@@ -82,7 +124,7 @@ const VendorDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrders();
@@ -96,11 +138,11 @@ const VendorDashboard = () => {
   const getStatusColor = (status) => {
     const colors = {
       pending: 'bg-gold-500/15 text-yellow-800',
-      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
+      confirmed: 'bg-neon-cyan/15 text-teal-700',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
+      in_transit: 'bg-neon-cyan/15 text-teal-700',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };
@@ -138,18 +180,145 @@ const VendorDashboard = () => {
               <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => navigate('/menu-management')} variant="outline">
-                <ChefHat className="h-5 w-5 mr-2" />
-                Manage Menu
+              {(() => {
+                const cfg = getBusinessConfig(vendorType);
+                const Icon = vendorType === 'restaurant' ? ChefHat : Package;
+                return (
+                  <Button onClick={() => navigate(cfg.manageRoute)} variant="outline" data-testid="vendor-manage-catalog-btn">
+                    <Icon className="h-5 w-5 mr-2" />
+                    {cfg.manageLabel}
+                  </Button>
+                );
+              })()}
+              <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
+                <Store className="h-5 w-5 mr-2" />
+                My Storefront
               </Button>
-              <Button onClick={() => navigate('/vendor/settings')} variant="outline">
+              <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
+                <Ticket className="h-5 w-5 mr-2" />
+                Coupons
+              </Button>
+              <Button onClick={() => navigate('/merchant/ads')} variant="outline" data-testid="vendor-ads-btn">
+                <Megaphone className="h-5 w-5 mr-2" />
+                Advertise
+              </Button>
+              <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
+                <DollarSign className="h-5 w-5 mr-2" />
+                Subscription
+              </Button>
+              <Button onClick={() => navigate('/vendor/settings')} variant="outline" data-testid="vendor-settings-btn">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
               </Button>
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Premium fee-savings ROI banner — shows commission saved vs the Standard 10% base */}
+          {savings && (() => {
+            const money = (n) => `${savings.currency || 'TTD'} $${Number(n || 0).toFixed(2)}`;
+            const isPremium = savings.tier === 'premium';
+            const isPro = savings.tier === 'pro';
+            // Premium/Pro: celebrate savings. Standard: upsell with potential savings.
+            const headline = isPremium
+              ? `You saved ${money(savings.saved)} in fees this month`
+              : isPro
+              ? `You saved ${money(savings.saved)} this month with Professional`
+              : savings.potential_extra_savings > 0
+              ? `You could have saved ${money(savings.potential_extra_savings)} this month on Premium`
+              : null;
+            if (!headline) return null;
+            const sub = isPremium
+              ? `${savings.orders} order${savings.orders === 1 ? '' : 's'} • 0% commission on Premium (Standard would have cost ${money(savings.standard_commission)}).`
+              : savings.upgrade_tier === 'premium'
+              ? `Upgrade to Premium (0% commission) and keep an extra ${money(savings.potential_extra_savings)} a month.`
+              : '';
+            return (
+              <div
+                className="mb-6 rounded-xl border border-gold-500/40 bg-gold-gradient/5 bg-gradient-to-r from-gold-500/10 to-neon-cyan/5 p-4"
+                data-testid="fee-savings-banner"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-gold-500/15 p-2.5">
+                      <TrendingUp className="h-5 w-5 text-gold-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-foreground" data-testid="fee-savings-headline">{headline}</h3>
+                      {sub && <p className="mt-1 text-sm text-muted-foreground">{sub}</p>}
+                      <p className="mt-0.5 text-xs text-muted-foreground">{savings.month}</p>
+                    </div>
+                  </div>
+                  {!isPremium && (
+                    <Button
+                      size="sm"
+                      className="bg-gold-gradient text-white shrink-0"
+                      onClick={() => navigate('/merchant/subscription')}
+                      data-testid="fee-savings-upgrade-btn"
+                    >
+                      Upgrade to Premium
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Storefront completion checklist — helps newly-approved merchants go live in search */}
+          {setup && !setupDismissed && (() => {
+            const steps = [
+              { key: 'hasLogo', label: 'Add a logo', done: setup.hasLogo, to: '/merchant/storefront' },
+              { key: 'hasCover', label: 'Add a cover photo', done: setup.hasCover, to: '/merchant/storefront' },
+              { key: 'hasBio', label: 'Write a short bio', done: setup.hasBio, to: '/merchant/storefront' },
+              { key: 'hasProducts', label: 'Add your first product', done: setup.hasProducts, to: '/merchant/products' },
+            ];
+            const doneCount = steps.filter((s) => s.done).length;
+            if (doneCount === steps.length) return null;
+            const next = steps.find((s) => !s.done);
+            return (
+              <div className="mb-6 rounded-xl border border-gold-500/40 bg-gold-500/5 p-4" data-testid="storefront-setup-banner">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Store className="h-5 w-5 text-gold-500" />
+                      <h3 className="text-base font-semibold text-foreground">Finish setting up your storefront</h3>
+                      <span className="text-xs text-muted-foreground">{doneCount}/{steps.length} done</span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Complete these so your store looks great and shows up in customer search.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {steps.map((s) => (
+                        <button
+                          key={s.key}
+                          onClick={() => navigate(s.to)}
+                          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            s.done
+                              ? 'border-green-500/30 bg-green-500/10 text-green-700'
+                              : 'border-border hover:border-gold-500 text-foreground'
+                          }`}
+                          data-testid={`setup-step-${s.key}`}
+                        >
+                          {s.done ? <CheckCircle className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-current inline-block" />}
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <Button size="sm" className="bg-gold-gradient text-white" onClick={() => navigate(next.to)} data-testid="setup-continue-btn">
+                      {next.label}
+                    </Button>
+                    <button
+                      onClick={() => { setSetupDismissed(true); localStorage.setItem('storefront_setup_dismissed', '1'); }}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      data-testid="setup-dismiss-btn"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
               <CardContent className="p-6">
@@ -159,7 +328,7 @@ const VendorDashboard = () => {
                     <p className="text-3xl font-bold text-foreground">{stats.today_orders}</p>
                   </div>
                   <div className="bg-neon-cyan/15 p-3 rounded-lg">
-                    <Package className="h-6 w-6 text-neon-cyan" />
+                    <Package className="h-6 w-6 text-teal-700" />
                   </div>
                 </div>
               </CardContent>
@@ -218,9 +387,14 @@ const VendorDashboard = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Orders</span>
-              <Button size="sm" variant="outline" onClick={() => fetchOrders()}>
-                Refresh
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => navigate('/merchant/products')} className="bg-gold-gradient text-white" data-testid="manage-products-btn">
+                  Products &amp; Menu
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => fetchOrders()}>
+                  Refresh
+                </Button>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent>

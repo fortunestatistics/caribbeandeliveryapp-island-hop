@@ -1,5 +1,5 @@
 {
-  "summary": "Frontend-only verification of 3 features: (1) Certificate of Character document upload in Driver Onboarding Step 3 + Step 5 Review summary, (2) Google social login redirect, (3) Footer Instagram link. All three features PASS end-to-end in the live UI at https://super-app-beta.preview.emergentagent.com.",
+  "summary": "Frontend-only verification of 3 features: (1) Certificate of Character document upload in Driver Onboarding Step 3 + Step 5 Review summary, (2) Google social login redirect, (3) Footer Instagram link. All three features PASS end-to-end in the live UI at https://logistics-island.preview.emergentagent.com.",
   "backend_issues": {"critical": [], "minor": []},
   "frontend_issues": {
     "ui_bugs": [],

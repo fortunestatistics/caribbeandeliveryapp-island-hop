@@ -1,59 +1,45 @@
 # IslandHop Test Credentials
 
+## OWNER / SUPER-ADMIN LOGIN (seeded from env on startup)
+- **Email:** tracyfortune@islandhoptt.com
+- **Password:** IslandHopAdmin2026!  (change via Admin Panel → Team → "Change my password")
+- Seeded idempotently from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in backend/.env. Marked `is_owner`.
+- Log in at `/login` → Admin Panel at `/admin`.
+
+## Admin (for UI / admin-endpoint testing)
+- **Email:** `admin.qa@islandhop-demo.com` / **Password:** `AdminQA1234!` (role admin)
+
+## Orphan-driver repair test user (preview)
+- **Email:** `repair_test_driver@islandhop-demo.com` / **Password:** `RepairQA1234!`
+
 ## Authentication
-- **JWT Bearer** (primary): from `/api/auth/register` or `/api/auth/login` → `access_token` field.
-- **Session cookie** (`session_token`): legacy OAuth flow.
-- Backend helper `get_current_user_from_request` accepts **either** a `session_token` cookie or `Authorization: Bearer <jwt>`.
-- Frontend stores JWT in `localStorage.token`.
+- **JWT Bearer** (primary): from `/api/auth/register` or `/api/auth/login` → `access_token`.
+- Frontend stores JWT in `localStorage.token`. For UI auth in tests: `localStorage.setItem('token', <jwt>)`.
+- `get_current_user_from_request` accepts a `session_token` cookie OR `Authorization: Bearer <jwt>`.
+- Password policy: **min 8 chars** (both frontend Settings pages + backend `/api/auth/change-password`).
+- Public `POST /api/auth/register` ALWAYS creates `user_type=customer` (user_type body field ignored). Email domains: use `@test.com` / `@gmail.com` (`.test` rejected). Password Test1234!.
 
-## How to create a test user
+## Merchant test accounts (no persisted seed)
+- **RESTAURANT:** register customer → `POST /api/restaurants` {user_id:'x',name,description,cuisine_type,address:{street,city,country},phone,email} (promotes user to `user_type=restaurant`, returns restaurant id) → re-login for a JWT with the restaurant role. `_resolve_vendor_for_user` → vendor_type='restaurant'.
+- **GROCERY/PHARMACY/RETAIL (businesses collection):** register customer → insert a doc into Mongo `businesses`: {id:<uuid>, user_id:<user id>, business_name, business_type:'grocery'|'pharmacy'|'business', business_description, phone, email, address:{street,city,country}, status:'active', subscription_tier:'standard'} → set that user's `user_type='business'` in `users` → re-login. vendor_type resolves to the business_type.
+- **CAR RENTAL:** `car_rental_companies` collection; vendor_type='car_rental'.
+- Merchant Settings: `/vendor/settings` (ROLES restaurant|business|admin). Endpoints: `GET/PUT /api/merchant/profile`, `PUT /api/users/me`, `POST /api/auth/change-password`. Products: `/merchant/products` (GET returns `vendor_type`).
 
-```bash
-API_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d '=' -f2)
+## Driver test account
+- register customer → `POST /api/drivers` {license_number, vehicle_type, vehicle_plate} (omit banking_info to reproduce null case) → set `user_type='driver'` in Mongo → re-login. `/driver/settings` (ROLES driver|admin). Endpoint: `PUT /api/drivers/profile` (license/vehicle/banking).
 
-# Customer
-curl -X POST "$API_URL/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"tester@islandhop.test","password":"Test1234!","name":"QA Tester","user_type":"customer"}'
+## Business-type-aware options (Jun 2026)
+- Single source of truth: `frontend/src/businessTypeConfig.js` → `getBusinessConfig(type)`.
+- Merchant dashboard button `vendor-manage-catalog-btn`; MerchantProducts category dropdown `product-category-select` (+ 'Other…' → `product-category-input`). Customer storefront `/restaurant/{vendor_id}` is now generic/type-aware.
 
-# Admin (note: API allows user_type=admin at registration in this MVP)
-curl -X POST "$API_URL/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@islandhop.test","password":"Admin1234!","name":"QA Admin","user_type":"admin"}'
+## In-app Wallet (routers/wallet.py + wallet_service.py)
+- `/api/wallet`, `/api/wallet/transactions`, `/api/wallet/funding-request(s)`, `/api/wallet/send`, `/api/wallet/requests*`, `/api/wallet/pay-order`; admin funding approve/reject under `/api/admin/wallet/funding-requests`.
 
-# Driver
-curl -X POST "$API_URL/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"driver@islandhop.test","password":"Drv1234!","name":"QA Driver","user_type":"driver"}'
-```
+## Document uploads (routers/documents.py)
+- `POST/GET /api/drivers/documents/{id}/download` and `POST/GET /api/business/documents/{id}/download` (private object storage; supports `?auth=<jwt>` for img/iframe).
 
-Use the returned `access_token` as `Authorization: Bearer <token>`.
+## OTP (Twilio MOCKED)
+- `MOCK_TWILIO=true` — `POST /api/otp/send` returns `dev_code`; `POST /api/otp/verify`.
 
-## OTP testing (Twilio MOCKED)
-`MOCK_TWILIO=true` in backend `.env` — the OTP send response includes a `dev_code` field with the 6-digit code so tests can verify without a real SMS provider. The UI auto-fills this code in the OTP input.
-
-```bash
-# Send
-curl -X POST "$API_URL/api/otp/send" -H "Content-Type: application/json" \
-  -d '{"phone":"+18685551234","purpose":"signup"}'
-# → {"success":true, "dev_code":"123456", "expires_at": "...", ...}
-
-# Verify
-curl -X POST "$API_URL/api/otp/verify" -H "Content-Type: application/json" \
-  -d '{"phone":"+18685551234","code":"123456","purpose":"signup"}'
-```
-
-## Known working test users
-- No persisted seed accounts — tests register fresh users with timestamp-suffixed emails like `tester_<ts>@test.com`.
-- Reusable admin created this session: **inboxadmin@test.com / Admin1234!** (user_type=admin). Note: `.test` TLD emails are rejected by email validation — use `@test.com` / `@gmail.com` style domains.
-
-## Social login (Google)
-- `POST /api/auth/social/google` exchanges an Emergent Google OAuth `session_id` for our JWT. Full Google round-trip needs a real Google account (cannot be automated). Auto-creates the user by email with `auth_provider: "google"`, no password.
-
-## Notes for testing agent
-- Customer endpoints requiring auth: `/api/scheduled-orders`, `/api/recurring-orders`, `/api/addresses`, `/api/promo-codes`, `/api/support/*`, `/api/wallet/*`, `/api/referrals/*`.
-- Driver-only: `/api/orders/{id}/proof` (POD upload).
-- Admin-only: `/api/admin/*`, `/api/service-zones` (POST/PUT/DELETE — GET is public), `/api/whatsapp/send`, `/api/whatsapp/messages`, `/api/whatsapp/conversations`.
-- Agent role (`user_type=agent`) also accepted on WhatsApp endpoints.
-- Public webhooks (no auth): `/api/webhook/whatsapp`, `/api/webhook/stripe`, `/api/webhook/caripay`.
-- Stripe uses test keys; CariPay + Twilio both MOCKED.
+## Notes
+- Stripe test keys; WiPay sandbox + Twilio MOCKED. Mercury LIVE (read-only). M365 email live in production.

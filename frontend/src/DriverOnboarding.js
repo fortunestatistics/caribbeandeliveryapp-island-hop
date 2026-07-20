@@ -23,11 +23,15 @@ import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
 const DriverOnboarding = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
+  const [uploadedDocs, setUploadedDocs] = useState({}); // key -> { document_id, filename }
+  const [uploadingDocs, setUploadingDocs] = useState({}); // key -> true while uploading
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     // Personal Information
     fullName: '',
@@ -110,15 +114,63 @@ const DriverOnboarding = () => {
     }
   };
 
-  const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 5));
+  const requiredDocuments = [
+    { key: 'driversLicense', label: "Driver's License" },
+    { key: 'vehicleRegistration', label: 'Vehicle Registration' },
+    { key: 'insurance', label: 'Insurance Certificate' },
+    { key: 'certificateOfCharacter', label: 'Certificate of Character' },
+    { key: 'profilePhoto', label: 'Profile Photo' }
+  ];
+
+  const getMissingDocuments = () =>
+    requiredDocuments.filter(doc => !uploadedDocs[doc.key]).map(doc => doc.label);
+
+  const isUploading = () => Object.values(uploadingDocs).some(Boolean);
+
+  const validateStep = (step) => {
+    if (step === 3) {
+      if (isUploading()) {
+        return 'Please wait for all documents to finish uploading.';
+      }
+      const missing = getMissingDocuments();
+      if (missing.length > 0) {
+        return `Please upload the following required document(s): ${missing.join(', ')}.`;
+      }
+    }
+    return null;
+  };
+
+  const nextStep = () => {
+    const error = validateStep(currentStep);
+    if (error) {
+      toast({ title: 'Missing Required Documents', description: error, variant: 'destructive' });
+      return;
+    }
+    setCurrentStep(prev => Math.min(prev + 1, 5));
+  };
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
   const handleSubmit = async () => {
+    const missing = getMissingDocuments();
+    if (missing.length > 0) {
+      toast({
+        title: 'Cannot Submit — Documents Missing',
+        description: `The following required document(s) must be uploaded: ${missing.join(', ')}.`,
+        variant: 'destructive',
+      });
+      setCurrentStep(3);
+      return;
+    }
+    setSubmitting(true);
     try {
+      const documents = Object.fromEntries(
+        Object.entries(uploadedDocs).map(([key, val]) => [key, val.document_id])
+      );
       const driverData = {
-        license_number: formData.driversLicense?.name || 'DL-' + Date.now(),
+        license_number: uploadedDocs.driversLicense?.filename || 'DL-' + Date.now(),
         vehicle_type: formData.vehicleType,
         vehicle_plate: formData.licensePlate,
+        documents,
         personal_info: {
           full_name: formData.fullName,
           email: formData.email,
@@ -144,33 +196,68 @@ const DriverOnboarding = () => {
         }
       };
 
-      await axios.post(`${API}/drivers`, driverData, {
-        withCredentials: true
-      });
+      await axios.post(`${API}/drivers`, driverData, { headers: authHeaders() });
 
-      toast({
-        title: "Driver Application Submitted!",
-        description: "We'll review your application and get back to you within 24-48 hours.",
-      });
-
-      navigate('/dashboard');
+      // Kick off automated identity verification (Stripe Identity).
+      try {
+        const idRes = await axios.post(`${API}/drivers/identity/start`, {}, { headers: authHeaders() });
+        toast({
+          title: "Application Submitted — Verify Your Identity",
+          description: "You'll now complete a quick ID + selfie check to get approved automatically.",
+        });
+        window.location.href = idRes.data.url;
+        return;
+      } catch (idErr) {
+        console.error('Identity start failed:', idErr);
+        toast({
+          title: "Driver Application Submitted!",
+          description: "Your documents are with our team for review. We'll get back to you within 24-48 hours.",
+        });
+        navigate('/dashboard');
+      }
     } catch (error) {
       console.error('Error submitting driver application:', error);
       toast({
         title: "Error",
-        description: "Failed to submit application. Please try again.",
+        description: error.response?.data?.detail || "Failed to submit application. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleFileUpload = (fileType, event) => {
+  const handleFileUpload = async (fileType, event) => {
     const file = event.target.files[0];
-    if (file) {
-      setFormData(prev => ({
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum file size is 10 MB.', variant: 'destructive' });
+      return;
+    }
+    setFormData(prev => ({ ...prev, [fileType]: file }));
+    setUploadingDocs(prev => ({ ...prev, [fileType]: true }));
+    try {
+      const fd = new FormData();
+      fd.append('doc_type', fileType);
+      fd.append('file', file);
+      const res = await axios.post(`${API}/drivers/documents`, fd, {
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+      });
+      setUploadedDocs(prev => ({
         ...prev,
-        [fileType]: file
+        [fileType]: { document_id: res.data.document_id, filename: res.data.filename },
       }));
+      toast({ title: 'Document uploaded', description: `${file.name} stored securely.` });
+    } catch (error) {
+      console.error('Document upload failed:', error);
+      setFormData(prev => ({ ...prev, [fileType]: null }));
+      toast({
+        title: 'Upload failed',
+        description: error.response?.data?.detail || 'Could not upload document. Please sign in and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingDocs(prev => ({ ...prev, [fileType]: false }));
     }
   };
 
@@ -181,6 +268,20 @@ const DriverOnboarding = () => {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-4">Become a Driver</h1>
           <p className="text-muted-foreground">Step {currentStep} of 5: {stepTitles[currentStep - 1]}</p>
+          <div data-testid="driver-rate-highlight" className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 max-w-2xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 border border-gray-500/30 text-foreground/80 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Standard (Free): keep 80%
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Pro (TT$700/mo): keep 90%
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-3 py-1 text-sm font-semibold">
+              <CheckCircle className="h-4 w-4" />Premium (TT$1,400/mo): keep 100%
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
+            Start free on Standard (keep 80% of delivery fees). Upgrade to Pro (TT$700/mo, keep 90%) or Premium (TT$1,400/mo, keep 100%) anytime to lower the platform cut. All tiers keep 100% of tips.
+          </p>
         </div>
 
         {/* Progress Bar */}
@@ -442,7 +543,7 @@ const DriverOnboarding = () => {
             {currentStep === 3 && (
               <div className="space-y-6" data-testid="documents-step">
                 <div className="text-center mb-6">
-                  <FileText className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <FileText className="h-12 w-12 text-teal-700 mx-auto mb-4" />
                   <h3 className="text-2xl font-bold text-foreground mb-2">Documents Upload</h3>
                   <p className="text-muted-foreground">Upload required documents for verification</p>
                 </div>
@@ -467,7 +568,7 @@ const DriverOnboarding = () => {
                         </p>
                         <input
                           type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
+                          accept=".pdf,.jpg,.jpeg,.png,.webp"
                           className="hidden"
                           id={`${doc.key}Upload`}
                           onChange={(e) => handleFileUpload(doc.key, e)}
@@ -476,13 +577,19 @@ const DriverOnboarding = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          disabled={uploadingDocs[doc.key]}
                           onClick={() => document.getElementById(`${doc.key}Upload`).click()}
                         >
-                          Choose File
+                          {uploadingDocs[doc.key] ? 'Uploading…' : (uploadedDocs[doc.key] ? 'Replace File' : 'Choose File')}
                         </Button>
-                        {formData[doc.key] && (
-                          <Badge variant="secondary" className="mt-2 block">
-                            ✓ Uploaded
+                        {uploadingDocs[doc.key] && (
+                          <Badge variant="secondary" className="mt-2 block" data-testid={`${doc.testId}-uploading`}>
+                            Uploading…
+                          </Badge>
+                        )}
+                        {!uploadingDocs[doc.key] && uploadedDocs[doc.key] && (
+                          <Badge variant="secondary" className="mt-2 block bg-green-600/20 text-green-400" data-testid={`${doc.testId}-uploaded`}>
+                            ✓ Securely uploaded
                           </Badge>
                         )}
                       </div>
@@ -497,13 +604,17 @@ const DriverOnboarding = () => {
               <div className="space-y-6" data-testid="banking-step">
                 <div className="text-center mb-6">
                   <CreditCard className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information</h3>
-                  <p className="text-muted-foreground">Secure account details for receiving your earnings</p>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Banking Information <span className="text-base font-normal text-muted-foreground">(optional)</span></h3>
+                  <p className="text-muted-foreground">Add your payout details now, or skip and add them later from your profile.</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" data-testid="driver-skip-banking-btn"
+                    onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); setCurrentStep((s) => Math.min(s + 1, 5)); }}>
+                    Skip for now
+                  </Button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                    <Label htmlFor="accountHolderName">Account Holder Name</Label>
                     <Input
                       id="accountHolderName"
                       value={formData.accountHolderName}
@@ -513,7 +624,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="bankName">Bank Name *</Label>
+                    <Label htmlFor="bankName">Bank Name</Label>
                     <Select value={formData.bankName} onValueChange={(value) => handleInputChange('bankName', value)}>
                       <SelectTrigger data-testid="bank-name-select">
                         <SelectValue placeholder="Select your bank" />
@@ -529,7 +640,7 @@ const DriverOnboarding = () => {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="accountNumber">Account Number *</Label>
+                    <Label htmlFor="accountNumber">Account Number</Label>
                     <Input
                       id="accountNumber"
                       value={formData.accountNumber}
@@ -549,7 +660,7 @@ const DriverOnboarding = () => {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <Label htmlFor="accountType">Account Type *</Label>
+                    <Label htmlFor="accountType">Account Type</Label>
                     <Select value={formData.accountType} onValueChange={(value) => handleInputChange('accountType', value)}>
                       <SelectTrigger data-testid="account-type-select">
                         <SelectValue placeholder="Select account type" />
@@ -627,11 +738,11 @@ const DriverOnboarding = () => {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
-                      <div>Driver&apos;s License: {formData.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Vehicle Registration: {formData.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Insurance: {formData.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Certificate of Character: {formData.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Profile Photo: {formData.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Driver&apos;s License: {uploadedDocs.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Vehicle Registration: {uploadedDocs.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Insurance: {uploadedDocs.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Certificate of Character: {uploadedDocs.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
+                      <div>Profile Photo: {uploadedDocs.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
                     </CardContent>
                   </Card>
 
@@ -675,10 +786,11 @@ const DriverOnboarding = () => {
               ) : (
                 <Button 
                   onClick={handleSubmit}
-                  className="bg-gradient-to-r from-green-500 to-emerald-500 text-white"
+                  disabled={getMissingDocuments().length > 0 || submitting}
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="submit-application-btn"
                 >
-                  Submit Application
+                  {submitting ? 'Submitting…' : 'Submit Application'}
                 </Button>
               )}
             </div>

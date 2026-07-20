@@ -1,225 +1,101 @@
 {
-  "theme": "dark-first",
-  "archetype": "Jewel & Luxury with Neon Utility",
-  "mood": "Premium fintech, Caribbean nightlife, Black-Excellence, Confident, Gold-forward",
-  "palette": {
-    "matte_black": {
-      "base": "#0C0C0C",
-      "card": "#141414",
-      "elevated": "#1E1E1E",
-      "border": "#27272A",
-      "usage": "Backgrounds, deep cards, primary structural elements"
-    },
-    "metallic_gold": {
-      "light": "#E8C872",
-      "base": "#D4AF37",
-      "dark": "#AA7C11",
-      "gradient": "linear-gradient(135deg, #E8C872 0%, #D4AF37 50%, #AA7C11 100%)",
-      "usage": "Primary CTAs, focus rings, highlight indicators, balance amounts, premium filigree"
-    },
-    "white": {
-      "pure": "#FFFFFF",
-      "muted": "#A1A1AA",
-      "usage": "Primary text on dark backgrounds, card backgrounds in light mode"
-    },
-    "neon_cyan": {
-      "base": "#00F2FE",
-      "usage": "Secondary accent, hover glows, live-update pulses (sparingly, e.g., driver moving, live order status)"
-    }
+  "theme_name": "Caribbean Sunshine / Island Delivery",
+  "base_theme": "light",
+  "archetype": "1 (Organic & Earthy) blended with 3 (Pastel & Soft) - Vibrant Utility",
+  "color_palette": {
+    "primary": { "name": "Sunset Orange", "hex": "#FF5A00", "css_var": "--primary", "tailwind": "bg-primary" },
+    "secondary": { "name": "Deep Ocean Navy", "hex": "#0F172A", "css_var": "--secondary", "tailwind": "bg-secondary" },
+    "success": { "name": "Fresh Palm Green", "hex": "#10B981", "css_var": "--success", "tailwind": "text-success" },
+    "background": { "name": "Sand White", "hex": "#F8F9FA", "css_var": "--background", "tailwind": "bg-background" },
+    "surface": { "name": "Pure White", "hex": "#FFFFFF", "css_var": "--surface", "tailwind": "bg-surface" },
+    "accent": { "name": "Turquoise Wave", "hex": "#0EA5E9", "css_var": "--accent", "tailwind": "bg-accent" },
+    "text_primary": { "name": "Navy Ink", "hex": "#0F172A", "css_var": "--text-main", "tailwind": "text-primary" },
+    "text_secondary": { "name": "Slate Driftwood", "hex": "#64748B", "css_var": "--text-muted", "tailwind": "text-secondary" }
   },
-  "tailwind_config_additions": {
-    "colors": {
-      "matte": {
-        "700": "#1E1E1E",
-        "800": "#141414",
-        "900": "#0C0C0C"
-      },
-      "gold": {
-        "300": "#E8C872",
-        "500": "#D4AF37",
-        "700": "#AA7C11"
-      },
-      "neon": {
-        "cyan": "#00F2FE"
-      },
-      "border": "hsl(var(--border))",
-      "input": "hsl(var(--input))",
-      "ring": "hsl(var(--ring))",
-      "background": "hsl(var(--background))",
-      "foreground": "hsl(var(--foreground))",
-      "primary": {
-        "DEFAULT": "hsl(var(--primary))",
-        "foreground": "hsl(var(--primary-foreground))"
-      },
-      "secondary": {
-        "DEFAULT": "hsl(var(--secondary))",
-        "foreground": "hsl(var(--secondary-foreground))"
-      },
-      "destructive": {
-        "DEFAULT": "hsl(var(--destructive))",
-        "foreground": "hsl(var(--destructive-foreground))"
-      },
-      "muted": {
-        "DEFAULT": "hsl(var(--muted))",
-        "foreground": "hsl(var(--muted-foreground))"
-      },
-      "accent": {
-        "DEFAULT": "hsl(var(--accent))",
-        "foreground": "hsl(var(--accent-foreground))"
-      },
-      "popover": {
-        "DEFAULT": "hsl(var(--popover))",
-        "foreground": "hsl(var(--popover-foreground))"
-      },
-      "card": {
-        "DEFAULT": "hsl(var(--card))",
-        "foreground": "hsl(var(--card-foreground))"
-      }
-    },
-    "backgroundImage": {
-      "gold-gradient": "linear-gradient(135deg, #E8C872 0%, #D4AF37 50%, #AA7C11 100%)",
-      "gold-gradient-hover": "linear-gradient(135deg, #F9D983 0%, #E5C048 50%, #BB8D22 100%)"
-    },
-    "boxShadow": {
-      "gold-glow": "0 0 15px rgba(212, 175, 55, 0.4)",
-      "gold-glow-lg": "0 0 30px rgba(212, 175, 55, 0.6)",
-      "cyan-pulse": "0 0 20px rgba(0, 242, 254, 0.6)",
-      "card-hover": "0 10px 40px -10px rgba(0,0,0,0.5)"
-    },
-    "fontFamily": {
-      "heading": ["Outfit", "sans-serif"],
-      "sans": ["Manrope", "sans-serif"]
-    },
-    "animation": {
-      "pulse-cyan": "pulse-cyan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite"
-    },
-    "keyframes": {
-      "pulse-cyan": {
-        "0%, 100%": { "opacity": "1", "boxShadow": "0 0 20px rgba(0, 242, 254, 0.6)" },
-        "50%": { "opacity": ".5", "boxShadow": "0 0 10px rgba(0, 242, 254, 0.2)" }
-      }
-    }
-  },
-  "index_css_variables": {
-    "light": {
-      "--background": "0 0% 98%",
-      "--foreground": "240 10% 3.9%",
-      "--card": "0 0% 100%",
-      "--card-foreground": "240 10% 3.9%",
-      "--popover": "0 0% 100%",
-      "--popover-foreground": "240 10% 3.9%",
-      "--primary": "45 65% 52%",
-      "--primary-foreground": "240 10% 3.9%",
-      "--secondary": "240 4.8% 95.9%",
-      "--secondary-foreground": "240 5.9% 10%",
-      "--muted": "240 4.8% 95.9%",
-      "--muted-foreground": "240 3.8% 46.1%",
-      "--accent": "183 100% 50%",
-      "--accent-foreground": "240 5.9% 10%",
-      "--destructive": "0 84.2% 60.2%",
-      "--destructive-foreground": "0 0% 98%",
-      "--border": "240 5.9% 90%",
-      "--input": "240 5.9% 90%",
-      "--ring": "45 65% 52%",
-      "--radius": "0.5rem"
-    },
-    "dark": {
-      "--background": "0 0% 5%",
-      "--foreground": "0 0% 100%",
-      "--card": "0 0% 8%",
-      "--card-foreground": "0 0% 100%",
-      "--popover": "0 0% 8%",
-      "--popover-foreground": "0 0% 100%",
-      "--primary": "45 65% 52%",
-      "--primary-foreground": "0 0% 5%",
-      "--secondary": "0 0% 12%",
-      "--secondary-foreground": "0 0% 100%",
-      "--muted": "0 0% 12%",
-      "--muted-foreground": "240 5% 64.9%",
-      "--accent": "183 100% 50%",
-      "--accent-foreground": "0 0% 5%",
-      "--destructive": "0 62.8% 30.6%",
-      "--destructive-foreground": "0 0% 100%",
-      "--border": "240 3.7% 15.9%",
-      "--input": "240 3.7% 15.9%",
-      "--ring": "45 65% 52%"
+  "css_variable_migration": {
+    "strategy": "Replace explicit dark/gold variables with semantic light/vibrant tokens in /app/frontend/src/index.css.",
+    "variables_to_remove": [
+      "--gold-500", 
+      "--gold-gradient", 
+      "--matte-900", 
+      "--neon-cyan", 
+      "--bg-matte-900"
+    ],
+    "variables_to_add": {
+      "--primary": "255 90 0",
+      "--primary-foreground": "255 255 255",
+      "--background": "248 249 250",
+      "--surface": "255 255 255",
+      "--secondary": "15 23 42",
+      "--secondary-foreground": "255 255 255",
+      "--success": "16 185 129",
+      "--success-foreground": "255 255 255",
+      "--accent": "14 165 233",
+      "--accent-foreground": "255 255 255",
+      "--text-main": "15 23 42",
+      "--text-muted": "100 116 139",
+      "--border": "226 232 240",
+      "--radius": "1rem"
     }
   },
   "typography": {
-    "google_fonts_import": "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');",
-    "h1": "font-heading text-5xl sm:text-6xl tracking-tight font-bold",
-    "h2": "font-heading text-3xl sm:text-4xl tracking-tight font-semibold",
-    "h3": "font-heading text-xl sm:text-2xl font-medium",
-    "body": "font-sans text-base leading-relaxed text-muted-foreground",
-    "labels_overlines": "font-sans text-xs uppercase tracking-[0.2em] font-bold text-gold-500"
-  },
-  "component_rules": {
-    "Button": {
-      "primary": "bg-gold-gradient text-matte-900 shadow-gold-glow hover:bg-gold-gradient-hover hover:shadow-gold-glow-lg transition-all duration-300 font-bold border-none",
-      "secondary": "bg-matte-800 text-white border border-matte-700 hover:border-gold-500/50 hover:text-gold-300 transition-colors",
-      "ghost": "text-muted-foreground hover:text-gold-500 hover:bg-white/5",
-      "wallet_pay": "bg-gold-gradient text-matte-900 font-bold shadow-gold-glow-lg hover:scale-[1.02] transform transition-all rounded-full px-8 py-4"
-    },
-    "Card": {
-      "default": "bg-card border-border hover:border-gold-500/30 transition-colors shadow-none rounded-xl",
-      "wallet_balance": "bg-gradient-to-br from-matte-800 to-matte-900 border border-gold-500/30 shadow-gold-glow relative overflow-hidden p-6 rounded-2xl",
-      "kpi_tile": "bg-card border-l-2 border-l-gold-500 border-y-border border-r-border",
-      "money_request_approval": "bg-matte-800 border border-border/50 flex flex-col gap-4",
-      "kpi_tile_live": "bg-card border-l-2 border-l-neon-cyan border-y-border border-r-border"
-    },
-    "Input": {
-      "default": "bg-matte-900 border-matte-700 text-white focus-visible:ring-gold-500 focus-visible:border-gold-500 transition-all rounded-lg placeholder:text-muted-foreground"
-    },
-    "Badge": {
-      "default": "bg-matte-800 text-white border-matte-700",
-      "success": "bg-gold-500/20 text-gold-300 border border-gold-500/50",
-      "live": "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 animate-pulse-cyan"
-    },
-    "Tabs": {
-      "list": "bg-matte-900 border border-matte-800 p-1 rounded-lg",
-      "trigger": "data-[state=active]:bg-gold-gradient data-[state=active]:text-matte-900 data-[state=active]:shadow-sm rounded-md transition-all text-muted-foreground"
-    },
-    "Dialog": {
-      "content": "bg-matte-900 border border-border sm:rounded-2xl shadow-2xl"
-    },
-    "Header": {
-      "wrapper": "sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60"
+    "headings": "Outfit or General Sans, sans-serif (Bold, energetic, tracking-tight for H1/H2)",
+    "body": "Manrope or Figtree, sans-serif (Clean, highly legible for dense menus/data)",
+    "rules": {
+      "h1": "text-4xl md:text-5xl font-extrabold tracking-tight text-[var(--secondary)]",
+      "h2": "text-2xl md:text-3xl font-bold tracking-tight text-[var(--secondary)]",
+      "body": "text-base text-[var(--text-main)] leading-relaxed",
+      "price": "text-lg font-bold text-[var(--success)]"
     }
   },
-  "motion_guidance": {
-    "hover_glow": "Primary buttons should transition smoothly to a larger, brighter gold shadow (`shadow-gold-glow-lg`) on hover.",
-    "live_indicators": "Any live status (driver map marker, order processing) should use the `animate-pulse-cyan` keyframe to throb softly with a cyan glow.",
-    "cards": "Interactive cards should lift slightly on hover (`-translate-y-1`) with an increased drop shadow (`shadow-card-hover`)."
+  "component_styling": {
+    "buttons": {
+      "primary": "rounded-full bg-primary text-white font-bold hover:bg-[#E04D00] transition-all shadow-[0_4px_14px_0_rgba(255,90,0,0.39)] hover:shadow-lg active:scale-95",
+      "secondary": "rounded-full bg-secondary text-white font-semibold hover:bg-slate-800 transition-all",
+      "outline": "rounded-full border-2 border-slate-200 text-[var(--secondary)] font-bold hover:bg-slate-50 transition-colors"
+    },
+    "cards": {
+      "container": "bg-surface rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.04)] overflow-hidden transition-all hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)]",
+      "image_header": "w-full h-32 md:h-48 object-cover rounded-t-2xl"
+    },
+    "bottom_nav_mobile": {
+      "container": "fixed bottom-0 w-full bg-surface/90 backdrop-blur-xl border-t border-slate-100 pb-safe pt-2 px-6 flex justify-between items-center z-50",
+      "item_active": "text-primary flex flex-col items-center gap-1 font-bold",
+      "item_inactive": "text-slate-400 hover:text-slate-600 flex flex-col items-center gap-1 font-medium"
+    },
+    "badges": {
+      "promo": "bg-[#FFF0E5] text-primary px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide",
+      "status_active": "bg-[#E6F8F1] text-success px-3 py-1 rounded-full text-xs font-bold"
+    }
   },
-  "migration_checklist": {
-    "step_1_tailwind": "Update `tailwind.config.js` to include the new colors (matte, gold, neon), fontFamily, backgroundImage, and boxShadow extensions.",
-    "step_2_css": "Replace the content of `index.css` `:root` and `.dark` blocks with the new HSL variables. Ensure the Google Fonts `@import` is at the top of `index.css`.",
-    "step_3_force_dark": "Set the default theme to dark by adding the `dark` class to the HTML or body tag by default, or configuring the theme provider to default to dark.",
-    "step_4_find_replace_colors": [
-      "Find `bg-blue-*`, `bg-indigo-*`, `bg-teal-*` and replace with `bg-primary` or `bg-gold-500` depending on context.",
-      "Find `text-blue-*` and replace with `text-primary` or `text-gold-500`.",
-      "Ensure backgrounds use `bg-background` for pages and `bg-card` for elevated surfaces instead of hardcoded `bg-gray-*`."
-    ],
-    "step_5_typography": "Replace `font-sans` with `font-heading` on all `h1`, `h2`, `h3` tags to apply Outfit. Ensure body text relies on the default `font-sans` (Manrope).",
-    "step_6_components": [
-      "Update Shadcn `Button` component variations in `components/ui/button.tsx` to use the new `bg-gold-gradient` for the `default` variant.",
-      "Update Shadcn `Card` component to use the new border colors.",
-      "Update Shadcn `Badge` to include a `live` variant with `bg-neon-cyan/20` and `animate-pulse-cyan`."
-    ],
-    "step_7_data_testid": "Verify all interactive elements (buttons, inputs, links) have a `data-testid` attribute using kebab-case role-based naming (e.g., `data-testid=\"checkout-pay-button\"`)."
+  "spacing_and_layout": {
+    "bento_grid": "Use grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 for restaurant/category listings.",
+    "paddings": "Use generous padding (p-4 to p-6) inside cards. App layout should have a max-width wrapper (max-w-7xl mx-auto px-4 md:px-8) for desktop.",
+    "hero_section": "Generous py-16 md:py-24, overlay should be minimal gradient. Focus on clean layout, left-aligned text, right-aligned dynamic image."
+  },
+  "texture_and_feel": {
+    "caribbean_identity": "Subtle touch. Use a very faint grain/noise overlay (opacity 2-3%) on the main background to mimic sand/warmth. Do NOT overdo palm leaves. Keep it professional and functional like DoorDash. Use Turquoise (#0EA5E9) for small accents like active map routes or notification dots.",
+    "shadows": "Soft, ambient, airy shadows. Avoid harsh black dropshadows."
   },
   "media": {
-    "hero_abstract_gold": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/1c69b5e6-6caf-4534-9642-7887e961a3f1/images/c8d75fcd52e1910c085ccf95ec55a6fedb92981a649e447f4f04cd3bcdb359d1.png",
-      "description": "Abstract 3D metallic gold waves over matte black background. Use for marketing landing page hero background."
-    },
-    "wallet_card_premium": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/1c69b5e6-6caf-4534-9642-7887e961a3f1/images/09219b34e723265b92b5743f3006759421b9c2a1bd24dd84d56bea4abffd9efc.png",
-      "description": "Sleek matte black credit card with metallic gold edges. Use for Wallet deposit/balance visual or marketing page."
-    },
-    "lifestyle_car": {
-      "url": "https://images.unsplash.com/photo-1770892371524-a12eda92b1c4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMGV4Y2VsbGVuY2UlMjBwcmVtaXVtJTIwbGlmZXN0eWxlJTIwbHV4dXJ5fGVufDB8fHx8MTc3ODg5MjAwM3ww&ixlib=rb-4.1.0&q=85",
-      "description": "Black luxury car on cobblestone. Use for 'Drive with Us' / Partner CTA section."
-    }
-  }
+    "hero_backgrounds": [
+      "https://images.unsplash.com/photo-1580223530509-849e0ad583ca?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwyfHxjYXJpYmJlYW4lMjBiZWFjaCUyMHN1bm55JTIwcGFsbSUyMHRyZWV8ZW58MHx8fHwxNzgyMTM3Nzg3fDA&ixlib=rb-4.1.0&q=85"
+    ],
+    "food_accents": [
+      "https://images.unsplash.com/photo-1563822249510-04678c78df85?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwyfHxmcmVzaCUyMGZvb2QlMjBkZWxpdmVyeSUyMG9yYW5nZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzgyMTM3Nzg3fDA&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "accessibility_and_testing": {
+    "data_testid": "MANDATORY: All interactive elements (buttons, nav items, tabs, map markers, cart items) MUST include a unique data-testid attribute for automated testing. Example: data-testid='checkout-button', data-testid='nav-home'.",
+    "contrast": "Ensure primary Orange (#FF5A00) has sufficient contrast against white. Use Navy (#0F172A) for all critical text to maintain WCAG AA compliance."
+  },
+  "instructions_to_main_agent": [
+    "1. Open /app/frontend/src/index.css and replace the dark/gold variables with the new semantic tokens provided in css_variable_migration.",
+    "2. Update tailwind.config.js to map colors to these new CSS variables (e.g., colors: { primary: 'rgb(var(--primary) / <alpha-value>)' }).",
+    "3. Review the main Layout, Navigation, and App components to switch classes from dark (bg-matte-900, text-white) to light (bg-background, text-primary).",
+    "4. Update the Button and Card primitives according to component_styling (pill shapes, soft shadows, borders).",
+    "5. Ensure the Mobile bottom tab bar has a solid/blurred background and high contrast active states.",
+    "6. Add data-testid to all interactive components as you touch them.",
+    "7. Ensure the app remains functionally complete during styling; do not remove any existing logic or routes."
+  ]
 }

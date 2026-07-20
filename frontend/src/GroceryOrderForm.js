@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -7,6 +8,7 @@ import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
 import CurrencyConverter from './CurrencyConverter';
 import { Badge } from './components/ui/badge';
+import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
 import { 
   ShoppingCart, 
   MapPin, 
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react';
 
 const GroceryOrderForm = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -120,9 +123,11 @@ const GroceryOrderForm = () => {
     return calculateSubtotal() + getDeliveryFee();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    if (!isLoggedIn()) { navigate('/login'); return; }
+
     if (!selectedStore) {
       alert('Please select a store');
       return;
@@ -135,23 +140,37 @@ const GroceryOrderForm = () => {
 
     const store = stores.find(s => s.id === selectedStore);
     if (calculateSubtotal() < store.minOrder) {
-      alert(`Minimum order for ${store.name} is $${store.minOrder.toFixed(2)}`);
+      alert(`Minimum order for ${store.name} is ${format(store.minOrder)}`);
       return;
     }
 
-    const groceryOrder = {
-      service_type: 'grocery',
-      store_id: selectedStore,
-      store_name: store.name,
-      items: cart,
-      delivery_address: deliveryAddress,
-      delivery_instructions: deliveryInstructions,
-      subtotal: calculateSubtotal(),
-      delivery_fee: getDeliveryFee(),
-      total: calculateTotal()
-    };
+    const profile = await fetchProfile();
+    const addr = (deliveryAddress || '').trim() || formatProfileAddress(profile.address);
+    if (!addr) {
+      alert('Please enter a delivery address to continue.');
+      return;
+    }
 
-    navigate('/checkout', { state: { orderData: groceryOrder, serviceType: 'grocery' } });
+    try {
+      const order = await createOrder({
+        customer_id: 'x',
+        service_type: 'grocery',
+        vendor_id: selectedStore,
+        items: cart.map(i => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
+        subtotal: calculateSubtotal(),
+        delivery_fee: getDeliveryFee(),
+        tip: 0,
+        total: calculateTotal(),
+        pickup_address: { location: store.name, full_address: store.name },
+        delivery_address: { location: addr, full_address: addr, instructions: deliveryInstructions || '' },
+        customer_phone: profile.phone || '',
+        payment_method: 'cod',
+        notes: deliveryInstructions || '',
+      });
+      navigate(`/checkout/${order.id}`);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
+    }
   };
 
   return (
@@ -187,6 +206,7 @@ const GroceryOrderForm = () => {
                     {stores.map((store) => (
                       <Card
                         key={store.id}
+                        data-testid={`grocery-store-card-${store.id}`}
                         className={`cursor-pointer transition-all ${
                           selectedStore === store.id
                             ? 'border-2 border-green-500 bg-green-50'
@@ -196,7 +216,7 @@ const GroceryOrderForm = () => {
                       >
                         <CardContent className="p-4 text-center">
                           <h4 className="font-semibold text-foreground mb-1">{store.name}</h4>
-                          <p className="text-xs text-muted-foreground">Delivery: ${store.deliveryFee}</p>
+                          <p className="text-xs text-muted-foreground">Delivery: {format(store.deliveryFee)}</p>
                           <p className="text-xs text-muted-foreground">Min: ${store.minOrder}</p>
                         </CardContent>
                       </Card>
@@ -244,11 +264,12 @@ const GroceryOrderForm = () => {
                               <div className="text-4xl mb-2">{item.image}</div>
                               <Badge className="mb-1 text-xs bg-green-100 text-green-700">{item.category}</Badge>
                               <h4 className="text-sm font-semibold text-foreground mb-1">{item.name}</h4>
-                              <p className="text-lg font-bold text-green-600">${item.price.toFixed(2)}</p>
+                              <p className="text-lg font-bold text-green-600">{format(item.price)}</p>
                             </div>
                             <Button
                               type="button"
                               size="sm"
+                              data-testid={`grocery-add-btn-${item.id}`}
                               className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white"
                               onClick={() => addToCart(item)}
                             >
@@ -297,7 +318,7 @@ const GroceryOrderForm = () => {
                             <span className="text-2xl">{item.image}</span>
                             <div className="flex-1 min-w-0">
                               <h4 className="text-sm font-semibold text-foreground">{item.name}</h4>
-                              <p className="text-xs text-muted-foreground">${item.price} / {item.unit}</p>
+                              <p className="text-xs text-muted-foreground">{format(item.price)} / {item.unit}</p>
                               <div className="flex items-center space-x-1 mt-1">
                                 <Button
                                   type="button"
@@ -330,7 +351,7 @@ const GroceryOrderForm = () => {
                               </div>
                             </div>
                             <span className="text-sm font-bold text-foreground">
-                              ${(item.price * item.quantity).toFixed(2)}
+                              {format(item.price * item.quantity)}
                             </span>
                           </div>
                         ))}
@@ -348,6 +369,7 @@ const GroceryOrderForm = () => {
                               className="pl-9 text-sm"
                               value={deliveryAddress}
                               onChange={(e) => setDeliveryAddress(e.target.value)}
+                              data-testid="grocery-delivery-address-input"
                               required
                             />
                           </div>
@@ -371,15 +393,15 @@ const GroceryOrderForm = () => {
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm text-muted-foreground">
                             <span>Subtotal</span>
-                            <span className="text-foreground">${calculateSubtotal().toFixed(2)}</span>
+                            <span className="text-foreground">{format(calculateSubtotal())}</span>
                           </div>
                           <div className="flex justify-between text-sm text-muted-foreground">
                             <span>Delivery Fee</span>
-                            <span className="text-foreground">${getDeliveryFee().toFixed(2)}</span>
+                            <span className="text-foreground">{format(getDeliveryFee())}</span>
                           </div>
                           <Separator className="bg-gold-500/30" />
                           <div className="flex justify-between items-center pt-1 gap-3 flex-wrap">
-                            <span className="text-lg font-semibold text-white">Total</span>
+                            <span className="text-lg font-semibold text-foreground">Total</span>
                             <CurrencyConverter amountUSD={calculateTotal()} size="lg" />
                           </div>
                         </div>
@@ -388,6 +410,7 @@ const GroceryOrderForm = () => {
                       <Button
                         type="submit"
                         className="w-full"
+                        data-testid="grocery-checkout-btn"
                       >
                         Checkout
                       </Button>

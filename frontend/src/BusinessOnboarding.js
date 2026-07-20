@@ -174,6 +174,48 @@ const BusinessOnboarding = () => {
     }
   };
 
+  // Upload one or more selected files to object storage and attach the returned
+  // document refs to formData.documents (keyed by docType so re-uploads replace).
+  const [uploading, setUploading] = useState({});
+  const handleDocUpload = async (docType, label, fileList, { multiple = false } = {}) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setUploading((u) => ({ ...u, [docType]: true }));
+    const authToken = localStorage.getItem('token');
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('doc_type', docType);
+        fd.append('file', file);
+        const res = await axios.post(`${API}/business/documents`, fd, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        });
+        uploaded.push({
+          type: docType,
+          label,
+          document_id: res.data.document_id,
+          filename: res.data.filename || file.name,
+          is_image: !!res.data.is_image,
+        });
+      }
+      setFormData((prev) => {
+        const others = multiple
+          ? prev.documents
+          : prev.documents.filter((d) => d.type !== docType);
+        return { ...prev, documents: [...others, ...uploaded] };
+      });
+      toast({ title: 'Uploaded', description: `${files.length} file(s) added to ${label}.` });
+    } catch (err) {
+      toast({ title: 'Upload failed', description: err?.response?.data?.detail || 'Could not upload file.', variant: 'destructive' });
+    } finally {
+      setUploading((u) => ({ ...u, [docType]: false }));
+    }
+  };
+
+  const docsFor = (docType) => formData.documents.filter((d) => d.type === docType);
+
+
   const handleSubmit = async () => {
     try {
       const applicationData = {
@@ -204,7 +246,7 @@ const BusinessOnboarding = () => {
       };
 
       await axios.post(`${API}/business/onboarding`, applicationData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       toast({
@@ -307,7 +349,13 @@ const BusinessOnboarding = () => {
           fields: [
             { key: 'industryType', label: 'Industry Type', type: 'select', options: ['Retail', 'Services', 'Manufacturing', 'Technology', 'Healthcare', 'Education', 'Other'] },
             { key: 'serviceArea', label: 'Primary Service Area', type: 'text' },
-            { key: 'businessModel', label: 'Business Model', type: 'select', options: ['B2C', 'B2B', 'B2B2C', 'Marketplace', 'Subscription'] },
+            { key: 'businessModel', label: 'Business Model', type: 'select', options: ['B2C', 'B2B', 'B2B2C', 'Marketplace', 'Subscription'], description: 'How your business sells to customers — pick the one that best fits.', optionDescriptions: {
+              'B2C': 'Business-to-Consumer — you sell directly to individual shoppers (most restaurants, shops & pharmacies).',
+              'B2B': 'Business-to-Business — you sell wholesale to other companies, not the general public.',
+              'B2B2C': 'You supply other businesses who resell to consumers (e.g., a brand selling through retail partners).',
+              'Marketplace': 'You host multiple third-party sellers/vendors under one storefront and take a commission.',
+              'Subscription': 'Customers pay a recurring fee (weekly/monthly) for ongoing products or services.'
+            } },
             { key: 'targetCustomers', label: 'Target Customer Demographics', type: 'textarea' },
             { key: 'competitiveAdvantage', label: 'Competitive Advantage', type: 'textarea' }
           ]
@@ -592,6 +640,9 @@ const BusinessOnboarding = () => {
                       <Label htmlFor={field.key}>
                         {field.label} {field.required && '*'}
                       </Label>
+                      {field.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 mb-1" data-testid={`${field.key}-description`}>{field.description}</p>
+                      )}
                       
                       {field.type === 'text' && (
                         <Input
@@ -636,6 +687,13 @@ const BusinessOnboarding = () => {
                             ))}
                           </SelectContent>
                         </Select>
+                      )}
+                      {field.type === 'select' && field.optionDescriptions && (
+                        <ul className="mt-2 space-y-1 text-xs text-muted-foreground rounded-lg bg-muted/40 p-3" data-testid={`${field.key}-help`}>
+                          {Object.entries(field.optionDescriptions).map(([k, v]) => (
+                            <li key={k}><span className="font-semibold text-foreground">{k}:</span> {v}</li>
+                          ))}
+                        </ul>
                       )}
                       
                       {field.type === 'textarea' && (
@@ -868,14 +926,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="businessLicenseUpload"
                             data-testid="business-license-upload"
+                            onChange={(e) => handleDocUpload('businessLicense', 'Business License', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['businessLicense']}
                             onClick={() => document.getElementById('businessLicenseUpload').click()}
                           >
-                            Choose File
+                            {uploading['businessLicense'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('businessLicense').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="business-license-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -890,14 +953,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="taxIdUpload"
                             data-testid="tax-id-upload"
+                            onChange={(e) => handleDocUpload('taxId', 'Tax ID / EIN', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['taxId']}
                             onClick={() => document.getElementById('taxIdUpload').click()}
                           >
-                            Choose File
+                            {uploading['taxId'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('taxId').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="tax-id-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -912,14 +980,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="addressProofUpload"
                             data-testid="address-proof-upload"
+                            onChange={(e) => handleDocUpload('proofOfAddress', 'Proof of Address', e.target.files)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['proofOfAddress']}
                             onClick={() => document.getElementById('addressProofUpload').click()}
                           >
-                            Choose File
+                            {uploading['proofOfAddress'] ? 'Uploading…' : 'Choose File'}
                           </Button>
+                          {docsFor('proofOfAddress').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="address-proof-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
 
@@ -935,14 +1008,19 @@ const BusinessOnboarding = () => {
                             className="hidden"
                             id="businessPhotosUpload"
                             data-testid="business-photos-upload"
+                            onChange={(e) => handleDocUpload('businessPhoto', 'Business Photo', e.target.files, { multiple: true })}
                           />
                           <Button 
                             variant="outline" 
                             size="sm"
+                            disabled={uploading['businessPhoto']}
                             onClick={() => document.getElementById('businessPhotosUpload').click()}
                           >
-                            Choose Files
+                            {uploading['businessPhoto'] ? 'Uploading…' : 'Choose Files'}
                           </Button>
+                          {docsFor('businessPhoto').map((d) => (
+                            <p key={d.document_id} className="mt-2 text-xs text-green-600 truncate" data-testid="business-photo-filename">✓ {d.filename}</p>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -952,15 +1030,22 @@ const BusinessOnboarding = () => {
                 {/* Banking Information Section */}
                 <Card className="bg-neon-cyan/10">
                   <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <CreditCard className="h-5 w-5 mr-2 text-neon-cyan" />
-                      Banking Information
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center">
+                        <CreditCard className="h-5 w-5 mr-2 text-teal-700" />
+                        Banking Information <span className="ml-2 text-sm font-normal text-muted-foreground">(optional)</span>
+                      </span>
+                      <Button type="button" variant="outline" size="sm" data-testid="partner-skip-banking-btn"
+                        onClick={() => { ['accountHolderName','bankName','accountNumber','routingNumber','accountType'].forEach((k) => handleInputChange(k, '')); nextStep(); }}>
+                        Skip for now
+                      </Button>
                     </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">You can add your payout details later from your profile. Not needed to submit your application.</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <Label htmlFor="accountHolderName">Account Holder Name *</Label>
+                        <Label htmlFor="accountHolderName">Account Holder Name</Label>
                         <Input
                           id="accountHolderName"
                           value={formData.accountHolderName || ''}
@@ -970,7 +1055,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="bankName">Bank Name *</Label>
+                        <Label htmlFor="bankName">Bank Name</Label>
                         <Input
                           id="bankName"
                           value={formData.bankName || ''}
@@ -980,7 +1065,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="accountNumber">Account Number *</Label>
+                        <Label htmlFor="accountNumber">Account Number</Label>
                         <Input
                           id="accountNumber"
                           value={formData.accountNumber || ''}
@@ -990,7 +1075,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="routingNumber">Routing Number *</Label>
+                        <Label htmlFor="routingNumber">Routing Number</Label>
                         <Input
                           id="routingNumber"
                           value={formData.routingNumber || ''}
@@ -1000,7 +1085,7 @@ const BusinessOnboarding = () => {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <Label htmlFor="accountType">Account Type *</Label>
+                        <Label htmlFor="accountType">Account Type</Label>
                         <Select 
                           value={formData.accountType || ''} 
                           onValueChange={(value) => handleInputChange('accountType', value)}

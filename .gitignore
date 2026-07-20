@@ -94,3 +94,24 @@ frontend/node_modules/.cache/default-development/2.pack
 .env
 .env.*
 *.env
+memory/test_credentials.md
+frontend/node_modules/.cache/default-development/8.pack
+frontend/node_modules/.cache/default-development/1.pack
+frontend/node_modules/.cache/default-development/10.pack
+frontend/node_modules/.cache/default-development/16.pack
+frontend/node_modules/.cache/default-development/20.pack
+frontend/node_modules/.cache/default-development/15.pack
+frontend/node_modules/.cache/default-development/11.pack
+frontend/node_modules/.cache/default-development/7.pack
+frontend/node_modules/.cache/default-development/14.pack
+frontend/node_modules/.cache/default-development/14.pack
+.env
+.env.*
+*.env
+
+# Android signing secrets — never commit these
+frontend/android/keystore.properties
+*.jks
+*.keystore
+
+frontend/android/keystore/islandhop-upload.jks

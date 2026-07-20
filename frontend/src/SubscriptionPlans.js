@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import { useCurrency, Price } from './CurrencyContext';
 import { 
   Check, 
   X, 
@@ -18,24 +19,24 @@ const SubscriptionPlans = () => {
   const navigate = useNavigate();
   const [billingCycle, setBillingCycle] = useState('monthly'); // 'monthly' or 'yearly'
   const [userType, setUserType] = useState('business'); // 'business' or 'driver'
+  const { format } = useCurrency();
 
   const businessPlans = [
     {
-      id: 'starter',
-      name: 'Starter',
+      id: 'standard',
+      name: 'Standard',
       icon: Zap,
-      price: billingCycle === 'monthly' ? 29 : 290,
-      description: 'Perfect for small businesses starting out',
+      price: 0,
+      ttd: true,
+      description: 'Free to join. Start selling today.',
       color: 'from-neon-cyan to-gold-500',
       features: [
-        { name: 'Up to 50 orders/month', included: true },
-        { name: '15% platform commission', included: true },
-        { name: 'Basic analytics', included: true },
-        { name: 'Email support', included: true },
-        { name: 'Standard payout (weekly)', included: true },
-        { name: 'Priority listing', included: false },
-        { name: 'Advanced analytics', included: false },
-        { name: 'Dedicated account manager', included: false }
+        { name: '20% commission on orders', included: true },
+        { name: 'Standard search placement', included: true },
+        { name: 'Order & menu management', included: true },
+        { name: 'Weekly payouts', included: true },
+        { name: 'Featured Partner placement', included: false },
+        { name: 'Priority support', included: false }
       ],
       recommended: false
     },
@@ -43,37 +44,32 @@ const SubscriptionPlans = () => {
       id: 'professional',
       name: 'Professional',
       icon: Crown,
-      price: billingCycle === 'monthly' ? 79 : 790,
-      description: 'For growing businesses with higher volume',
+      price: 800,
+      ttd: true,
+      description: 'Lower fees + Featured Partner status.',
       color: 'from-gold-300 to-orange-500',
       features: [
-        { name: 'Up to 200 orders/month', included: true },
-        { name: '12% platform commission', included: true },
-        { name: 'Advanced analytics & reports', included: true },
-        { name: 'Priority support (phone & email)', included: true },
-        { name: 'Fast payout (2-3 days)', included: true },
-        { name: 'Priority listing in search', included: true },
-        { name: 'Marketing campaign support', included: true },
-        { name: 'Dedicated account manager', included: false }
+        { name: '15% commission on orders', included: true },
+        { name: 'Featured Partner — higher search visibility', included: true },
+        { name: 'Order & menu management', included: true },
+        { name: 'Weekly payouts', included: true },
+        { name: 'Priority support', included: false }
       ],
       recommended: true
     },
     {
-      id: 'enterprise',
-      name: 'Enterprise',
+      id: 'premium',
+      name: 'Premium',
       icon: Shield,
-      price: billingCycle === 'monthly' ? 199 : 1990,
-      description: 'For established businesses at scale',
+      price: 1600,
+      ttd: true,
+      description: 'Lowest fees + Premium Marketing & Priority Support.',
       color: 'from-purple-500 to-pink-500',
       features: [
-        { name: 'Unlimited orders', included: true },
-        { name: '10% platform commission', included: true },
-        { name: 'Custom analytics dashboard', included: true },
-        { name: '24/7 priority support', included: true },
-        { name: 'Daily payout options', included: true },
-        { name: 'Featured listing & promoted', included: true },
-        { name: 'Full marketing suite access', included: true },
-        { name: 'Dedicated account manager', included: true }
+        { name: '5% commission on orders', included: true },
+        { name: 'Featured Partner — top search visibility', included: true },
+        { name: 'Premium Marketing placement', included: true },
+        { name: 'Priority Support', included: true }
       ],
       recommended: false
     }
@@ -81,40 +77,38 @@ const SubscriptionPlans = () => {
 
   const driverPlans = [
     {
-      id: 'basic',
-      name: 'Basic',
+      id: 'standard',
+      name: 'Standard',
       icon: Users,
       price: 0,
-      description: 'Free plan with standard features',
+      ttd: true,
+      description: 'Free — start earning today',
       color: 'from-gray-500 to-gray-600',
       features: [
-        { name: 'Accept unlimited deliveries', included: true },
-        { name: '15% platform commission', included: true },
+        { name: 'Keep 80% of every delivery fee', included: true },
         { name: '100% of tips', included: true },
+        { name: 'Access to all delivery & taxi jobs', included: true },
         { name: 'Weekly automatic payouts', included: true },
-        { name: 'Basic earnings tracking', included: true },
-        { name: 'Priority delivery assignments', included: false },
-        { name: 'Instant payouts', included: false },
-        { name: 'Lower commission rate', included: false }
+        { name: 'Priority job matching', included: false },
+        { name: 'Premium support', included: false }
       ],
       recommended: false
     },
     {
       id: 'pro',
-      name: 'Pro Driver',
+      name: 'Pro',
       icon: Star,
-      price: billingCycle === 'monthly' ? 19 : 190,
-      description: 'Enhanced features for serious drivers',
+      price: 700,
+      ttd: true,
+      description: 'Keep more of what you earn',
       color: 'from-gold-300 to-orange-500',
       features: [
-        { name: 'Accept unlimited deliveries', included: true },
-        { name: '12% platform commission (save 3%)', included: true },
+        { name: 'Keep 90% of every delivery fee', included: true },
+        { name: 'Only 10% platform cut on delivery fees', included: true },
         { name: '100% of tips', included: true },
-        { name: 'Daily automatic payouts', included: true },
-        { name: 'Advanced earnings analytics', included: true },
-        { name: 'Priority delivery assignments', included: true },
-        { name: 'Instant payout (3 times/week)', included: true },
-        { name: 'Pro driver badge', included: true }
+        { name: 'Priority job matching', included: true },
+        { name: 'Weekly automatic payouts', included: true },
+        { name: 'Premium support', included: false }
       ],
       recommended: true
     },
@@ -122,18 +116,16 @@ const SubscriptionPlans = () => {
       id: 'premium',
       name: 'Premium',
       icon: Crown,
-      price: billingCycle === 'monthly' ? 39 : 390,
-      description: 'Maximum earnings for top performers',
+      price: 1400,
+      ttd: true,
+      description: 'Zero platform cut. Maximum earnings.',
       color: 'from-yellow-500 to-orange-500',
       features: [
-        { name: 'Accept unlimited deliveries', included: true },
-        { name: '10% platform commission (save 5%)', included: true },
-        { name: '100% of tips + bonus pool', included: true },
-        { name: 'Instant payout anytime', included: true },
-        { name: 'Full analytics dashboard', included: true },
-        { name: 'First priority on all deliveries', included: true },
-        { name: 'Unlimited instant payouts', included: true },
-        { name: 'Premium driver badge & perks', included: true }
+        { name: 'Keep 100% of every delivery fee', included: true },
+        { name: '0% platform cut on delivery fees', included: true },
+        { name: '100% of tips', included: true },
+        { name: 'Top priority job matching', included: true },
+        { name: 'Premium support', included: true }
       ],
       recommended: false
     }
@@ -230,17 +222,19 @@ const SubscriptionPlans = () => {
                 <p className="text-muted-foreground text-sm mb-4">{plan.description}</p>
                 <div className="mb-2">
                   <span className="text-5xl font-bold text-foreground">
-                    ${plan.price}
+                    {plan.price > 0
+                      ? (plan.ttd ? <>TT${plan.price.toLocaleString()}</> : <Price usd={plan.price} decimals={0} />)
+                      : (plan.ttd ? 'Free' : format(0, { decimals: 0 }))}
                   </span>
                   {plan.price > 0 && (
                     <span className="text-muted-foreground">
-                      /{billingCycle === 'monthly' ? 'mo' : 'yr'}
+                      /{billingCycle === 'monthly' || plan.ttd ? 'mo' : 'yr'}
                     </span>
                   )}
                 </div>
-                {billingCycle === 'yearly' && plan.price > 0 && (
+                {billingCycle === 'yearly' && plan.price > 0 && !plan.ttd && (
                   <p className="text-sm text-green-600">
-                    Save ${(plan.price / 10).toFixed(0)} per month
+                    Save {format(plan.price / 10, { decimals: 0 })} per month
                   </p>
                 )}
               </CardHeader>
@@ -253,14 +247,18 @@ const SubscriptionPlans = () => {
                       : 'bg-gray-900 text-white'
                   }`}
                   onClick={() => {
-                    if (plan.price === 0) {
-                      navigate(userType === 'business' ? '/restaurant-onboarding' : '/driver-onboarding');
+                    if (userType === 'driver') {
+                      navigate(plan.price === 0 ? '/driver-onboarding' : '/driver/subscription');
+                    } else if (plan.price === 0) {
+                      navigate('/restaurant-onboarding');
                     } else {
                       alert('Subscription checkout coming soon!');
                     }
                   }}
                 >
-                  {plan.price === 0 ? 'Get Started Free' : 'Start Free Trial'}
+                  {userType === 'driver'
+                    ? (plan.price === 0 ? 'Get Started Free' : `Upgrade to ${plan.name}`)
+                    : (plan.price === 0 ? 'Get Started Free' : 'Start Free Trial')}
                 </Button>
 
                 <div className="space-y-3">

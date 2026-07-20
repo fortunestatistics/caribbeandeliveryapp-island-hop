@@ -6,6 +6,7 @@ import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import { Camera, CheckCircle, Upload } from 'lucide-react';
+import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,6 +19,7 @@ const DeliveryProofUpload = ({ orderId, onUploaded }) => {
   const [submitting, setSubmitting] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [error, setError] = useState('');
+  const { requestLocationConsent } = useLocationConsent();
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -38,11 +40,14 @@ const DeliveryProofUpload = ({ orderId, onUploaded }) => {
   const captureLocation = () =>
     new Promise((resolve) => {
       if (!navigator.geolocation) return resolve({});
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-        () => resolve({}),
-        { timeout: 5000 }
-      );
+      requestLocationConsent().then((granted) => {
+        if (!granted) return resolve({});
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          () => resolve({}),
+          { timeout: 5000 }
+        );
+      });
     });
 
   const handleSubmit = async () => {

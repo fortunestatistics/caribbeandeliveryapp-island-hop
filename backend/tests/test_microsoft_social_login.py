@@ -1,0 +1,102 @@
+"""Tests for Microsoft (Azure AD) social login endpoints.
+
+Preview uses placeholder Azure creds, so the live endpoints respond 503
+(graceful "not configured"). The configured create-or-link happy-path is
+verified in-process with mocks via asyncio.run (no pytest-asyncio needed).
+"""
+import os
+import sys
+import uuid
+import asyncio
+import requests
+from unittest.mock import AsyncMock, patch
+
+from conftest import BASE_URL
+
+
+# ---- HTTP behaviour in preview (unconfigured) ----
+
+def test_login_url_returns_url_or_503():
+    r = requests.get(
+        f"{BASE_URL}/api/auth/social/microsoft/login-url",
+        params={"redirect_uri": "https://x/auth/microsoft/callback", "state": "s"},
+        timeout=30,
+    )
+    # Preview/prod may or may not have real Azure creds. Configured → 200 authorize URL; unconfigured → 503.
+    if r.status_code == 200:
+        assert "login.microsoftonline.com" in r.json().get("url", ""), r.text
+    else:
+        assert r.status_code == 503, r.text
+
+
+def test_login_url_missing_params_returns_422():
+    r = requests.get(f"{BASE_URL}/api/auth/social/microsoft/login-url", timeout=30)
+    assert r.status_code == 422, r.text
+
+
+def test_code_exchange_junk_code():
+    r = requests.post(
+        f"{BASE_URL}/api/auth/social/microsoft",
+        json={"code": "junk", "redirect_uri": "https://x/auth/microsoft/callback"},
+        timeout=30,
+    )
+    # Unconfigured → 503; configured → junk code is rejected by Microsoft (400/401/502).
+    assert r.status_code in (503, 400, 401, 502), r.text
+
+
+# ---- In-process happy-path (configured, mocked Microsoft) ----
+
+def test_code_exchange_creates_user_and_mints_jwt():
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import server
+
+    email = f"mstest_{uuid.uuid4().hex[:8]}@example.com"
+
+    async def _run():
+        mock_resp = type("R", (), {"status_code": 200, "json": lambda self: {"id_token": "fake"}})()
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_client
+
+        mock_users = AsyncMock()
+        mock_users.find_one.return_value = None  # new user path
+
+        with patch.object(server, "_ms_configured", return_value=True), \
+             patch.object(server, "MS_TENANT_ID", "tenant-123"), \
+             patch.object(server, "MS_CLIENT_ID", "client-abc"), \
+             patch.object(server, "MS_CLIENT_SECRET", "secret"), \
+             patch("server.httpx.AsyncClient", return_value=mock_ctx), \
+             patch.object(server.db, "users", mock_users), \
+             patch.object(server, "_persist_pending_referral", new=AsyncMock()), \
+             patch.object(server, "_verify_ms_id_token", new=AsyncMock(return_value={
+                 "email": email, "name": "MS Tester", "sub": "ms-sub-1"})):
+            payload = server.MicrosoftAuthRequest(code="goodcode", redirect_uri="https://app/cb")
+            result = await server.microsoft_social_auth(payload)
+
+        assert result["token_type"] == "bearer"
+        assert result["access_token"]
+        assert result["user"]["email"] == email
+        assert result["user"]["user_type"] == "customer"
+
+    asyncio.run(_run())
+
+
+def test_login_url_builds_authorize_url_when_configured():
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import server
+
+    async def _run():
+        with patch.object(server, "_ms_configured", return_value=True), \
+             patch.object(server, "MS_TENANT_ID", "tenant-123"), \
+             patch.object(server, "MS_CLIENT_ID", "client-abc"):
+            res = await server.microsoft_login_url(
+                redirect_uri="https://app/auth/microsoft/callback", state="xyz")
+        url = res["url"]
+        assert url.startswith("https://login.microsoftonline.com/tenant-123/oauth2/v2.0/authorize")
+        assert "client_id=client-abc" in url
+        assert "response_type=code" in url
+        assert "scope=openid+profile+email" in url
+        assert "state=xyz" in url
+
+    asyncio.run(_run())

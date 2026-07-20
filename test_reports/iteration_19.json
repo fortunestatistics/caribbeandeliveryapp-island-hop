@@ -1,0 +1,36 @@
+{
+  "summary": "Tested (A) Global Currency Toggle and (B) Promoter/QR system end-to-end. Currency feature works correctly across /pricing, /restaurants, /grocery-order, /pharmacy-order, /car-rentals — TT$ default, US$ toggle, localStorage 'display_currency' persistence verified (TT$197/TT$536/TT$1,349 -> US$29/US$79/US$199). Backend promoter endpoints (GET /api/promoter/me, /api/promoter/resolve/{code}, /api/promoter/leaderboard, GET /api/admin/promoters) all return 200 with correct payload shape (owner code=ISLA5A5D, schedule customer:5/driver:25/merchant:40/supplier:40). JoinLanding (/join/:code) and Admin Promoters tab work perfectly with all data-testids. CRITICAL: /promote route is MISSING from App.js Routes — visiting /promote redirects to / via catch-all (PromoteEarn component is imported but never wired to a <Route>).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "App.js Router", "issue": "Route for /promote is NOT registered. PromoteEarn is imported (line 32) and the navbar link points to /promote (line 322), but no <Route path=\"/promote\" element={<PromoteEarn />} /> exists between lines 1729-1787. Catch-all (<Route path=\"*\" element={<Navigate to=\"/\" />} />) redirects /promote -> /. Result: clicking the 'Promote & Earn' nav link or visiting /promote silently lands on the homepage. All data-testids (promote-earn-page, promoter-qr, promoter-code, copy-link-btn, download-qr-btn, share-link-btn, promoter-paid, promoter-held, reward-row-*, no-onboards, no-leaderboard) are unreachable until this route is added.", "selector": "Route path=/promote", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Add `<Route path=\"/promote\" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />` (or unprotected if intentional) inside the Routes block in /app/frontend/src/App.js around line 1758 (alongside /referrals). One-line fix unblocks the entire Promote & Earn UI flow.",
+    "Optional: also expose a public deep link to /promote behind ProtectedRoute since PromoteEarn already redirects to /login when no token (PromoteEarn.js line 34)."
+  ],
+  "critical_code_review_comments": [
+    "Routing wiring bug: nav link declared but route not registered. Recommend a lint/test that diffs NAV_ITEMS `to` values against registered <Route path> values to catch this in CI.",
+    "CurrencyContext.js is clean — RATE_TTD_PER_USD=6.78 applied via context, default TTD respected, localStorage 'display_currency' persistence verified.",
+    "PromoteEarn.js itself is well structured with all required data-testids — once the Route is added, no further changes should be needed.",
+    "/api/promoter/me returns currency:'USD' so reward amounts on /promote will render as '+5 USD' etc., not converted to TT$. If product wants the rewards on this page also follow the global toggle, server should accept ?currency=TTD or the component should call useCurrency().format(amount). Not blocking, but worth confirming with PM."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (promoter endpoints all 200, shape correct)",
+    "frontend": "85% (currency 100%, promoter UI 60% — /promote unreachable; /join, /admin promoters tab, signup ref-link nav all PASS)"
+  },
+  "test_credentials": "Owner admin tracyfortune@islandhoptt.com / IslandHopAdmin2026! (login OK, JWT issued, user_type=admin). Promoter code resolved via /api/promoter/me = ISLA5A5D.",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Once the /promote route is added in App.js, re-run the promoter flow: (1) /promote should render data-testid='promote-earn-page' with promoter-qr, promoter-code (ISLA5A5D for owner), 3 buttons (copy-link-btn, download-qr-btn, share-link-btn), promoter-paid=0.00, promoter-held=0.00, 4 reward-row-* entries (customer/driver/merchant/supplier with +5/+25/+40/+40), no-onboards, no-leaderboard. (2) /join/ISLA5A5D and Admin Panel 'Promoters' tab are ALREADY verified working — no retest needed there. (3) Currency: all 5 surfaces tested and working — TT$ default, US$ toggle, reload persistence verified at /pricing. (4) Backend endpoints verified via curl — no backend work needed.",
+  "rca of the issue": "RCA: PromoteEarn.js was created and imported at /app/frontend/src/App.js:32, the navbar entry { to:'/promote', label:'Promote & Earn', show:'authed' } was added at line 322, but the corresponding <Route path=\"/promote\" element={...} /> was never added to the <Routes> block (lines 1726-1788). React Router's catch-all (<Route path=\"*\" element={<Navigate to=\"/\" />} />, line 1787) intercepts the unmatched /promote and redirects to /. Reproduction: 1) Login as owner admin, 2) navigate to https://logistics-island.preview.emergentagent.com/promote, 3) observe URL stays at /promote but page content is the landing hero, 4) no [data-testid='promote-earn-page'] in DOM. Mitigation: insert one route line, e.g. `<Route path=\"/promote\" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />` next to /referrals at line ~1758. PromoteEarn itself self-redirects to /login if no token, so wrapping in ProtectedRoute is optional but recommended for consistency."
+}

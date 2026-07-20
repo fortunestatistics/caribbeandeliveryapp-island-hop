@@ -1,0 +1,81 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
+import { Landmark, Check, X, RefreshCw, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { toast } from 'sonner';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+
+const AdminWalletRequests = () => {
+  const [reqs, setReqs] = useState([]);
+  const [filter, setFilter] = useState('pending');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API}/admin/wallet/funding-requests?status=${filter}`, { headers: authHeaders() });
+      setReqs(r.data.requests || []);
+    } catch (e) { toast.error(e?.response?.data?.detail || 'Failed to load'); } finally { setLoading(false); }
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (id, action) => {
+    try {
+      const r = await axios.post(`${API}/admin/wallet/funding-requests/${id}/${action}`, {}, { headers: authHeaders() });
+      toast.success(action === 'approve' ? 'Approved & wallet updated' : 'Rejected');
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || 'Action failed'); }
+  };
+
+  return (
+    <Card data-testid="admin-wallet-requests">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between text-base">
+          <span className="flex items-center gap-2"><Landmark className="h-5 w-5 text-gold-500" /> Wallet funding requests</span>
+          <span className="flex items-center gap-2">
+            {['pending', 'approved', 'rejected', 'all'].map((f) => (
+              <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)} data-testid={`wallet-filter-${f}`}>{f}</Button>
+            ))}
+            <Button size="sm" variant="ghost" onClick={load}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button>
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {reqs.length === 0 && <p className="text-sm text-muted-foreground py-6 text-center">No {filter} requests.</p>}
+        <div className="space-y-2">
+          {reqs.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-3 border border-border rounded-lg" data-testid={`wallet-req-${r.id}`}>
+              <div className="flex items-center gap-3">
+                {r.direction === 'deposit'
+                  ? <ArrowDownToLine className="h-4 w-4 text-green-500" />
+                  : <ArrowUpFromLine className="h-4 w-4 text-amber-500" />}
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {r.direction === 'deposit' ? 'Deposit' : 'Withdraw'} {r.amount} {r.currency} · <span className="text-muted-foreground font-normal">{r.method}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{r.user_email} {r.reference ? `· ref: ${r.reference}` : ''}{r.destination ? `· to: ${r.destination}` : ''}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge className={`text-[10px] ${r.status === 'pending' ? 'bg-amber-500/15 text-amber-500' : r.status === 'approved' ? 'bg-green-500/15 text-green-500' : 'bg-rose-500/15 text-rose-500'}`}>{r.status}</Badge>
+                {r.status === 'pending' && (
+                  <>
+                    <Button size="sm" onClick={() => act(r.id, 'approve')} data-testid={`approve-${r.id}`}><Check className="h-4 w-4 mr-1" /> Approve</Button>
+                    <Button size="sm" variant="outline" onClick={() => act(r.id, 'reject')} data-testid={`reject-${r.id}`}><X className="h-4 w-4" /></Button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default AdminWalletRequests;

@@ -106,7 +106,7 @@ const CustomerSupport = () => {
   const fetchTickets = async () => {
     try {
       const response = await axios.get(`${API}/support/tickets`, {
-        withCredentials: true
+        withCredentials: false
       });
       setTickets(response.data);
       setLoading(false);
@@ -119,7 +119,7 @@ const CustomerSupport = () => {
   const fetchTicketMessages = async (ticketId) => {
     try {
       const response = await axios.get(`${API}/support/tickets/${ticketId}/messages`, {
-        withCredentials: true
+        withCredentials: false
       });
       setMessages(response.data);
     } catch (error) {
@@ -132,7 +132,7 @@ const CustomerSupport = () => {
 
     try {
       await axios.post(`${API}/support/tickets`, newTicketData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setShowNewTicketModal(false);
@@ -158,7 +158,7 @@ const CustomerSupport = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setNewMessage('');
@@ -171,7 +171,7 @@ const CustomerSupport = () => {
   const handleCloseTicket = async (ticketId) => {
     try {
       await axios.put(`${API}/support/tickets/${ticketId}/close`, {}, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchTickets();
       setSelectedTicket(null);
@@ -182,7 +182,7 @@ const CustomerSupport = () => {
 
   const getStatusColor = (status) => {
     const colors = {
-      open: 'bg-neon-cyan/15 text-neon-cyan',
+      open: 'bg-neon-cyan/15 text-teal-700',
       in_progress: 'bg-gold-500/15 text-yellow-800',
       resolved: 'bg-green-100 text-green-800',
       closed: 'bg-matte-800 text-foreground'
@@ -193,8 +193,8 @@ const CustomerSupport = () => {
   const getPriorityColor = (priority) => {
     const colors = {
       low: 'bg-matte-800 text-foreground',
-      normal: 'bg-neon-cyan/15 text-neon-cyan',
-      high: 'bg-gold-500/15 text-gold-300',
+      normal: 'bg-neon-cyan/15 text-teal-700',
+      high: 'bg-gold-500/15 text-gold-700',
       urgent: 'bg-red-100 text-red-800'
     };
     return colors[priority] || 'bg-matte-800 text-foreground';
@@ -239,7 +239,7 @@ const CustomerSupport = () => {
                     <p className="text-sm text-muted-foreground">Total Tickets</p>
                     <p className="text-2xl font-bold">{tickets.length}</p>
                   </div>
-                  <FileText className="h-8 w-8 text-neon-cyan" />
+                  <FileText className="h-8 w-8 text-teal-700" />
                 </div>
               </CardContent>
             </Card>
@@ -249,11 +249,11 @@ const CustomerSupport = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Open</p>
-                    <p className="text-2xl font-bold text-neon-cyan">
+                    <p className="text-2xl font-bold text-teal-700">
                       {tickets.filter(t => t.status === 'open').length}
                     </p>
                   </div>
-                  <AlertCircle className="h-8 w-8 text-neon-cyan" />
+                  <AlertCircle className="h-8 w-8 text-teal-700" />
                 </div>
               </CardContent>
             </Card>

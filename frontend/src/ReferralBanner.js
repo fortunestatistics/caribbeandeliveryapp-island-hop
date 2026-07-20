@@ -44,7 +44,7 @@ const ReferralBanner = () => {
 
     // Probe whether user has at least one completed/paid order
     axios
-      .get(`${API}/orders`, { headers, withCredentials: true })
+      .get(`${API}/orders`, { headers, withCredentials: false })
       .then((res) => {
         const orders = Array.isArray(res.data) ? res.data : [];
         const eligible = orders.some(
@@ -58,7 +58,7 @@ const ReferralBanner = () => {
 
     // Fetch (or create) the user's referral code
     axios
-      .get(`${API}/referrals/my-code`, { headers, withCredentials: true })
+      .get(`${API}/referrals/my-code`, { headers, withCredentials: false })
       .then((res) => setReferralCode(res.data?.code || null))
       .catch((err) => {
         console.error('ReferralBanner code fetch failed:', err);

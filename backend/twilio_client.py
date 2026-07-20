@@ -15,13 +15,28 @@ Surface:
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import uuid
 
+_log = logging.getLogger(__name__)
+
 
 def _mock_enabled() -> bool:
     return os.environ.get("MOCK_TWILIO", "true").lower() in {"1", "true", "yes"}
+
+
+def _status_callback_url() -> str | None:
+    """Public HTTPS URL Twilio posts delivery status (sent/delivered/failed + ErrorCode) to.
+    Falls back to FRONTEND_URL so production works without extra config."""
+    url = os.environ.get("TWILIO_STATUS_CALLBACK_URL")
+    if url:
+        return url.strip()
+    base = os.environ.get("FRONTEND_URL")
+    if base:
+        return base.rstrip("/") + "/api/webhooks/twilio-status"
+    return None
 
 
 def generate_otp(length: int = 6) -> str:
@@ -49,11 +64,16 @@ def send_sms(to: str, body: str) -> dict:
     return _real_send_sms(to, body)
 
 
-def send_whatsapp(to: str, body: str) -> dict:
-    """Send a WhatsApp message. Returns {success, sid, status, ...}."""
+def send_whatsapp(to: str, body: str, content_sid: str | None = None,
+                  content_variables: dict | None = None) -> dict:
+    """Send a WhatsApp message. Returns {success, sid, status, ...}.
+
+    If `content_sid` is given, sends an approved WhatsApp template (required for
+    business-initiated messages outside the 24h window); otherwise sends free-form `body`.
+    """
     if _mock_enabled():
         return _mock_send("whatsapp", to, body)
-    return _real_send_whatsapp(to, body)
+    return _real_send_whatsapp(to, body, content_sid=content_sid, content_variables=content_variables)
 
 
 # ---------------------------------------------------------------------------
@@ -63,29 +83,90 @@ def send_whatsapp(to: str, body: str) -> dict:
 def _real_send_sms(to: str, body: str) -> dict:
     try:
         from twilio.rest import Client  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("twilio SDK not installed — pip install twilio") from exc
+    except ImportError:
+        return {"success": False, "error": "twilio SDK not installed", "channel": "sms", "to": to}
     sid = os.environ.get("TWILIO_ACCOUNT_SID")
     token = os.environ.get("TWILIO_AUTH_TOKEN")
     from_number = os.environ.get("TWILIO_SMS_FROM")
     if not (sid and token and from_number):
-        raise RuntimeError("Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_FROM)")
-    client = Client(sid, token)
-    msg = client.messages.create(from_=from_number, to=to, body=body)
-    return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "sms", "to": to, "body": body}
+        return {"success": False, "error": "SMS is not configured on the server.", "channel": "sms", "to": to}
+    if to and from_number.strip() == to.strip():
+        return {"success": False, "error": "Sender and recipient cannot be the same number.", "channel": "sms", "to": to}
+    try:
+        client = Client(sid, token)
+        kwargs = {"from_": from_number, "to": to, "body": body}
+        cb = _status_callback_url()
+        if cb:
+            kwargs["status_callback"] = cb
+        msg = client.messages.create(**kwargs)
+        return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "sms", "to": to, "body": body}
+    except Exception as exc:  # noqa: BLE001 — surface a clean error, never crash the request
+        return {"success": False, "error": str(getattr(exc, "msg", exc)),
+                "error_code": getattr(exc, "code", None), "channel": "sms", "to": to}
 
 
-def _real_send_whatsapp(to: str, body: str) -> dict:
+def send_notification(to: str, body: str, channel: str = "whatsapp",
+                      content_sid: str | None = None, content_variables: dict | None = None) -> dict:
+    """Unified WhatsApp-first notification sender.
+
+    channel="whatsapp" (default): send via WhatsApp. On failure:
+      - error_code 63005 (no open 24h session window): log + return gracefully, NO SMS fallback.
+      - any other error: fall back to SMS.
+    channel="sms": send SMS directly (use for OTP/verification only).
+
+    Returns the underlying send result plus `channel_used`.
+    """
+    if channel == "sms":
+        res = send_sms(to, body)
+        res["channel_used"] = "sms"
+        return res
+
+    res = send_whatsapp(to, body, content_sid=content_sid, content_variables=content_variables)
+    if res.get("success"):
+        res["channel_used"] = "whatsapp"
+        return res
+
+    if str(res.get("error_code")) == "63005":
+        _log.info(f"WhatsApp session not open for {to} (63005) — skipping, no SMS fallback.")
+        res["channel_used"] = "whatsapp"
+        res["skipped"] = True
+        return res
+
+    _log.warning(f"WhatsApp send to {to} failed ({res.get('error_code')}): {res.get('error')} — falling back to SMS.")
+    sms_res = send_sms(to, body)
+    sms_res["channel_used"] = "sms"
+    sms_res["whatsapp_error"] = res.get("error")
+    return sms_res
+
+
+def _real_send_whatsapp(to: str, body: str, content_sid: str | None = None,
+                        content_variables: dict | None = None) -> dict:
     try:
         from twilio.rest import Client  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("twilio SDK not installed — pip install twilio") from exc
+    except ImportError:
+        return {"success": False, "error": "twilio SDK not installed", "channel": "whatsapp", "to": to}
     sid = os.environ.get("TWILIO_ACCOUNT_SID")
     token = os.environ.get("TWILIO_AUTH_TOKEN")
     from_number = os.environ.get("TWILIO_WHATSAPP_FROM")  # e.g. 'whatsapp:+14155238886'
     if not (sid and token and from_number):
-        raise RuntimeError("Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM)")
-    client = Client(sid, token)
-    to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
-    msg = client.messages.create(from_=from_number, to=to_addr, body=body)
-    return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "whatsapp", "to": to, "body": body}
+        return {"success": False, "error": "WhatsApp is not configured on the server (no WhatsApp sender set up).",
+                "channel": "whatsapp", "to": to}
+    try:
+        import json as _json
+        client = Client(sid, token)
+        to_addr = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
+        kwargs = {"from_": from_number, "to": to_addr}
+        cb = _status_callback_url()
+        if cb:
+            kwargs["status_callback"] = cb
+        if content_sid:
+            kwargs["content_sid"] = content_sid
+            if content_variables:
+                kwargs["content_variables"] = _json.dumps(content_variables)
+        else:
+            kwargs["body"] = body
+        msg = client.messages.create(**kwargs)
+        return {"success": True, "sid": msg.sid, "status": msg.status, "channel": "whatsapp", "to": to, "body": body}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(getattr(exc, "msg", exc)),
+                "error_code": getattr(exc, "code", None), "channel": "whatsapp", "to": to}

@@ -5,6 +5,12 @@ import requests
 
 
 def _register(base_url, user_type="customer", name=None):
+    if user_type in ("admin", "agent"):
+        lr = requests.post(f"{base_url}/api/auth/login",
+                           json={"email": "tracyfortune@islandhoptt.com", "password": "IslandHopAdmin2026!"}, timeout=30)
+        assert lr.status_code == 200, f"owner admin login failed: {lr.text}"
+        b = lr.json()
+        return {"email": "tracyfortune@islandhoptt.com", "user_id": b["user"]["id"], "token": b["access_token"]}
     email = f"claims_{user_type}_{int(time.time())}_{uuid.uuid4().hex[:6]}@test.com"
     r = requests.post(
         f"{base_url}/api/auth/register",

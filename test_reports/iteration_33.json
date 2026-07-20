@@ -1,0 +1,34 @@
+{
+  "summary": "Verified IslandHop admin User Management upgrades + Safety & Disputes merge end-to-end. Backend pytest (11/11 passing): user_type filter (all/customer/driver/merchant), POST /api/admin/users/{id}/set-status transitions (active/paused/restricted), auth gate (paused/restricted -> login 403 with support msg; active -> login 200; authenticated /api/auth/me returns 403 for paused via get_current_user_from_request), self-pause blocked (400), invalid status (400), non-admin (403). UI verified on preview: Users tab has user-type-filter with buttons all/customer/merchant/driver - filter counts all=56, customer=18, driver=1 (matches expected preview DB). Each row shows view-profile-btn / message-user-btn / pause-user-btn / restrict-user-btn (approve-user-btn only when status != active). Created throwaway customer, clicked pause -> row status text changed to 'paused' and approve-user-btn appeared; clicked view-profile-btn -> dialog opened; approve restored active state and pause button returned. Safety & Disputes tab (admin-tab-safety) present as single tab labeled 'Safety & Disputes' with badge '113' (= 86 frauds + 27 claims). Old admin-tab-fraud/claims/disputes are removed. safety-subtabs wrapper contains safety-subtab-fraud/claims/disputes; switching between them renders Fraud Review Queue, Claims list, and Customer Disputes ('No open disputes').",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/users", "issue": "Response objects still include `hashed_password` field for every user (visible to admin caller). Should be scrubbed from list response to reduce hash exposure surface."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_user_status_iter33.py",
+    "/app/test_reports/pytest/iter33_user_status.xml"
+  ],
+  "action_items": [
+    "(Security minor) Scrub hashed_password (and any other secrets like session_token) from GET /api/admin/users list response, matching the scrubbing already done for admin/records/users."
+  ],
+  "critical_code_review_comments": [
+    "server.py still ~10.6k lines — user status/auth-gate logic (login, set-status, _account_block_detail, get_current_user_from_request) is scattered. Consider extracting an auth/user_status module.",
+    "_account_block_detail is duplicated in intent across two callsites (line 137 and 426/440). Fine, but ensure any future statuses (e.g. deleted, pending_verification) get handled in one place to avoid drift.",
+    "POST /api/admin/users/{id}/set-status accepts only active/paused/restricted but the DB field can be any string historically. Consider a one-off migration or a fallback that treats unknown legacy values as 'active' explicitly."
+  ],
+  "updated_files": ["/app/backend/tests/test_user_status_iter33.py (new)"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all Users filter + status flows + Safety & Disputes verified)"},
+  "test_credentials": "Admin admin.qa@islandhop-demo.com / AdminQA1234! (works). Register requires public-domain email (used @gmail.com).",
+  "seed_data_creation": "Two throwaway customers created for testing: qa_iter33_<ts>@gmail.com (backend tests) and qa_ui_iter33_<ts>@gmail.com (UI test). Both left in DB with status=active as of end of run - safe to ignore or delete later.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin User Management: user_type filter and status controls fully working. Key testids: admin-tab-users, user-type-filter, user-type-{all|customer|merchant|driver}, view-profile-btn-<id>, message-user-btn-<id>, approve-user-btn-<id> (only when status!=active), pause-user-btn-<id>, restrict-user-btn-<id>. Backend: GET /api/admin/users?user_type=... (all/customer/merchant/driver), POST /api/admin/users/{id}/set-status body {status:'active'|'paused'|'restricted'}. Auth gate enforced at login (POST /api/auth/login -> 403) and on every authenticated request via get_current_user_from_request (-> 403). Safety & Disputes: single tab admin-tab-safety replaces old fraud/claims/disputes tabs, safety-subtabs wrapper with safety-subtab-{fraud|claims|disputes}, badge = open_frauds+open_claims. To authenticate in Playwright: POST /api/auth/login then localStorage.setItem('token', access_token) then goto /admin.",
+  "rca of the issue": "N/A - feature verification, no functional bug found. Minor security hygiene item: /api/admin/users response leaks hashed_password."
+}

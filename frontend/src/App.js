@@ -1,48 +1,71 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import KPIDashboard from './KPIDashboard';
-import CarRentalPage from './CarRentalPage';
-import DriverOnboarding from './DriverOnboarding';
-import RestaurantOnboarding from './RestaurantOnboarding';
-import RestaurantMenuManagement from './RestaurantMenuManagement';
-import VendorDashboard from './VendorDashboard';
-import DriverDashboard from './DriverDashboard';
-import AdminPanel from './AdminPanel';
-import PromoCodeManagement from './PromoCodeManagement';
-import AddressManagement from './AddressManagement';
-import OrderScheduling from './OrderScheduling';
-import { CheckoutPage, PaymentSuccess, PaymentCancel } from './CheckoutPage';
-import VendorStripeConnect from './VendorStripeConnect';
-import WalletPage from './WalletPage';
-import OrderTrackingPage from './OrderTrackingPageWithMaps';
-import PaymentMethodsSelector from './PaymentMethodsSelector';
-import DriverEarningsDashboard from './DriverEarningsDashboard';
-import BusinessEarningsDashboard from './BusinessEarningsDashboard';
-import AuthPage from './AuthPage';
-import SocialAuthCallback from './SocialAuthCallback';
-import BusinessOnboarding from './BusinessOnboarding';
-import ReferralPage from './ReferralPage';
+// Eagerly-loaded shared UI (used by landing/header/dashboard on first paint)
+import ProtectedRoute from './ProtectedRoute';
 import ReferralBanner from './ReferralBanner';
-import ClaimsPage from './ClaimsPage';
 import UnreadChatBell from './UnreadChatBell';
 import SubAppsDropdown from './SubAppsDropdown';
 import Footer from './Footer';
-import ProtectedRoute from './ProtectedRoute';
-import AboutPage from './AboutPage';
 import HotRightNow from './HotRightNow';
 import AnimatedCounter from './AnimatedCounter';
 import PromoSlides from './PromoSlides';
 import LiveOrderMapPreview from './LiveOrderMapPreview';
-import DriverLeaderboard from './DriverLeaderboard';
 import EnablePushButton from './EnablePushButton';
-import { ModeProvider } from './ModeContext';
-import ModeSwitcher from './ModeSwitcher';
-import SubscriptionPlans from './SubscriptionPlans';
-import RestaurantMenu from './RestaurantMenu';
-import TaxiBookingForm from './TaxiBookingForm';
-import CourierOrderForm from './CourierOrderForm';
-import PharmacyOrderForm from './PharmacyOrderForm';
-import GroceryOrderForm from './GroceryOrderForm';
+import SponsoredAds from './SponsoredAds';// Route-level pages — lazy loaded for code splitting (keeps initial bundle small)
+const KPIDashboard = lazy(() => import('./KPIDashboard'));
+const ThemePreview = lazy(() => import('./ThemePreview'));
+const CarRentalPage = lazy(() => import('./CarRentalPage'));
+const DriverOnboarding = lazy(() => import('./DriverOnboarding'));
+const RestaurantOnboarding = lazy(() => import('./RestaurantOnboarding'));
+const RestaurantMenuManagement = lazy(() => import('./RestaurantMenuManagement'));
+const VendorDashboard = lazy(() => import('./VendorDashboard'));
+const DriverDashboard = lazy(() => import('./DriverDashboard'));
+const AdminPanel = lazy(() => import('./AdminPanel'));
+const AdminInviteAccept = lazy(() => import('./AdminInviteAccept'));
+const PromoCodeManagement = lazy(() => import('./PromoCodeManagement'));
+const AddressManagement = lazy(() => import('./AddressManagement'));
+const PrivacyPolicy = lazy(() => import('./PrivacyPolicy'));
+const Terms = lazy(() => import('./Terms'));
+const OrderScheduling = lazy(() => import('./OrderScheduling'));
+const CheckoutPage = lazy(() => import('./CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentSuccess })));
+const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
+const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
+const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
+const DriverEarningsDashboard = lazy(() => import('./DriverEarningsDashboard'));
+const BusinessEarningsDashboard = lazy(() => import('./BusinessEarningsDashboard'));
+const AuthPage = lazy(() => import('./AuthPage'));
+const SocialAuthCallback = lazy(() => import('./SocialAuthCallback'));
+const MicrosoftAuthCallback = lazy(() => import('./MicrosoftAuthCallback'));
+const ProfilePage = lazy(() => import('./ProfilePage'));
+const IdentityVerificationCallback = lazy(() => import('./IdentityVerificationCallback'));
+const BusinessOnboarding = lazy(() => import('./BusinessOnboarding'));
+const ReferralPage = lazy(() => import('./ReferralPage'));
+const PromoteEarn = lazy(() => import('./PromoteEarn'));
+const JoinLanding = lazy(() => import('./JoinLanding'));
+const ClaimsPage = lazy(() => import('./ClaimsPage'));
+const AboutPage = lazy(() => import('./AboutPage'));
+const DriverLeaderboard = lazy(() => import('./DriverLeaderboard'));
+const MerchantStorefrontEditor = lazy(() => import('./MerchantStorefrontEditor'));
+const MerchantSettings = lazy(() => import('./MerchantSettings'));
+const DriverSettings = lazy(() => import('./DriverSettings'));
+const ForgotPassword = lazy(() => import('./ForgotPassword'));
+const ResetPassword = lazy(() => import('./ResetPassword'));
+const AssistantWidget = lazy(() => import('./AssistantWidget'));
+const MerchantProducts = lazy(() => import('./MerchantProducts'));
+const MerchantCoupons = lazy(() => import('./MerchantCoupons'));
+const DriverSubscription = lazy(() => import('./DriverSubscription'));
+const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
+const MerchantAds = lazy(() => import('./MerchantAds'));
+import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
+import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
+import PromoterSocialProof from './PromoterSocialProof';
+const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'));
+const RestaurantMenu = lazy(() => import('./RestaurantMenu'));
+const TaxiBookingForm = lazy(() => import('./TaxiBookingForm'));
+const CourierOrderForm = lazy(() => import('./CourierOrderForm'));
+const PharmacyOrderForm = lazy(() => import('./PharmacyOrderForm'));
+const GroceryOrderForm = lazy(() => import('./GroceryOrderForm'));
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
@@ -57,13 +80,15 @@ import { useToast } from './hooks/use-toast';
 import { Toaster } from './components/ui/toaster';
 import { 
   Building2, 
-  Utensils, 
+  Utensils,
+  Store, 
   Pill, 
   ShoppingCart, 
   Package, 
   Car,
   MessageCircle,
   MapPin,
+  UserCircle,
   Clock,
   CreditCard,
   CheckCircle,
@@ -97,7 +122,7 @@ import {
   Smartphone,
   ArrowRight,
   Search,
-  Wallet as WalletIcon
+  Megaphone
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -112,46 +137,14 @@ const ROLES_DRIVER_ONBOARD = ['driver', 'customer', 'admin'];
 const ROLES_VENDOR_ADMIN = ['restaurant', 'business', 'admin'];
 const ROLES_VENDOR_ONBOARD = ['restaurant', 'customer', 'admin'];
 const ROLES_ADMIN_ONLY = ['admin'];
+const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 
 // Auth Context
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
-
-// Auth handler component
-const AuthHandler = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    const handleAuth = async () => {
-      const hash = window.location.hash;
-      const sessionIdMatch = hash.match(/session_id=([^&]*)/);
-      
-      if (sessionIdMatch) {
-        const sessionId = sessionIdMatch[1];
-        
-        try {
-          const response = await axios.post(`${API}/auth/session`, {
-            session_id: sessionId
-          }, { withCredentials: true });
-          
-          // Clean the URL
-          window.location.hash = '';
-          navigate('/dashboard');
-          window.location.reload();
-        } catch (error) {
-          console.error('Auth error:', error);
-          navigate('/');
-        }
-      }
-    };
-
-    handleAuth();
-  }, [navigate]);
-
-  return null;
-};
+import { LocationConsentProvider } from './LocationConsentContext';
+import BusinessSearch from './BusinessSearch';
+import PublicTrack from './PublicTrack';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -159,8 +152,67 @@ const GlobalSearch = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [featured, setFeatured] = useState([]);
+  const [featCat, setFeatCat] = useState('all');
+  const [loadingFeat, setLoadingFeat] = useState(false);
+  const [recent, setRecent] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('islandhop_recent_searches') || '[]'); } catch { return []; }
+  });
+  const [onlineCount, setOnlineCount] = useState(null);
   const navigate = useNavigate();
   const searchRef = React.useRef(null);
+
+  const POPULAR_SEARCHES = ['Roti', 'Pharmacy', 'Groceries', 'Jerk Chicken', 'Doubles'];
+
+  useEffect(() => {
+    axios.get(`${API}/drivers/online-count`).then((r) => setOnlineCount(r.data.online)).catch(() => {});
+  }, []);
+
+  const rememberSearch = React.useCallback((term) => {
+    const t = (term || '').trim();
+    if (t.length < 2) return;
+    setRecent((prev) => {
+      const next = [t, ...prev.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 5);
+      try { localStorage.setItem('islandhop_recent_searches', JSON.stringify(next)); } catch (e) { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  const loadFeatured = React.useCallback(async (cat) => {
+    setLoadingFeat(true);
+    try {
+      const response = await axios.get(`${API}/search/featured`, { params: { category: cat, limit: 12 } });
+      setFeatured(response.data.results || []);
+    } catch (e) {
+      setFeatured([]);
+    } finally {
+      setLoadingFeat(false);
+    }
+  }, []);
+
+  // Categories shown as quick-filter chips when the search bar is focused.
+  const searchCategories = [
+    { key: 'all', label: 'All' },
+    { key: 'restaurant', label: 'Restaurants' },
+    { key: 'pharmacy', label: 'Pharmacy' },
+    { key: 'grocery', label: 'Grocery' },
+    { key: 'shop', label: 'Shops' },
+    { key: 'taxi', label: 'Taxi', route: '/taxi-booking' },
+    { key: 'courier', label: 'Courier', route: '/courier-order' },
+  ];
+
+  const handleCategoryChip = (cat) => {
+    if (cat.route) { setShowResults(false); navigate(cat.route); return; }
+    setFeatCat(cat.key);
+    loadFeatured(cat.key);
+  };
+
+  const openFeatured = () => {
+    setShowResults(true);
+    if (searchQuery.trim().length < 2 && featured.length === 0) {
+      loadFeatured(featCat);
+    }
+  };
 
   // Debounce search
   useEffect(() => {
@@ -203,21 +255,23 @@ const GlobalSearch = () => {
   };
 
   const handleResultClick = (result) => {
+    if (searchQuery.trim().length >= 2) rememberSearch(searchQuery);
     setShowResults(false);
     setSearchQuery('');
-    
-    // Navigate based on result type
+
+    // Navigate based on result type. Route names must match App.js <Routes>:
+    //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
-      if (result.vendor_type === 'restaurant') {
-        navigate(`/restaurants/${result.id}`);
-      } else if (result.vendor_type === 'pharmacy') {
-        navigate(`/pharmacy/${result.id}`);
+      if (result.vendor_type === 'pharmacy') {
+        navigate('/pharmacy-order');
       } else if (result.vendor_type === 'grocery') {
-        navigate(`/grocery/${result.id}`);
+        navigate('/grocery-order');
+      } else {
+        navigate(`/restaurant/${result.id}`);
       }
     } else if (result.type === 'product') {
       // Navigate to vendor page with product highlighted
-      navigate(`/restaurants/${result.vendor_id}?product=${result.id}`);
+      navigate(`/restaurant/${result.vendor_id}?product=${result.id}`);
     }
   };
 
@@ -239,7 +293,7 @@ const GlobalSearch = () => {
             placeholder="Search restaurants, food, pharmacies..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => searchQuery.length >= 2 && setShowResults(true)}
+            onFocus={openFeatured}
             data-testid="global-search-input"
             className="pl-11 pr-4 py-3 h-12 w-full text-base bg-matte-800/80 border-2 border-gold-500/30 rounded-l-xl rounded-r-none focus:border-gold-500 focus:ring-2 focus:ring-gold-500/30 placeholder:text-muted-foreground"
           />
@@ -260,8 +314,95 @@ const GlobalSearch = () => {
         </button>
       </div>
 
+      {/* Onboarded partners dropdown — shown on focus before the user types */}
+      {showResults && searchQuery.trim().length < 2 && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50" data-testid="featured-partners-dropdown">
+          <div className="p-2 flex flex-wrap gap-2 border-b border-border/50 sticky top-0 bg-card">
+            {searchCategories.map((cat) => {
+              const hint = (cat.key === 'taxi' || cat.key === 'courier') && onlineCount != null ? ` · ${onlineCount} online` : '';
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => handleCategoryChip(cat)}
+                  data-testid={`search-cat-${cat.key}`}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    !cat.route && featCat === cat.key
+                      ? 'bg-gold-gradient text-white'
+                      : 'bg-background text-muted-foreground hover:text-foreground border border-border'
+                  }`}
+                >
+                  {cat.label}{hint}
+                </button>
+              );
+            })}
+          </div>
+          {(recent.length > 0 || POPULAR_SEARCHES.length > 0) && (
+            <div className="px-3 pt-2 space-y-2 border-b border-border/50 pb-2">
+              {recent.length > 0 && (
+                <div data-testid="recent-searches">
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Recent</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recent.map((term) => (
+                      <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`recent-search-${term}`}
+                        className="text-xs px-2.5 py-1 rounded-full bg-background border border-border text-foreground hover:border-gold-500">
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div data-testid="popular-searches">
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Popular</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_SEARCHES.map((term) => (
+                    <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`popular-search-${term}`}
+                      className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="p-2">
+            <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase">Onboarded Partners</div>
+            {loadingFeat ? (
+              <div className="py-6 text-center text-muted-foreground text-sm">Loading partners…</div>
+            ) : featured.length === 0 ? (
+              <div className="py-6 text-center text-muted-foreground text-sm" data-testid="featured-empty">No partners onboarded in this category yet.</div>
+            ) : (
+              featured.map((result, index) => {
+                const vendorIconMap = { restaurant: '🍽️', pharmacy: '💊', grocery: '🛒' };
+                const gradientMap = { restaurant: 'from-red-500 to-orange-500', pharmacy: 'from-neon-cyan to-gold-500', grocery: 'from-green-500 to-emerald-500' };
+                return (
+                  <button
+                    key={`feat-${index}`}
+                    type="button"
+                    onClick={() => handleResultClick(result)}
+                    data-testid={`featured-partner-${index}`}
+                    className="w-full text-left px-3 py-3 hover:bg-background rounded-lg transition-colors flex items-center space-x-3"
+                  >
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${gradientMap[result.vendor_type] || 'from-slate-400 to-slate-600'} flex items-center justify-center text-white text-xl`}>
+                      {vendorIconMap[result.vendor_type] || '🏪'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-foreground truncate flex items-center gap-2">
+                        {result.name}
+                        {result.featured && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gold-500/15 text-gold-700 border border-gold-500/30">Featured</span>}
+                      </div>
+                      <div className="text-sm text-muted-foreground capitalize">{result.vendor_type}</div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search Results Dropdown */}
-      {showResults && searchResults.length > 0 && (
+      {showResults && searchQuery.trim().length >= 2 && searchResults.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border max-h-96 overflow-y-auto z-50">
           {/* Vendors */}
           {searchResults.filter(r => r.type === 'vendor').length > 0 && (
@@ -318,10 +459,25 @@ const GlobalSearch = () => {
 
       {/* No Results */}
       {showResults && searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50" data-testid="search-no-results">
           <div className="text-center text-muted-foreground">
             <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground/70" />
             <p>No results found for &quot;{searchQuery}&quot;</p>
+          </div>
+          <div className="mt-3">
+            <div className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5 text-center">Try one of these</div>
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {POPULAR_SEARCHES.map((term) => (
+                <button key={term} type="button" onClick={() => setSearchQuery(term)} data-testid={`no-results-suggestion-${term}`}
+                  className="text-xs px-2.5 py-1 rounded-full bg-gold-500/10 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">
+                  {term}
+                </button>
+              ))}
+              <button type="button" onClick={() => navigate('/businesses')} data-testid="no-results-browse-all"
+                className="text-xs px-2.5 py-1 rounded-full bg-background border border-border hover:border-gold-500">
+                Browse all businesses
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -340,9 +496,8 @@ const Header = () => {
   //   `show: 'authed'`          — any logged-in user
   //   `show: ['admin', 'driver']` — restricted to listed user_type(s)
   const allNavigationItems = [
-    { to: "/restaurants",       label: "Restaurants",       icon: Utensils,    show: 'everyone' },
-    { to: "/car-rentals",       label: "Car Rentals",       icon: Car,         show: 'everyone' },
-    { to: "/wallet",            label: "Wallet",            icon: WalletIcon,  show: 'authed' },
+    { to: "/businesses",        label: "Business",          icon: Store,       show: 'everyone' },
+    { to: "/promote",           label: "Promote & Earn",    icon: Megaphone,   show: 'authed' },
     { to: "/analytics",         label: "Analytics",         icon: TrendingUp,  show: ['admin'] },
     { to: "/pricing",           label: "Pricing",           icon: DollarSign,  show: 'everyone' },
     { to: "/partner",           label: "Become a Partner",  icon: Building2,   show: 'guest-or-customer' },
@@ -361,7 +516,7 @@ const Header = () => {
 
   return (
     <>
-      <header className="bg-matte-900/90 backdrop-blur-xl border-b border-gold-500/20 sticky top-0 z-50">
+      <header className="bg-card/90 backdrop-blur-xl border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             {/* Brand + Sub-Apps Dropdown */}
@@ -390,6 +545,7 @@ const Header = () => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <UnreadChatBell />
+                  <CurrencySwitcher />
                   <ModeSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
@@ -401,6 +557,7 @@ const Header = () => {
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
+                  <CurrencySwitcher />
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
                   </Button>
@@ -413,7 +570,7 @@ const Header = () => {
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2 rounded-lg hover:bg-matte-800 transition-colors"
+              className="md:hidden p-2 rounded-lg hover:bg-muted transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               data-testid="mobile-menu-btn"
             >
@@ -427,7 +584,7 @@ const Header = () => {
 
           {/* Mobile Navigation Menu */}
           {mobileMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 border-t border-border bg-matte-900/95 backdrop-blur-md">
+            <div className="md:hidden mt-4 pb-4 border-t border-border bg-card/95 backdrop-blur-md">
               {/* Mobile Search */}
               <div className="px-4 py-3">
                 <GlobalSearch />
@@ -616,32 +773,32 @@ const LandingPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Section - Premium Matte Black + Gold */}
-      <section className="relative overflow-hidden bg-matte-900 pt-20 pb-32">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.18),transparent_60%)]"></div>
-        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-gold-500/10 blur-3xl"></div>
-        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-neon-cyan/5 blur-3xl"></div>
+      {/* Hero Section - Caribbean Sunshine (light) */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-orange-50 via-background to-background pt-20 pb-32">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,90,0,0.10),transparent_60%)]"></div>
+        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl"></div>
+        <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-accent/10 blur-3xl"></div>
         
         <div className="relative container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center text-white">
-            <div className="inline-block mb-6 px-6 py-2 bg-gold-500/15 border border-gold-500/30 backdrop-blur-sm rounded-full">
-              <span className="text-sm font-semibold text-gold-300">🏝️ Caribbean&apos;s #1 Delivery Platform</span>
+          <div className="max-w-4xl mx-auto text-center text-secondary">
+            <div className="inline-block mb-6 px-6 py-2 bg-primary/10 border border-primary/20 backdrop-blur-sm rounded-full">
+              <span className="text-sm font-semibold text-primary">🏝️ Caribbean&apos;s #1 Delivery Platform</span>
             </div>
             
-            <h1 className="font-heading text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight">
+            <h1 className="font-heading text-5xl md:text-7xl font-extrabold mb-6 leading-tight tracking-tight text-secondary">
               Everything you need,
               <br />
-              <span className="text-gold-gradient">delivered instantly</span>
+              <span className="text-primary">delivered instantly</span>
             </h1>
             
-            <p className="text-xl md:text-2xl mb-10 text-white/80 font-light max-w-2xl mx-auto">
+            <p className="text-xl md:text-2xl mb-10 text-muted-foreground font-light max-w-2xl mx-auto">
               From fresh meals to everyday essentials. Fast, reliable delivery across the Caribbean islands.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Button 
                 size="lg" 
-                className="px-10 py-7 text-lg"
+                className="rounded-full px-10 py-7 text-lg shadow-[0_4px_14px_0_rgba(255,90,0,0.39)] hover:shadow-lg active:scale-95 transition-all"
                 onClick={() => {
                   const servicesSection = document.getElementById('services');
                   servicesSection?.scrollIntoView({ behavior: 'smooth' });
@@ -653,10 +810,20 @@ const LandingPage = () => {
               <Button 
                 size="lg" 
                 variant="outline"
-                className="border-gold-500/40 text-white hover:border-gold-500 hover:bg-gold-500/10 px-10 py-7 text-lg backdrop-blur-sm transition-all"
+                className="rounded-full border-2 border-slate-200 text-secondary hover:border-primary hover:bg-primary/5 px-10 py-7 text-lg transition-all"
                 onClick={() => navigate('/partner')}
               >
                 Become a Partner
+              </Button>
+              <Button 
+                size="lg" 
+                variant="outline"
+                className="rounded-full border-2 border-slate-200 text-secondary hover:border-primary hover:bg-primary/5 px-10 py-7 text-lg transition-all"
+                onClick={() => navigate('/driver-onboarding')}
+                data-testid="hero-become-driver-btn"
+              >
+                <Truck className="mr-2 h-5 w-5" />
+                Become a Driver
               </Button>
             </div>
 
@@ -679,16 +846,20 @@ const LandingPage = () => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center">
-                  <div className="text-4xl md:text-5xl font-bold mb-2" data-testid={`stat-${stat.label.replace(/\s+/g, '-').toLowerCase()}`}>
+                  <div className="text-4xl md:text-5xl font-bold mb-2 text-secondary" data-testid={`stat-${stat.label.replace(/\s+/g, '-').toLowerCase()}`}>
                     {stat.fixed ? stat.value.toFixed(1) : <AnimatedCounter value={stat.value} suffix={stat.suffix} />}
                   </div>
-                  <div className="text-sm md:text-base text-white/80">{stat.label}</div>
+                  <div className="text-sm md:text-base text-muted-foreground">{stat.label}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
       </section>
+
+      {/* Sponsored merchant ads (paid front-page ad space) */}
+      <SponsoredAds />
+
 
       {/* Services Section - Card Grid */}
       <section id="services" className="py-20 bg-background">
@@ -766,6 +937,107 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
+      {/* Earn With IslandHop — incentives horizontal widget */}
+      <section className="py-16 bg-background" data-testid="incentives-widget">
+        <div className="container mx-auto px-4">
+          <div className="rounded-3xl bg-navy-gradient p-8 md:p-10 shadow-card-hover">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-7">
+              <div>
+                <h2 className="font-heading text-2xl md:text-3xl font-bold text-white flex items-center gap-2">
+                  <Megaphone className="h-7 w-7 text-gold-400" /> Earn with IslandHop
+                </h2>
+                <p className="text-white/70 text-sm mt-1">Multiple ways to make money on the platform — start today.</p>
+                <PromoterSocialProof />
+              </div>
+              <Button
+                onClick={() => navigate('/promote')}
+                className="bg-gold-gradient text-white self-start md:self-auto"
+                data-testid="incentives-promote-cta"
+              >
+                Get my QR code <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
+              {[
+                { icon: Megaphone, title: 'Promote & Earn', desc: 'Share your QR code — earn up to TT$170 for every business or supplier you onboard.', to: '/promote', highlight: true, testid: 'incentive-promote' },
+                { icon: Users, title: 'Refer Friends', desc: 'Invite friends to IslandHop and earn rewards when they order.', to: '/referrals', testid: 'incentive-refer' },
+                { icon: Truck, title: 'Drive & Earn', desc: 'Deliver across the islands on your own schedule with driver incentives.', to: '/partner', testid: 'incentive-drive' },
+                { icon: Building2, title: 'Partner Bonuses', desc: 'List your business and unlock onboarding bonuses and growth tools.', to: '/partner', testid: 'incentive-partner' },
+              ].map((it) => {
+                const Icon = it.icon;
+                return (
+                  <button
+                    key={it.title}
+                    onClick={() => navigate(it.to)}
+                    data-testid={it.testid}
+                    className={`group text-left min-w-[240px] md:min-w-0 rounded-2xl p-5 transition-all hover:-translate-y-1 ${
+                      it.highlight ? 'bg-gold-gradient text-white shadow-gold-glow' : 'bg-white/5 hover:bg-white/10 border border-white/10'
+                    }`}
+                  >
+                    <span className={`flex h-11 w-11 items-center justify-center rounded-xl mb-3 ${it.highlight ? 'bg-white/20' : 'bg-gold-gradient'}`}>
+                      <Icon className="h-6 w-6 text-white" />
+                    </span>
+                    <h3 className={`font-heading text-lg font-bold flex items-center gap-1 ${it.highlight ? 'text-white' : 'text-white'}`}>
+                      {it.title}
+                      <ArrowRight className="h-4 w-4 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                    </h3>
+                    <p className={`text-sm mt-1 ${it.highlight ? 'text-white/90' : 'text-white/70'}`}>{it.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      {/* Latest News & Our Vision */}
+      <section className="relative overflow-hidden bg-muted py-24" data-testid="news-vision-section">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,90,0,0.06),transparent_60%)]"></div>
+        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-accent/5 blur-3xl"></div>
+        <div className="relative container mx-auto px-4">
+          <div className="text-center mb-14">
+            <div className="inline-block mb-4 px-5 py-1.5 bg-primary/10 border border-primary/20 rounded-full">
+              <span className="text-sm font-semibold text-primary">🇹🇹 Latest from IslandHop</span>
+            </div>
+            <h2 className="font-heading text-4xl md:text-5xl font-extrabold text-secondary tracking-tight">
+              News &amp; <span className="text-primary">Our Vision</span>
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl mx-auto">
+            {/* Latest News */}
+            <div className="group relative rounded-2xl border border-slate-100 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] p-8 hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-1" data-testid="news-block">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-primary" />
+                </div>
+                <span className="text-xs font-bold uppercase tracking-widest text-primary">Now Expanding</span>
+              </div>
+              <h3 className="text-2xl font-bold text-secondary mb-3">Officially expanding across Trinidad &amp; Tobago</h3>
+              <p className="text-muted-foreground leading-relaxed text-lg">
+                IslandHop is officially expanding its footprint across Trinidad &amp; Tobago! We are currently onboarding our first wave of logistics partners and service professionals to bring you the best on-demand experience in the Caribbean. Stay tuned for our live launch!
+              </p>
+            </div>
+
+            {/* Our Vision */}
+            <div className="group relative rounded-2xl border border-slate-100 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] p-8 hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-1" data-testid="vision-block">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+                  <Heart className="h-6 w-6 text-accent" />
+                </div>
+                <span className="text-xs font-bold uppercase tracking-widest text-accent">Why IslandHop</span>
+              </div>
+              <h3 className="text-2xl font-bold text-secondary mb-3">Community-first, built for the T&amp;T landscape</h3>
+              <p className="text-muted-foreground leading-relaxed text-lg">
+                We&apos;re more than just delivery; we&apos;re a community-first platform designed to empower local artisans, technicians, and drivers. Delivering anything, anytime, anywhere—built specifically for the T&amp;T landscape.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
 
       {/* App Download Section */}
       <section className="py-20 bg-gold-gradient">
@@ -892,18 +1164,49 @@ const PartnerSelection = () => {
   return (
     <div className="min-h-screen bg-matte-900 py-16 relative overflow-hidden">
       {/* Ambient gold glow to match landing page */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,175,55,0.12),transparent_60%)] pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.12),transparent_60%)] pointer-events-none"></div>
       <div className="absolute -top-20 -right-20 h-80 w-80 rounded-full bg-gold-500/10 blur-3xl pointer-events-none"></div>
 
       <div className="relative container mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="font-heading text-4xl lg:text-5xl font-bold text-white mb-6">
+          <h1 className="font-heading text-4xl lg:text-5xl font-bold text-secondary mb-6">
             Become a <span className="text-gold-gradient">Partner</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
             Join IslandHop&apos;s growing network of Caribbean businesses and reach more customers than ever before
           </p>
+          <div data-testid="partner-rate-highlight" className="mt-6 inline-flex flex-wrap items-center justify-center gap-3 max-w-3xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 border border-gray-500/30 text-secondary/80 px-4 py-1.5 text-sm font-semibold">
+              Standard (Free): 15% commission
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500/10 border border-gold-500/30 text-gold-400 px-4 py-1.5 text-sm font-semibold">
+              Pro (TT$800/mo): 10% + Featured Partner
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-4 py-1.5 text-sm font-semibold">
+              Premium (TT$1,600/mo): 5% + Premium Marketing
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl mx-auto">
+            Start free on Standard, then upgrade to <span className="text-gold-400 font-semibold">Pro</span> or <span className="text-yellow-500 font-semibold">Premium</span> anytime to lower your commission and boost your search visibility. You always keep 100% of your menu pricing.
+          </p>
         </div>
+
+        {/* Merchant subscription tiers */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-4xl mx-auto mb-14" data-testid="partner-merchant-tiers">
+          {[
+            { name: 'Standard', price: 'Free', commission: '15% commission', perk: 'Standard placement', cls: 'border-border' },
+            { name: 'Pro', price: 'TT$800/mo', commission: '10% commission', perk: 'Featured Partner visibility', cls: 'border-gold-500/40 bg-gold-500/5' },
+            { name: 'Premium', price: 'TT$1,600/mo', commission: '5% commission', perk: 'Premium Marketing + Priority Support', cls: 'border-yellow-500/40 bg-yellow-500/5' },
+          ].map((t) => (
+            <div key={t.name} className={`rounded-xl border ${t.cls} p-5 text-center`} data-testid={`partner-tier-${t.name.toLowerCase()}`}>
+              <p className="font-heading text-lg font-bold text-secondary">{t.name}</p>
+              <p className="text-gold-400 font-semibold text-sm mt-1">{t.price}</p>
+              <p className="text-2xl font-bold text-secondary mt-3">{t.commission}</p>
+              <p className="text-xs text-muted-foreground mt-2">{t.perk}</p>
+            </div>
+          ))}
+        </div>
+        <div className="text-center -mt-6 mb-2"><span className="sr-only">tiers</span></div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
           {partnerTypes.map((partner) => (
@@ -919,8 +1222,8 @@ const PartnerSelection = () => {
                     <partner.icon className="h-8 w-8 text-matte-900" />
                   </div>
                   <div>
-                    <h3 className="font-heading text-2xl font-bold text-white">{partner.name}</h3>
-                    <Badge className="mt-1 bg-gold-500/15 text-gold-300 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
+                    <h3 className="font-heading text-2xl font-bold text-secondary">{partner.name}</h3>
+                    <Badge className="mt-1 bg-gold-500/15 text-gold-700 border border-gold-500/30 hover:bg-gold-500/20">{partner.commission} commission</Badge>
                   </div>
                 </div>
 
@@ -929,7 +1232,7 @@ const PartnerSelection = () => {
                 </p>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold text-white mb-3">Key Benefits:</h4>
+                  <h4 className="font-semibold text-secondary mb-3">Key Benefits:</h4>
                   <ul className="space-y-2">
                     {partner.benefits.map((benefit) => (
                       <li key={benefit} className="flex items-center text-sm text-muted-foreground">
@@ -955,7 +1258,7 @@ const PartnerSelection = () => {
         <div className="mt-16 text-center">
           <Card className="max-w-4xl mx-auto bg-matte-800 border border-gold-500/30 shadow-gold-glow">
             <CardContent className="p-8">
-              <h3 className="font-heading text-2xl font-bold mb-6 text-white">Why Partner with <span className="text-gold-gradient">IslandHop?</span></h3>
+              <h3 className="font-heading text-2xl font-bold mb-6 text-secondary">Why Partner with <span className="text-gold-gradient">IslandHop?</span></h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
                   <div className="text-3xl font-bold mb-2 text-gold-gradient">10K+</div>
@@ -1161,8 +1464,10 @@ const Dashboard = () => {
 
   const fetchApplications = async () => {
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: true
+        withCredentials: false,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setApplications(response.data);
     } catch (error) {
@@ -1197,6 +1502,21 @@ const Dashboard = () => {
 
         <ReferralBanner />
 
+        {(!user.picture || !user.address || !user.address.street) && (
+          <Card className="mb-6 border-gold-500/40 bg-gold-500/5" data-testid="complete-profile-banner">
+            <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4">
+              <div className="flex items-center gap-3">
+                <UserCircle className="h-8 w-8 text-gold-500 shrink-0" />
+                <div>
+                  <p className="font-semibold text-foreground">Complete your profile</p>
+                  <p className="text-sm text-muted-foreground">Add a profile picture and delivery address to start ordering.</p>
+                </div>
+              </div>
+              <Button onClick={() => navigate('/profile')} data-testid="complete-profile-btn">Complete now</Button>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
           <Card className="col-span-full lg:col-span-2">
@@ -1208,7 +1528,8 @@ const Dashboard = () => {
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
-                  onClick={() => navigate('/services')}
+                  onClick={() => navigate('/businesses')}
+                  data-testid="quick-action-place-order"
                 >
                   <Package className="h-6 w-6" />
                   <span className="text-sm">Place Order</span>
@@ -1251,6 +1572,16 @@ const Dashboard = () => {
                   <AlertCircle className="h-6 w-6" />
                   <span className="text-sm">My Claims</span>
                 </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col items-center justify-center space-y-2 border-gold-500/40 hover:border-gold-500"
+                  onClick={() => navigate('/promote')}
+                  data-testid="quick-action-promote"
+                >
+                  <Megaphone className="h-6 w-6 text-gold-500" />
+                  <span className="text-sm">Promote &amp; Earn</span>
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -1263,7 +1594,7 @@ const Dashboard = () => {
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-3">
                 {user.picture ? (
-                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full" />
+                  <img src={user.picture} alt={user.name} className="w-12 h-12 rounded-full object-cover" />
                 ) : (
                   <div className="w-12 h-12 bg-gold-gradient rounded-full flex items-center justify-center text-white font-bold">
                     {user.name.charAt(0)}
@@ -1274,9 +1605,16 @@ const Dashboard = () => {
                   <div className="text-sm text-muted-foreground">{user.email}</div>
                 </div>
               </div>
+              {user.address?.street && (
+                <div className="flex items-start gap-2 text-sm text-muted-foreground" data-testid="profile-card-address">
+                  <MapPin className="h-4 w-4 mt-0.5 text-gold-500 shrink-0" />
+                  <span>{[user.address.street, user.address.city, user.address.country].filter(Boolean).join(', ')}</span>
+                </div>
+              )}
               <div className="pt-4 border-t">
                 <Badge variant="secondary" className="mb-2">Active Member</Badge>
-                <p className="text-xs text-muted-foreground">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <p className="text-xs text-muted-foreground mb-3">Member since {new Date(user.created_at).toLocaleDateString()}</p>
+                <Button variant="outline" size="sm" className="w-full" onClick={() => navigate('/profile')} data-testid="edit-profile-btn">Edit Profile</Button>
               </div>
             </CardContent>
           </Card>
@@ -1313,8 +1651,25 @@ const Dashboard = () => {
               ) : (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground mb-4">No business applications yet</p>
-                  <Button onClick={() => navigate('/partner')}>
-                    Become a Partner
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    <Button onClick={() => navigate('/partner')} data-testid="profile-become-partner-btn">
+                      Become a Partner
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn">
+                      <Truck className="mr-2 h-4 w-4" />
+                      Become a Driver
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!loading && applications.length > 0 && (
+                <div className="mt-4 pt-4 border-t flex flex-wrap gap-3">
+                  <Button variant="outline" size="sm" onClick={() => navigate('/partner')} data-testid="profile-add-partner-btn">
+                    Add Another Partner Application
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/driver-onboarding')} data-testid="profile-become-driver-btn-2">
+                    <Truck className="mr-2 h-4 w-4" />
+                    Become a Driver
                   </Button>
                 </div>
               )}
@@ -1329,7 +1684,22 @@ const Dashboard = () => {
 // Restaurants Page Component
 const RestaurantsPage = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const [restaurants, setRestaurants] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/restaurants`)
+      .then((res) => setRestaurants(res.data || []))
+      .catch(() => setRestaurants([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const cardGradients = [
+    'from-red-500 to-orange-500',
+    'from-green-500 to-emerald-500',
+    'from-purple-500 to-pink-500',
+    'from-gold-300 to-gold-700',
+  ];
 
   return (
     <div className="min-h-screen bg-matte-900 py-12">
@@ -1343,62 +1713,52 @@ const RestaurantsPage = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {/* Sample restaurant cards - this would be populated from API */}
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg mb-4 flex items-center justify-center">
-                <Utensils className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Island Spice Kitchen</h3>
-              <p className="text-muted-foreground mb-4">Authentic Jamaican cuisine with a modern twist</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.8 (120 reviews)</span>
-                </div>
-                <Badge>30-45 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg mb-4 flex items-center justify-center">
-                <ChefHat className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Tropical Delights</h3>
-              <p className="text-muted-foreground mb-4">Fresh seafood and tropical flavors</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.6 (89 reviews)</span>
-                </div>
-                <Badge>25-40 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
-            <CardContent className="p-6">
-              <div className="w-full h-48 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg mb-4 flex items-center justify-center">
-                <Utensils className="h-12 w-12 text-white" />
-              </div>
-              <h3 className="text-xl font-bold text-foreground mb-2">Caribbean Fusion</h3>
-              <p className="text-muted-foreground mb-4">International dishes with Caribbean flair</p>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Star className="h-4 w-4 text-gold-500 mr-1" />
-                  <span className="text-sm">4.9 (156 reviews)</span>
-                </div>
-                <Badge>35-50 min</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-500/40"></div>
+          </div>
+        ) : restaurants.length === 0 ? (
+          <p className="text-center text-muted-foreground py-16" data-testid="restaurants-empty">
+            No restaurants available yet. Check back soon!
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" data-testid="restaurants-grid">
+            {restaurants.map((r, i) => (
+              <Card
+                key={r.id}
+                data-testid={`restaurant-card-${r.id}`}
+                onClick={() => navigate(`/restaurant/${r.id}`)}
+                className={`group cursor-pointer hover:shadow-xl transition-all duration-300 hover:-translate-y-2 ${r.featured ? 'border-2 border-gold-500/50 shadow-gold-500/10 shadow-lg' : ''}`}
+              >
+                <CardContent className="p-6">
+                  <div className={`relative w-full h-48 bg-gradient-to-r ${cardGradients[i % cardGradients.length]} rounded-lg mb-4 flex items-center justify-center`}>
+                    <Utensils className="h-12 w-12 text-white" />
+                    {r.featured && (
+                      <Badge
+                        data-testid={`restaurant-featured-badge-${r.id}`}
+                        className="absolute top-3 left-3 bg-gold-gradient text-white border-0 shadow-md"
+                      >
+                        <Star className="h-3 w-3 mr-1 fill-current" /> Featured
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-bold text-foreground mb-2">{r.name}</h3>
+                  <p className="text-muted-foreground mb-4 line-clamp-2">{r.description}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <Star className="h-4 w-4 text-gold-500 mr-1" />
+                      <span className="text-sm">{(r.rating || 0).toFixed(1)}</span>
+                    </div>
+                    <Badge variant="secondary">{r.estimated_delivery_time || 30} min</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         <div className="text-center mt-12">
-          <Button 
+          <Button
             onClick={() => navigate('/partner')}
             className="bg-gold-gradient text-white"
           >
@@ -1444,7 +1804,7 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       toast({
@@ -1670,19 +2030,28 @@ function App() {
   return (
     <AuthProvider>
       <ModeProvider>
+        <CurrencyProvider>
+        <LocationConsentProvider>
         <Router>
-          <div className="min-h-screen bg-matte-900">
+          <div className="min-h-screen bg-background">
             <Header />
-            <AuthHandler />
-          
+
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[60vh]" data-testid="route-loading"><div className="h-10 w-10 rounded-full border-4 border-gold-500/30 border-t-gold-500 animate-spin" /></div>}>
           <Routes>
+            <Route path="/theme-preview" element={<ThemePreview />} />
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<SocialAuthCallback />} />
+            <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
+            <Route path="/driver/verification/callback" element={<IdentityVerificationCallback />} />
             <Route path="/signup" element={<AuthPage mode="signup" />} />
             <Route path="/pricing" element={<SubscriptionPlans />} />
             <Route path="/restaurants" element={<RestaurantsPage />} />
+            <Route path="/businesses" element={<BusinessSearch />} />
+            <Route path="/t/:orderId" element={<PublicTrack />} />
             <Route path="/restaurant/:restaurantId" element={<RestaurantMenu />} />
             <Route path="/taxi-booking" element={<TaxiBookingForm />} />
             <Route path="/courier-order" element={<CourierOrderForm />} />
@@ -1693,30 +2062,44 @@ function App() {
             <Route path="/partner/onboarding" element={<BusinessOnboarding />} />
             <Route path="/support" element={<AISupport />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/terms-and-conditions" element={<Terms />} />
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
+            <Route path="/join/:code" element={<JoinLanding />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+            <Route path="/wallet" element={<Navigate to="/dashboard" replace />} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+            <Route path="/promote" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />
             <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
             <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
-            <Route path="/payment/success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
-            <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancel /></ProtectedRoute>} />
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/cancel" element={<PaymentCancel />} />
 
             {/* Driver-only */}
             <Route path="/driver-dashboard" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverDashboard /></ProtectedRoute>} />
             <Route path="/driver-onboarding" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverOnboarding /></ProtectedRoute>} />
             <Route path="/driver" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ONBOARD}><DriverRegistration /></ProtectedRoute>} />
             <Route path="/driver/earnings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverEarningsDashboard /></ProtectedRoute>} />
+            <Route path="/driver/subscription" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSubscription /></ProtectedRoute>} />
+            <Route path="/driver/settings" element={<ProtectedRoute allowedRoles={ROLES_DRIVER_ADMIN}><DriverSettings /></ProtectedRoute>} />
 
             {/* Merchant / Vendor only */}
             <Route path="/vendor-dashboard" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorDashboard /></ProtectedRoute>} />
             <Route path="/restaurant-onboarding" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ONBOARD}><RestaurantOnboarding /></ProtectedRoute>} />
             <Route path="/menu-management" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><RestaurantMenuManagement /></ProtectedRoute>} />
+            <Route path="/merchant/storefront" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantStorefrontEditor /></ProtectedRoute>} />
+            <Route path="/merchant/products" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantProducts /></ProtectedRoute>} />
+            <Route path="/merchant/coupons" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantCoupons /></ProtectedRoute>} />
+            <Route path="/merchant/subscription" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSubscription /></ProtectedRoute>} />
+            <Route path="/merchant/ads" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantAds /></ProtectedRoute>} />
+            <Route path="/vendor/settings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><MerchantSettings /></ProtectedRoute>} />
             <Route path="/business/earnings" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><BusinessEarningsDashboard /></ProtectedRoute>} />
             <Route path="/vendor/connect-stripe" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
             <Route path="/vendor/stripe-return" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><VendorStripeConnect /></ProtectedRoute>} />
@@ -1724,16 +2107,23 @@ function App() {
             <Route path="/promo-codes" element={<ProtectedRoute allowedRoles={ROLES_VENDOR_ADMIN}><PromoCodeManagement /></ProtectedRoute>} />
 
             {/* Admin only */}
-            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminPanel /></ProtectedRoute>} />
+            <Route path="/admin/invite/:token" element={<AdminInviteAccept />} />
             <Route path="/analytics" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_ONLY}><KPIDashboard /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          </Suspense>
 
           <Footer />
           <Toaster />
+          <Suspense fallback={null}>
+            <AssistantWidget />
+          </Suspense>
         </div>
       </Router>
+      </LocationConsentProvider>
+      </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>
   );

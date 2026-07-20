@@ -30,9 +30,9 @@ const DriverEarningsCards = ({ earnings }) => {
       label: 'Wallet Balance',
       value: earnings.balance,
       icon: Wallet,
-      iconColor: 'text-neon-cyan',
+      iconColor: 'text-teal-700',
       iconBg: 'bg-neon-cyan/15',
-      valueColor: 'text-neon-cyan',
+      valueColor: 'text-teal-700',
       testid: 'earnings-balance',
     },
     {

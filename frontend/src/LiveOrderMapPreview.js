@@ -35,13 +35,13 @@ const LiveOrderMapPreview = () => {
         <svg viewBox="0 0 600 320" className="absolute inset-0 w-full h-full opacity-90" preserveAspectRatio="xMidYMid slice">
           <defs>
             <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#D4AF37" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#D4AF37" stopOpacity="0" />
+              <stop offset="0%" stopColor="#F97316" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#F97316" stopOpacity="0" />
             </radialGradient>
             <linearGradient id="trail" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#00E5FF" stopOpacity="0" />
               <stop offset="50%" stopColor="#00E5FF" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#D4AF37" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#F97316" stopOpacity="0.9" />
             </linearGradient>
           </defs>
           {/* faux Trinidad shape */}
@@ -72,8 +72,8 @@ const LiveOrderMapPreview = () => {
           ))}
           {[[300, 210], [360, 225], [478, 118]].map(([x, y], i) => (
             <g key={`d-${i}`}>
-              <circle cx={x} cy={y} r="5" fill="#D4AF37" />
-              <circle cx={x} cy={y} r="11" fill="#D4AF37" opacity="0.3">
+              <circle cx={x} cy={y} r="5" fill="#F97316" />
+              <circle cx={x} cy={y} r="11" fill="#F97316" opacity="0.3">
                 <animate attributeName="r" from="6" to="14" dur="1.8s" begin={`${i * 0.4}s`} repeatCount="indefinite" />
                 <animate attributeName="opacity" from="0.4" to="0" dur="1.8s" begin={`${i * 0.4}s`} repeatCount="indefinite" />
               </circle>

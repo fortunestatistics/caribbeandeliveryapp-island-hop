@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -22,7 +23,8 @@ import {
   AlertCircle,
   Send,
   Star,
-  ThumbsUp
+  ThumbsUp,
+  Share2
 } from 'lucide-react';
 import { orderAPI, chatAPI, createWebSocket } from './services/api';
 
@@ -30,6 +32,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const OrderTrackingPage = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const { orderId } = useParams();
   const [searchParams] = useSearchParams();
@@ -41,6 +44,7 @@ const OrderTrackingPage = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Fetch order data from API
   useEffect(() => {
@@ -78,6 +82,7 @@ const OrderTrackingPage = () => {
         wsRef.current.close();
       }
     };
+    // eslint-disable-next-line -- re-fetch order + reconnect WS on orderId change
   }, [orderId]);
 
   const handleWebSocketMessage = (data) => {
@@ -239,9 +244,30 @@ const OrderTrackingPage = () => {
               <h1 className="text-3xl font-bold text-foreground mb-2">Track Your Order</h1>
               <p className="text-muted-foreground">Order ID: {order.id}</p>
             </div>
-            <Badge className="bg-gold-gradient text-white text-lg px-4 py-2">
-              {getServiceTitle()}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  const link = `${window.location.origin}/t/${order.id}`;
+                  try {
+                    if (navigator.share) {
+                      await navigator.share({ title: 'Track my IslandHop delivery', text: 'Follow my delivery live:', url: link });
+                    } else {
+                      await navigator.clipboard.writeText(link);
+                      setShareCopied(true);
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }
+                  } catch (e) { /* user cancelled share */ }
+                }}
+                data-testid="share-tracking-btn"
+              >
+                <Share2 className="h-4 w-4 mr-2" />
+                {shareCopied ? 'Link copied!' : 'Share tracking'}
+              </Button>
+              <Badge className="bg-gold-gradient text-white text-lg px-4 py-2">
+                {getServiceTitle()}
+              </Badge>
+            </div>
           </div>
         </div>
 
@@ -350,7 +376,7 @@ const OrderTrackingPage = () => {
                               {item.quantity}x {item.name}
                             </span>
                             <span className="font-semibold text-foreground">
-                              ${item.price.toFixed(2)}
+                              {format(item.price)}
                             </span>
                           </div>
                         ))}
@@ -359,7 +385,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total</span>
-                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">{format(order.total)}</span>
                     </div>
                   </>
                 )}
@@ -369,7 +395,7 @@ const OrderTrackingPage = () => {
                     <Separator />
                     <div className="flex justify-between font-bold text-lg">
                       <span>Fare</span>
-                      <span className="text-gold-500">${order.total.toFixed(2)}</span>
+                      <span className="text-gold-500">{format(order.total)}</span>
                     </div>
                   </>
                 )}

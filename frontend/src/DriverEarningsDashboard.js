@@ -1,506 +1,207 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
-import { 
-  DollarSign, 
-  TrendingUp, 
-  Clock, 
-  CheckCircle,
-  Download,
-  ArrowUpRight,
-  Wallet,
-  CreditCard,
-  Calendar,
-  Info,
-  AlertCircle,
-  PieChart
+import {
+  TrendingUp, Clock, CheckCircle, Wallet, CreditCard, Info, Loader2, Inbox,
 } from 'lucide-react';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const DriverEarningsDashboard = () => {
   const navigate = useNavigate();
-  const [timeRange, setTimeRange] = useState('week');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState({
+    balance: 0, pending: 0, totalEarned: 0, completed: 0, transactions: [],
+  });
 
-  // Demo data - replace with API call
-  const earningsData = {
-    currentBalance: 1245.50,
-    pendingEarnings: 325.75,
-    totalEarnings: 15678.90,
-    weeklyEarnings: 892.30,
-    monthlyEarnings: 3456.80,
-    completedDeliveries: 156,
-    averageEarningPerDelivery: 8.45,
-    lastPayout: {
-      amount: 1180.00,
-      date: '2024-10-13',
-      status: 'Completed'
-    },
-    nextPayoutDate: '2024-10-20',
-    
-    // Fee breakdown structure
-    feeStructure: {
-      platformCommission: 15, // percentage
-      driverEarnings: 85, // percentage
-      serviceFee: 2.50, // fixed per delivery
-      description: 'IslandHop takes 15% commission + $2.50 service fee per delivery'
-    },
-    
-    // Recent transactions
-    recentTransactions: [
-      {
-        id: 'TXN-001',
-        date: '2024-10-15 14:30',
-        type: 'Food Delivery',
-        customer: 'John Doe',
-        orderTotal: 68.00,
-        deliveryFee: 12.00,
-        tip: 5.00,
-        platformFee: -1.80,
-        serviceFee: -2.50,
-        yourEarnings: 12.70,
-        status: 'Completed'
-      },
-      {
-        id: 'TXN-002',
-        date: '2024-10-15 12:15',
-        type: 'Grocery Delivery',
-        customer: 'Jane Smith',
-        orderTotal: 125.00,
-        deliveryFee: 15.00,
-        tip: 8.00,
-        platformFee: -2.25,
-        serviceFee: -2.50,
-        yourEarnings: 18.25,
-        status: 'Completed'
-      },
-      {
-        id: 'TXN-003',
-        date: '2024-10-15 10:00',
-        type: 'Taxi Ride',
-        customer: 'Mike Johnson',
-        orderTotal: 45.00,
-        fare: 45.00,
-        tip: 7.00,
-        platformFee: -6.75,
-        serviceFee: -2.50,
-        yourEarnings: 42.75,
-        status: 'Completed'
-      },
-      {
-        id: 'TXN-004',
-        date: '2024-10-15 08:30',
-        type: 'Pharmacy Delivery',
-        customer: 'Sarah Williams',
-        orderTotal: 85.00,
-        deliveryFee: 10.00,
-        tip: 3.00,
-        platformFee: -1.50,
-        serviceFee: -2.50,
-        yourEarnings: 9.00,
-        status: 'Completed'
-      },
-      {
-        id: 'TXN-005',
-        date: '2024-10-14 19:45',
-        type: 'Food Delivery',
-        customer: 'David Brown',
-        orderTotal: 92.00,
-        deliveryFee: 14.00,
-        tip: 10.00,
-        platformFee: -2.10,
-        serviceFee: -2.50,
-        yourEarnings: 19.40,
-        status: 'Pending',
-        note: 'Payment processing - will be added to balance in 24h'
+  useEffect(() => {
+    const load = async () => {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      try {
+        const me = await axios.get(`${API}/drivers/me`, cfg);
+        const driverId = me.data?.id;
+        if (!driverId) { setError('No driver profile found for this account.'); return; }
+        const [wallet, orders] = await Promise.all([
+          axios.get(`${API}/drivers/${driverId}/wallet`, cfg),
+          axios.get(`${API}/drivers/${driverId}/completed-orders`, cfg).catch(() => ({ data: [] })),
+        ]);
+        const txns = (orders.data || []).map((o) => ({
+          id: o.id,
+          date: o.delivered_at || o.updated_at || o.created_at,
+          type: o.service_type || 'Delivery',
+          earnings: Number(o.driver_earnings || 0),
+          orderTotal: Number(o.total || 0),
+          tip: Number(o.tip || 0),
+          status: o.driver_payout_status === 'paid' ? 'Paid' : 'Pending',
+        }));
+        setData({
+          balance: Number(wallet.data?.available_balance || 0),
+          pending: Number(wallet.data?.pending_earnings || 0),
+          totalEarned: Number(wallet.data?.total_earned || 0),
+          completed: txns.length,
+          transactions: txns,
+        });
+      } catch (e) {
+        setError(e?.response?.data?.detail || 'Could not load your earnings.');
+      } finally {
+        setLoading(false);
       }
-    ]
-  };
-
-  const calculateEarningsBreakdown = (transaction) => {
-    const baseEarning = transaction.deliveryFee || transaction.fare;
-    const platformCommission = (baseEarning * earningsData.feeStructure.platformCommission) / 100;
-    const yourShare = baseEarning - platformCommission - earningsData.feeStructure.serviceFee + (transaction.tip || 0);
-    
-    return {
-      baseEarning,
-      platformCommission,
-      serviceFee: earningsData.feeStructure.serviceFee,
-      tip: transaction.tip || 0,
-      yourShare
     };
-  };
+    load();
+  }, []);
+
+  const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br bg-background py-8">
+    <div className="min-h-screen bg-background py-8" data-testid="driver-earnings-page">
       <div className="container mx-auto px-4 max-w-7xl">
-        {/* Header */}
         <div className="mb-8">
-          <Button 
-            variant="ghost" 
-            onClick={() => navigate('/dashboard')}
-            className="mb-4"
-          >
+          <Button variant="ghost" onClick={() => navigate('/driver-dashboard')} className="mb-4">
             ← Back to Dashboard
           </Button>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground mb-2">Driver Earnings</h1>
-              <p className="text-muted-foreground">Track your earnings, fees, and payouts</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Driver Earnings</h1>
+          <p className="text-muted-foreground">Track your real earnings, fees, and payouts</p>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-24 text-muted-foreground" data-testid="earnings-loading">
+            <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading your earnings…
+          </div>
+        ) : error ? (
+          <Card><CardContent className="p-8 text-center text-muted-foreground" data-testid="earnings-error">{error}</CardContent></Card>
+        ) : (
+          <>
+            {/* Summary Cards — real data */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <Card data-testid="earnings-balance">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center"><Wallet className="h-6 w-6 text-green-600" /></div>
+                    <Badge className="bg-green-100 text-green-700">Available</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
+                  <h3 className="text-2xl font-bold text-foreground">{money(data.balance)}</h3>
+                </CardContent>
+              </Card>
+              <Card data-testid="earnings-pending">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center"><Clock className="h-6 w-6 text-yellow-600" /></div>
+                    <Badge className="bg-gold-500/15 text-yellow-700">Processing</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-1">Pending Earnings</p>
+                  <h3 className="text-2xl font-bold text-foreground">{money(data.pending)}</h3>
+                </CardContent>
+              </Card>
+              <Card data-testid="earnings-total">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center"><TrendingUp className="h-6 w-6 text-gold-500" /></div>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-1">Total Earned</p>
+                  <h3 className="text-2xl font-bold text-foreground">{money(data.totalEarned)}</h3>
+                </CardContent>
+              </Card>
+              <Card data-testid="earnings-completed">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center"><CheckCircle className="h-6 w-6 text-gold-500" /></div>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-1">Completed Deliveries</p>
+                  <h3 className="text-2xl font-bold text-foreground">{data.completed}</h3>
+                </CardContent>
+              </Card>
             </div>
-            <Button className="bg-gold-gradient text-white">
-              <Download className="h-4 w-4 mr-2" />
-              Export Statement
-            </Button>
-          </div>
-        </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <Wallet className="h-6 w-6 text-green-600" />
-                </div>
-                <Badge className="bg-green-100 text-green-700">Available</Badge>
-              </div>
-              <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
-              <h3 className="text-2xl font-bold text-foreground">${earningsData.currentBalance.toFixed(2)}</h3>
-              <Button 
-                size="sm" 
-                className="w-full mt-4 bg-gradient-to-r from-green-500 to-green-600 text-white"
-                onClick={() => alert('Withdrawal feature coming soon!')}
-              >
-                Withdraw Funds
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center">
-                  <Clock className="h-6 w-6 text-yellow-600" />
-                </div>
-                <Badge className="bg-gold-500/15 text-yellow-700">Processing</Badge>
-              </div>
-              <p className="text-sm text-muted-foreground mb-1">Pending Earnings</p>
-              <h3 className="text-2xl font-bold text-foreground">${earningsData.pendingEarnings.toFixed(2)}</h3>
-              <p className="text-xs text-muted-foreground mt-2">Available after 24h processing</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center">
-                  <TrendingUp className="h-6 w-6 text-gold-500" />
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground mb-1">This Week</p>
-              <h3 className="text-2xl font-bold text-foreground">${earningsData.weeklyEarnings.toFixed(2)}</h3>
-              <div className="flex items-center text-sm text-green-600 mt-2">
-                <ArrowUpRight className="h-4 w-4 mr-1" />
-                <span>+12% from last week</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-gold-500/15 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="h-6 w-6 text-gold-500" />
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground mb-1">Completed Deliveries</p>
-              <h3 className="text-2xl font-bold text-foreground">{earningsData.completedDeliveries}</h3>
-              <p className="text-xs text-muted-foreground mt-2">Avg: ${earningsData.averageEarningPerDelivery.toFixed(2)}/delivery</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Transactions */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Fee Structure Info */}
-            <Card className="border-2 border-gold-500/30 bg-gold-500/15/50">
-              <CardHeader>
-                <CardTitle className="flex items-center text-turquoise-900">
-                  <Info className="h-5 w-5 mr-2" />
-                  How Your Earnings Work
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="bg-card rounded-lg p-4">
-                  <h4 className="font-semibold text-foreground mb-3">Payment Breakdown Per Delivery:</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Your Earnings</span>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-6">
+                {/* Fee structure — real policy info */}
+                <Card className="border-2 border-gold-500/30">
+                  <CardHeader>
+                    <CardTitle className="flex items-center"><Info className="h-5 w-5 mr-2 text-gold-500" />How Your Earnings Work</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="rounded-lg border border-matte-700 p-3" data-testid="tier-standard">
+                        <p className="font-semibold text-foreground">Standard</p>
+                        <p className="text-xs text-gold-600 font-semibold mb-1">Free</p>
+                        <p className="text-2xl font-bold text-green-600">80%</p>
+                        <p className="text-xs text-muted-foreground">of delivery fees + 100% of tips.</p>
                       </div>
-                      <span className="font-semibold text-green-600">{earningsData.feeStructure.driverEarnings}%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gold-gradient rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Platform Commission</span>
+                      <div className="rounded-lg border-2 border-gold-500/40 bg-gold-500/10 p-3" data-testid="tier-pro">
+                        <p className="font-semibold text-foreground">Pro</p>
+                        <p className="text-xs text-gold-600 font-semibold mb-1">TT$700/mo</p>
+                        <p className="text-2xl font-bold text-green-600">90%</p>
+                        <p className="text-xs text-muted-foreground">of delivery fees + 100% of tips.</p>
                       </div>
-                      <span className="font-semibold text-gold-500">{earningsData.feeStructure.platformCommission}%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gray-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Service Fee (per delivery)</span>
+                      <div className="rounded-lg border-2 border-yellow-500/40 bg-yellow-500/10 p-3" data-testid="tier-premium">
+                        <p className="font-semibold text-foreground">Premium</p>
+                        <p className="text-xs text-gold-600 font-semibold mb-1">TT$1,400/mo</p>
+                        <p className="text-2xl font-bold text-green-600">100%</p>
+                        <p className="text-xs text-muted-foreground">of delivery fees + 100% of tips.</p>
                       </div>
-                      <span className="font-semibold text-muted-foreground">${earningsData.feeStructure.serviceFee.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 bg-gold-500 rounded-full mr-3"></div>
-                        <span className="text-foreground/90">Tips</span>
-                      </div>
-                      <span className="font-semibold text-yellow-600">100% Yours</span>
-                    </div>
-                  </div>
-                  <Separator className="my-3" />
-                  <p className="text-sm text-muted-foreground italic">
-                    {earningsData.feeStructure.description}
-                  </p>
-                </div>
+                    <Separator className="my-3" />
+                    <p className="text-sm text-muted-foreground italic">The flat $3.00 service fee is paid by the customer and never deducted from you. All tiers keep 100% of tips.</p>
+                  </CardContent>
+                </Card>
 
-                {/* Example Calculation */}
-                <div className="bg-gold-gradient rounded-lg p-4 text-white">
-                  <h4 className="font-semibold mb-2">Example Calculation:</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span>Delivery Fee:</span>
-                      <span className="font-semibold">$12.00</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Customer Tip:</span>
-                      <span className="font-semibold">$5.00</span>
-                    </div>
-                    <div className="flex justify-between opacity-80">
-                      <span>- Platform Commission (15%):</span>
-                      <span>-$1.80</span>
-                    </div>
-                    <div className="flex justify-between opacity-80">
-                      <span>- Service Fee:</span>
-                      <span>-$2.50</span>
-                    </div>
-                    <Separator className="my-2 opacity-50" />
-                    <div className="flex justify-between text-base font-bold">
-                      <span>You Earn:</span>
-                      <span>$12.70</span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Recent Transactions */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>Recent Transactions</span>
-                  <div className="flex space-x-2">
-                    {['week', 'month', 'all'].map((range) => (
-                      <Button
-                        key={range}
-                        size="sm"
-                        variant={timeRange === range ? 'default' : 'outline'}
-                        onClick={() => setTimeRange(range)}
-                        className={timeRange === range ? 'bg-gold-gradient text-white' : ''}
-                      >
-                        {range === 'week' ? 'Week' : range === 'month' ? 'Month' : 'All'}
-                      </Button>
-                    ))}
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {earningsData.recentTransactions.map((transaction) => {
-                    const breakdown = calculateEarningsBreakdown(transaction);
-                    return (
-                      <div key={transaction.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <div className="flex items-center space-x-2 mb-1">
-                              <h4 className="font-semibold text-foreground">{transaction.type}</h4>
-                              <Badge className={transaction.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-gold-500/15 text-yellow-700'}>
-                                {transaction.status}
-                              </Badge>
+                {/* Real transactions */}
+                <Card>
+                  <CardHeader><CardTitle>Recent Deliveries</CardTitle></CardHeader>
+                  <CardContent>
+                    {data.transactions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground" data-testid="earnings-empty">
+                        <Inbox className="h-10 w-10 mb-3 opacity-50" />
+                        <p className="font-medium">No deliveries yet</p>
+                        <p className="text-sm">Your completed deliveries and earnings will appear here.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4" data-testid="earnings-transactions">
+                        {data.transactions.map((t) => (
+                          <div key={t.id} className="border rounded-lg p-4">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-semibold text-foreground capitalize">{t.type}</h4>
+                                  <Badge className={t.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-gold-500/15 text-yellow-700'}>{t.status}</Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">{t.date ? new Date(t.date).toLocaleString() : ''}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xl font-bold text-green-600">+{money(t.earnings)}</p>
+                                <p className="text-xs text-muted-foreground">Your earnings</p>
+                              </div>
                             </div>
-                            <p className="text-sm text-muted-foreground">{transaction.customer}</p>
-                            <p className="text-xs text-muted-foreground">{transaction.date}</p>
                           </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-green-600">+${transaction.yourEarnings.toFixed(2)}</p>
-                            <p className="text-xs text-muted-foreground">Your Earnings</p>
-                          </div>
-                        </div>
-
-                        {/* Detailed Breakdown */}
-                        <div className="bg-background rounded-lg p-3 space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Order Total:</span>
-                            <span className="text-foreground">${transaction.orderTotal.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">{transaction.type === 'Taxi Ride' ? 'Fare:' : 'Delivery Fee:'}</span>
-                            <span className="text-foreground">${(transaction.deliveryFee || transaction.fare).toFixed(2)}</span>
-                          </div>
-                          {transaction.tip > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Tip:</span>
-                              <span className="text-green-600">+${transaction.tip.toFixed(2)}</span>
-                            </div>
-                          )}
-                          <Separator />
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Platform Fee (15%):</span>
-                            <span className="text-red-600">{transaction.platformFee.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">Service Fee:</span>
-                            <span className="text-red-600">{transaction.serviceFee.toFixed(2)}</span>
-                          </div>
-                          <Separator />
-                          <div className="flex justify-between font-semibold">
-                            <span className="text-foreground">Net Earnings:</span>
-                            <span className="text-green-600">${transaction.yourEarnings.toFixed(2)}</span>
-                          </div>
-                        </div>
-
-                        {transaction.note && (
-                          <div className="mt-2 flex items-start space-x-2 text-xs text-yellow-700 bg-gold-500/10 p-2 rounded">
-                            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                            <span>{transaction.note}</span>
-                          </div>
-                        )}
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
 
-          {/* Right Column - Payout Info */}
-          <div className="space-y-6">
-            {/* Next Payout */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Calendar className="h-5 w-5 mr-2 text-gold-500" />
-                  Next Payout
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="text-center p-4 bg-gold-gradient rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-2">Scheduled for</p>
-                  <p className="text-xl font-bold text-foreground">{earningsData.nextPayoutDate}</p>
-                  <p className="text-sm text-muted-foreground mt-2">Weekly automatic payout</p>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Payout Amount:</span>
-                    <span className="font-semibold text-foreground">${earningsData.currentBalance.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Payout Method:</span>
-                    <span className="text-foreground">Bank Transfer</span>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">
-                  Update Payout Settings
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Last Payout */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
-                  Last Payout
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Amount:</span>
-                  <span className="text-xl font-bold text-green-600">${earningsData.lastPayout.amount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Date:</span>
-                  <span className="text-sm text-foreground">{earningsData.lastPayout.date}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Status:</span>
-                  <Badge className="bg-green-100 text-green-700">{earningsData.lastPayout.status}</Badge>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Payment Methods */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <CreditCard className="h-5 w-5 mr-2 text-gold-500" />
-                  Payment Method
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="border rounded-lg p-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gold-gradient rounded-lg flex items-center justify-center">
-                      <CreditCard className="h-6 w-6 text-white" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground">Caribbean National Bank</p>
-                      <p className="text-sm text-muted-foreground">****  **** 4532</p>
-                    </div>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Update Banking Info
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Earnings Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <PieChart className="h-5 w-5 mr-2 text-gold-500" />
-                  Earnings Stats
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total Earned (All Time):</span>
-                    <span className="font-semibold text-foreground">${earningsData.totalEarnings.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">This Month:</span>
-                    <span className="font-semibold text-foreground">${earningsData.monthlyEarnings.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">This Week:</span>
-                    <span className="font-semibold text-foreground">${earningsData.weeklyEarnings.toFixed(2)}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+              {/* Payout / banking — real setup prompts */}
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader><CardTitle className="flex items-center"><CreditCard className="h-5 w-5 mr-2 text-gold-500" />Payouts</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-muted-foreground">Earnings are paid out weekly to your registered payout account. Your available balance above reflects funds ready for your next payout.</p>
+                    <Button variant="outline" className="w-full" onClick={() => navigate('/driver/subscription')} data-testid="manage-plan-btn">
+                      Manage your plan
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

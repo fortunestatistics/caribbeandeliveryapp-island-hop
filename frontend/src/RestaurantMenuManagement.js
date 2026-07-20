@@ -55,7 +55,7 @@ const RestaurantMenuManagement = () => {
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const response = await axios.get(`${API}/restaurants/my-menu`, {
-        withCredentials: true
+        withCredentials: false
       });
       setMenuItems(response.data);
       setLoading(false);
@@ -110,7 +110,7 @@ const RestaurantMenuManagement = () => {
 
     try {
       await axios.delete(`${API}/menu-items/${itemId}`, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchMenuItems();
     } catch (error) {
@@ -125,7 +125,7 @@ const RestaurantMenuManagement = () => {
         ...item,
         available: !item.available
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       fetchMenuItems();
     } catch (error) {
@@ -140,12 +140,12 @@ const RestaurantMenuManagement = () => {
       if (editingItem) {
         // Update existing item
         await axios.put(`${API}/menu-items/${editingItem.id}`, formData, {
-          withCredentials: true
+          withCredentials: false
         });
       } else {
         // Create new item
         await axios.post(`${API}/menu-items`, formData, {
-          withCredentials: true
+          withCredentials: false
         });
       }
 

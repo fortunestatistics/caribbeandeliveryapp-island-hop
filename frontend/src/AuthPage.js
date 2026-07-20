@@ -19,6 +19,19 @@ import {
 } from 'lucide-react';
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
+import { Checkbox } from './components/ui/checkbox';
+import axios from 'axios';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const MicrosoftIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+    <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+    <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+    <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+  </svg>
+);
 
 const AuthPage = ({ mode = 'login' }) => {
   const navigate = useNavigate();
@@ -42,8 +55,11 @@ const AuthPage = ({ mode = 'login' }) => {
     address: '',
     referralCode: initialRef
   });
+  const [authError, setAuthError] = useState('');
+  const [smsConsent, setSmsConsent] = useState(false);
 
   const handleInputChange = (e) => {
+    setAuthError('');
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
@@ -76,8 +92,9 @@ const AuthPage = ({ mode = 'login' }) => {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Login successful!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token
+        // (SPA navigate() leaves stale auth state and bounces back to /login).
+        window.location.href = '/dashboard';
       } else {
         const response = await authAPI.register({
           email: formData.email,
@@ -87,18 +104,25 @@ const AuthPage = ({ mode = 'login' }) => {
           address: formData.address,
           user_type: 'customer',
           referral_code: formData.referralCode || undefined,
-          otp_code: verifiedOtp || undefined
+          otp_code: verifiedOtp || undefined,
+          sms_consent: smsConsent
         });
         
         // Save token and user
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        alert('Account created successfully!');
-        navigate('/dashboard');
+        // Full reload so AuthContext re-initializes from the new token.
+        window.location.href = '/dashboard';
       }
     } catch (error) {
-      alert(error.response?.data?.detail || 'Authentication failed. Please try again.');
+      const detail = error.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d) => (d && typeof d.msg === 'string' ? d.msg : '')).filter(Boolean).join(' ')
+          : 'Authentication failed. Please try again.';
+      setAuthError(msg);
       console.error('Auth error:', error);
     }
   };
@@ -112,11 +136,28 @@ const AuthPage = ({ mode = 'login' }) => {
     }, 50);
   };
 
-  const handleSocialLogin = (provider) => {
+  const handleSocialLogin = async (provider) => {
     if (provider === 'Google') {
       // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
       const redirectUrl = window.location.origin + '/auth/callback';
       window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+      return;
+    }
+    if (provider === 'Microsoft') {
+      try {
+        const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('ms_oauth_state', state);
+        const redirectUri = window.location.origin + '/auth/microsoft/callback';
+        const res = await axios.get(`${API}/auth/social/microsoft/login-url`, {
+          params: { redirect_uri: redirectUri, state },
+        });
+        window.location.href = res.data.url;
+      } catch (err) {
+        const msg = err.response?.status === 503
+          ? 'Microsoft sign-in is not available in this environment yet.'
+          : 'Could not start Microsoft sign-in. Please try again.';
+        alert(msg);
+      }
       return;
     }
     alert(`${provider} login coming soon!`);
@@ -168,6 +209,16 @@ const AuthPage = ({ mode = 'login' }) => {
               >
                 <Chrome className="h-5 w-5 mr-2" />
                 Continue with Google
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => handleSocialLogin('Microsoft')}
+                data-testid="microsoft-login-btn"
+              >
+                <MicrosoftIcon className="h-5 w-5 mr-2" />
+                Continue with Microsoft
               </Button>
               <Button
                 type="button"
@@ -241,6 +292,27 @@ const AuthPage = ({ mode = 'login' }) => {
                       required
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    We use your number to send order &amp; account updates.
+                  </p>
+                </div>
+              )}
+
+              {authMode === 'signup' && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-3" data-testid="sms-consent-block">
+                  <Checkbox
+                    id="smsConsent"
+                    checked={smsConsent}
+                    onCheckedChange={(v) => setSmsConsent(v === true)}
+                    className="mt-0.5"
+                    data-testid="sms-consent-checkbox"
+                  />
+                  <Label htmlFor="smsConsent" className="text-xs font-normal leading-relaxed text-muted-foreground cursor-pointer" data-testid="sms-consent-text">
+                    By checking this box, I agree to receive automated transactional SMS notifications from IslandHop Technologies LLC at the number provided. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe, HELP for help. View our{' '}
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-gold-500 hover:underline">Privacy Policy (https://islandhopapp.com/privacy-policy)</a>{' '}
+                    and{' '}
+                    <a href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" className="text-gold-500 hover:underline">Terms (https://islandhopapp.com/terms-and-conditions)</a>.
+                  </Label>
                 </div>
               )}
 
@@ -336,6 +408,17 @@ const AuthPage = ({ mode = 'login' }) => {
                 </div>
               )}
 
+              {authError && (
+                <div
+                  className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-300"
+                  data-testid="auth-error-message"
+                  role="alert"
+                >
+                  {authError}
+                </div>
+              )}
+
+
               <Button
                 id="auth-form-submit-btn"
                 data-testid="auth-form-submit-btn"
@@ -362,11 +445,11 @@ const AuthPage = ({ mode = 'login' }) => {
             {authMode === 'signup' && (
               <p className="mt-4 text-xs text-center text-muted-foreground">
                 By creating an account, you agree to our{' '}
-                <a href="/terms" className="text-gold-500 hover:underline">
-                  Terms of Service
+                <a href="/terms-and-conditions" className="text-gold-500 hover:underline">
+                  Terms &amp; Conditions
                 </a>{' '}
                 and{' '}
-                <a href="/privacy" className="text-gold-500 hover:underline">
+                <a href="/privacy-policy" className="text-gold-500 hover:underline">
                   Privacy Policy
                 </a>
               </p>

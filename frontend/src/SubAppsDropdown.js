@@ -66,7 +66,7 @@ const SubAppsDropdown = () => {
           <Package className="h-6 w-6 text-white" />
         </div>
         <div className="hidden sm:block text-left">
-          <h1 className="text-xl font-bold text-foreground leading-tight">IslandHop</h1>
+          <span className="block text-xl font-bold text-foreground leading-tight">IslandHop</span>
           <p className="text-xs text-gold-500 flex items-center gap-1">
             Choose a panel <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
           </p>

@@ -1,0 +1,37 @@
+{
+  "summary": "Iter 28 — frontend verification of (1) admin review dialogs in Approvals/Claims/Fraud and (2) Subscription links across admin/driver/vendor/customer portals. All 5 feature requests pass on the preview URL. Seeded review data via /app/backend/seed_review_data.py before testing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      { "endpoint": "/api/admin/applications (one of the sub-endpoints e.g. cars/businesses)", "issue": "Intermittent 500 + 'Error fetching applications: AxiosError' in console while Approvals tab loads. Driver+restaurant applicants still render (12 visible) so UI is not blocked, but a sub-fetch is failing — main agent should inspect server log for the failing application kind." }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Investigate the 500 returned by one of the /api/admin/applications/* sub-calls observed in console (does not block UI but should not error)."
+  ],
+  "critical_code_review_comments": [
+    "AdminPanel.js header correctly renders data-testid=admin-subscription-link which routes to /pricing.",
+    "Approvals: data-testid=view-applicant-btn-<id> opens data-testid=applicant-detail-dialog. For drivers, the dialog renders either dialog-view-doc-<docType> buttons (verified with applicant carrying an Insurance doc → dialog-view-doc-insurance) OR applicant-dialog-nodocs warning when documents are absent. Approve/Reject buttons present inside the dialog.",
+    "Claims: data-testid=admin-claim-row-seed-claim-ticket row click opens claim-detail-dialog with claim-dialog-description containing the damaged-order text ('Two of the three jerk chicken meals were spilled...'), claim-dialog-photo-link target=_blank, and claim-dialog-approve/claim-dialog-reject buttons. Inline row Reject button click does NOT open the dialog (e.stopPropagation works).",
+    "Fraud: data-testid=fraud-row-seed-fraud-flag row click opens fraud-detail-dialog showing severity HIGH, service food, $640.00, customer QA Fraud Customer (qa.fraud@test.com), and fraud-dialog-signals containing 'high value / new account / cod high value'. fraud-dialog-clear and fraud-dialog-confirm both present. Inline Clear in the row does NOT open the dialog (stopPropagation works). Confirm Fraud on the seeded row was intentionally NOT clicked, per request.",
+    "Subscription links verified: admin-subscription-link, driver-subscription-link, vendor-subscription-link all navigate to /pricing and render the SubscriptionPlans page ('Choose Your Plan'). Customer portal: the global Header Pricing nav link is visible when logged in as a customer and navigates to /pricing.",
+    "Minor: Console shows '500 / Error fetching applications: AxiosError' for one of the admin application sub-endpoints — does not block the Approvals tab from rendering 12 driver/restaurant applicants but should be investigated."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "n/a (frontend testing only this iter)",
+    "frontend": "100% (5/5 feature requests verified)"
+  },
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (used). Driver/Vendor dashboards are accessible to the admin account (data-testid buttons visible) so separate driver/merchant logins were not required.",
+  "seed_data_creation": "Ran /app/backend/seed_review_data.py twice (once at start, once before fraud test) — restored seed-claim-ticket (open) and seed-fraud-flag (open). The inline Reject on claim and inline Clear on fraud were exercised which moved them out of 'open' filter; re-run seed_review_data.py to restore if next test agent needs them.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All five feature areas in the iter28 request are functional. If you re-test claims/fraud dialogs, first run: cd /app/backend && set -a && source .env && set +a && python3 seed_review_data.py to restore the seeded open rows. The minor 500 on one /api/admin/applications/* sub-call is the only outstanding observation; UI degrades gracefully (other applicant kinds still render).",
+  "rca_of_the_issue": "N/A — no functional defects in the iter28 scope."
+}

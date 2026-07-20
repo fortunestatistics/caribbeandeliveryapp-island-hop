@@ -8,7 +8,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
+  withCredentials: false,
 });
 
 // Add token to requests
@@ -24,7 +24,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const url = error.config?.url || '';
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+    // Only force a redirect for expired/invalid sessions on protected requests.
+    // A 401 from the login/register call itself should surface an inline error.
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -39,8 +43,15 @@ export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   getMe: () => api.get('/auth/me'),
   logout: () => api.post('/auth/logout'),
-  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
+  forgotPassword: (email) => api.post('/auth/forgot-password', { email, origin_url: window.location.origin }),
   resetPassword: (token, newPassword) => api.post('/auth/reset-password', { token, new_password: newPassword }),
+  updateProfile: (data) => api.put('/users/me', data),
+};
+
+export const reviewAPI = {
+  getMerchantReviews: (merchantId) => api.get(`/merchants/${merchantId}/reviews`),
+  createMerchantReview: (merchantId, data) => api.post(`/merchants/${merchantId}/reviews`, data),
+  replyMerchantReview: (merchantId, reviewId, reply) => api.post(`/merchants/${merchantId}/reviews/${reviewId}/reply`, { reply }),
 };
 
 // Order API

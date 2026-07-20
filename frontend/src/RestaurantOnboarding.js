@@ -162,7 +162,7 @@ const RestaurantOnboarding = () => {
       };
 
       await axios.post(`${API}/restaurants`, restaurantData, {
-        withCredentials: true
+        withCredentials: false
       });
 
       toast({
@@ -382,7 +382,7 @@ const RestaurantOnboarding = () => {
             {currentStep === 2 && (
               <div className="space-y-6" data-testid="operating-hours-step">
                 <div className="text-center mb-6">
-                  <Clock className="h-12 w-12 text-neon-cyan mx-auto mb-4" />
+                  <Clock className="h-12 w-12 text-teal-700 mx-auto mb-4" />
                   <h3 className="text-2xl font-bold text-foreground mb-2">Operating Hours</h3>
                   <p className="text-muted-foreground">Set your restaurant&apos;s operating hours</p>
                 </div>
@@ -437,8 +437,8 @@ const RestaurantOnboarding = () => {
                 </div>
 
                 <div className="mt-6 p-4 bg-neon-cyan/10 rounded-lg">
-                  <h4 className="font-semibold text-neon-cyan mb-2">Operating Hours Tips</h4>
-                  <ul className="text-sm text-neon-cyan space-y-1">
+                  <h4 className="font-semibold text-teal-700 mb-2">Operating Hours Tips</h4>
+                  <ul className="text-sm text-teal-700 space-y-1">
                     <li>• Set realistic hours that your kitchen can consistently handle</li>
                     <li>• Consider your peak ordering times (lunch and dinner rushes)</li>
                     <li>• You can update these hours later in your dashboard</li>
@@ -670,7 +670,7 @@ const RestaurantOnboarding = () => {
                     <div>
                       <h4 className="font-semibold text-green-900 mb-1">Secure Weekly Payments</h4>
                       <p className="text-sm text-green-800">
-                        Restaurant earnings are transferred weekly after deducting the 15% commission. 
+                        Restaurant earnings are transferred weekly after deducting the 20% Standard-plan commission (upgrade to Professional for 15%). 
                         Payments typically arrive within 1-2 business days.
                       </p>
                     </div>

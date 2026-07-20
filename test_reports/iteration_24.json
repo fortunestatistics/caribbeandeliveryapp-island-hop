@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 24 — Verified Tracy's COD pivot & CariPay/wallet removal. 12/13 backend tests PASS + all frontend acceptance checks PASS. One CRITICAL pre-existing bug surfaced: PUT /api/orders/{order_id}/status is wired to the WRONG function (helper `_status_timestamp_field` instead of `update_order_status`) so order status transitions silently no-op. This blocks the requested logistics-flow progression (confirmed → preparing/picked_up/delivered) after COD. Everything else (COD confirm, wallet/CariPay removal, WiPay button, /wallet redirect, Privacy/Terms, admin mail status) works as specified.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT /api/orders/{order_id}/status",
+        "issue": "Decorator @api_router.put(\"/orders/{order_id}/status\") at server.py:2250 is attached to the helper `_status_timestamp_field(status: str)` (line 2251) instead of the real `update_order_status(...)` defined at line 2381. Result: the endpoint returns 200 with body like \"delivered_at\" (the timestamp-field name) and NEVER touches MongoDB — order.status stays unchanged. Confirmed: after PUTs for preparing/picked_up/delivered all returning 200, GET shows status='confirmed'. This breaks the COD logistics-flow requirement.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PUT /api/orders/{order_id}/status",
+        "issue": "Even once the decorator bug above is fixed, `_authorize_order_status_change` (server.py:2261) only allows user_type 'restaurant' or 'driver' — admin/agent are explicitly NOT allowed to update status. The current test seeded admin succeeded only because the route is no-op; once fixed, admins will receive 403. Recommend allowing user_type in ('admin','agent') OR add an admin override branch."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cod_caripay_removal_iter24.py",
+    "/app/test_reports/pytest/pytest_cod_iter24.xml",
+    "/app/test_reports/cod_checkout.png",
+    "/app/test_reports/cod_success.png"
+  ],
+  "action_items": [
+    "FIX server.py:2250 — move the `@api_router.put(\"/orders/{order_id}/status\")` decorator down to directly above `update_order_status` at line 2381 (the helper `_status_timestamp_field` should NOT be a route). This is a one-line move and is BLOCKING the user-stated requirement that COD orders be able to progress through the logistics flow.",
+    "Update `_authorize_order_status_change` to permit admin/agent roles to update any order's status (currently only restaurant/driver, never admin)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:2250 — route decorator misplaced one function above intended target. This is a textbook 'helper accidentally became a route' bug. After fixing, also add a unit test that PUT /api/orders/{id}/status actually mutates the document (Create → PUT → GET pattern).",
+    "/api/orders POST (server.py:2173) accepts the full Order model from the client and overwrites only customer_id server-side — clients can set financial fields (subtotal/delivery_fee/total/commission/etc.) and the server recomputes. Looks safe due to calculate_order_financials, but still requires `customer_id` in payload despite ignoring it (causes 422 if omitted). Consider switching to OrderCreate.",
+    "confirm_order_cod (server.py:2429) correctly: (a) auths the customer or admin, (b) blocks if already paid, (c) sets payment_method=cash/payment_status=cod_pending/status=confirmed, (d) best-effort driver assign, (e) fires WhatsApp notify in background. WhatsApp/Twilio mocked — no 500s observed.",
+    "Frontend CheckoutPage.js: COD button is the primary CTA, WiPay is the secondary outline button, no wallet/Stripe-card/top-up testids present — matches spec exactly. PaymentSuccess properly branches on via=cod to render payment-cod-title 'Order placed!'.",
+    "App.js /wallet route correctly Navigate→/dashboard; WalletPage import removed. No 'Wallet' link in header nav (verified for logged-in customer)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cod_caripay_removal_iter24.py (created)"
+  ],
+  "success_rate": {
+    "backend": "92% (12/13). The one failure is the pre-existing PUT /orders/{id}/status decorator bug — not a regression from iter 24's changes.",
+    "frontend": "100% on all iteration-24 acceptance criteria (COD button, WiPay button, no wallet/top-up/Stripe-card, COD click → cod_pending order + 'Order placed!' screen, /wallet redirect, no Wallet nav, Privacy/Terms load)."
+  },
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (worked). Fresh customer registered as TEST_cod_{ts}@gmail.com / Test1234! per pytest run; TEST_codui_{ts}@gmail.com for the UI run.",
+  "seed_data_creation": "Created via API: 2 customer accounts (TEST_cod_* and TEST_codui_*), ~3 food orders. Orders left in DB at various statuses (confirmed cod_pending). No special DB seeding required.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration-24 user-visible changes (COD primary + WiPay secondary + Stripe-card removed + wallet/CariPay gone) are FULLY WORKING end-to-end on the preview URL. The one outstanding issue is the broken PUT /api/orders/{id}/status decorator (server.py:2250) — this is pre-existing and was exposed by the COD logistics-progression test added this iteration. After main agent fixes the decorator + adds admin to _authorize_order_status_change, rerun /app/backend/tests/test_cod_caripay_removal_iter24.py — should be 13/13. Data-testids verified on UI: checkout-cod-btn, checkout-pay-wipay-btn, checkout-service-fee, checkout-accepted-methods, payment-cod-title. Confirmed ABSENT (as required): checkout-pay-wallet-btn, checkout-topup-link, checkout-pay-btn.",
+  "rca_of_the_issue": "Bug RCA — PUT /api/orders/{order_id}/status no-op: A FastAPI route decorator binds to whatever function immediately follows it (the next `def`/`async def`). In server.py, line 2250 has `@api_router.put('/orders/{order_id}/status')` and line 2251 begins `def _status_timestamp_field(status: str) -> Optional[str]:` — a 5-line dict-lookup helper. So FastAPI registered THAT helper as the route handler. The real `update_order_status` (line 2381) has no decorator and is therefore unreachable as an HTTP route. Reproduction: PUT /api/orders/{any-id}/status?status=delivered → 200 with JSON body `\"delivered_at\"` (the dict value the helper returns). Mitigation: move the decorator line 2250 down to be the line immediately above `async def update_order_status(...)` at line 2381 (and delete the orphaned decorator at 2250). Then add a Create→PUT→GET assertion test to prevent regression."
+}

@@ -13,8 +13,8 @@ import {
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const STRIPE_API_KEY = process.env.REACT_APP_STRIPE_API_KEY || 'pk_test_51QSUV4Dw9RFqX6uDQGJJQOC3Hh9C6qCO2tPjZQl5X7aKvVGQY4hJCLfQgP2pYdVX6hMz1Nz0c2oH3jLzKb8gT00FE4Qa3Zb';
-const stripePromise = loadStripe(STRIPE_API_KEY);
+const STRIPE_API_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = STRIPE_API_KEY ? loadStripe(STRIPE_API_KEY) : Promise.resolve(null);
 
 const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
   const [selectedMethod, setSelectedMethod] = useState('card');
@@ -47,8 +47,7 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
       name: 'PayPal',
       icon: DollarSign,
       description: 'Pay with PayPal balance',
-      enabled: false, // Will be enabled when user provides PayPal Client ID
-      comingSoon: true
+      enabled: true
     },
     {
       id: 'cash',
@@ -142,7 +141,7 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
 
       {/* Security Notice */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground bg-neon-cyan/10 p-3 rounded-lg">
-        <AlertCircle className="h-5 w-5 text-neon-cyan" />
+        <AlertCircle className="h-5 w-5 text-teal-700" />
         <p>
           Your payment information is encrypted and secure. We never store your card details.
         </p>

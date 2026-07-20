@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
@@ -33,6 +34,7 @@ const mapContainerStyle = {
 };
 
 const OrderTrackingPageWithMaps = () => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const { orderId } = useParams();
   const { user } = useAuth();
@@ -81,7 +83,7 @@ const OrderTrackingPageWithMaps = () => {
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await axios.get(`${API}/orders/${orderId}`, {
           headers,
-          withCredentials: true,
+          withCredentials: false,
         });
         setOrder(response.data);
         setLoading(false);
@@ -103,13 +105,14 @@ const OrderTrackingPageWithMaps = () => {
     if (orderId) {
       fetchOrder();
     }
+    // eslint-disable-next-line -- fetch order on orderId change
   }, [orderId]);
 
   // Check if user has already rated this order
   const checkIfRated = async () => {
     try {
       const response = await axios.get(`${API}/ratings?order_id=${orderId}`, {
-        withCredentials: true
+        withCredentials: false
       });
       return response.data.length > 0;
     } catch (error) {
@@ -139,6 +142,7 @@ const OrderTrackingPageWithMaps = () => {
     const interval = setInterval(fetchDriverLocation, 10000); // Update every 10 seconds
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line -- poll driver location while order is active
   }, [order, orderId]);
 
   // Calculate route using Google Directions API
@@ -220,7 +224,7 @@ const OrderTrackingPageWithMaps = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setNewMessage('');
@@ -236,7 +240,7 @@ const OrderTrackingPageWithMaps = () => {
         order_id: orderId,
         ...ratings
       }, {
-        withCredentials: true
+        withCredentials: false
       });
 
       setShowRatingModal(false);
@@ -251,11 +255,11 @@ const OrderTrackingPageWithMaps = () => {
   const getStatusColor = (status) => {
     const colors = {
       pending: 'bg-gold-500/15 text-yellow-800',
-      confirmed: 'bg-neon-cyan/15 text-neon-cyan',
+      confirmed: 'bg-neon-cyan/15 text-teal-700',
       preparing: 'bg-purple-100 text-purple-800',
       ready: 'bg-green-100 text-green-800',
       picked_up: 'bg-indigo-100 text-indigo-800',
-      in_transit: 'bg-neon-cyan/15 text-neon-cyan',
+      in_transit: 'bg-neon-cyan/15 text-teal-700',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
     };
@@ -334,8 +338,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#0EA5E9" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">🚗</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Driver Location"
                       />
@@ -354,8 +357,7 @@ const OrderTrackingPageWithMaps = () => {
                               <circle cx="20" cy="20" r="15" fill="#10B981" stroke="white" stroke-width="3"/>
                               <text x="20" y="26" text-anchor="middle" fill="white" font-size="16" font-weight="bold">📍</text>
                             </svg>
-                          `),
-                          scaledSize: new window.google.maps.Size(40, 40)
+                          `)
                         }}
                         title="Delivery Location"
                       />
@@ -445,15 +447,15 @@ const OrderTrackingPageWithMaps = () => {
               <CardContent className="space-y-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Subtotal</p>
-                  <p className="text-lg font-semibold">${order.subtotal?.toFixed(2)}</p>
+                  <p className="text-lg font-semibold">{format(order.subtotal || 0)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Delivery Fee</p>
-                  <p className="text-lg font-semibold">${order.delivery_fee?.toFixed(2)}</p>
+                  <p className="text-lg font-semibold">{format(order.delivery_fee || 0)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold text-gold-500">${order.total?.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-gold-500">{format(order.total || 0)}</p>
                 </div>
                 
                 <div className="pt-4 border-t">

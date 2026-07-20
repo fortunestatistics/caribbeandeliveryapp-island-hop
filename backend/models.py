@@ -38,8 +38,30 @@ class Token(BaseModel):
     user: Dict[str, Any]
 
 
+class TeamPromote(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class TeamInvite(BaseModel):
+    email: EmailStr
+    role: str  # "admin" or "agent"
+
+
+class InviteAccept(BaseModel):
+    token: str
+    name: str
+    password: str
+
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class PasswordReset(BaseModel):
     email: EmailStr
+    origin_url: Optional[str] = None
 
 
 class PasswordResetConfirm(BaseModel):
@@ -69,6 +91,7 @@ class Order(BaseModel):
     tip: float = 0.0
     tax: float = 0.0
     discount: float = 0.0
+    service_fee: float = 0.0  # Flat platform service fee charged to the customer (100% platform)
     promo_code: Optional[str] = None
     total: float
 
@@ -80,6 +103,7 @@ class Order(BaseModel):
     driver_earnings: float = 0.0
     driver_delivery_portion: float = 0.0
     platform_delivery_portion: float = 0.0
+    driver_fee_rate: float = 0.0  # Platform's % cut of the delivery fee for the assigned driver
 
     # Payout tracking
     vendor_payout_status: str = "pending"
@@ -91,6 +115,7 @@ class Order(BaseModel):
     pickup_address: Dict[str, Any]
     delivery_address: Dict[str, Any]
     customer_phone: str
+    notes: Optional[str] = None
     payment_status: str = "pending"
     payment_method: str
     payment_intent_id: Optional[str] = None
@@ -199,6 +224,8 @@ class Restaurant(BaseModel):
     minimum_order: float = 15.0
     estimated_delivery_time: int = 30
     menu_items: List[Dict] = []
+    subscription_tier: str = "standard"
+    featured: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -235,6 +262,11 @@ class Driver(BaseModel):
     current_location: Optional[Dict[str, float]] = None
     wallet_balance: float = 0.0
     total_earnings: float = 0.0
+    # Onboarding / KYC fields (set when a driver applies; reviewed by an admin)
+    personal_info: Optional[Dict[str, Any]] = None
+    vehicle_info: Optional[Dict[str, Any]] = None
+    banking_info: Optional[Dict[str, Any]] = None
+    documents: Optional[Dict[str, str]] = None  # doc_type -> driver_documents.id
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -301,6 +333,9 @@ class Rating(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
     response_from_vendor: Optional[str] = None
@@ -316,6 +351,9 @@ class RatingCreate(BaseModel):
     driver_rating: Optional[int] = None
     food_quality: Optional[int] = None
     delivery_speed: Optional[int] = None
+    driver_professionalism: Optional[int] = None
+    driver_care: Optional[int] = None
+    driver_communication: Optional[int] = None
     vendor_review: Optional[str] = None
     driver_review: Optional[str] = None
 
@@ -526,9 +564,6 @@ class Wallet(BaseModel):
     user_id: str
     balances: Dict[str, float] = Field(default_factory=lambda: {"USD": 0.0, "TTD": 0.0})
     default_currency: str = "USD"
-    caripay_handle: Optional[str] = None
-    caripay_country: Optional[str] = None
-    caripay_linked_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -602,6 +637,15 @@ class BusinessOnboarding(BaseModel):
     reviewed_by: Optional[str] = None
     review_notes: Optional[str] = None
     approved_date: Optional[datetime] = None
+
+
+class BusinessOnboardingRequest(BaseModel):
+    """Lenient request body for partner sign-up — accepts partial data so applicants
+    can submit without every field (e.g. bank info is optional during onboarding)."""
+    business_owner: Dict[str, Any] = Field(default_factory=dict)
+    business_details: Dict[str, Any] = Field(default_factory=dict)
+    documents: Optional[Any] = None
+    banking_info: Optional[Dict[str, Any]] = None
 
 
 # Pricing Models

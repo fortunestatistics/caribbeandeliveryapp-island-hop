@@ -7,18 +7,22 @@ import {
   Wallet,
   Power,
   AlertCircle,
-  Star
+  Star,
+  DollarSign,
+  Settings
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
+  const { requestLocationConsent } = useLocationConsent();
   const [driver, setDriver] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -47,6 +51,7 @@ const DriverDashboard = () => {
     }, 10000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line -- polling interval set once on mount
   }, []);
 
   // Start location tracking when online
@@ -56,12 +61,13 @@ const DriverDashboard = () => {
     } else {
       stopLocationTracking();
     }
+    // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
   const fetchDriverData = async () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
-        withCredentials: true
+        withCredentials: false
       });
       setDriver(response.data);
       setIsOnline(response.data.status === 'online');
@@ -75,7 +81,7 @@ const DriverDashboard = () => {
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
-        withCredentials: true
+        withCredentials: false
       });
       setOrderRequests(response.data);
     } catch (error) {
@@ -86,7 +92,7 @@ const DriverDashboard = () => {
   const fetchActiveOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/active-orders`, {
-        withCredentials: true
+        withCredentials: false
       });
       setActiveOrders(response.data);
     } catch (error) {
@@ -97,7 +103,7 @@ const DriverDashboard = () => {
   const fetchEarnings = async () => {
     try {
       const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
-        withCredentials: true
+        withCredentials: false
       });
       setEarnings({
         today: response.data.today_earnings || 0,
@@ -107,7 +113,7 @@ const DriverDashboard = () => {
       });
       // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
       try {
-        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
+        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: false });
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
       } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
@@ -121,7 +127,7 @@ const DriverDashboard = () => {
       await axios.put(`${API}/drivers/status`, {
         status: newStatus
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       setIsOnline(!isOnline);
     } catch (error) {
@@ -130,22 +136,32 @@ const DriverDashboard = () => {
     }
   };
 
-  const startLocationTracking = () => {
+  const startLocationTracking = async () => {
     if (!navigator.geolocation) {
       alert('Geolocation not supported');
       return;
     }
 
+    const granted = await requestLocationConsent();
+    if (!granted) return;
+
+    // Clear any existing watcher to avoid duplicate trackers.
+    if (locationTracking) {
+      navigator.geolocation.clearWatch(locationTracking);
+    }
+
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-        
+
         try {
-          await axios.post(`${API}/drivers/${driver.id}/location`, {
-            latitude,
-            longitude,
-            heading,
-            speed
+          const token = localStorage.getItem('token');
+          const params = { latitude, longitude };
+          if (typeof heading === 'number' && !Number.isNaN(heading)) params.heading = heading;
+          if (typeof speed === 'number' && !Number.isNaN(speed)) params.speed = speed;
+          await axios.post(`${API}/drivers/${driver.id}/location`, null, {
+            params,
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
         } catch (error) {
           console.error('Error updating location:', error);
@@ -176,7 +192,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/accept-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrderRequests();
@@ -192,7 +208,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/reject-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchOrderRequests();
@@ -207,13 +223,28 @@ const DriverDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: true
+        withCredentials: false
       });
       
       fetchActiveOrders();
     } catch (error) {
       console.error('Error updating order status:', error);
       alert('Failed to update order');
+    }
+  };
+
+  const handleDeliverCOD = async (order) => {
+    const token = localStorage.getItem('token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    if (!window.confirm(`Confirm you collected $${Number(order.total || 0).toFixed(2)} cash from the customer?`)) return;
+    try {
+      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: false });
+      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: false });
+      alert(`Cash collected. You keep $${r.data.driver_keeps?.toFixed(2)}; $${r.data.platform_due?.toFixed(2)} is owed to IslandHop.`);
+      fetchActiveOrders();
+    } catch (error) {
+      console.error('Error confirming cash:', error);
+      alert(error.response?.data?.detail || 'Failed to confirm cash collected');
     }
   };
 
@@ -245,6 +276,7 @@ const DriverDashboard = () => {
               <Button
                 onClick={toggleOnlineStatus}
                 className={isOnline ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}
+                data-testid="driver-online-toggle"
               >
                 <Power className="h-5 w-5 mr-2" />
                 {isOnline ? 'Go Offline' : 'Go Online'}
@@ -252,6 +284,14 @@ const DriverDashboard = () => {
               <Button onClick={() => navigate('/driver/earnings')} variant="outline">
                 <Wallet className="h-5 w-5 mr-2" />
                 Wallet
+              </Button>
+              <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
+                <DollarSign className="h-5 w-5 mr-2" />
+                Subscription
+              </Button>
+              <Button onClick={() => navigate('/driver/settings')} variant="outline" data-testid="driver-settings-btn">
+                <Settings className="h-5 w-5 mr-2" />
+                Settings
               </Button>
             </div>
           </div>
@@ -343,6 +383,7 @@ const DriverDashboard = () => {
                     order={order}
                     onNavigate={handleNavigate}
                     onUpdateStatus={handleUpdateOrderStatus}
+                    onDeliverCOD={handleDeliverCOD}
                     onView={(id) => navigate(`/order-tracking/${id}`)}
                   />
                 ))}
