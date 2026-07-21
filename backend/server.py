@@ -120,14 +120,20 @@ DRIVER_PLAN_RATES = {
 # Default cut applied at order-creation time (before a driver is assigned).
 DRIVER_FEE_RATE_NONSUBSCRIBER = DRIVER_PLAN_RATES["standard"]
 
+# Taxi rides use a simpler two-tier fare cut: no subscription = 20%, any paid
+# subscription = 5% of the fare. (Delivery keeps the 20/10/0 model above.)
+TAXI_FEE_RATE_NONSUBSCRIBER = float(os.environ.get("TAXI_FEE_RATE_STANDARD", "0.20"))
+TAXI_FEE_RATE_SUBSCRIBED = float(os.environ.get("TAXI_FEE_RATE_SUBSCRIBED", "0.05"))
+
 # Driver subscription catalogue (prices in TTD).
 DRIVER_SUBSCRIPTION_PLANS = [
     {
         "tier": "standard", "name": "Standard", "price_ttd": 0,
-        "platform_cut_pct": 20, "driver_keep_pct": 80,
+        "platform_cut_pct": 20, "driver_keep_pct": 80, "taxi_cut_pct": 20,
         "tagline": "Start earning for free.",
         "features": [
             "Keep 80% of every delivery fee",
+            "Taxi rides: platform takes 20% of the fare",
             "Keep 100% of all tips",
             "Access to all delivery & taxi jobs",
             "Weekly payouts",
@@ -135,10 +141,11 @@ DRIVER_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "pro", "name": "Pro", "price_ttd": 700,
-        "platform_cut_pct": 10, "driver_keep_pct": 90,
+        "platform_cut_pct": 10, "driver_keep_pct": 90, "taxi_cut_pct": 5,
         "tagline": "Keep more of what you earn.",
         "features": [
             "Keep 90% of every delivery fee",
+            "Taxi rides: platform takes only 5% of the fare",
             "Keep 100% of all tips",
             "Priority job matching",
             "Weekly payouts",
@@ -146,10 +153,11 @@ DRIVER_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "premium", "name": "Premium", "price_ttd": 1400,
-        "platform_cut_pct": 0, "driver_keep_pct": 100,
+        "platform_cut_pct": 0, "driver_keep_pct": 100, "taxi_cut_pct": 5,
         "tagline": "Zero platform cut. Maximum earnings.",
         "features": [
             "Keep 100% of every delivery fee",
+            "Taxi rides: platform takes only 5% of the fare",
             "Keep 100% of all tips",
             "Top priority job matching",
             "Premium support",
@@ -251,14 +259,25 @@ async def _driver_delivery_fee_rate(driver_user_id: Optional[str], driver_doc: O
     return DRIVER_PLAN_RATES.get(tier, DRIVER_PLAN_RATES["standard"])
 
 
+async def _driver_fare_rate(driver_user_id: Optional[str], driver_doc: Optional[dict],
+                            service_type: Optional[str]) -> float:
+    """Platform's % cut of the driver-facing fare.
+    Taxi rides: 20% with no subscription, 5% for any paid subscription.
+    Delivery/courier: the 20/10/0 tiered delivery-fee model."""
+    if service_type == "taxi":
+        tier = await _driver_plan_tier(driver_user_id, driver_doc)
+        return TAXI_FEE_RATE_NONSUBSCRIBER if tier == "standard" else TAXI_FEE_RATE_SUBSCRIBED
+    return await _driver_delivery_fee_rate(driver_user_id, driver_doc)
+
+
 
 async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
-    """Re-split the delivery fee once the assigned driver is known (their tier
-    sets the 0% premium vs 20% standard platform cut). Idempotent."""
+    """Re-split the delivery fee / taxi fare once the assigned driver is known
+    (their subscription sets the platform cut). Idempotent."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
-    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"), driver_doc)
+    rate = await _driver_fare_rate((driver_doc or {}).get("user_id"), driver_doc, order.get("service_type"))
     delivery_fee = float(order.get("delivery_fee", 0) or 0)
     tip = float(order.get("tip", 0) or 0)
     commission = float(order.get("commission_amount", 0) or 0)
@@ -6912,6 +6931,15 @@ async def _vendor_menu_items(vendor_id: str, fallback_field):
     if items:
         return items
     return fallback_field or []
+
+
+@api_router.get("/vendors/{vendor_id}/media")
+async def get_vendor_media(vendor_id: str):
+    """Slim public endpoint returning only a vendor's cover + logo (no gallery),
+    so search result cards can lazy-load a business's cover photo cheaply."""
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0, "cover": 1, "logo": 1}) or {}
+    return {"vendor_id": vendor_id, "cover": doc.get("cover"), "logo": doc.get("logo")}
+
 
 
 @api_router.get("/merchants/{vendor_id}/storefront")

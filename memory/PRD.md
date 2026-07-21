@@ -15,6 +15,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
+## Session Log — Jun 2026 (fork, cont.) — Search cover photos + taxi driver commission (20%/5%)
+- **Business search cover photos:** search result cards (`BusinessSearch.js`, new `VendorCard`) now show the business's uploaded **cover photo** as its profile image (falls back to logo, then gradient+icon). Cover/logo are lazy-loaded per rendered card via a new slim endpoint `GET /api/vendors/{vendor_id}/media` (returns only cover+logo from `merchant_storefronts`, no gallery) to keep the search list response small. Verified: /businesses renders 30 cards, vendors with a cover show it. data-testids: `business-card-<i>`, `business-cover-<i>`.
+- **Taxi driver commission (per request):** taxi rides now use a two-tier fare cut — **no subscription = 20%**, **any paid subscription (pro/premium) = 5%** — distinct from the delivery model (20/10/0, unchanged). Added `TAXI_FEE_RATE_NONSUBSCRIBER=0.20` / `TAXI_FEE_RATE_SUBSCRIBED=0.05` and a service-aware `_driver_fare_rate(user, doc, service_type)`; `_finalize_driver_split` now applies the taxi rate when `order.service_type=='taxi'`. Driver subscription catalogue updated with `taxi_cut_pct` + feature lines. Verified end-to-end: $100 fare → standard keeps $80 (platform $20), pro/premium keep $95 (platform $5); delivery split unchanged (60 backend tests pass).
+- Clean `CI=true yarn build`; synced into `android/` for next AAB.
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Launch-readiness QA sweep + fixes for 2 reported bugs
 - **BUG — Storefront image save error (reported on production/Play Store):** ROOT CAUSE = cover/gallery base64 exceeded server cap `MAX_STOREFRONT_IMG_LEN=1_500_000` → HTTP 413 → "Save failed". FIXED: added `fileToConstrainedDataURL` in `imageUtils.js` (iterates quality 0.82→0.4 then shrinks dims ×0.8 until base64 ≤1.35M chars; rejects with a clear message if an extreme image still won't fit) and wired it into `MerchantStorefrontEditor.js` (logo/cover/gallery). QA sweep verified: 4.5MB+ cover/logo/3 gallery photos now save 200 + persist after reload.
 - **BUG — Panel switcher first-click nav (reported on production/Play Store):** NOT reproducible in current preview code (testing agent iter41 confirmed SubAppsDropdown + ModeSwitcher navigate correctly on first click for all roles; ProtectedRoute renders Forbidden403 directly, no login bounce). RCA = stale cached JS bundle in the deployed web + Capacitor Play Store build. Resolution: redeploy web + rebuild/republish AAB. No code change needed.
