@@ -262,10 +262,9 @@ const GlobalSearch = () => {
     // Navigate based on result type. Route names must match App.js <Routes>:
     //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
-      if (result.vendor_type === 'pharmacy') {
-        navigate('/pharmacy-order');
-      } else if (result.vendor_type === 'grocery') {
-        navigate('/grocery-order');
+      // Always open the merchant's own storefront/profile page (type-aware).
+      if (result.vendor_type === 'car_rental') {
+        navigate('/car-rentals');
       } else {
         navigate(`/restaurant/${result.id}`);
       }

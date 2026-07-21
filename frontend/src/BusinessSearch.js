@@ -127,9 +127,9 @@ const BusinessSearch = () => {
   };
 
   const openVendor = (v) => {
-    if (v.vendor_type === 'pharmacy') navigate('/pharmacy-order');
-    else if (v.vendor_type === 'grocery') navigate('/grocery-order');
-    else if (v.vendor_type === 'car_rental') navigate('/car-rentals');
+    // Always open the merchant's own storefront/profile page (type-aware).
+    // Only car rentals have a dedicated flow.
+    if (v.vendor_type === 'car_rental') navigate('/car-rentals');
     else navigate(`/restaurant/${v.id}`);
   };
 
