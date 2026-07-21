@@ -15,7 +15,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jun 2026 (fork, cont.) — BUG: merchant storefronts not opening (pharmacy/grocery misrouted)
+## Session Log — Jun 2026 (fork, cont.) — Admin storefront-repair tool + merchant storefront-preview button + deploy fix
+
+- **NEW: Admin "Repair a merchant storefront" tool** (in Admin → Approvals). Backend: `GET /api/admin/merchants/lookup?q=` (searches restaurants/businesses/car_rental_companies + unprovisioned business_applications, returns per-merchant health: vendor active? owner role promoted? provisioned? + issues list) and `POST /api/admin/merchants/repair-storefront` (idempotent: activates vendor record, promotes owner role, and/or provisions from an approved application via `_provision_merchant_vendor`; returns resolved `storefront_url`). UI: `AdminStorefrontRepair.js` mounted at top of `AdminApprovals.js` — search box + result rows with Healthy/Needs-repair badges, Repair + Open buttons. Verified E2E (curl + admin UI screenshot).
+- **NEW: "View My Storefront" button** in `VendorDashboard.js` (`data-testid="vendor-view-storefront-btn"`) — opens the merchant's own public storefront `/restaurant/{vendor_id}` in a new tab so owners see exactly what customers see. Uses `vendor_id` from `GET /merchant/storefront`.
+- **DEPLOY FIX:** `.gitignore` had contradictory `.env` / `.env.*` / `*.env` ignore lines (105-107) blocking `backend/.env` + `frontend/.env` from being committed → Emergent deploy blocker. Removed them; verified `git check-ignore` no longer ignores the two .env files while `frontend/android/keystore.properties` stays ignored. **deployment_agent now PASS.**
+
+
+
 
 - **BUG (reported on LIVE site):** clicking a merchant that has a storefront didn't open the merchant's own profile. ROOT CAUSE: `BusinessSearch.openVendor` (and `App.js` header-search `handleResultClick`) routed **pharmacy → `/pharmacy-order`** and **grocery → `/grocery-order`** (generic order pages), so pharmacy/grocery merchants never showed their storefront. Restaurant + other business types already routed to `/restaurant/{id}` correctly.
 - **FIX:** clicking ANY merchant now opens their own type-aware storefront `/restaurant/{v.id}`; only `car_rental` keeps its dedicated flow. Applied in `BusinessSearch.js` and `App.js`. The storefront page (`RestaurantMenu.js`) is already type-aware (pharmacy → "Upload Prescription" CTA, retail → product categories) and shows an EMPTY menu (not demo food) when a real vendor has no products (`menuItems = realMenu.length>0 ? realMenu : (sf.name ? [] : demoMenuItems)`).
