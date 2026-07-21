@@ -12,12 +12,15 @@
 ## Orphan-driver repair test user (preview)
 - **Email:** `repair_test_driver@islandhop-demo.com` / **Password:** `RepairQA1234!`
 
-## Authentication
-- **JWT Bearer** (primary): from `/api/auth/register` or `/api/auth/login` → `access_token`.
-- Frontend stores JWT in `localStorage.token`. For UI auth in tests: `localStorage.setItem('token', <jwt>)`.
-- `get_current_user_from_request` accepts a `session_token` cookie OR `Authorization: Bearer <jwt>`.
-- Password policy: **min 8 chars** (both frontend Settings pages + backend `/api/auth/change-password`).
-- Public `POST /api/auth/register` ALWAYS creates `user_type=customer` (user_type body field ignored). Email domains: use `@test.com` / `@gmail.com` (`.test` rejected). Password Test1234!.
+## Authentication (UPDATED Jun 2026 — httpOnly cookie migration)
+- **JWT Bearer** (primary for NATIVE/mobile + tests): from `/api/auth/register` or `/api/auth/login` → `access_token` (still returned in the response body).
+- **WEB now uses an httpOnly cookie**, NOT localStorage. On successful login/register/social/invite the backend sets `session_token` = the JWT as an **httpOnly, Secure, SameSite=Lax** cookie. The web frontend stores only a non-secret sentinel string `'cookie'` in `localStorage.token` (so existing truthiness checks + `Bearer <token>` headers + `?auth=` img URLs keep working — the backend ignores the sentinel and authenticates via the cookie). `logout` clears the cookie.
+- Backend accepts **real Bearer token OR the `session_token` cookie**. Placeholder bearer values `{'', 'cookie', 'null', 'undefined', 'none', 'bearer'}` are ignored (`core._clean_token`) so the cookie is used instead.
+- For UI auth in browser tests: **log in through the real `/login` form** (which sets the httpOnly cookie) — do NOT inject a JWT into `localStorage.token` (web ignores it; the value there is just the sentinel). For API tests use a cookie jar (`curl -c/-b`) OR a real `Authorization: Bearer <jwt>` header (mobile path).
+- Password policy: **min 8 chars**. Public `POST /api/auth/register` ALWAYS creates `user_type=customer`; register field is `name` (not `full_name`); email domains `@test.com`/`@gmail.com` (`.test` rejected); password e.g. `Test1234!`.
+- `get_current_user_from_request` accepts the `session_token` cookie OR `Authorization: Bearer <jwt>`.
+
+## Authentication (legacy notes)
 
 ## Merchant test accounts (no persisted seed)
 - **RESTAURANT:** register customer → `POST /api/restaurants` {user_id:'x',name,description,cuisine_type,address:{street,city,country},phone,email} (promotes user to `user_type=restaurant`, returns restaurant id) → re-login for a JWT with the restaurant role. `_resolve_vendor_for_user` → vendor_type='restaurant'.
