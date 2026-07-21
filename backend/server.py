@@ -120,10 +120,14 @@ DRIVER_PLAN_RATES = {
 # Default cut applied at order-creation time (before a driver is assigned).
 DRIVER_FEE_RATE_NONSUBSCRIBER = DRIVER_PLAN_RATES["standard"]
 
-# Taxi rides use a simpler two-tier fare cut: no subscription = 20%, any paid
-# subscription = 5% of the fare. (Delivery keeps the 20/10/0 model above.)
-TAXI_FEE_RATE_NONSUBSCRIBER = float(os.environ.get("TAXI_FEE_RATE_STANDARD", "0.20"))
-TAXI_FEE_RATE_SUBSCRIBED = float(os.environ.get("TAXI_FEE_RATE_SUBSCRIBED", "0.05"))
+# Taxi rides use a per-tier fare cut: no subscription = 20%, Pro = 5%,
+# Premium = 0% (driver keeps 100% of the fare). Delivery keeps the 20/10/0 model.
+TAXI_PLAN_RATES = {
+    "standard": float(os.environ.get("TAXI_FEE_RATE_STANDARD", "0.20")),
+    "pro": float(os.environ.get("TAXI_FEE_RATE_PRO", "0.05")),
+    "premium": float(os.environ.get("TAXI_FEE_RATE_PREMIUM", "0.0")),
+}
+TAXI_FEE_RATE_NONSUBSCRIBER = TAXI_PLAN_RATES["standard"]
 
 # Driver subscription catalogue (prices in TTD).
 DRIVER_SUBSCRIPTION_PLANS = [
@@ -153,11 +157,11 @@ DRIVER_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "premium", "name": "Premium", "price_ttd": 1400,
-        "platform_cut_pct": 0, "driver_keep_pct": 100, "taxi_cut_pct": 5,
+        "platform_cut_pct": 0, "driver_keep_pct": 100, "taxi_cut_pct": 0,
         "tagline": "Zero platform cut. Maximum earnings.",
         "features": [
             "Keep 100% of every delivery fee",
-            "Taxi rides: platform takes only 5% of the fare",
+            "Taxi rides: keep 100% of the fare (0% platform cut)",
             "Keep 100% of all tips",
             "Top priority job matching",
             "Premium support",
@@ -266,7 +270,7 @@ async def _driver_fare_rate(driver_user_id: Optional[str], driver_doc: Optional[
     Delivery/courier: the 20/10/0 tiered delivery-fee model."""
     if service_type == "taxi":
         tier = await _driver_plan_tier(driver_user_id, driver_doc)
-        return TAXI_FEE_RATE_NONSUBSCRIBER if tier == "standard" else TAXI_FEE_RATE_SUBSCRIBED
+        return TAXI_PLAN_RATES.get(tier, TAXI_PLAN_RATES["standard"])
     return await _driver_delivery_fee_rate(driver_user_id, driver_doc)
 
 

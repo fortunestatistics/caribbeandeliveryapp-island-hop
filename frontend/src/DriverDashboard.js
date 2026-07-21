@@ -36,12 +36,14 @@ const DriverDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [locationTracking, setLocationTracking] = useState(null);
   const [incentives, setIncentives] = useState({ total_earned: 0, incentives: [] });
+  const [subscription, setSubscription] = useState(null);
 
   useEffect(() => {
     fetchDriverData();
     fetchOrderRequests();
     fetchActiveOrders();
     fetchEarnings();
+    fetchSubscription();
 
     // Refresh every 10 seconds
     const interval = setInterval(() => {
@@ -97,6 +99,15 @@ const DriverDashboard = () => {
       setActiveOrders(response.data);
     } catch (error) {
       console.error('Error fetching active orders:', error);
+    }
+  };
+
+  const fetchSubscription = async () => {
+    try {
+      const response = await axios.get(`${API}/driver/subscription`, { withCredentials: false });
+      setSubscription(response.data);
+    } catch (error) {
+      console.error('Error fetching subscription:', error);
     }
   };
 
@@ -349,6 +360,7 @@ const DriverDashboard = () => {
                     order={order}
                     onAccept={handleAcceptOrder}
                     onReject={handleRejectOrder}
+                    subscription={subscription}
                   />
                 ))}
               </div>
