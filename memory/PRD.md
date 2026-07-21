@@ -15,7 +15,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jun 2026 (fork, cont.) — P0 SECURITY: JWT localStorage → httpOnly cookies (XSS hardening) + taxi/media regression
+## Session Log — Jun 2026 (fork, cont.) — BUG: merchant storefronts not opening (pharmacy/grocery misrouted)
+
+- **BUG (reported on LIVE site):** clicking a merchant that has a storefront didn't open the merchant's own profile. ROOT CAUSE: `BusinessSearch.openVendor` (and `App.js` header-search `handleResultClick`) routed **pharmacy → `/pharmacy-order`** and **grocery → `/grocery-order`** (generic order pages), so pharmacy/grocery merchants never showed their storefront. Restaurant + other business types already routed to `/restaurant/{id}` correctly.
+- **FIX:** clicking ANY merchant now opens their own type-aware storefront `/restaurant/{v.id}`; only `car_rental` keeps its dedicated flow. Applied in `BusinessSearch.js` and `App.js`. The storefront page (`RestaurantMenu.js`) is already type-aware (pharmacy → "Upload Prescription" CTA, retail → product categories) and shows an EMPTY menu (not demo food) when a real vendor has no products (`menuItems = realMenu.length>0 ? realMenu : (sf.name ? [] : demoMenuItems)`).
+- **Verified in preview:** Island Health Pharmacy now opens its storefront (pharmacy category + Upload Prescription CTA) instead of `/pharmacy-order`; Island Convenience (business_type `convenience`) renders its storefront (name, bio, Retail badge, category chips, cart).
+- **NOTE:** reported merchants *islandhop technologies*, *williams cakes*, *gravity media* are on PRODUCTION (separate DB, not inspectable from preview). This fix + the httpOnly-cookie security work are PREVIEW ONLY — **user must Save to GitHub → Deploy** to reach live. If those 3 still fail after redeploy, it's a per-account provisioning/data issue on prod (vendor record not linked) — will need a screenshot + possibly an admin repair endpoint. **REQUIRES REDEPLOY.**
+
+
+
 
 - **Regression close-out (iter42):** verified last session's taxi commission split (none 20% / pro 5% / premium 0%, delivery unchanged 20/10/0) + slim `GET /api/vendors/{id}/media` + BusinessSearch cover cards. 10/10 pytest + frontend 100%, no defects.
 - **P0 FIXED — auth tokens moved out of localStorage (XSS token-theft).** Web now keeps only a non-secret sentinel string `'cookie'` in `localStorage.token`; the real JWT lives ONLY in an httpOnly, Secure, SameSite=Lax cookie named `session_token`. Native/Capacitor still uses a real Bearer token (cross-origin WebViews can't rely on the cookie).
