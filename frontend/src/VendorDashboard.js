@@ -61,6 +61,7 @@ const VendorDashboard = () => {
   const [setup, setSetup] = useState(null);
   const [savings, setSavings] = useState(null);
   const [vendorType, setVendorType] = useState('');
+  const [vendorId, setVendorId] = useState('');
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
@@ -89,6 +90,7 @@ const VendorDashboard = () => {
         hasProducts: (pr.data?.products || []).length > 0,
       });
       if (pr.data?.vendor_type) setVendorType(pr.data.vendor_type);
+      if (sf.data?.vendor_id) setVendorId(sf.data.vendor_id);
     } catch (e) {
       setSetup(null); // not a merchant yet / not resolvable — hide banner
     }
@@ -194,6 +196,16 @@ const VendorDashboard = () => {
                 <Store className="h-5 w-5 mr-2" />
                 My Storefront
               </Button>
+              {vendorId && (
+                <Button
+                  onClick={() => window.open(`/restaurant/${vendorId}`, '_blank', 'noopener')}
+                  variant="outline"
+                  data-testid="vendor-view-storefront-btn"
+                >
+                  <Eye className="h-5 w-5 mr-2" />
+                  View My Storefront
+                </Button>
+              )}
               <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
                 <Ticket className="h-5 w-5 mr-2" />
                 Coupons

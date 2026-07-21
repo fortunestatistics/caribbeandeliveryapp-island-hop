@@ -1779,6 +1779,182 @@ async def repair_driver_profile(user_id: str, request: Request):
     }
 
 
+_MERCHANT_ROLE_FOR = {"restaurants": "restaurant", "businesses": "business", "car_rental_companies": "car_rental"}
+
+
+async def _merchant_health_entry(kind: str, doc: dict) -> dict:
+    """Diagnostic for a merchant vendor record (used by the admin storefront-repair tool)."""
+    vid = doc.get("id")
+    if kind == "restaurants":
+        name, vtype = doc.get("name"), "restaurant"
+    elif kind == "businesses":
+        name, vtype = doc.get("business_name"), (doc.get("business_type") or "business")
+    else:
+        name, vtype = (doc.get("company_name") or doc.get("name")), "car_rental"
+    uid = doc.get("user_id")
+    status = (doc.get("status") or "").lower()
+    sf = await db.merchant_storefronts.find_one({"vendor_id": vid}, {"_id": 0, "logo": 1, "cover": 1, "bio": 1})
+    user = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "email": 1}) if uid else None
+    role_ok = bool(user and user.get("user_type") in ("restaurant", "business", "car_rental", "admin"))
+    active = status == "active"
+    issues = []
+    if not active:
+        issues.append("vendor record not active (won't appear in search)")
+    if not uid or uid in ("seed_partner",):
+        issues.append("no linked user account")
+    elif not user:
+        issues.append("linked user account missing")
+    elif not role_ok:
+        issues.append(f"user role is '{user.get('user_type')}', not a merchant role")
+    return {
+        "kind": "vendor", "collection": kind, "vendor_id": vid, "name": name,
+        "vendor_type": vtype, "status": status or "unknown", "user_id": uid,
+        "user_email": (user or {}).get("email"),
+        "has_storefront_media": bool(sf and (sf.get("logo") or sf.get("cover") or sf.get("bio"))),
+        "appears_in_search": active,
+        "healthy": active and (role_ok or not uid),
+        "issues": issues,
+        "storefront_url": f"/restaurant/{vid}",
+    }
+
+
+async def _application_health_entry(app_doc: dict) -> dict:
+    uid = app_doc.get("user_id")
+    owner = app_doc.get("business_owner") or {}
+    email = app_doc.get("email") or owner.get("email")
+    vstatus = (app_doc.get("verification_status") or "").lower()
+    provisioned = False
+    if uid:
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            if await db[c].find_one({"user_id": uid}, {"_id": 1}):
+                provisioned = True
+                break
+    issues = []
+    if not provisioned:
+        if vstatus in ("verified", "approved"):
+            issues.append("approved but no vendor record — needs provisioning")
+        else:
+            issues.append(f"application status is '{vstatus or 'unknown'}'")
+    return {
+        "kind": "application", "application_id": app_doc.get("id"),
+        "name": app_doc.get("business_name") or (app_doc.get("business_details") or {}).get("business_name"),
+        "email": email, "user_id": uid, "verification_status": vstatus,
+        "provisioned": provisioned, "appears_in_search": provisioned,
+        "healthy": provisioned, "issues": issues,
+    }
+
+
+@api_router.get("/admin/merchants/lookup")
+async def admin_lookup_merchants(q: str, request: Request):
+    """Admin: search merchants by name/email and report storefront health (vendor record
+    active? user role promoted? provisioned?). Powers the 'Repair storefront' tool."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Enter at least 2 characters to search")
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    out = []
+    async for d in db.restaurants.find({"name": rx}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("restaurants", d))
+    async for d in db.businesses.find({"business_name": rx}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("businesses", d))
+    async for d in db.car_rental_companies.find({"$or": [{"company_name": rx}, {"name": rx}]}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("car_rental_companies", d))
+    known_uids = {e.get("user_id") for e in out if e.get("user_id")}
+    async for a in db.business_applications.find(
+        {"$or": [{"business_name": rx}, {"email": rx}, {"business_owner.email": rx}]}, {"_id": 0}
+    ).limit(20):
+        if a.get("user_id") and a.get("user_id") in known_uids:
+            continue  # already represented by a provisioned vendor
+        out.append(await _application_health_entry(a))
+    return {"count": len(out), "results": out}
+
+
+class MerchantRepairRequest(BaseModel):
+    collection: Optional[str] = None   # restaurants | businesses | car_rental_companies
+    vendor_id: Optional[str] = None
+    application_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@api_router.post("/admin/merchants/repair-storefront")
+async def admin_repair_storefront(payload: MerchantRepairRequest, request: Request):
+    """Admin: fix a merchant whose storefront won't open — activate the vendor record,
+    promote the owner's account role, and/or provision the vendor from an approved
+    application. Idempotent. Returns the resolved storefront URL."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    actions = []
+    uid = None
+    vid = None
+
+    if payload.vendor_id and payload.collection in _MERCHANT_ROLE_FOR:
+        doc = await db[payload.collection].find_one({"id": payload.vendor_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Vendor record not found")
+        if (doc.get("status") or "").lower() != "active":
+            await db[payload.collection].update_one({"id": payload.vendor_id}, {"$set": {"status": "active"}})
+            actions.append("activated vendor record")
+        uid = doc.get("user_id")
+        vid = payload.vendor_id
+        if uid and await promote_user_role(uid, _MERCHANT_ROLE_FOR[payload.collection]):
+            actions.append(f"promoted user role to {_MERCHANT_ROLE_FOR[payload.collection]}")
+    elif payload.application_id or payload.user_id:
+        if payload.application_id:
+            app_doc = await db.business_applications.find_one({"id": payload.application_id}, {"_id": 0})
+        else:
+            app_doc = await db.business_applications.find_one(
+                {"user_id": payload.user_id, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0}
+            )
+        if not app_doc:
+            raise HTTPException(status_code=404, detail="No approved application found to provision from")
+        from routers.admin_records import _provision_merchant_vendor
+        await _provision_merchant_vendor(app_doc)
+        actions.append("provisioned vendor record from approved application")
+        # _provision_merchant_vendor may backfill user_id on the app when linking by email
+        refreshed = await db.business_applications.find_one({"id": app_doc.get("id")}, {"_id": 0, "user_id": 1})
+        uid = (refreshed or {}).get("user_id") or app_doc.get("user_id") or payload.user_id
+    else:
+        raise HTTPException(status_code=400, detail="Provide vendor_id+collection, application_id, or user_id")
+
+    if not vid and uid:
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            d = await db[c].find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            if d:
+                vid = d["id"]
+                break
+
+    if not vid:
+        actions.append(
+            "could not resolve a vendor record — this application has no linked user account "
+            "(external lead). Ask the owner to register/log in with the application's email, "
+            "then repair again (or approve it via Approvals)."
+        )
+
+    appears, vtype = False, None
+    if vid:
+        r = await db.restaurants.find_one({"id": vid}, {"_id": 0, "status": 1})
+        b = await db.businesses.find_one({"id": vid}, {"_id": 0, "status": 1, "business_type": 1})
+        if r:
+            appears, vtype = (r.get("status") or "").lower() == "active", "restaurant"
+        elif b:
+            appears, vtype = (b.get("status") or "").lower() == "active", (b.get("business_type") or "business")
+
+    return {
+        "success": True,
+        "actions": actions or ["no changes needed — already healthy"],
+        "vendor_id": vid,
+        "vendor_type": vtype,
+        "appears_in_search": appears,
+        "storefront_url": f"/restaurant/{vid}" if vid else None,
+    }
+
+
+
 
 class AdminUserMessage(BaseModel):
     subject: str

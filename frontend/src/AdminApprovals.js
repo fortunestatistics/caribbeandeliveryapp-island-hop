@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { storeSession } from './authToken';
+import AdminStorefrontRepair from './AdminStorefrontRepair';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -404,6 +405,9 @@ const AdminApprovals = () => {
           </div>
         </div>
       </div>
+
+      {/* Storefront repair tool */}
+      <AdminStorefrontRepair />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">
