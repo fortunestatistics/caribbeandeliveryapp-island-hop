@@ -49,7 +49,7 @@ const AddressManagement = () => {
   const fetchAddresses = async () => {
     try {
       const response = await axios.get(`${API}/addresses`, {
-        withCredentials: false
+        withCredentials: true
       });
       setAddresses(response.data);
       setLoading(false);
@@ -107,11 +107,11 @@ const AddressManagement = () => {
     try {
       if (editingAddress) {
         await axios.put(`${API}/addresses/${editingAddress.id}`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       } else {
         await axios.post(`${API}/addresses`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       }
 
@@ -129,7 +129,7 @@ const AddressManagement = () => {
 
     try {
       await axios.delete(`${API}/addresses/${addressId}`, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchAddresses();
     } catch (error) {
@@ -141,7 +141,7 @@ const AddressManagement = () => {
   const handleSetDefault = async (addressId) => {
     try {
       await axios.post(`${API}/addresses/${addressId}/set-default`, {}, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchAddresses();
     } catch (error) {

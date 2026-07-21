@@ -1466,7 +1466,7 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: false,
+        withCredentials: true,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setApplications(response.data);
@@ -1804,7 +1804,7 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
-        withCredentials: false
+        withCredentials: true
       });
 
       toast({

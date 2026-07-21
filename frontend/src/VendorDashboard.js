@@ -67,7 +67,7 @@ const VendorDashboard = () => {
   const fetchSavings = async () => {
     try {
       const token = localStorage.getItem('token');
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
       const { data } = await axios.get(`${API}/merchant/fee-savings`, cfg);
       setSavings(data);
     } catch (e) {
@@ -77,7 +77,7 @@ const VendorDashboard = () => {
   const fetchSetupStatus = async () => {
     try {
       const token = localStorage.getItem('token');
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
       const [sf, pr] = await Promise.all([
         axios.get(`${API}/merchant/storefront`, cfg),
         axios.get(`${API}/merchant/products`, cfg),
@@ -97,7 +97,7 @@ const VendorDashboard = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/vendors/my-orders`, {
-        withCredentials: false
+        withCredentials: true
       });
       setOrders(response.data);
       setLoading(false);
@@ -110,7 +110,7 @@ const VendorDashboard = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/vendors/stats`, {
-        withCredentials: false
+        withCredentials: true
       });
       setStats(response.data);
     } catch (error) {
@@ -124,7 +124,7 @@ const VendorDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchOrders();

@@ -11,6 +11,7 @@ import {
   FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { storeSession } from './authToken';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -342,7 +343,7 @@ const AdminApprovals = () => {
       const res = await axios.post(`${API}/admin/impersonate/${rec.user_id}`, {}, { headers: authHeaders() });
       localStorage.setItem('impersonator_token', token());
       localStorage.setItem('impersonating_name', rec.name || 'user');
-      localStorage.setItem('token', res.data.token);
+      storeSession(res.data.token, res.data.user);
       window.location.href = '/';
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not open portal');

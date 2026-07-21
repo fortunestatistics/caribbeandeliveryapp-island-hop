@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Car, Store, Mail, Phone, MapPin, FileText, LogIn, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
+import { storeSession } from './authToken';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -45,7 +46,7 @@ const AdminApplicants = () => {
       const res = await axios.post(`${API}/admin/impersonate/${userId}`, {}, { headers: authHeaders() });
       localStorage.setItem('impersonator_token', token());
       localStorage.setItem('impersonating_name', name || res.data?.user?.email || 'applicant');
-      localStorage.setItem('token', res.data.token);
+      storeSession(res.data.token, res.data.user);
       window.location.href = '/';
     } catch (e) {
       alert(e?.response?.data?.detail || 'Could not open portal');

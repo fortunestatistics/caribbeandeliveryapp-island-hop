@@ -69,7 +69,7 @@ const DriverDashboard = () => {
   const fetchDriverData = async () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
-        withCredentials: false
+        withCredentials: true
       });
       setDriver(response.data);
       setIsOnline(response.data.status === 'online');
@@ -83,7 +83,7 @@ const DriverDashboard = () => {
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
-        withCredentials: false
+        withCredentials: true
       });
       setOrderRequests(response.data);
     } catch (error) {
@@ -94,7 +94,7 @@ const DriverDashboard = () => {
   const fetchActiveOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/active-orders`, {
-        withCredentials: false
+        withCredentials: true
       });
       setActiveOrders(response.data);
     } catch (error) {
@@ -104,7 +104,7 @@ const DriverDashboard = () => {
 
   const fetchSubscription = async () => {
     try {
-      const response = await axios.get(`${API}/driver/subscription`, { withCredentials: false });
+      const response = await axios.get(`${API}/driver/subscription`, { withCredentials: true });
       setSubscription(response.data);
     } catch (error) {
       console.error('Error fetching subscription:', error);
@@ -114,7 +114,7 @@ const DriverDashboard = () => {
   const fetchEarnings = async () => {
     try {
       const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
-        withCredentials: false
+        withCredentials: true
       });
       setEarnings({
         today: response.data.today_earnings || 0,
@@ -124,7 +124,7 @@ const DriverDashboard = () => {
       });
       // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
       try {
-        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: false });
+        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
       } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
@@ -138,7 +138,7 @@ const DriverDashboard = () => {
       await axios.put(`${API}/drivers/status`, {
         status: newStatus
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       setIsOnline(!isOnline);
     } catch (error) {
@@ -203,7 +203,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/accept-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchOrderRequests();
@@ -219,7 +219,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/reject-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchOrderRequests();
@@ -234,7 +234,7 @@ const DriverDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchActiveOrders();
@@ -249,8 +249,8 @@ const DriverDashboard = () => {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     if (!window.confirm(`Confirm you collected $${Number(order.total || 0).toFixed(2)} cash from the customer?`)) return;
     try {
-      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: false });
-      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: false });
+      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: true });
+      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: true });
       alert(`Cash collected. You keep $${r.data.driver_keeps?.toFixed(2)}; $${r.data.platform_due?.toFixed(2)} is owed to IslandHop.`);
       fetchActiveOrders();
     } catch (error) {

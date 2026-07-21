@@ -14,7 +14,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
-from fastapi import HTTPException, Request, WebSocket, Depends
+from fastapi import HTTPException, Request, Response, WebSocket, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -40,9 +40,49 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-# Password hashing / bearer scheme
+# Password hashing / bearer scheme.
+# auto_error=False so requests WITHOUT an Authorization header don't 403 outright —
+# we fall back to the httpOnly auth cookie (web) before rejecting.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+
+# ---------------------------------------------------------------------------
+# httpOnly auth cookie (web). The real JWT is stored ONLY in this cookie so it
+# is never readable by JavaScript (XSS token-theft protection). The web client
+# keeps a non-secret 'cookie' sentinel in localStorage; native/mobile keeps the
+# real Bearer token (cross-origin WebViews can't rely on the cookie).
+# ---------------------------------------------------------------------------
+AUTH_COOKIE_NAME = "session_token"
+AUTH_COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+# Values the web client may send in the Authorization header / ?auth= that are
+# NOT real credentials — treat them as absent so we use the cookie instead.
+_PLACEHOLDER_TOKENS = {"", "cookie", "null", "undefined", "none", "bearer"}
+
+
+def _clean_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    t = token.strip()
+    if t.lower() in _PLACEHOLDER_TOKENS:
+        return None
+    return t
+
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    """Store the JWT as an httpOnly, Secure, SameSite=Lax cookie (same-origin SPA+API)."""
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +154,14 @@ def _account_block_detail(user_doc: dict):
     return None
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     from models import User
-    token = credentials.credentials
+    # Prefer a real Bearer token (native/mobile); fall back to the httpOnly cookie (web).
+    token = _clean_token(credentials.credentials if credentials else None)
+    if not token:
+        token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
@@ -137,12 +182,12 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 async def get_current_user_from_request(request: Request):
     """Get current authenticated user from request (supports session token cookie or JWT Bearer)"""
     from models import User
-    session_token = request.cookies.get("session_token")
+    session_token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
 
     if not session_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
+            session_token = _clean_token(auth_header.split(" ", 1)[1])
 
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")

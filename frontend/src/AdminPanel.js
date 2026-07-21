@@ -168,7 +168,7 @@ const AdminPanel = () => {
 
   const fetchCashOutstanding = async () => {
     try {
-      const r = await axios.get(`${API}/admin/drivers/cash-outstanding`, { headers: authHeaders(), withCredentials: false });
+      const r = await axios.get(`${API}/admin/drivers/cash-outstanding`, { headers: authHeaders(), withCredentials: true });
       setCashOutstanding(r.data);
     } catch (e) { setCashOutstanding(null); }
   };
@@ -176,7 +176,7 @@ const AdminPanel = () => {
   const settleDriverCash = async (driverId) => {
     if (!window.confirm('Mark this driver\'s outstanding cash as settled (remitted)?')) return;
     try {
-      await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: false });
+      await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: true });
       fetchCashOutstanding();
     } catch (e) { alert(e.response?.data?.detail || 'Failed to settle'); }
   };
@@ -297,7 +297,7 @@ const AdminPanel = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       setStats(response.data);
       setLoading(false);
@@ -314,7 +314,7 @@ const AdminPanel = () => {
       if (userTypeFilter && userTypeFilter !== 'all') params.set('user_type', userTypeFilter);
       const qs = params.toString() ? `?${params.toString()}` : '';
       const response = await axios.get(`${API}/admin/users${qs}`, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       setUsers(response.data);
     } catch (error) {
@@ -325,7 +325,7 @@ const AdminPanel = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/admin/orders`, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       setOrders(response.data);
     } catch (error) {
@@ -336,7 +336,7 @@ const AdminPanel = () => {
   const fetchDisputes = async () => {
     try {
       const response = await axios.get(`${API}/admin/disputes`, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       setDisputes(response.data);
     } catch (error) {
@@ -347,7 +347,7 @@ const AdminPanel = () => {
   const handleUserAction = async (userId, action) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       fetchUsers();
     } catch (error) {
@@ -359,7 +359,7 @@ const AdminPanel = () => {
   const handleSetUserStatus = async (userId, status) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/set-status`, { status }, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       fetchUsers(searchQuery);
     } catch (error) {
@@ -382,7 +382,7 @@ const AdminPanel = () => {
       const r = await axios.post(
         `${API}/admin/users/${msgUser.id}/message`,
         { subject: msgSubject.trim(), body: msgBody.trim() },
-        { headers: authHeaders(), withCredentials: false }
+        { headers: authHeaders(), withCredentials: true }
       );
       setMsgFeedback({ type: 'success', text: `Email sent to ${r.data.sent_to}` });
       setMsgSubject('');
@@ -404,7 +404,7 @@ const AdminPanel = () => {
     setDocsReviewed(false);
     setProfileLoading(true);
     try {
-      const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: false });
+      const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: true });
       setProfileData(r.data);
     } catch (e) {
       setProfileData({ error: e.response?.data?.detail || 'Failed to load profile' });
@@ -413,7 +413,7 @@ const AdminPanel = () => {
     }
     // Load documents + linked applicant record (non-blocking)
     try {
-      const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: false });
+      const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: true });
       setProfileDocs(d.data);
     } catch (e) {
       setProfileDocs({ documents: [], applicant: null });
@@ -426,7 +426,7 @@ const AdminPanel = () => {
     if (!applicant?.record_id) return;
     setDocActionBusy(true);
     try {
-      await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: false });
+      await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: true });
       toast.success(`Applicant ${action === 'approve' ? 'approved' : 'rejected'}`);
       setProfileUser(null); setProfileData(null); setProfileDocs(null);
       fetchUsers(searchQuery);
@@ -441,7 +441,7 @@ const AdminPanel = () => {
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
-        headers: authHeaders(), withCredentials: false
+        headers: authHeaders(), withCredentials: true
       });
       fetchOrders();
     } catch (error) {

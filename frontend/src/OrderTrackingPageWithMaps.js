@@ -83,7 +83,7 @@ const OrderTrackingPageWithMaps = () => {
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await axios.get(`${API}/orders/${orderId}`, {
           headers,
-          withCredentials: false,
+          withCredentials: true,
         });
         setOrder(response.data);
         setLoading(false);
@@ -112,7 +112,7 @@ const OrderTrackingPageWithMaps = () => {
   const checkIfRated = async () => {
     try {
       const response = await axios.get(`${API}/ratings?order_id=${orderId}`, {
-        withCredentials: false
+        withCredentials: true
       });
       return response.data.length > 0;
     } catch (error) {
@@ -224,7 +224,7 @@ const OrderTrackingPageWithMaps = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
-        withCredentials: false
+        withCredentials: true
       });
 
       setNewMessage('');
@@ -240,7 +240,7 @@ const OrderTrackingPageWithMaps = () => {
         order_id: orderId,
         ...ratings
       }, {
-        withCredentials: false
+        withCredentials: true
       });
 
       setShowRatingModal(false);

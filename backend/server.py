@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
 from fastapi.responses import JSONResponse, Response, RedirectResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -44,6 +44,7 @@ from core import (
     _account_block_detail, get_current_user, get_current_user_from_request,
     prepare_for_mongo, parse_from_mongo, promote_user_role,
     client_ip, rate_limit_ok,
+    set_auth_cookie, clear_auth_cookie,
 )
 
 # Create the main app without a prefix
@@ -608,7 +609,7 @@ async def _persist_pending_referral(user: User) -> None:
 
 
 @api_router.post("/auth/register", response_model=Token)
-async def register(user_data: UserRegister):
+async def register(user_data: UserRegister, response: Response):
     """Register a new user. Optionally verifies a pending OTP for the phone and applies a referral code."""
     if await db.users.find_one({"email": user_data.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -635,6 +636,7 @@ async def register(user_data: UserRegister):
     await _persist_pending_referral(user)
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -642,7 +644,7 @@ async def register(user_data: UserRegister):
     }
 
 @api_router.post("/auth/login", response_model=Token)
-async def login(credentials: UserLogin):
+async def login(credentials: UserLogin, response: Response):
     """Login user"""
     # Find user
     user_doc = await db.users.find_one({"email": credentials.email})
@@ -671,7 +673,8 @@ async def login(credentials: UserLogin):
     
     # Create access token
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
-    
+    set_auth_cookie(response, access_token)
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -719,7 +722,7 @@ class SocialAuthRequest(BaseModel):
 
 
 @api_router.post("/auth/social/google", response_model=Token)
-async def google_social_auth(payload: SocialAuthRequest):
+async def google_social_auth(payload: SocialAuthRequest, response: Response):
     """Exchange an Emergent Google OAuth session_id for our app JWT.
 
     Creates the user's profile automatically on first sign-in (no password),
@@ -764,6 +767,7 @@ async def google_social_auth(payload: SocialAuthRequest):
             logging.warning(f"Referral persist failed for social signup {email}: {e}")
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -837,7 +841,7 @@ async def microsoft_login_url(redirect_uri: str, state: str):
 
 
 @api_router.post("/auth/social/microsoft", response_model=Token)
-async def microsoft_social_auth(payload: MicrosoftAuthRequest):
+async def microsoft_social_auth(payload: MicrosoftAuthRequest, response: Response):
     """Exchange a Microsoft authorization code for our app JWT.
 
     Creates the user's profile automatically on first sign-in (no password),
@@ -887,6 +891,7 @@ async def microsoft_social_auth(payload: MicrosoftAuthRequest):
             logging.warning(f"Referral persist failed for social signup {email}: {e}")
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -1092,7 +1097,7 @@ async def logout(request: Request):
         )
     
     response = JSONResponse({"message": "Logged out successfully"})
-    response.delete_cookie("session_token")
+    clear_auth_cookie(response)
     return response
 
 # Restaurant Management Routes
@@ -4366,7 +4371,7 @@ async def get_invite(token: str):
 
 
 @api_router.post("/auth/invite/accept", response_model=Token)
-async def accept_invite(payload: InviteAccept):
+async def accept_invite(payload: InviteAccept, response: Response):
     """Accept an invite (public): create or promote the account with the invited role."""
     invite = await db.admin_invites.find_one({"token": payload.token, "used": False})
     if not invite:
@@ -4393,6 +4398,7 @@ async def accept_invite(payload: InviteAccept):
     await db.admin_invites.update_one({"token": payload.token}, {"$set": {"used": True}})
     await _log_admin_action(user.id, user.email, "invite_accepted", email, role)
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -9531,7 +9537,7 @@ async def admin_list_applicants(request: Request):
 
 
 @api_router.post("/admin/impersonate/{user_id}")
-async def admin_impersonate(user_id: str, request: Request):
+async def admin_impersonate(user_id: str, request: Request, response: Response):
     """Admin-only: mint a short-lived token so the admin can view a user's own portal.
     Refuses to impersonate other admins; audit-logged."""
     current_user = await get_current_user_from_request(request)
@@ -9553,6 +9559,7 @@ async def admin_impersonate(user_id: str, request: Request):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     logging.info(f"Admin {current_user.email} started viewing portal of {target.get('email')}")
+    set_auth_cookie(response, token)
     return {"token": token, "user": target, "expires_in_minutes": 30}
 
 

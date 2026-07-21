@@ -20,6 +20,7 @@ import {
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
 import { Checkbox } from './components/ui/checkbox';
+import { storeSession } from './authToken';
 import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -89,8 +90,8 @@ const AuthPage = ({ mode = 'login' }) => {
         });
         
         // Save token and user
-        localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
+        storeSession(response.data.access_token, response.data.user);
         
         // Full reload so AuthContext re-initializes from the new token
         // (SPA navigate() leaves stale auth state and bounces back to /login).
@@ -109,8 +110,8 @@ const AuthPage = ({ mode = 'login' }) => {
         });
         
         // Save token and user
-        localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
+        storeSession(response.data.access_token, response.data.user);
         
         // Full reload so AuthContext re-initializes from the new token.
         window.location.href = '/dashboard';

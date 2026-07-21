@@ -4,6 +4,10 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Send the httpOnly auth cookie on EVERY axios request (web relies on it; the real
+// JWT is no longer kept in localStorage). Runs at module load, before any request.
+axios.defaults.withCredentials = true;
+
 // Attach the stored JWT to ALL axios requests globally so components using the raw
 // `axios` import (driver/vendor dashboards, etc.) are authenticated. Runs at module
 // load, before any component mounts.
@@ -38,7 +42,7 @@ export const AuthProvider = ({ children }) => {
       applyAuthToken(token);
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const response = await axios.get(`${API}/auth/me`, {
-        withCredentials: false,
+        withCredentials: true,
         headers,
         validateStatus: (status) => status < 500,
       });
@@ -59,7 +63,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await axios.post(`${API}/auth/logout`, {}, { withCredentials: false });
+      await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
     } catch (error) {
       console.error('Logout request failed:', error);
     }

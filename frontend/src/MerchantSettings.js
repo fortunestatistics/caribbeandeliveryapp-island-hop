@@ -12,7 +12,7 @@ import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarS
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authCfg = () => {
   const token = localStorage.getItem('token');
-  return { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+  return { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
 };
 
 export default function MerchantSettings() {

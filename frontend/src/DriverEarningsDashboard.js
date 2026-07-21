@@ -22,7 +22,7 @@ const DriverEarningsDashboard = () => {
   useEffect(() => {
     const load = async () => {
       const token = localStorage.getItem('token');
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
       try {
         const me = await axios.get(`${API}/drivers/me`, cfg);
         const driverId = me.data?.id;
