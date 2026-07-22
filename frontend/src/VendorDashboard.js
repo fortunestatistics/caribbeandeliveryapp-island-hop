@@ -63,6 +63,7 @@ const VendorDashboard = () => {
   const [savings, setSavings] = useState(null);
   const [vendorType, setVendorType] = useState('');
   const [vendorId, setVendorId] = useState('');
+  const [stripeStatus, setStripeStatus] = useState(null);
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
@@ -94,6 +95,14 @@ const VendorDashboard = () => {
       if (sf.data?.vendor_id) setVendorId(sf.data.vendor_id);
     } catch (e) {
       setSetup(null); // not a merchant yet / not resolvable — hide banner
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const cs = await axios.get(`${API}/vendor/connect/status`, cfg);
+      setStripeStatus(cs.data);
+    } catch (e) {
+      setStripeStatus(null);
     }
   };
 
@@ -175,6 +184,29 @@ const VendorDashboard = () => {
   return (
     <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
+        {stripeStatus && !stripeStatus.payouts_enabled && (
+          <div
+            className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-gold-500/40 bg-gold-500/10 p-4"
+            data-testid="stripe-onboarding-banner"
+          >
+            <div className="flex items-start gap-3">
+              <Banknote className="h-5 w-5 text-gold-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-foreground">Finish setting up payouts to get paid</p>
+                <p className="text-sm text-muted-foreground">
+                  Until you connect your bank via Stripe, your share of each sale is held and can&apos;t be sent to you. It takes 2 minutes.
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={() => navigate('/vendor/connect-stripe')}
+              className="bg-gold-gradient hover:bg-gold-gradient-hover text-white shrink-0"
+              data-testid="stripe-onboarding-banner-btn"
+            >
+              <Banknote className="h-4 w-4 mr-2" /> Set up payouts
+            </Button>
+          </div>
+        )}
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">

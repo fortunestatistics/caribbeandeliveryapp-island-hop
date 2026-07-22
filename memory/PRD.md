@@ -15,7 +15,16 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jun 2026 (fork, cont.) — Stripe Connect GO-LIVE prep (destination charges + Stripe Tax gate + BYOK key switch)
+## Session Log — Jun 2026 (fork, cont.) — Per-category Stripe Tax + merchant payout dashboard + onboarding nudge + double-payout guard
+
+- **Per-category tax codes (`server.py`):** `_tax_code_for_type(vendor_type)` maps restaurant/food→`txcd_40060003` (prepared food), grocery/convenience→`txcd_40040000` (food for home), pharmacy→`txcd_99999999` (fallback — verify per state), digital→`txcd_10000000`, retail/business/car_rental→`txcd_99999999`. Each overridable via env `STRIPE_TAX_CODE_<TYPE>`. Checkout derives vendor_type from `order.vendor_type` or `_derive_vendor_type(service_type)`.
+- **Double-payout guard:** destination-charge orders (split at checkout) are now marked `vendor_payout_status='paid'` + `vendor_payout_method='stripe_destination_charge'` on payment success, and a `VendorPayout` record (status completed) is written. The nightly batch (`process_daily_vendor_payouts`, filters `vendor_payout_status:'pending'`) therefore SKIPS them → no double pay. Un-onboarded-merchant orders stay `pending` and settle via the batch once they onboard. Tracked via `payment_transactions.metadata.payout_method`.
+- **Merchant payout dashboard:** `GET /api/merchant/payouts` returns onboarding status + summary (paid out / pending / order count) + each paid order's split (customer total, platform fee, tax, your net, payout status). Rendered in `VendorStripeConnect.js` ("Your earnings" card + table). Verified E2E via screenshot ($36 paid / $18 pending / 2 orders).
+- **Onboarding nudge banner:** `VendorDashboard.js` shows a gold banner ("Finish setting up payouts to get paid → Set up payouts" → `/vendor/connect-stripe`) whenever `GET /vendor/connect/status` reports `payouts_enabled=false`. Verified via screenshot.
+- All verified in preview (real Stripe test account, STRIPE_MODE=test). Go-live still parked on owner actions (rotate live key, enable Stripe Tax, register live webhook, merchants onboard, flip STRIPE_MODE=live).
+
+
+
 
 - **Critical finding:** the pod injects `STRIPE_API_KEY=sk_test_emergent` (Emergent shared sandbox) which SHADOWS the platform's real keys in `.env` and does NOT support Stripe **Connect** (marketplace payouts). Connect requires the platform's OWN Stripe account.
 - **BYOK key switch (`core.py`):** added `STRIPE_MODE` (test|live). `test` → `STRIPE_TEST_API_KEY`, `live` → `STRIPE_LIVE_API_KEY`, bypassing the injected sandbox key. `.env` now has `STRIPE_MODE=test`, `STRIPE_TEST_API_KEY=<real sk_test>`, existing `STRIPE_LIVE_API_KEY`. Verified: app now uses the real test account (`sk_test_51TgX…`, not sandbox).

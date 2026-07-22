@@ -7343,6 +7343,30 @@ class CheckoutForOrderRequest(BaseModel):
     order_id: str
     origin_url: str  # window.location.origin from frontend
 
+# Per-category Stripe Tax codes (US). Starting defaults — verify against your tax advisor
+# and override per category via env STRIPE_TAX_CODE_<TYPE> (e.g. STRIPE_TAX_CODE_PHARMACY).
+_STRIPE_TAX_CODE_MAP = {
+    "restaurant": "txcd_40060003",   # prepared / immediate-consumption food
+    "food": "txcd_40060003",
+    "grocery": "txcd_40040000",      # food for non-immediate (home) consumption
+    "convenience": "txcd_40040000",
+    "pharmacy": "txcd_99999999",     # fallback — many Rx are exempt; set per-state via env
+    "digital": "txcd_10000000",      # general electronically-supplied / digital goods
+    "retail": "txcd_99999999",
+    "business": "txcd_99999999",
+    "car_rental": "txcd_99999999",
+}
+
+
+def _tax_code_for_type(vendor_type: str) -> str:
+    vt = (vendor_type or "").lower()
+    return (
+        os.environ.get(f"STRIPE_TAX_CODE_{vt.upper()}")
+        or _STRIPE_TAX_CODE_MAP.get(vt)
+        or os.environ.get("STRIPE_TAX_CODE", "txcd_99999999")
+    )
+
+
 async def _vendor_destination_account(vendor_id: str):
     """Return the vendor's Stripe connected account id if they can receive payouts, else None."""
     if not vendor_id:
@@ -7351,6 +7375,62 @@ async def _vendor_destination_account(vendor_id: str):
     if acct and acct.get("payouts_enabled") and acct.get("stripe_account_id"):
         return acct["stripe_account_id"]
     return None
+
+
+@api_router.get("/merchant/payouts")
+async def get_merchant_payouts(request: Request):
+    """Merchant-facing payouts screen: onboarding status, summary, and each paid order's
+    split (their net, platform fee, tax)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if not vendor_id:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+    acct = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    onboarding = {
+        "connected": bool(acct),
+        "payouts_enabled": bool(acct and acct.get("payouts_enabled")),
+        "charges_enabled": bool(acct and acct.get("charges_enabled")),
+    }
+
+    q = {"$or": [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}], "payment_status": "paid"}
+    orders = await db.orders.find(q, {"_id": 0}).sort("paid_at", -1).limit(50).to_list(length=50)
+    order_rows = []
+    for o in orders:
+        net = float(o.get("vendor_payout") or 0.0)
+        total = float(o.get("total") or 0.0)
+        commission = float(o.get("commission_amount") or 0.0)
+        tax = float(o.get("tax") or o.get("tax_amount") or 0.0)
+        pstatus = o.get("vendor_payout_status") or "pending"
+        order_rows.append({
+            "order_id": o.get("id"),
+            "date": o.get("paid_at") or o.get("created_at"),
+            "customer_total": round(total, 2),
+            "your_net": round(net, 2),
+            "platform_fee": round(commission, 2),
+            "tax": round(tax, 2),
+            "payout_status": pstatus,
+            "payout_method": o.get("vendor_payout_method") or ("instant" if pstatus == "paid" else "pending"),
+        })
+
+    paid = [r for r in order_rows if r["payout_status"] == "paid"]
+    pending = [r for r in order_rows if r["payout_status"] != "paid"]
+    summary = {
+        "total_paid_out": round(sum(r["your_net"] for r in paid), 2),
+        "pending_amount": round(sum(r["your_net"] for r in pending), 2),
+        "orders_count": len(order_rows),
+    }
+    return {
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "onboarding": onboarding,
+        "summary": summary,
+        "orders": order_rows,
+        "payout_note": (
+            "Order splits arrive in your bank on your Stripe payout schedule (usually daily rolling). "
+            "Pending amounts settle automatically once your Stripe onboarding is complete."
+        ),
+    }
 
 
 @api_router.post("/payments/checkout/session")
@@ -7382,9 +7462,10 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
     vendor_id = order.get("restaurant_id") or order.get("vendor_id")
     dest_account = await _vendor_destination_account(vendor_id)
     vendor_payout = float(order.get("vendor_payout") or 0.0)
+    vendor_type = order.get("vendor_type") or _derive_vendor_type(order.get("service_type"))
 
     tax_enabled = os.environ.get("STRIPE_TAX_ENABLED", "false").lower() == "true"
-    tax_code = os.environ.get("STRIPE_TAX_CODE", "txcd_10000000")
+    tax_code = _tax_code_for_type(vendor_type)
 
     product_data = {"name": f"IslandHop order {str(payload.order_id)[:8]}"}
     price_data = {"currency": "usd", "unit_amount": int(round(amount * 100)), "product_data": product_data}
@@ -7393,7 +7474,8 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
         price_data["tax_behavior"] = "exclusive"
 
     payment_intent_data = {"metadata": {"order_id": str(payload.order_id)}}
-    if dest_account and vendor_payout > 0:
+    use_destination = bool(dest_account and vendor_payout > 0)
+    if use_destination:
         payment_intent_data["transfer_data"] = {
             "destination": dest_account,
             "amount": int(round(vendor_payout * 100)),
@@ -7427,7 +7509,14 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
         amount=amount,
         currency="usd",
         payment_status="initiated",
-        metadata={"order_id": str(payload.order_id), "user_id": current_user.id},
+        metadata={
+            "order_id": str(payload.order_id),
+            "user_id": current_user.id,
+            "payout_method": "destination" if use_destination else "platform",
+            "vendor_id": vendor_id or "",
+            "vendor_type": vendor_type or "",
+            "vendor_payout": str(vendor_payout),
+        },
     )
     await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
 
@@ -7474,15 +7563,40 @@ async def get_checkout_status(session_id: str):
     )
 
     if status.payment_status == "paid" and not already_paid:
-        order_id = (txn.get("metadata") or {}).get("order_id")
+        meta = txn.get("metadata") or {}
+        order_id = meta.get("order_id")
         if order_id:
+            order_set = {
+                "payment_status": "paid",
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # Destination-charge orders are already split to the merchant at checkout —
+            # mark the payout settled so the nightly batch never re-transfers (no double pay).
+            if meta.get("payout_method") == "destination":
+                order_set["vendor_payout_status"] = "paid"
+                order_set["vendor_payout_method"] = "stripe_destination_charge"
+                order_set["vendor_payout_date"] = datetime.now(timezone.utc).isoformat()
             await db.orders.update_one(
                 {"id": order_id, "payment_status": {"$ne": "paid"}},
-                {"$set": {
-                    "payment_status": "paid",
-                    "paid_at": datetime.now(timezone.utc).isoformat(),
-                }},
+                {"$set": order_set},
             )
+            # Record the instant split for the merchant payouts screen.
+            if meta.get("payout_method") == "destination":
+                try:
+                    payout = VendorPayout(
+                        vendor_id=meta.get("vendor_id") or "",
+                        vendor_type=meta.get("vendor_type") or "unknown",
+                        amount=float(meta.get("vendor_payout") or 0.0),
+                        order_ids=[order_id],
+                        payout_date=datetime.now(timezone.utc),
+                        status="completed",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    pd = prepare_for_mongo(payout.dict())
+                    pd["method"] = "stripe_destination_charge"
+                    await db.vendor_payouts.insert_one(pd)
+                except Exception as pexc:
+                    logging.warning(f"Could not record destination payout for {order_id}: {pexc}")
             # Referral completion: credit referrer + referee on first paid order
             try:
                 customer_id = txn.get("user_id")
