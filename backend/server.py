@@ -7343,6 +7343,16 @@ class CheckoutForOrderRequest(BaseModel):
     order_id: str
     origin_url: str  # window.location.origin from frontend
 
+async def _vendor_destination_account(vendor_id: str):
+    """Return the vendor's Stripe connected account id if they can receive payouts, else None."""
+    if not vendor_id:
+        return None
+    acct = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id})
+    if acct and acct.get("payouts_enabled") and acct.get("stripe_account_id"):
+        return acct["stripe_account_id"]
+    return None
+
+
 @api_router.post("/payments/checkout/session")
 async def create_order_checkout_session(payload: CheckoutForOrderRequest, request: Request):
     """
@@ -7361,42 +7371,67 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Invalid order total")
 
-    host_url = str(request.base_url).rstrip('/')
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-
     origin = payload.origin_url.rstrip('/')
     success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&order_id={payload.order_id}"
     cancel_url = f"{origin}/payment/cancel?order_id={payload.order_id}"
 
-    checkout_request = CheckoutSessionRequest(
-        amount=float(amount),
-        currency="usd",
+    # Connect destination-charge split: the merchant's pre-tax net (vendor_payout) is
+    # routed to their connected account; commission + delivery + tip + TAX stay on the
+    # platform (we are merchant of record and remit the tax). Falls back to a plain
+    # platform charge when the merchant hasn't finished Stripe onboarding yet.
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    dest_account = await _vendor_destination_account(vendor_id)
+    vendor_payout = float(order.get("vendor_payout") or 0.0)
+
+    tax_enabled = os.environ.get("STRIPE_TAX_ENABLED", "false").lower() == "true"
+    tax_code = os.environ.get("STRIPE_TAX_CODE", "txcd_10000000")
+
+    product_data = {"name": f"IslandHop order {str(payload.order_id)[:8]}"}
+    price_data = {"currency": "usd", "unit_amount": int(round(amount * 100)), "product_data": product_data}
+    if tax_enabled:
+        product_data["tax_code"] = tax_code
+        price_data["tax_behavior"] = "exclusive"
+
+    payment_intent_data = {"metadata": {"order_id": str(payload.order_id)}}
+    if dest_account and vendor_payout > 0:
+        payment_intent_data["transfer_data"] = {
+            "destination": dest_account,
+            "amount": int(round(vendor_payout * 100)),
+        }
+
+    session_kwargs = dict(
+        mode="payment",
+        line_items=[{"price_data": price_data, "quantity": 1}],
         success_url=success_url,
         cancel_url=cancel_url,
+        payment_intent_data=payment_intent_data,
         metadata={
-            "order_id": payload.order_id,
+            "order_id": str(payload.order_id),
             "user_id": current_user.id,
             "user_email": current_user.email,
         },
-        # 'card' on Stripe Checkout automatically enables Apple Pay & Google Pay
-        # wallets on supported devices (Safari/iOS for Apple Pay, Chrome/Android for Google Pay).
-        payment_methods=["card"],
     )
-    session = await stripe_checkout.create_checkout_session(checkout_request)
+    if tax_enabled:
+        session_kwargs["automatic_tax"] = {"enabled": True}
+
+    try:
+        session = stripe.checkout.Session.create(**session_kwargs)
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe checkout create failed for order {payload.order_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
 
     payment = PaymentTransaction(
-        session_id=session.session_id,
+        session_id=session.id,
         user_id=current_user.id,
         email=current_user.email,
         amount=amount,
         currency="usd",
         payment_status="initiated",
-        metadata={"order_id": payload.order_id, "user_id": current_user.id},
+        metadata={"order_id": str(payload.order_id), "user_id": current_user.id},
     )
     await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
 
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
 
 
 @api_router.get("/payments/checkout/status/{session_id}")
@@ -7407,13 +7442,22 @@ async def get_checkout_status(session_id: str):
     """
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
     try:
-        status = await stripe_checkout.get_checkout_status(session_id)
+        session = stripe.checkout.Session.retrieve(session_id)
     except stripe.error.InvalidRequestError as e:  # type: ignore[attr-defined]
         raise HTTPException(status_code=404, detail=f"Checkout session not found: {e.user_message or str(e)}")
     except stripe.error.StripeError as e:  # type: ignore[attr-defined]
         raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Checkout session not found: {e}")
+
+    class _S:  # normalize to the shape the rest of this handler expects
+        pass
+    status = _S()
+    status.status = session.get("status")
+    status.payment_status = session.get("payment_status")
+    status.amount_total = session.get("amount_total")
+    status.currency = session.get("currency")
+    status.metadata = session.get("metadata") or {}
 
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not txn:

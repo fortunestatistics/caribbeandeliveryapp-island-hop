@@ -34,7 +34,14 @@ db = client[os.environ['DB_NAME']]
 # Config / secrets
 # ---------------------------------------------------------------------------
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
-STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
+# Stripe key selection. The pod injects STRIPE_API_KEY=sk_test_emergent (Emergent's shared
+# sandbox) which does NOT support Connect/marketplace payouts. For real merchant payouts we
+# use the platform's OWN Stripe account keys (from .env) selected by STRIPE_MODE.
+STRIPE_MODE = os.environ.get('STRIPE_MODE', 'test').lower()
+if STRIPE_MODE == 'live':
+    STRIPE_API_KEY = os.environ.get('STRIPE_LIVE_API_KEY') or os.environ.get('STRIPE_API_KEY')
+else:
+    STRIPE_API_KEY = os.environ.get('STRIPE_TEST_API_KEY') or os.environ.get('STRIPE_API_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"

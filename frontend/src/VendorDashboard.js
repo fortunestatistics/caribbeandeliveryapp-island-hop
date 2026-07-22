@@ -21,7 +21,8 @@ import {
   Store,
   Ticket,
   Megaphone,
-  MessageCircle
+  MessageCircle,
+  Banknote
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
@@ -206,6 +207,10 @@ const VendorDashboard = () => {
                   View My Storefront
                 </Button>
               )}
+              <Button onClick={() => navigate('/vendor/connect-stripe')} variant="outline" data-testid="vendor-payments-btn">
+                <Banknote className="h-5 w-5 mr-2" />
+                Payments &amp; Payouts
+              </Button>
               <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
                 <Ticket className="h-5 w-5 mr-2" />
                 Coupons
