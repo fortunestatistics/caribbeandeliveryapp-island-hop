@@ -108,3 +108,6 @@ frontend/android/keystore.properties
 *.jks
 *.keystore
 
+.env
+.env.*
+*.env
