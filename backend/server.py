@@ -9265,7 +9265,8 @@ async def admin_payment_mode(request: Request):
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
-    stripe_key = os.environ.get("STRIPE_API_KEY", "") or ""
+    # Use the mode-selected key (respects STRIPE_MODE), not the raw injected STRIPE_API_KEY.
+    stripe_key = STRIPE_API_KEY or ""
     if stripe_key.startswith("sk_live"):
         stripe_mode = "live"
     elif stripe_key.startswith("sk_test"):
