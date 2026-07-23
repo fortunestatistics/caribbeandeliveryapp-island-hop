@@ -15,7 +15,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 23, 2026 (fork, cont.) — PayPal checkout button + country guardrail
+## Session Log — Jul 23, 2026 (fork, cont.) — PayPal switched to LIVE
+- **PayPal is now LIVE (`PAYPAL_MODE=live`).** Verified the supplied credentials authenticate against `api-m.paypal.com` (200) and NOT sandbox (401) — confirmed genuine live keys. `GET /api/admin/payment-mode` now reports PayPal `live:true`. Live `create-order` returns `status=CREATED, mode=live` with an approval URL on `www.paypal.com` (verified via curl — order intent only, no charge until buyer approval + capture).
+- The checkout **PayPal button** (`checkout-pay-paypal-btn`) now renders because `paypal_enabled=is_configured()=true`. Card (Stripe), COD, Wallet unchanged.
+- **Outstanding for full robustness:** `PAYPAL_WEBHOOK_ID` is empty → webhook signature verification is skipped (the synchronous capture-on-return flow works without it). To enable async webhooks, register a LIVE webhook to production `/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID`.
+- Live keys are in `backend/.env` (committed) so REQUIRES REDEPLOY to carry `PAYPAL_MODE=live` to production.
+
+
+
 - **PayPal button on checkout (`CheckoutPage.js`):** added `handlePayPal` (POST `/api/payments/paypal/create-order` with `{amount, currency:'USD', purpose:'order', order_id, origin_url}` → redirect to `approve_url`; return/capture flow was already wired in `PaymentSuccess`). Button `checkout-pay-paypal-btn` renders only when `payment-options.paypal_enabled` is true. `GET /api/orders/{id}/payment-options` now returns `paypal_enabled = paypal_client.is_configured()`. **In PREVIEW `paypal_enabled=false` (no PAYPAL_CLIENT_ID/SECRET in preview .env) so the button is HIDDEN here; it appears in PRODUCTION where creds exist** (PAYPAL_MODE flips to live there).
 - **Country guardrail (payment routing readiness):** new admin endpoint `GET /api/admin/merchants/missing-country` (admin/agent) lists ACTIVE merchants across restaurants/businesses/car_rental_companies whose `address.country` is empty/missing. New `AdminMerchantsMissingCountry.js` card mounted in `AdminApprovals.js` (below the Repair tool): shows a green "all set" or amber "N missing country" badge + expandable list. Verified in preview (shows 92 — mostly seeded test data). Also added a merchant-side amber nudge under the Country field in `MerchantSettings.js` (`settings-country-warning`) when country is blank.
 - Verified: routing suite **11/11 PASS**, missing-country endpoint curl (count 92), clean `CI=true yarn build`, admin card screenshot confirmed. **REQUIRES REDEPLOY.**
