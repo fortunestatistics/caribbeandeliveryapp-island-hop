@@ -8026,12 +8026,18 @@ async def paypal_webhook(request: Request):
                    "amount": float((resource.get("amount") or {}).get("value", 0) or 0),
                    "currency": (resource.get("amount") or {}).get("currency_code")}
             await _settle_paypal_order(order_id, cap)
-    elif event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+    elif event_type.startswith("PAYMENT.PAYOUTS-ITEM.") or event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+        # Automated merchant/driver payout status updates.
         batch_id = resource.get("payout_batch_id")
-        if batch_id:
+        item_id = resource.get("payout_item_id")
+        txn_status = resource.get("transaction_status") or event_type.split(".")[-1]
+        query = {"payout_batch_id": batch_id} if batch_id else ({"payout_item_id": item_id} if item_id else None)
+        if query:
             await db.paypal_payouts.update_one(
-                {"payout_batch_id": batch_id},
-                {"$set": {"item_status": resource.get("transaction_status") or event_type}},
+                query,
+                {"$set": {"item_status": txn_status,
+                          "payout_item_id": item_id,
+                          "updated_at": datetime.now(timezone.utc).isoformat()}},
             )
     return {"received": True, "verified": True}
 
@@ -9768,7 +9774,8 @@ _CLEANUP_SEED_RESTAURANTS = {"island spice kitchen", "tropical grill", "beach bi
 _CLEANUP_TEST_RE = re.compile(
     r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|\bprobe\b|"
     r"tier hut|ui eatery|ui merch|ad spice kitchen|featured_iter|jerk hut|"
-    r"\bfe diner\b|\bi14|diner\s*\d|@example\.com|@x\.tt|\+test|noreply\+)",
+    r"agentrole_\d|invited_\d|@islandhop-demo\.com|_\d{9,}|"
+    r"\bfe diner\b|\bi14|diner\s*\d|@example\.com|@x\.tt|@x\.com|\+test|noreply\+)",
     re.I,
 )
 _CLEANUP_PROTECTED_USER_TYPES = {"admin", "staff", "owner"}
@@ -9794,10 +9801,22 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     """Return {collection: {ids, labels, ...}} describing exactly what would be deleted."""
     plan = {}
     keep_owner_ids = set()
+    # Snapshot of live account ids so we can flag orphaned drivers/orders (their owning
+    # user was already deleted in a prior run) — these are stale test data.
+    existing_user_ids = set()
+    user_by_id = {}
+    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}):
+        if u.get("id"):
+            existing_user_ids.add(u["id"])
+            user_by_id[u["id"]] = (u.get("name"), u.get("email"))
+
+    def _owner_is_test(uid):
+        info = user_by_id.get(uid)
+        return bool(info) and _cleanup_is_test(info[0], info[1])
 
     del_rest_ids, rest_labels = [], []
     async for r in db.restaurants.find({}, {"_id": 0, "id": 1, "name": 1, "user_id": 1}):
-        if _cleanup_restaurant_should_delete(r):
+        if _cleanup_restaurant_should_delete(r) or _owner_is_test(r.get("user_id")):
             del_rest_ids.append(r.get("id")); rest_labels.append(r.get("name"))
         elif r.get("user_id"):
             keep_owner_ids.add(r.get("user_id"))
@@ -9806,7 +9825,7 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_biz_ids, biz_labels = [], []
     async for b in db.businesses.find({}, {"_id": 0, "id": 1, "business_name": 1, "name": 1, "user_id": 1}):
         nm = b.get("business_name") or b.get("name")
-        if _cleanup_is_test(nm):
+        if _cleanup_is_test(nm) or _owner_is_test(b.get("user_id")):
             del_biz_ids.append(b.get("id")); biz_labels.append(nm)
         elif b.get("user_id"):
             keep_owner_ids.add(b.get("user_id"))
@@ -9815,7 +9834,7 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_cr_ids, cr_labels = [], []
     async for cr in db.car_rental_companies.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1, "user_id": 1}):
         nm = cr.get("company_name") or cr.get("name")
-        if _cleanup_is_test(nm):
+        if _cleanup_is_test(nm) or _owner_is_test(cr.get("user_id")):
             del_cr_ids.append(cr.get("id")); cr_labels.append(nm)
         elif cr.get("user_id"):
             keep_owner_ids.add(cr.get("user_id"))
@@ -9824,11 +9843,14 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_driver_ids, del_driver_user_ids, drv_labels = [], [], []
     async for d in db.drivers.find({}, {"_id": 0, "id": 1, "user_id": 1, "name": 1, "email": 1, "personal_info": 1, "license_number": 1}):
         pi = d.get("personal_info") or {}
-        if _cleanup_is_test(d.get("name"), d.get("email"), pi.get("name"), pi.get("email"), d.get("license_number")):
+        duid = d.get("user_id")
+        is_test = _cleanup_is_test(d.get("name"), d.get("email"), pi.get("name"), pi.get("email"), d.get("license_number"))
+        is_orphan = bool(duid) and duid not in existing_user_ids
+        if is_test or is_orphan:
             del_driver_ids.append(d.get("id"))
-            if d.get("user_id"):
-                del_driver_user_ids.append(d.get("user_id"))
-            drv_labels.append(d.get("name") or pi.get("name") or d.get("id"))
+            if duid:
+                del_driver_user_ids.append(duid)
+            drv_labels.append((d.get("name") or pi.get("name") or d.get("id")) + (" — orphaned" if (is_orphan and not is_test) else ""))
     plan["drivers"] = {"ids": del_driver_ids, "labels": drv_labels, "user_ids": del_driver_user_ids}
 
     del_app_ids, app_labels = [], []
@@ -9839,29 +9861,45 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     plan["business_applications"] = {"ids": del_app_ids, "labels": app_labels}
 
     del_user_ids, user_labels = [], []
-    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1}):
+    admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1, "is_owner": 1}):
         uid = u.get("id")
+        email = (u.get("email") or "").strip().lower()
         if not uid or uid == requesting_user_id:
             continue
-        if (u.get("user_type") or "").lower() in _CLEANUP_PROTECTED_USER_TYPES:
+        # NEVER delete the platform owner (is_owner flag or the seeded ADMIN_EMAIL).
+        if u.get("is_owner") or (email and email == admin_email):
             continue
         if uid in keep_owner_ids:
             continue
+        # Test admins/agents (auto-generated invite/agent accounts, qa/demo emails) are
+        # removed too — only genuine, non-test-pattern accounts survive.
         if _cleanup_is_test(u.get("name"), u.get("email")):
             del_user_ids.append(uid); user_labels.append(u.get("email") or u.get("name"))
     plan["users"] = {"ids": del_user_ids, "labels": user_labels}
 
     deleted_vendor_ids = set(del_rest_ids) | set(del_biz_ids) | set(del_cr_ids)
     deleted_user_ids_all = set(del_user_ids) | set(del_driver_user_ids)
+    existing_vendor_ids = set()
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        async for v in db[coll].find({}, {"_id": 0, "id": 1}):
+            if v.get("id"):
+                existing_vendor_ids.add(v["id"])
     del_order_ids, order_labels = [], []
     async for o in db.orders.find({}, {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "customer_id": 1, "customer_phone": 1, "notes": 1, "restaurant_name": 1, "status": 1}):
         reason = None
+        vid = o.get("restaurant_id") or o.get("vendor_id")
+        cid = o.get("customer_id")
         if o.get("restaurant_id") in deleted_vendor_ids or o.get("vendor_id") in deleted_vendor_ids:
             reason = "test vendor"
-        elif o.get("customer_id") in deleted_user_ids_all:
+        elif cid in deleted_user_ids_all:
             reason = "test customer"
         elif _cleanup_is_test(o.get("customer_phone"), o.get("notes")):
             reason = "test data"
+        elif cid and cid not in existing_user_ids and cid not in keep_owner_ids:
+            reason = "orphaned (deleted customer)"
+        elif vid and vid not in existing_vendor_ids:
+            reason = "orphaned (deleted vendor)"
         if reason:
             del_order_ids.append(o.get("id"))
             order_labels.append(f"{o.get('restaurant_name') or 'order'} #{str(o.get('id'))[:8]} ({o.get('status')}) — {reason}")

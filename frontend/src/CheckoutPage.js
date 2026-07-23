@@ -455,16 +455,17 @@ export const CheckoutPage = () => {
                   Pay with Card (Stripe)
                 </Button>
                 {paymentOptions?.paypal_enabled && (
-                  <Button
+                  <button
+                    type="button"
                     onClick={handlePayPal}
                     disabled={creating || tipSaving}
-                    variant="outline"
-                    className="w-full border-[#0070ba] text-[#0070ba] hover:bg-[#0070ba]/5"
+                    className="w-full flex items-center justify-center gap-1 rounded-full py-3 font-bold bg-[#FFC439] hover:bg-[#F0B90B] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     data-testid="checkout-pay-paypal-btn"
+                    aria-label="Pay with PayPal"
                   >
-                    <span className="font-bold mr-1">Pay</span><span className="font-bold text-[#003087] mr-2">Pal</span>
-                    Pay with PayPal
-                  </Button>
+                    <span className="italic text-[#253B80] text-lg leading-none">Pay</span>
+                    <span className="italic text-[#179BD7] text-lg leading-none">Pal</span>
+                  </button>
                 )}
                 {paymentOptions?.wipay_coming_soon && (
                   <>
