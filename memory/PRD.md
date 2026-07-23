@@ -15,7 +15,14 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 23, 2026 (fork, cont.) — PayPal switched to LIVE
+## Session Log — Jul 23, 2026 (fork, cont.) — PayPal live webhook + test-data purge + guardrail cleared
+- **PayPal LIVE webhook registered:** created via PayPal live API → **Webhook ID `9GG70986D6823514T`** delivering to `https://islandhopapp.com/api/webhooks/paypal` (custom domain confirmed live — `/api/drivers/online-count` returns 200). Subscribed events: `PAYMENT.CAPTURE.COMPLETED/DENIED/REFUNDED/REVERSED` (the ones the handler processes). Set `PAYPAL_WEBHOOK_ID` in `backend/.env` → signature verification now active (`verify_webhook`). (PAYOUTS-ITEM.* names are invalid for subscription and the handler string-matches an un-prefixed name — payout webhooks are a pre-existing non-blocking gap, not needed for checkout.)
+- **Test-data purge:** deleted **84** junk "Test Pizza"/"Sub Pizza" restaurants (all `@x.com` emails) + their 84 orders. Backfilled `country="Trinidad & Tobago"` on the platform's own seed/demo pharmacies, groceries & car-rental that lacked one. **Guardrail now reads 0 merchants missing country.** Also fixed `_seed_marketplace_partners()` at the source: seeded businesses now insert with a full address incl. country, and a per-doc null-safe backfill loop keeps seed-partner vendors' country set on every startup.
+- **Note for production:** preview and prod are separate DBs — the same "purge test data" (Admin → Data Cleanup) may be needed on prod after deploy if it has similar junk.
+- **Still to do (owner, after deploy):** live $1 PayPal + Stripe smoke test on islandhopapp.com to confirm both settle. `backend/.env` now has `PAYPAL_MODE=live` + `PAYPAL_WEBHOOK_ID` → REQUIRES REDEPLOY.
+
+
+
 - **PayPal is now LIVE (`PAYPAL_MODE=live`).** Verified the supplied credentials authenticate against `api-m.paypal.com` (200) and NOT sandbox (401) — confirmed genuine live keys. `GET /api/admin/payment-mode` now reports PayPal `live:true`. Live `create-order` returns `status=CREATED, mode=live` with an approval URL on `www.paypal.com` (verified via curl — order intent only, no charge until buyer approval + capture).
 - The checkout **PayPal button** (`checkout-pay-paypal-btn`) now renders because `paypal_enabled=is_configured()=true`. Card (Stripe), COD, Wallet unchanged.
 - **Outstanding for full robustness:** `PAYPAL_WEBHOOK_ID` is empty → webhook signature verification is skipped (the synchronous capture-on-return flow works without it). To enable async webhooks, register a LIVE webhook to production `/api/webhooks/paypal` and set `PAYPAL_WEBHOOK_ID`.
