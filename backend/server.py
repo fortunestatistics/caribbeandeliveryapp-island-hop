@@ -7377,6 +7377,72 @@ async def _vendor_destination_account(vendor_id: str):
     return None
 
 
+# ---- Dual payment-processor routing (WiPay for Caribbean, Stripe for US) ----
+# Stripe Connect cannot onboard Trinidad & Tobago (and most Caribbean) merchant
+# accounts, so those merchants collect via WiPay (platform is merchant of record,
+# earnings settled via the VendorPayout batch). US merchants keep Stripe.
+_US_COUNTRY_NAMES = {
+    "US", "USA", "USUSA", "U S", "U S A", "UNITED STATES",
+    "UNITED STATES OF AMERICA", "AMERICA",
+}
+
+
+def _norm_country(value) -> str:
+    return (value or "").strip().upper().replace(".", "").replace("-", " ")
+
+
+async def _vendor_country_for_order(order: dict) -> str:
+    """Best-effort merchant country for an order (from the vendor's stored address)."""
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not vendor_id:
+        return ""
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "address": 1})
+        if doc:
+            addr = doc.get("address") or {}
+            return addr.get("country") or addr.get("country_code") or ""
+    return ""
+
+
+async def _payment_processor_for_order(order: dict):
+    """Decide which processor handles an order.
+    Primary signal = merchant country (US -> Stripe, else -> WiPay).
+    Fallback = order currency. Default = WiPay (dominant Caribbean market)."""
+    country = _norm_country(await _vendor_country_for_order(order))
+    if country:
+        if country in _US_COUNTRY_NAMES:
+            return "stripe", "merchant_country"
+        return "wipay", "merchant_country"
+    currency = (order.get("currency") or "").strip().upper()
+    if currency == "USD":
+        return "stripe", "currency"
+    if currency in {"TTD", "JMD", "BBD", "GYD"}:
+        return "wipay", "currency"
+    return "wipay", "default"
+
+
+@api_router.get("/orders/{order_id}/payment-options")
+async def get_order_payment_options(order_id: str, request: Request):
+    """Tell the checkout screen which online processor to use for this order
+    (WiPay for Caribbean merchants, Stripe for US merchants) alongside COD + Wallet."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one(
+        {"id": order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    processor, reason = await _payment_processor_for_order(order)
+    return {
+        "order_id": order_id,
+        "processor": processor,          # 'wipay' | 'stripe'
+        "reason": reason,                # 'merchant_country' | 'currency' | 'default'
+        "cod_enabled": True,
+        "wallet_enabled": True,
+        "wipay_environment": wipay_client.environment(),
+        "already_paid": order.get("payment_status") == "paid",
+    }
+
+
 @api_router.get("/merchant/payouts")
 async def get_merchant_payouts(request: Request):
     """Merchant-facing payouts screen: onboarding status, summary, and each paid order's

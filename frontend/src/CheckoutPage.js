@@ -32,6 +32,7 @@ export const CheckoutPage = () => {
   const [walletBalance, setWalletBalance] = useState(null);
   const [payingWallet, setPayingWallet] = useState(false);
   const [error, setError] = useState('');
+  const [paymentOptions, setPaymentOptions] = useState(null); // {processor, cod_enabled, wallet_enabled}
 
   useEffect(() => {
     const load = async () => {
@@ -46,6 +47,13 @@ export const CheckoutPage = () => {
         setError(e?.response?.data?.detail || 'Order not found');
       } finally {
         setLoading(false);
+      }
+      // Which online processor to show for this merchant (WiPay vs Stripe).
+      try {
+        const opt = await axios.get(`${API}/orders/${orderId}/payment-options`, { headers: authHeaders() });
+        setPaymentOptions(opt.data);
+      } catch (_) {
+        setPaymentOptions({ processor: 'wipay', cod_enabled: true, wallet_enabled: true });
       }
       // Best-effort wallet balance for the "Pay with wallet" option.
       try {
@@ -136,6 +144,22 @@ export const CheckoutPage = () => {
       window.location.href = res.data.url;
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to start WiPay checkout');
+      setCreating(false);
+    }
+  };
+
+  const handleStripe = async () => {
+    setCreating(true);
+    setError('');
+    try {
+      const res = await axios.post(
+        `${API}/payments/checkout/session`,
+        { order_id: orderId, origin_url: window.location.origin },
+        { headers: authHeaders() }
+      );
+      window.location.href = res.data.url;
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to start card checkout');
       setCreating(false);
     }
   };
@@ -362,7 +386,9 @@ export const CheckoutPage = () => {
             <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between" data-testid="checkout-accepted-methods">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
-                Cash on Delivery &amp; secure WiPay checkout
+                {paymentOptions?.processor === 'stripe'
+                  ? 'Cash on Delivery & secure card checkout (Stripe)'
+                  : 'Cash on Delivery & secure WiPay checkout'}
               </div>
             </div>
 
@@ -416,14 +442,16 @@ export const CheckoutPage = () => {
                   </>
                 )}
                 <Button
-                  onClick={handleWiPay}
+                  onClick={paymentOptions?.processor === 'stripe' ? handleStripe : handleWiPay}
                   disabled={creating || tipSaving}
                   variant="outline"
                   className="w-full"
-                  data-testid="checkout-pay-wipay-btn"
+                  data-testid={paymentOptions?.processor === 'stripe' ? 'checkout-pay-stripe-btn' : 'checkout-pay-wipay-btn'}
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
-                  Pay with WiPay (Caribbean cards · Sandbox)
+                  {paymentOptions?.processor === 'stripe'
+                    ? 'Pay with Card (Stripe)'
+                    : 'Pay with WiPay (Caribbean cards · Sandbox)'}
                 </Button>
               </div>
             )}
