@@ -10293,8 +10293,20 @@ async def _seed_marketplace_partners():
                     "id": str(uuid.uuid4()), "user_id": "seed_partner",
                     "business_name": b["business_name"], "business_type": b["business_type"],
                     "business_description": b["business_description"],
+                    "address": {"street": "Ariapita Ave", "city": "Port of Spain", "parish": "POS", "country": "Trinidad & Tobago"},
+                    "phone": "+1-868-555-0110", "email": f"hello@{b['business_name'].lower().replace(' ', '')}.tt",
                     "status": "active", "created_at": now,
                 })
+        # Backfill a country on any seed-partner vendor missing one so payment routing resolves.
+        for coll in ("businesses", "car_rental_companies", "restaurants"):
+            async for d in db[coll].find(
+                {"user_id": "seed_partner"}, {"_id": 1, "address": 1}):
+                addr = d.get("address")
+                if not isinstance(addr, dict):
+                    addr = {}
+                if not (addr.get("country") or "").strip():
+                    addr["country"] = "Trinidad & Tobago"
+                    await db[coll].update_one({"_id": d["_id"]}, {"$set": {"address": addr}})
         logger.info("✅ Marketplace partners seeded/verified")
     except Exception as e:
         logger.error(f"Marketplace partner seeding failed: {e}")
