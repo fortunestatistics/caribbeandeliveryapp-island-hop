@@ -99,6 +99,8 @@ class TestPaymentOptionsRouting:
         assert r.status_code == 404, f"expected 404, got {r.status_code} {r.text}"
 
     def test_wipay_for_trinidad_merchant(self, auth_headers):
+        """WiPay is gated off (WIPAY_ENABLED=false): a Trinidad merchant's active
+        processor is Stripe, with intended_processor=wipay + coming_soon flag."""
         client, db = _mongo()
         try:
             rid = _seed_restaurant(db, "Trinidad & Tobago")
@@ -110,7 +112,10 @@ class TestPaymentOptionsRouting:
             )
             assert r.status_code == 200, r.text
             body = r.json()
-            assert body["processor"] == "wipay", body
+            assert body["processor"] == "stripe", body
+            assert body["intended_processor"] == "wipay", body
+            assert body["wipay_enabled"] is False, body
+            assert body["wipay_coming_soon"] is True, body
             assert body["reason"] == "merchant_country", body
             assert body["cod_enabled"] is True
             assert body["wallet_enabled"] is True
@@ -141,8 +146,8 @@ class TestPaymentOptionsRouting:
             client.close()
 
     def test_default_wipay_when_no_country_set(self, auth_headers):
-        """Merchant exists but address has no country field → falls back to WiPay
-        (either via 'currency' if USD not signaled, or 'default')."""
+        """Merchant exists but address has no country field → intended WiPay
+        (default), but active processor is Stripe while WiPay is gated off."""
         client, db = _mongo()
         try:
             rid = _seed_restaurant(db, None)  # no country in address
@@ -154,8 +159,8 @@ class TestPaymentOptionsRouting:
             )
             assert r.status_code == 200, r.text
             body = r.json()
-            assert body["processor"] == "wipay", body
-            # No currency stored on orders, so reason must be 'default'
+            assert body["processor"] == "stripe", body
+            assert body["intended_processor"] == "wipay", body
             assert body["reason"] in ("default", "currency"), body
         finally:
             client.close()
@@ -172,7 +177,8 @@ class TestPaymentOptionsRouting:
             )
             assert r.status_code == 200, r.text
             body = r.json()
-            assert body["processor"] == "wipay", body
+            assert body["processor"] == "stripe", body
+            assert body["intended_processor"] == "wipay", body
             assert body["reason"] == "merchant_country", body
         finally:
             client.close()
@@ -182,7 +188,8 @@ class TestPaymentOptionsRouting:
 
 class TestSessionEndpointsRegression:
 
-    def test_wipay_session_creates_url(self, auth_headers):
+    def test_wipay_session_blocked_when_disabled(self, auth_headers):
+        """WIPAY_ENABLED=false → the WiPay checkout endpoint returns 503 (gated)."""
         client, db = _mongo()
         try:
             rid = _seed_restaurant(db, "Trinidad & Tobago")
@@ -193,11 +200,7 @@ class TestSessionEndpointsRegression:
                 json={"order_id": order_id, "origin_url": "https://example.com"},
                 headers=auth_headers, timeout=30,
             )
-            assert r.status_code == 200, f"wipay session failed: {r.status_code} {r.text}"
-            body = r.json()
-            assert "url" in body and body["url"].startswith("http")
-            assert "transaction_id" in body
-            assert body.get("environment") in ("sandbox", "live")
+            assert r.status_code == 503, f"expected 503, got {r.status_code} {r.text}"
         finally:
             client.close()
 

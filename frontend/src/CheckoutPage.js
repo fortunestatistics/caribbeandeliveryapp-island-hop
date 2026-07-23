@@ -132,22 +132,6 @@ export const CheckoutPage = () => {
     }
   };
 
-  const handleWiPay = async () => {
-    setCreating(true);
-    setError('');
-    try {
-      const res = await axios.post(
-        `${API}/payments/wipay/checkout/session`,
-        { order_id: orderId, origin_url: window.location.origin },
-        { headers: authHeaders() }
-      );
-      window.location.href = res.data.url;
-    } catch (e) {
-      setError(e?.response?.data?.detail || 'Failed to start WiPay checkout');
-      setCreating(false);
-    }
-  };
-
   const handleStripe = async () => {
     setCreating(true);
     setError('');
@@ -386,9 +370,7 @@ export const CheckoutPage = () => {
             <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between" data-testid="checkout-accepted-methods">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
-                {paymentOptions?.processor === 'stripe'
-                  ? 'Cash on Delivery & secure card checkout (Stripe)'
-                  : 'Cash on Delivery & secure WiPay checkout'}
+                Cash on Delivery &amp; secure card checkout (Stripe)
               </div>
             </div>
 
@@ -442,17 +424,32 @@ export const CheckoutPage = () => {
                   </>
                 )}
                 <Button
-                  onClick={paymentOptions?.processor === 'stripe' ? handleStripe : handleWiPay}
+                  onClick={handleStripe}
                   disabled={creating || tipSaving}
                   variant="outline"
                   className="w-full"
-                  data-testid={paymentOptions?.processor === 'stripe' ? 'checkout-pay-stripe-btn' : 'checkout-pay-wipay-btn'}
+                  data-testid="checkout-pay-stripe-btn"
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
-                  {paymentOptions?.processor === 'stripe'
-                    ? 'Pay with Card (Stripe)'
-                    : 'Pay with WiPay (Caribbean cards · Sandbox)'}
+                  Pay with Card (Stripe)
                 </Button>
+                {paymentOptions?.wipay_coming_soon && (
+                  <>
+                    <Button
+                      disabled
+                      variant="outline"
+                      className="w-full opacity-60 cursor-not-allowed"
+                      data-testid="checkout-pay-wipay-btn"
+                    >
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Pay with WiPay
+                      <Badge className="ml-2 bg-gold-500/15 text-gold-700">Coming soon</Badge>
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center -mt-1" data-testid="checkout-wipay-note">
+                      WiPay (local Caribbean bank cards) is being set up. Please use card, wallet, or cash for now.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </CardContent>

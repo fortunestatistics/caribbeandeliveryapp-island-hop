@@ -15,7 +15,17 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 23, 2026 (fork, cont.) — Dual payment-processor routing (WiPay + Stripe)
+## Session Log — Jul 23, 2026 (fork, cont.) — WiPay gated OFF, Stripe = active card processor
+- **User directive:** WiPay setup incomplete — do NOT offer WiPay at checkout until credentials are supplied; use **Stripe + PayPal** only for now. Keep WiPay visible but disabled ("coming soon"). Full multi-merchant "split cart" UX **deferred**; only requirement now is that **per-order payment routing is correct per merchant** (already satisfied by Stripe: US connected accounts get an instant destination-charge split, Caribbean merchants collect to the platform + settle via the VendorPayout batch).
+- **Env gate (`backend/.env`):** added `WIPAY_ENABLED=false`. New helper `_wipay_enabled()`.
+- **`_payment_processor_for_order` / `GET /api/orders/{id}/payment-options`:** now returns `processor` = the ACTIVE processor (WiPay only if `WIPAY_ENABLED` AND intended, else **Stripe**), plus `intended_processor` (what it'll be once WiPay is live), `wipay_enabled`, `wipay_coming_soon`. So while WiPay is off, every order's active online processor is Stripe.
+- **WiPay checkout endpoint gated:** `POST /api/payments/wipay/checkout/session` returns **503** while `WIPAY_ENABLED=false` (prevents bypass).
+- **Frontend (`CheckoutPage.js`):** active button is `checkout-pay-stripe-btn` ("Pay with Card (Stripe)"); a **disabled** `checkout-pay-wipay-btn` with a "Coming soon" badge + note shows for merchants WiPay would apply to (`wipay_coming_soon`). Removed the now-unused `handleWiPay`. PayPal left as-is (return/capture flow unchanged). COD + Wallet unchanged for all.
+- **To re-enable WiPay later:** set `WIPAY_ENABLED=true` + real `WIPAY_ACCOUNT_NUMBER`/`WIPAY_API_KEY` and restart backend — routing + UI flip back automatically.
+- Verified: `tests/test_payment_options_routing.py` **11/11 PASS** (Trinidad→active stripe/intended wipay/coming_soon, US→stripe, no-country→stripe, WiPay session 503, Stripe session regression). Clean `CI=true yarn build`. **REQUIRES REDEPLOY (Save to GitHub → Deploy).**
+
+
+
 - **FEATURE — per-merchant checkout routing (`server.py`):** Stripe Connect can't onboard Trinidad & Tobago merchants, so online card payments now route by merchant. New helpers `_vendor_country_for_order`, `_payment_processor_for_order`, `_norm_country`, `_US_COUNTRY_NAMES` + endpoint `GET /api/orders/{order_id}/payment-options` → `{processor:'wipay'|'stripe', reason, cod_enabled, wallet_enabled, wipay_environment, already_paid}`. Rule: **merchant `address.country` is primary** (US → Stripe, any other incl. T&T/Caribbean → WiPay), order currency is fallback, **WiPay is the default** when neither is known.
 - **Payout model (per user choice):** WiPay has no marketplace split — Caribbean merchants collect via WiPay to the platform account and settle through the existing VendorPayout batch/manual bank payout. US merchants keep the Stripe destination-charge instant split.
 - **Frontend (`CheckoutPage.js`):** fetches payment-options on load; shows only the merchant-appropriate online button — `checkout-pay-stripe-btn` ("Pay with Card (Stripe)") for US merchants OR `checkout-pay-wipay-btn` for Caribbean merchants — alongside COD (`checkout-cod-btn`) + Wallet (`checkout-pay-wallet-btn`) for all. Accepted-methods copy adapts too.

@@ -7405,37 +7405,53 @@ async def _vendor_country_for_order(order: dict) -> str:
 
 
 async def _payment_processor_for_order(order: dict):
-    """Decide which processor handles an order.
-    Primary signal = merchant country (US -> Stripe, else -> WiPay).
-    Fallback = order currency. Default = WiPay (dominant Caribbean market)."""
+    """Decide which online processor handles an order.
+    Intent: merchant country primary (US -> Stripe, else -> WiPay), currency fallback.
+    WiPay is gated behind WIPAY_ENABLED (credentials not yet supplied) — while it is
+    off, the active processor is always Stripe (which still routes correctly per
+    merchant: US connected accounts get an instant destination-charge split, Caribbean
+    merchants collect to the platform and settle via the VendorPayout batch)."""
     country = _norm_country(await _vendor_country_for_order(order))
     if country:
-        if country in _US_COUNTRY_NAMES:
-            return "stripe", "merchant_country"
-        return "wipay", "merchant_country"
-    currency = (order.get("currency") or "").strip().upper()
-    if currency == "USD":
-        return "stripe", "currency"
-    if currency in {"TTD", "JMD", "BBD", "GYD"}:
-        return "wipay", "currency"
-    return "wipay", "default"
+        intended = "stripe" if country in _US_COUNTRY_NAMES else "wipay"
+        reason = "merchant_country"
+    else:
+        currency = (order.get("currency") or "").strip().upper()
+        if currency == "USD":
+            intended, reason = "stripe", "currency"
+        elif currency in {"TTD", "JMD", "BBD", "GYD"}:
+            intended, reason = "wipay", "currency"
+        else:
+            intended, reason = "wipay", "default"
+    return intended, reason
+
+
+def _wipay_enabled() -> bool:
+    return (os.environ.get("WIPAY_ENABLED", "false") or "false").strip().lower() == "true"
 
 
 @api_router.get("/orders/{order_id}/payment-options")
 async def get_order_payment_options(order_id: str, request: Request):
-    """Tell the checkout screen which online processor to use for this order
-    (WiPay for Caribbean merchants, Stripe for US merchants) alongside COD + Wallet."""
+    """Tell the checkout screen which online processor to use for this order.
+    Stripe is the active card processor; WiPay is shown as 'coming soon' (disabled)
+    for merchants it would apply to until WiPay credentials are supplied."""
     current_user = await get_current_user_from_request(request)
     order = await db.orders.find_one(
         {"id": order_id, "customer_id": current_user.id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    processor, reason = await _payment_processor_for_order(order)
+    intended, reason = await _payment_processor_for_order(order)
+    wipay_on = _wipay_enabled()
+    # Active online processor: WiPay only if enabled AND intended; otherwise Stripe.
+    processor = "wipay" if (wipay_on and intended == "wipay") else "stripe"
     return {
         "order_id": order_id,
-        "processor": processor,          # 'wipay' | 'stripe'
-        "reason": reason,                # 'merchant_country' | 'currency' | 'default'
+        "processor": processor,               # active: 'wipay' | 'stripe'
+        "intended_processor": intended,        # what it would be once WiPay is live
+        "reason": reason,
+        "wipay_enabled": wipay_on,
+        "wipay_coming_soon": (intended == "wipay" and not wipay_on),
         "cod_enabled": True,
         "wallet_enabled": True,
         "wipay_environment": wipay_client.environment(),
@@ -7693,6 +7709,8 @@ class WiPayCheckoutRequest(BaseModel):
 @api_router.post("/payments/wipay/checkout/session")
 async def create_wipay_checkout_session(payload: WiPayCheckoutRequest, request: Request):
     """Create a WiPay hosted payment request for an EXISTING order (amount from DB)."""
+    if not _wipay_enabled():
+        raise HTTPException(status_code=503, detail="WiPay is not available yet. Please pay by card, wallet, or cash on delivery.")
     current_user = await get_current_user_from_request(request)
 
     order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
