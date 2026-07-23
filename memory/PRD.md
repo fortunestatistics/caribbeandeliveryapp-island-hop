@@ -15,7 +15,13 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 23, 2026 (fork, cont.) — WiPay gated OFF, Stripe = active card processor
+## Session Log — Jul 23, 2026 (fork, cont.) — PayPal checkout button + country guardrail
+- **PayPal button on checkout (`CheckoutPage.js`):** added `handlePayPal` (POST `/api/payments/paypal/create-order` with `{amount, currency:'USD', purpose:'order', order_id, origin_url}` → redirect to `approve_url`; return/capture flow was already wired in `PaymentSuccess`). Button `checkout-pay-paypal-btn` renders only when `payment-options.paypal_enabled` is true. `GET /api/orders/{id}/payment-options` now returns `paypal_enabled = paypal_client.is_configured()`. **In PREVIEW `paypal_enabled=false` (no PAYPAL_CLIENT_ID/SECRET in preview .env) so the button is HIDDEN here; it appears in PRODUCTION where creds exist** (PAYPAL_MODE flips to live there).
+- **Country guardrail (payment routing readiness):** new admin endpoint `GET /api/admin/merchants/missing-country` (admin/agent) lists ACTIVE merchants across restaurants/businesses/car_rental_companies whose `address.country` is empty/missing. New `AdminMerchantsMissingCountry.js` card mounted in `AdminApprovals.js` (below the Repair tool): shows a green "all set" or amber "N missing country" badge + expandable list. Verified in preview (shows 92 — mostly seeded test data). Also added a merchant-side amber nudge under the Country field in `MerchantSettings.js` (`settings-country-warning`) when country is blank.
+- Verified: routing suite **11/11 PASS**, missing-country endpoint curl (count 92), clean `CI=true yarn build`, admin card screenshot confirmed. **REQUIRES REDEPLOY.**
+
+
+
 - **User directive:** WiPay setup incomplete — do NOT offer WiPay at checkout until credentials are supplied; use **Stripe + PayPal** only for now. Keep WiPay visible but disabled ("coming soon"). Full multi-merchant "split cart" UX **deferred**; only requirement now is that **per-order payment routing is correct per merchant** (already satisfied by Stripe: US connected accounts get an instant destination-charge split, Caribbean merchants collect to the platform + settle via the VendorPayout batch).
 - **Env gate (`backend/.env`):** added `WIPAY_ENABLED=false`. New helper `_wipay_enabled()`.
 - **`_payment_processor_for_order` / `GET /api/orders/{id}/payment-options`:** now returns `processor` = the ACTIVE processor (WiPay only if `WIPAY_ENABLED` AND intended, else **Stripe**), plus `intended_processor` (what it'll be once WiPay is live), `wipay_enabled`, `wipay_coming_soon`. So while WiPay is off, every order's active online processor is Stripe.

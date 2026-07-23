@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import { storeSession } from './authToken';
 import AdminStorefrontRepair from './AdminStorefrontRepair';
+import AdminMerchantsMissingCountry from './AdminMerchantsMissingCountry';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -408,6 +409,9 @@ const AdminApprovals = () => {
 
       {/* Storefront repair tool */}
       <AdminStorefrontRepair />
+
+      {/* Payment routing guardrail — merchants missing a country */}
+      <AdminMerchantsMissingCountry />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">

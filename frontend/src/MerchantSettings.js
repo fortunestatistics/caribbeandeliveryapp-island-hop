@@ -187,6 +187,11 @@ export default function MerchantSettings() {
                 <div>
                   <Label htmlFor="addr-country">Country</Label>
                   <Input id="addr-country" value={profile.address?.country || ''} onChange={(e) => setAddr('country', e.target.value)} data-testid="settings-business-country" />
+                  {!(profile.address?.country || '').trim() && (
+                    <p className="text-xs text-amber-600 mt-1" data-testid="settings-country-warning">
+                      Add your country so customer payments are routed correctly at checkout.
+                    </p>
+                  )}
                 </div>
               </div>
               {profile.collection === 'restaurants' && (

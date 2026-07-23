@@ -1872,6 +1872,41 @@ async def admin_lookup_merchants(q: str, request: Request):
     return {"count": len(out), "results": out}
 
 
+@api_router.get("/admin/merchants/missing-country")
+async def admin_merchants_missing_country(request: Request):
+    """Admin: list ACTIVE merchants whose profile has no country set. Payment routing
+    (Stripe vs WiPay) depends on the merchant's country, so these must be fixed before
+    launch. Returns each merchant with a deep link to fix it."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    missing_filter = {
+        "status": "active",
+        "$or": [
+            {"address.country": {"$exists": False}},
+            {"address.country": None},
+            {"address.country": ""},
+            {"address": {"$exists": False}},
+            {"address": None},
+        ],
+    }
+    out = []
+    async for d in db.restaurants.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "restaurants", "vendor_id": d.get("id"),
+                    "name": d.get("name"), "type": "restaurant",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    async for d in db.businesses.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "businesses", "vendor_id": d.get("id"),
+                    "name": d.get("business_name"), "type": d.get("business_type") or "business",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    async for d in db.car_rental_companies.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "car_rental_companies", "vendor_id": d.get("id"),
+                    "name": d.get("company_name") or d.get("name"), "type": "car_rental",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    return {"count": len(out), "results": out}
+
+
 class MerchantRepairRequest(BaseModel):
     collection: Optional[str] = None   # restaurants | businesses | car_rental_companies
     vendor_id: Optional[str] = None
@@ -7452,6 +7487,7 @@ async def get_order_payment_options(order_id: str, request: Request):
         "reason": reason,
         "wipay_enabled": wipay_on,
         "wipay_coming_soon": (intended == "wipay" and not wipay_on),
+        "paypal_enabled": paypal_client.is_configured(),
         "cod_enabled": True,
         "wallet_enabled": True,
         "wipay_environment": wipay_client.environment(),

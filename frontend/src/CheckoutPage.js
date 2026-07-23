@@ -148,6 +148,27 @@ export const CheckoutPage = () => {
     }
   };
 
+  const handlePayPal = async () => {
+    setCreating(true);
+    setError('');
+    try {
+      const res = await axios.post(
+        `${API}/payments/paypal/create-order`,
+        { amount: Number(order.total || 0), currency: 'USD', purpose: 'order', order_id: orderId, origin_url: window.location.origin },
+        { headers: authHeaders() }
+      );
+      if (res.data?.approve_url) {
+        window.location.href = res.data.approve_url;
+      } else {
+        setError('PayPal did not return an approval link');
+        setCreating(false);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to start PayPal checkout');
+      setCreating(false);
+    }
+  };
+
   const handleCOD = async () => {
     setCreating(true);
     setError('');
@@ -433,6 +454,18 @@ export const CheckoutPage = () => {
                   <CreditCard className="h-4 w-4 mr-2" />
                   Pay with Card (Stripe)
                 </Button>
+                {paymentOptions?.paypal_enabled && (
+                  <Button
+                    onClick={handlePayPal}
+                    disabled={creating || tipSaving}
+                    variant="outline"
+                    className="w-full border-[#0070ba] text-[#0070ba] hover:bg-[#0070ba]/5"
+                    data-testid="checkout-pay-paypal-btn"
+                  >
+                    <span className="font-bold mr-1">Pay</span><span className="font-bold text-[#003087] mr-2">Pal</span>
+                    Pay with PayPal
+                  </Button>
+                )}
                 {paymentOptions?.wipay_coming_soon && (
                   <>
                     <Button
