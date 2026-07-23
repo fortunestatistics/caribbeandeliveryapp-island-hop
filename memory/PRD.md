@@ -15,7 +15,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jun 2026 (fork, cont.) — Per-category Stripe Tax + merchant payout dashboard + onboarding nudge + double-payout guard
+## Session Log — Jul 23, 2026 (fork, cont.) — Dual payment-processor routing (WiPay + Stripe)
+- **FEATURE — per-merchant checkout routing (`server.py`):** Stripe Connect can't onboard Trinidad & Tobago merchants, so online card payments now route by merchant. New helpers `_vendor_country_for_order`, `_payment_processor_for_order`, `_norm_country`, `_US_COUNTRY_NAMES` + endpoint `GET /api/orders/{order_id}/payment-options` → `{processor:'wipay'|'stripe', reason, cod_enabled, wallet_enabled, wipay_environment, already_paid}`. Rule: **merchant `address.country` is primary** (US → Stripe, any other incl. T&T/Caribbean → WiPay), order currency is fallback, **WiPay is the default** when neither is known.
+- **Payout model (per user choice):** WiPay has no marketplace split — Caribbean merchants collect via WiPay to the platform account and settle through the existing VendorPayout batch/manual bank payout. US merchants keep the Stripe destination-charge instant split.
+- **Frontend (`CheckoutPage.js`):** fetches payment-options on load; shows only the merchant-appropriate online button — `checkout-pay-stripe-btn` ("Pay with Card (Stripe)") for US merchants OR `checkout-pay-wipay-btn` for Caribbean merchants — alongside COD (`checkout-cod-btn`) + Wallet (`checkout-pay-wallet-btn`) for all. Accepted-methods copy adapts too.
+- **WiPay stays SANDBOX** (no live flip). Verified: testing agent iter44 **11/11 backend PASS** (401/404 guards, TT→wipay, US→stripe across 4 country-name variants, Jamaica→wipay, no-country→wipay default, + WiPay & Stripe session-creation regression). Home smoke screenshot OK. **REQUIRES REDEPLOY (Save to GitHub → Deploy) to reach production.**
+- Test suite added: `/app/backend/tests/test_payment_options_routing.py` (reusable, seeds/purges `rest_qa_*`).
+
+
+
 
 - **Per-category tax codes (`server.py`):** `_tax_code_for_type(vendor_type)` maps restaurant/food→`txcd_40060003` (prepared food), grocery/convenience→`txcd_40040000` (food for home), pharmacy→`txcd_99999999` (fallback — verify per state), digital→`txcd_10000000`, retail/business/car_rental→`txcd_99999999`. Each overridable via env `STRIPE_TAX_CODE_<TYPE>`. Checkout derives vendor_type from `order.vendor_type` or `_derive_vendor_type(service_type)`.
 - **Double-payout guard:** destination-charge orders (split at checkout) are now marked `vendor_payout_status='paid'` + `vendor_payout_method='stripe_destination_charge'` on payment success, and a `VendorPayout` record (status completed) is written. The nightly batch (`process_daily_vendor_payouts`, filters `vendor_payout_status:'pending'`) therefore SKIPS them → no double pay. Un-onboarded-merchant orders stay `pending` and settle via the batch once they onboard. Tracked via `payment_transactions.metadata.payout_method`.
