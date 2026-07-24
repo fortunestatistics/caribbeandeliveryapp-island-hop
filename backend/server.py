@@ -10678,16 +10678,40 @@ async def _seed_marketplace_partners():
             {"business_name": "Massy Stores Express", "business_type": "grocery", "business_description": "Groceries, fresh produce and household goods."},
             {"business_name": "FreshMart Grocery", "business_type": "grocery", "business_description": "Everyday groceries and local favourites to your door."},
         ]
+        business_products = {
+            "pharmacy": [
+                _mi("Paracetamol 500mg (24)", "Pain and fever relief tablets.", 25.0, "Pain Relief"),
+                _mi("Vitamin C 1000mg (30)", "Immune-support effervescent tablets.", 40.0, "Vitamins"),
+                _mi("Hand Sanitizer 250ml", "70% alcohol antibacterial gel.", 18.0, "Personal Care"),
+                _mi("Digital Thermometer", "Fast, accurate temperature reading.", 55.0, "Devices"),
+            ],
+            "grocery": [
+                _mi("Rice 5kg", "Long-grain parboiled rice.", 60.0, "Pantry"),
+                _mi("Fresh Eggs (dozen)", "Grade-A local eggs.", 22.0, "Dairy & Eggs"),
+                _mi("Ripe Plantains (3)", "Sweet local plantains.", 15.0, "Produce"),
+                _mi("Orange Juice 1L", "100% not-from-concentrate juice.", 28.0, "Beverages"),
+            ],
+        }
         for b in businesses:
-            if not await db.businesses.find_one({"business_name": b["business_name"]}, {"_id": 1}):
+            existing_b = await db.businesses.find_one({"business_name": b["business_name"]}, {"_id": 1, "id": 1})
+            if not existing_b:
+                biz_id = str(uuid.uuid4())
                 await db.businesses.insert_one({
-                    "id": str(uuid.uuid4()), "user_id": "seed_partner",
+                    "id": biz_id, "user_id": "seed_partner",
                     "business_name": b["business_name"], "business_type": b["business_type"],
                     "business_description": b["business_description"],
                     "address": {"street": "Ariapita Ave", "city": "Port of Spain", "parish": "POS", "country": "Trinidad & Tobago"},
                     "phone": "+1-868-555-0110", "email": f"hello@{b['business_name'].lower().replace(' ', '')}.tt",
                     "status": "active", "created_at": now,
                 })
+            else:
+                biz_id = existing_b.get("id")
+            # Seed catalog into the shared menu_items collection (keyed by vendor id) if empty.
+            if biz_id and await db.menu_items.count_documents({"restaurant_id": biz_id}) == 0:
+                items = business_products.get(b["business_type"], [])
+                for it in items:
+                    doc = {**it, "restaurant_id": biz_id, "vendor_id": biz_id, "created_at": now}
+                    await db.menu_items.insert_one(doc)
         # Backfill a country on any seed-partner vendor missing one so payment routing resolves.
         for coll in ("businesses", "car_rental_companies", "restaurants"):
             async for d in db[coll].find(
