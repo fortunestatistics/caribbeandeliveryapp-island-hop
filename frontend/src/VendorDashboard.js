@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -22,10 +22,13 @@ import {
   Ticket,
   Megaphone,
   MessageCircle,
-  Banknote
+  Banknote,
+  Bell,
+  BellOff
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
+import { useToast } from './hooks/use-toast';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -33,8 +36,17 @@ const API = `${BACKEND_URL}/api`;
 const VendorDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [chatOpenFor, setChatOpenFor] = useState(null);
   const [orders, setOrders] = useState([]);
+  const seenOrderIdsRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const [newOrderCount, setNewOrderCount] = useState(0);
+  const [soundOn, setSoundOn] = useState(
+    () => localStorage.getItem('vendor_sound_off') !== '1'
+  );
+  const soundOnRef = useRef(soundOn);
+  soundOnRef.current = soundOn;
   const [stats, setStats] = useState({
     today_orders: 0,
     today_revenue: 0,
@@ -49,15 +61,67 @@ const VendorDashboard = () => {
     fetchStats();
     fetchSetupStatus();
     fetchSavings();
-    
-    // Refresh every 30 seconds
+    // Ask for desktop notification permission so merchants get alerted even off-tab
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch (_) { /* noop */ }
+
+    // Refresh every 15 seconds so new orders surface quickly
     const interval = setInterval(() => {
       fetchOrders();
       fetchStats();
-    }, 30000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, []);
+
+  // Loud-ish attention chime using the Web Audio API (no asset needed).
+  const playChime = () => {
+    if (!soundOnRef.current) return;
+    try {
+      if (!audioCtxRef.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        audioCtxRef.current = new Ctx();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      [0, 0.28, 0.56].forEach((offset) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now + offset);
+        osc.frequency.setValueAtTime(1320, now + offset + 0.12);
+        gain.gain.setValueAtTime(0.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.24);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.26);
+      });
+    } catch (_) { /* audio may be blocked until user interacts */ }
+  };
+
+  const alertNewOrders = (count) => {
+    setNewOrderCount((c) => c + count);
+    playChime();
+    toast({
+      title: `${count} new order${count > 1 ? 's' : ''} received`,
+      description: 'You have a new order waiting. Tap Pending to view it.',
+    });
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('New IslandHop order', {
+          body: `${count} new order${count > 1 ? 's' : ''} received`,
+          tag: 'islandhop-new-order',
+        });
+        setTimeout(() => n.close(), 8000);
+      }
+    } catch (_) { /* noop */ }
+  };
 
   const [setup, setSetup] = useState(null);
   const [savings, setSavings] = useState(null);
@@ -111,13 +175,38 @@ const VendorDashboard = () => {
       const response = await axios.get(`${API}/vendors/my-orders`, {
         withCredentials: true
       });
-      setOrders(response.data);
+      const list = response.data || [];
+      setOrders(list);
+
+      // Detect brand-new incoming orders and alert the merchant.
+      const activeIds = list
+        .filter((o) => ['pending', 'confirmed', 'preparing', 'ready'].includes(o.status))
+        .map((o) => o.id);
+      if (seenOrderIdsRef.current === null) {
+        // First load — establish baseline, don't alert.
+        seenOrderIdsRef.current = new Set(activeIds);
+      } else {
+        const fresh = activeIds.filter((id) => !seenOrderIdsRef.current.has(id));
+        if (fresh.length > 0) alertNewOrders(fresh.length);
+        seenOrderIdsRef.current = new Set(activeIds);
+      }
       setLoading(false);
     } catch (error) {
       console.error('Error fetching orders:', error);
       setLoading(false);
     }
   };
+
+  const toggleSound = () => {
+    setSoundOn((prev) => {
+      const next = !prev;
+      localStorage.setItem('vendor_sound_off', next ? '0' : '1');
+      if (next) playChime();
+      return next;
+    });
+  };
+
+  const clearNewOrderAlert = () => setNewOrderCount(0);
 
   const fetchStats = async () => {
     try {
@@ -209,12 +298,38 @@ const VendorDashboard = () => {
         )}
         {/* Header */}
         <div className="mb-8">
+          {newOrderCount > 0 && (
+            <button
+              type="button"
+              onClick={() => { setSelectedTab('pending'); clearNewOrderAlert(); }}
+              className="w-full mb-4 flex items-center justify-between gap-3 rounded-lg border-2 border-gold-500 bg-gold-500/10 px-4 py-3 text-left animate-pulse"
+              data-testid="vendor-new-order-banner"
+            >
+              <span className="flex items-center gap-3">
+                <Bell className="h-6 w-6 text-gold-600" />
+                <span>
+                  <span className="block font-bold text-foreground">{newOrderCount} new order{newOrderCount > 1 ? 's' : ''} received!</span>
+                  <span className="block text-sm text-muted-foreground">Tap here to view your pending orders.</span>
+                </span>
+              </span>
+              <Badge className="bg-gold-gradient text-white">View</Badge>
+            </button>
+          )}
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Vendor Dashboard</h1>
               <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
+              <Button
+                onClick={toggleSound}
+                variant="outline"
+                size="icon"
+                title={soundOn ? 'New-order sound is ON' : 'New-order sound is OFF'}
+                data-testid="vendor-sound-toggle"
+              >
+                {soundOn ? <Bell className="h-5 w-5 text-gold-500" /> : <BellOff className="h-5 w-5 text-muted-foreground" />}
+              </Button>
               {(() => {
                 const cfg = getBusinessConfig(vendorType);
                 const Icon = vendorType === 'restaurant' ? ChefHat : Package;

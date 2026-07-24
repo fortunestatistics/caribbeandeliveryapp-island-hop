@@ -2887,7 +2887,9 @@ async def create_order(order: Order, request: Request):
             }),
             vendor_id
         )
-    
+        # Text/WhatsApp the merchant (best-effort, non-blocking)
+        asyncio.create_task(_notify_merchant_new_order(vendor_id, order_dict))
+
     return order
 
 @api_router.get("/orders", response_model=List[Order])
@@ -3044,6 +3046,38 @@ async def _notify_order_whatsapp(order: dict, status: str):
         content_sid=content_sid,
         content_variables={"1": short} if content_sid else None,
     )
+
+
+async def _notify_merchant_new_order(vendor_id: str, order: dict):
+    """Best-effort WhatsApp/SMS to the merchant when a new order arrives. Never raises."""
+    if not vendor_id:
+        return
+    doc = None
+    for c in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[c].find_one(
+            {"id": vendor_id},
+            {"_id": 0, "phone": 1, "user_id": 1, "name": 1, "business_name": 1})
+        if doc:
+            break
+    if not doc:
+        return
+    phone = doc.get("phone") or ""
+    if not phone and doc.get("user_id"):
+        u = await db.users.find_one({"id": doc["user_id"]}, {"_id": 0, "phone": 1})
+        phone = (u or {}).get("phone") or ""
+    if not phone:
+        return
+    short = str(order.get("id", ""))[:8]
+    total = order.get("total")
+    body = f"New IslandHop order #{short}"
+    if total is not None:
+        try:
+            body += f" — ${float(total):.2f}"
+        except (TypeError, ValueError):
+            pass
+    body += ". Open your Vendor Dashboard to accept it."
+    await _wa_notify(phone, body, user_id=doc.get("user_id"),
+                     event="merchant_new_order", order_id=order.get("id"))
 
 
 @api_router.put("/orders/{order_id}/status")
