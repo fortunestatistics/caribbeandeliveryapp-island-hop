@@ -8004,6 +8004,34 @@ async def admin_paypal_payout(payload: PayPalPayoutRequest, request: Request):
     return {"success": True, "payout_batch_id": result.get("batch_id"), "status": result.get("status")}
 
 
+@api_router.get("/admin/payouts/paypal/recipients")
+async def admin_paypal_recipients(request: Request):
+    """Admin/agent: merchants & drivers who chose PayPal payouts and have a PayPal email,
+    so the admin can send them their earnings via PayPal Payouts."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    out = []
+    specs = [("restaurants", "restaurant"), ("businesses", "business"),
+             ("car_rental_companies", "car_rental"), ("drivers", "driver")]
+    for coll, label in specs:
+        async for d in db[coll].find({"banking_info.payout_method": "paypal"}, {"_id": 0}):
+            bi = d.get("banking_info") or {}
+            email = (bi.get("paypal_email") or "").strip()
+            if not email:
+                continue
+            pi = d.get("personal_info") or {}
+            out.append({
+                "collection": coll,
+                "entity_id": d.get("id"),
+                "type": label,
+                "name": d.get("name") or d.get("business_name") or d.get("company_name") or pi.get("name") or d.get("email") or "Unnamed",
+                "paypal_email": email,
+                "country": bi.get("country") or "",
+            })
+    return {"count": len(out), "results": out}
+
+
 @api_router.post("/webhooks/paypal")
 async def paypal_webhook(request: Request):
     body = await request.json()

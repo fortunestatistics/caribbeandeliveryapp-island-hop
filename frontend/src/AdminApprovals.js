@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { storeSession } from './authToken';
 import AdminStorefrontRepair from './AdminStorefrontRepair';
 import AdminMerchantsMissingCountry from './AdminMerchantsMissingCountry';
+import AdminPayPalPayouts from './AdminPayPalPayouts';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -412,6 +413,9 @@ const AdminApprovals = () => {
 
       {/* Payment routing guardrail — merchants missing a country */}
       <AdminMerchantsMissingCountry />
+
+      {/* PayPal payouts to merchants & drivers who chose PayPal */}
+      <AdminPayPalPayouts />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">

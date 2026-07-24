@@ -7,7 +7,8 @@ import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import { useToast } from './hooks/use-toast';
-import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarSign, Landmark } from 'lucide-react';
+import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarSign } from 'lucide-react';
+import { BankAccountSection } from './BankAccountSection';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authCfg = () => {
@@ -44,12 +45,7 @@ export default function MerchantSettings() {
             address: prof.data.address || { street: '', city: '', country: '' },
             delivery_fee: prof.data.delivery_fee ?? '', minimum_order: prof.data.minimum_order ?? '',
             collection: prof.data.collection,
-            banking_info: {
-              bank_name: prof.data.banking_info?.bank_name || '',
-              account_name: prof.data.banking_info?.account_name || '',
-              account_number: prof.data.banking_info?.account_number || '',
-              branch: prof.data.banking_info?.branch || '',
-            },
+            banking_info: prof.data.banking_info || {},
           });
         }
       } catch (e) {
@@ -108,7 +104,7 @@ export default function MerchantSettings() {
   };
 
   const setAddr = (k, v) => setProfile((p) => ({ ...p, address: { ...p.address, [k]: v } }));
-  const setBank = (k, v) => setProfile((p) => ({ ...p, banking_info: { ...p.banking_info, [k]: v } }));
+  const setBank = (patch) => setProfile((p) => ({ ...p, banking_info: patch }));
 
   const saveBank = async () => {
     setSavingBank(true);
@@ -234,35 +230,15 @@ export default function MerchantSettings() {
           <Card className="mb-6"><CardContent className="p-6 text-sm text-muted-foreground">No merchant business profile found for this account.</CardContent></Card>
         )}
 
-        {/* Banking (payouts) */}
+        {/* Banking & payouts */}
         {profile && (
-          <Card className="mb-6">
-            <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Landmark className="h-5 w-5 text-gold-500" /> Banking (payouts)</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">Where your sales earnings are paid out. Update this any time your bank details change.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="mbank-name">Bank name</Label>
-                  <Input id="mbank-name" value={profile.banking_info.bank_name} onChange={(e) => setBank('bank_name', e.target.value)} data-testid="settings-bank-name" />
-                </div>
-                <div>
-                  <Label htmlFor="macct-name">Account name</Label>
-                  <Input id="macct-name" value={profile.banking_info.account_name} onChange={(e) => setBank('account_name', e.target.value)} data-testid="settings-account-holder" />
-                </div>
-                <div>
-                  <Label htmlFor="macct-num">Account number</Label>
-                  <Input id="macct-num" value={profile.banking_info.account_number} onChange={(e) => setBank('account_number', e.target.value)} data-testid="settings-account-number" />
-                </div>
-                <div>
-                  <Label htmlFor="mbranch">Branch</Label>
-                  <Input id="mbranch" value={profile.banking_info.branch} onChange={(e) => setBank('branch', e.target.value)} data-testid="settings-bank-branch" />
-                </div>
-              </div>
-              <Button onClick={saveBank} disabled={savingBank} className="bg-gold-gradient text-white" data-testid="settings-save-bank-btn">
-                <Save className="h-4 w-4 mr-2" /> {savingBank ? 'Saving…' : 'Save banking details'}
-              </Button>
-            </CardContent>
-          </Card>
+          <BankAccountSection
+            banking={profile.banking_info}
+            onChange={setBank}
+            onSave={saveBank}
+            saving={savingBank}
+            showPayoutMethod
+          />
         )}
 
         {/* Change password */}

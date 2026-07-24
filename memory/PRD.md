@@ -15,7 +15,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 24, 2026 — Banking info editable in settings for all three roles
+## Session Log — Jul 24, 2026 — International bank fields, masking, payout method (bank/PayPal) + PayPal Payouts admin
+- **Decision (user):** SKIP bank verification (micro-deposits need a real ACH rail we don't have; account verification isn't legally required — it's fraud/typo protection). Chose A + B.
+- **A — banking fields (reusable `BankAccountSection.js`, used by merchants + drivers):** country dropdown (T&T + Caribbean + US/CA/UK/Other); when country ≠ T&T shows **SWIFT/BIC + IBAN**; **account number & IBAN are masked `••••1234` with an eye reveal toggle** (`MaskedField`, also exported and used on the customer `ProfilePage.js` account number). **Payout method toggle: Bank transfer vs PayPal** — PayPal shows a `paypal_email` field. Saves via existing `PUT /merchant/profile` & `PUT /drivers/profile` (both persist the whole `banking_info` dict incl. country/swift/iban/payout_method/paypal_email). Verified UI + round-trip.
+- **B — PayPal Payouts (mostly pre-existing, now usable):** `paypal_client.create_payout` + `POST /admin/paypal/payout` already send real PayPal Payouts (live). Added `GET /admin/payouts/paypal/recipients` (merchants+drivers who chose PayPal and have an email) and `AdminPayPalPayouts.js` admin panel (in Admin → Approvals) to enter an amount and **Pay** each recipient. Payout status updates via the `PAYMENT.PAYOUTS-ITEM.*` webhook wired earlier. (Did NOT trigger a real send in testing — live money.)
+- **Reality check documented for user:** receiving (Stripe+PayPal) is live; automatic SENDING to a bank account still needs a rail (Stripe Connect unsupported for T&T) → bank-transfer payouts remain manual/batch; **PayPal Payouts is the one automated send path** now available. Local money-movement compliance to be confirmed with a T&T professional.
+- Clean `CI=true yarn build`; all verification test accounts purged (residual 0). Note: vendor routes require user_type `restaurant`/`business` (not generic `merchant`). REQUIRES REDEPLOY.
+
+
+
 - **Requirement:** merchants, customers and drivers can change their banking (payout) details any time in settings.
 - **Drivers:** already had a full Banking (payouts) section in `DriverSettings.js` + backend `PUT /drivers/profile` (accepts `banking_info`). No change needed — verified present.
 - **Merchants (NEW):** added a **Banking (payouts)** card to `MerchantSettings.js` (bank_name/account_name/account_number/branch, testids `settings-bank-name/-account-holder/-account-number/-bank-branch/-save-bank-btn`). Backend: added `banking_info` to `MerchantProfileUpdate`, persisted in both `businesses` and `restaurants`/`car_rental` branches of `PUT /merchant/profile`, and returned by `_normalize_vendor_profile` + `GET /merchant/profile`. Round-trip verified via curl.

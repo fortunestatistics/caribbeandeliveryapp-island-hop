@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { authAPI } from './services/api';
 import { useAuth } from './AuthContext';
 import { fileToConstrainedDataURL } from './imageUtils';
+import { MaskedField } from './BankAccountSection';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -185,10 +186,7 @@ const ProfilePage = () => {
                     <Label>Account name</Label>
                     <Input value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} data-testid="profile-account-name-input" />
                   </div>
-                  <div>
-                    <Label>Account number</Label>
-                    <Input value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} data-testid="profile-account-number-input" />
-                  </div>
+                  <MaskedField label="Account number" value={form.account_number} onChange={(v) => setForm({ ...form, account_number: v })} testid="profile-account-number-input" mono />
                   <div>
                     <Label>Branch</Label>
                     <Input value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} data-testid="profile-bank-branch-input" />
