@@ -15,6 +15,7 @@ import { storeSession } from './authToken';
 import AdminStorefrontRepair from './AdminStorefrontRepair';
 import AdminMerchantsMissingCountry from './AdminMerchantsMissingCountry';
 import AdminPayPalPayouts from './AdminPayPalPayouts';
+import AdminPayoutBatch from './AdminPayoutBatch';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -416,6 +417,9 @@ const AdminApprovals = () => {
 
       {/* PayPal payouts to merchants & drivers who chose PayPal */}
       <AdminPayPalPayouts />
+
+      {/* Bank bulk-payout batch: review, export, mark paid */}
+      <AdminPayoutBatch />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">

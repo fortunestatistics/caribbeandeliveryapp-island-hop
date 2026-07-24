@@ -8032,6 +8032,133 @@ async def admin_paypal_recipients(request: Request):
     return {"count": len(out), "results": out}
 
 
+# ---- Bank bulk-payout: review what's owed + export + mark paid ----
+class PayoutMarkPaidItem(BaseModel):
+    type: str                      # 'merchant' | 'driver'
+    entity_id: str
+    amount: float
+    order_ids: List[str] = []
+
+
+class PayoutMarkPaidRequest(BaseModel):
+    method: str = "bank_transfer"
+    items: List[PayoutMarkPaidItem]
+
+
+@api_router.get("/admin/payouts/owing")
+async def admin_payouts_owing(request: Request):
+    """Admin/agent: everyone currently owed a payout — merchants (unpaid delivered-order
+    earnings) and drivers (wallet balance) — with their bank details, for a bulk bank file."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    bank_keys = ("country", "bank_name", "account_name", "account_number", "branch", "swift", "iban")
+    merchants = []
+    pipeline = [
+        {"$match": {"status": "delivered", "vendor_payout_status": "pending"}},
+        {"$group": {
+            "_id": {"$ifNull": ["$restaurant_id", "$vendor_id"]},
+            "amount": {"$sum": "$vendor_payout"},
+            "orders": {"$sum": 1},
+            "order_ids": {"$push": "$id"},
+        }},
+    ]
+    async for g in db.orders.aggregate(pipeline):
+        vid = g.get("_id")
+        if not vid:
+            continue
+        doc = coll = None
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            d = await db[c].find_one({"id": vid}, {"_id": 0})
+            if d:
+                doc, coll = d, c
+                break
+        if not doc:
+            continue
+        bi = doc.get("banking_info") or {}
+        merchants.append({
+            "type": "merchant", "collection": coll, "entity_id": vid,
+            "name": doc.get("name") or doc.get("business_name") or doc.get("company_name") or "Unnamed",
+            "amount": round(g.get("amount") or 0, 2), "orders_count": g.get("orders"),
+            "order_ids": g.get("order_ids") or [],
+            "payout_method": bi.get("payout_method") or "bank",
+            "paypal_email": bi.get("paypal_email") or "",
+            "bank": {k: bi.get(k, "") for k in bank_keys},
+        })
+
+    drivers = []
+    async for w in db.driver_wallets.find({"balance": {"$gt": 0}}, {"_id": 0}):
+        did = w.get("driver_id")
+        d = await db.drivers.find_one({"id": did}, {"_id": 0})
+        if not d:
+            continue
+        bi = d.get("banking_info") or {}
+        pi = d.get("personal_info") or {}
+        drivers.append({
+            "type": "driver", "collection": "drivers", "entity_id": did,
+            "name": d.get("name") or pi.get("name") or d.get("email") or "Driver",
+            "amount": round(float(w.get("balance") or 0), 2), "orders_count": None, "order_ids": [],
+            "payout_method": bi.get("payout_method") or "bank",
+            "paypal_email": bi.get("paypal_email") or "",
+            "bank": {k: bi.get(k, "") for k in bank_keys},
+        })
+
+    mtot = round(sum(m["amount"] for m in merchants), 2)
+    dtot = round(sum(x["amount"] for x in drivers), 2)
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "currency": "USD",
+        "merchants": merchants, "drivers": drivers,
+        "totals": {"merchant_total": mtot, "driver_total": dtot,
+                   "grand_total": round(mtot + dtot, 2),
+                   "recipient_count": len(merchants) + len(drivers)},
+    }
+
+
+@api_router.post("/admin/payouts/mark-paid")
+async def admin_payouts_mark_paid(payload: PayoutMarkPaidRequest, request: Request):
+    """Admin/agent: after uploading the bulk file to the bank, mark recipients paid.
+    Merchants → delivered orders flip to 'paid' + a vendor_payouts record.
+    Drivers → wallet balance reduced by the paid amount + a driver_withdrawals record."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    now = datetime.now(timezone.utc)
+    marked, total = 0, 0.0
+    for it in payload.items:
+        if it.type == "merchant":
+            if it.order_ids:
+                await db.orders.update_many(
+                    {"id": {"$in": it.order_ids}},
+                    {"$set": {"vendor_payout_status": "paid", "vendor_payout_date": now.isoformat()}})
+            await db.vendor_payouts.insert_one({
+                "id": str(uuid.uuid4()), "vendor_id": it.entity_id, "vendor_type": "merchant",
+                "amount": round(it.amount, 2), "order_ids": it.order_ids,
+                "payout_date": now.isoformat(), "status": "completed", "method": payload.method,
+                "completed_at": now.isoformat(), "recorded_by": current_user.email})
+            marked += 1
+            total += it.amount
+        elif it.type == "driver":
+            w = await db.driver_wallets.find_one({"driver_id": it.entity_id})
+            if not w:
+                continue
+            amt = min(round(it.amount, 2), round(float(w.get("balance") or 0), 2))
+            if amt <= 0:
+                continue
+            await db.driver_wallets.update_one(
+                {"driver_id": it.entity_id},
+                {"$inc": {"balance": -amt, "total_withdrawn": amt}, "$set": {"updated_at": now.isoformat()}})
+            await db.driver_withdrawals.insert_one({
+                "id": str(uuid.uuid4()), "driver_id": it.entity_id, "amount": amt,
+                "method": payload.method, "status": "completed", "created_at": now.isoformat(),
+                "recorded_by": current_user.email})
+            marked += 1
+            total += amt
+    return {"success": True, "marked": marked, "total": round(total, 2)}
+
+
+
 @api_router.post("/webhooks/paypal")
 async def paypal_webhook(request: Request):
     body = await request.json()
