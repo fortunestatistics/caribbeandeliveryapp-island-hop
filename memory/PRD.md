@@ -15,7 +15,15 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-## Session Log — Jul 23, 2026 (fork, cont.) — Stripe go-live (was already live; fixed panel + webhook)
+## Session Log — Jul 24, 2026 — Banking info editable in settings for all three roles
+- **Requirement:** merchants, customers and drivers can change their banking (payout) details any time in settings.
+- **Drivers:** already had a full Banking (payouts) section in `DriverSettings.js` + backend `PUT /drivers/profile` (accepts `banking_info`). No change needed — verified present.
+- **Merchants (NEW):** added a **Banking (payouts)** card to `MerchantSettings.js` (bank_name/account_name/account_number/branch, testids `settings-bank-name/-account-holder/-account-number/-bank-branch/-save-bank-btn`). Backend: added `banking_info` to `MerchantProfileUpdate`, persisted in both `businesses` and `restaurants`/`car_rental` branches of `PUT /merchant/profile`, and returned by `_normalize_vendor_profile` + `GET /merchant/profile`. Round-trip verified via curl.
+- **Customers (NEW):** added an optional **Banking details** section to `ProfilePage.js` (for refunds/promoter payouts; testids `profile-bank-name-input`, `profile-account-name-input`, `profile-account-number-input`, `profile-bank-branch-input`). Backend: added `banking_info` to `UserProfileUpdate` and to the `User` model (`models.py`), persisted + returned by `PUT /users/me` and `GET /auth/me`. Round-trip verified via curl.
+- Clean `CI=true yarn build`. Temporary test accounts created for verification were purged via the cleanup tool. **REQUIRES REDEPLOY to reach production.**
+
+
+
 - **Discovery:** Stripe was ALREADY effectively live — `STRIPE_MODE=live`, the `sk_live` key authenticates (`stripe.Account.retrieve()` → `acct_1TgX2N2Nfnyjo19i`, US, `charges_enabled:true, details_submitted:true`), `STRIPE_TAX_ENABLED=true`, `STRIPE_WEBHOOK_SECRET` set. The live routing test creating a real live checkout session passes, so **live card checkout works end-to-end**.
 - **Fixed misleading admin panel (`/admin/payment-mode`):** it read the raw injected `STRIPE_API_KEY` (a `sk_test` value) instead of the `STRIPE_MODE`-selected key, so it wrongly showed Stripe as TEST. Now uses the module `STRIPE_API_KEY` (mode-selected) → panel correctly shows **Stripe LIVE**. `/admin/payment-mode`: Stripe LIVE, PayPal LIVE, Twilio LIVE, WiPay sandbox.
 - **Fixed broken live Stripe webhook:** it was registered at `https://www.islandhopapp.com/api/webhooks/stripe` — WRONG path (`webhooks` plural; backend route is `/api/webhook/stripe` singular) AND on the `www.` subdomain (known 308-redirect-strips-POST bug). Modified the existing endpoint (secret preserved, `STRIPE_WEBHOOK_SECRET` still valid) → `https://islandhopapp.com/api/webhook/stripe` with events checkout.session.completed, payment_intent.succeeded/payment_failed, charge.refunded. PayPal webhook path already correct (`/api/webhooks/paypal`, non-www).

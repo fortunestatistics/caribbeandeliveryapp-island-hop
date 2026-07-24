@@ -692,6 +692,7 @@ class UserProfileUpdate(BaseModel):
     phone: Optional[str] = None
     picture: Optional[str] = None  # base64 data URL or external URL
     address: Optional[Dict[str, str]] = None
+    banking_info: Optional[Dict[str, Any]] = None
 
 
 @api_router.put("/users/me", response_model=User)
@@ -6970,6 +6971,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
             "address": doc.get("address") or {},
             "delivery_fee": doc.get("delivery_fee"),
             "minimum_order": doc.get("minimum_order"),
+            "banking_info": doc.get("banking_info") or {},
         }
     # restaurants / car rental companies use canonical fields
     return {
@@ -6983,6 +6985,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
         "address": doc.get("address") or {},
         "delivery_fee": doc.get("delivery_fee"),
         "minimum_order": doc.get("minimum_order"),
+        "banking_info": doc.get("banking_info") or {},
     }
 
 
@@ -6995,6 +6998,7 @@ class MerchantProfileUpdate(BaseModel):
     address: Optional[Dict[str, str]] = None
     delivery_fee: Optional[float] = None
     minimum_order: Optional[float] = None
+    banking_info: Optional[Dict[str, Any]] = None
 
 
 @api_router.get("/merchant/profile")
@@ -7029,11 +7033,15 @@ async def update_merchant_profile(payload: MerchantProfileUpdate, request: Reque
         for k in ("phone", "email", "address"):
             if k in fields:
                 update[k] = fields[k]
+        if "banking_info" in fields:
+            update["banking_info"] = fields["banking_info"]
     else:
         for k in ("name", "description", "cuisine_type", "phone", "email",
                   "address", "delivery_fee", "minimum_order"):
             if k in fields:
                 update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+        if "banking_info" in fields:
+            update["banking_info"] = fields["banking_info"]
 
     if update:
         update["updated_at"] = datetime.now(timezone.utc).isoformat()

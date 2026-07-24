@@ -199,6 +199,7 @@ class User(BaseModel):
     phone: Optional[str] = None
     phone_verified: bool = False
     address: Optional[Dict[str, str]] = None
+    banking_info: Optional[Dict[str, Any]] = None
     referred_by: Optional[str] = None
     referral_code_used: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
