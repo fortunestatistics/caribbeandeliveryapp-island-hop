@@ -9,6 +9,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from './components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog';
+import { QRCodeCanvas } from 'qrcode.react';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
 import { 
@@ -31,7 +33,10 @@ import {
   Banknote,
   Bell,
   BellOff,
-  ChevronDown
+  ChevronDown,
+  QrCode,
+  Printer,
+  Wallet
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
@@ -135,6 +140,9 @@ const VendorDashboard = () => {
   const [vendorType, setVendorType] = useState('');
   const [vendorId, setVendorId] = useState('');
   const [stripeStatus, setStripeStatus] = useState(null);
+  const [weekly, setWeekly] = useState(null);
+  const [showQR, setShowQR] = useState(false);
+  const [storeName, setStoreName] = useState('');
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
@@ -146,6 +154,14 @@ const VendorDashboard = () => {
       setSavings(data);
     } catch (e) {
       setSavings(null);
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const { data } = await axios.get(`${API}/merchant/payouts/weekly`, cfg);
+      setWeekly(data);
+    } catch (e) {
+      setWeekly(null);
     }
   };
   const fetchSetupStatus = async () => {
@@ -164,6 +180,7 @@ const VendorDashboard = () => {
       });
       if (pr.data?.vendor_type) setVendorType(pr.data.vendor_type);
       if (sf.data?.vendor_id) setVendorId(sf.data.vendor_id);
+      if (sf.data?.name) setStoreName(sf.data.name);
     } catch (e) {
       setSetup(null); // not a merchant yet / not resolvable — hide banner
     }
@@ -214,6 +231,17 @@ const VendorDashboard = () => {
   };
 
   const clearNewOrderAlert = () => setNewOrderCount(0);
+
+  const handlePrintQR = () => {
+    const node = document.getElementById('vendor-qr-printable');
+    if (!node) return;
+    const w = window.open('', '_blank', 'width=480,height=640');
+    if (!w) return;
+    w.document.write(`<html><head><title>Storefront QR — ${storeName || 'IslandHop'}</title>
+      <style>body{font-family:system-ui,sans-serif;text-align:center;padding:32px;}</style></head>
+      <body>${node.innerHTML}<script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script></body></html>`);
+    w.document.close();
+  };
 
   const fetchStats = async () => {
     try {
@@ -369,6 +397,12 @@ const VendorDashboard = () => {
                       View My Storefront
                     </DropdownMenuItem>
                   )}
+                  {vendorId && (
+                    <DropdownMenuItem onClick={() => setShowQR(true)} data-testid="vendor-qr-item">
+                      <QrCode className="h-4 w-4 mr-2" />
+                      Store QR Code
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button onClick={() => navigate('/vendor/connect-stripe')} variant="outline" data-testid="vendor-payments-btn">
@@ -510,6 +544,38 @@ const VendorDashboard = () => {
               </div>
             );
           })()}
+
+          {/* Owed-to-you-this-week payout card */}
+          {weekly && (
+            <div
+              className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-green-500/30 bg-green-500/5 p-4"
+              data-testid="weekly-payout-card"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-green-500/15 p-2.5">
+                  <Wallet className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Owed to you this week</p>
+                  <p className="text-2xl font-bold text-green-600" data-testid="weekly-payout-amount">
+                    {weekly.currency || 'USD'} ${Number(weekly.owed_this_week || 0).toFixed(2)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {weekly.orders_this_week} order{weekly.orders_this_week === 1 ? '' : 's'} in the last 7 days
+                    {weekly.paid_this_week > 0 && ` · $${Number(weekly.paid_this_week).toFixed(2)} already paid out`}
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => navigate('/vendor/connect-stripe')}
+                variant="outline"
+                className="shrink-0"
+                data-testid="weekly-payout-details-btn"
+              >
+                View payouts
+              </Button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
@@ -755,6 +821,32 @@ const VendorDashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Printable storefront QR code */}
+      <Dialog open={showQR} onOpenChange={setShowQR}>
+        <DialogContent className="max-w-sm" data-testid="vendor-qr-dialog">
+          <DialogHeader>
+            <DialogTitle>Your storefront QR code</DialogTitle>
+          </DialogHeader>
+          <div id="vendor-qr-printable" className="flex flex-col items-center text-center p-4">
+            <p className="text-lg font-bold text-foreground mb-1">{storeName || 'Scan to order'}</p>
+            <p className="text-sm text-muted-foreground mb-4">Scan with your phone camera to order from us</p>
+            <div className="bg-white p-4 rounded-lg border">
+              <QRCodeCanvas
+                value={`${window.location.origin}/restaurant/${vendorId}`}
+                size={220}
+                level="M"
+                includeMargin
+                data-testid="vendor-qr-canvas"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 break-all">{`${window.location.origin}/restaurant/${vendorId}`}</p>
+          </div>
+          <Button onClick={handlePrintQR} className="w-full bg-gold-gradient text-white" data-testid="vendor-qr-print-btn">
+            <Printer className="h-4 w-4 mr-2" /> Print QR code
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

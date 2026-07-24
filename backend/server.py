@@ -3168,6 +3168,45 @@ async def confirm_order_cod(order_id: str, request: Request):
     return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
 
 
+class MultiOrderRequest(BaseModel):
+    order_ids: List[str]
+
+
+@api_router.post("/orders/confirm-cod-multi")
+async def confirm_orders_cod_multi(payload: MultiOrderRequest, request: Request):
+    """Place several orders (one per merchant from a multi-store cart) as Cash on Delivery in one call."""
+    current_user = await get_current_user_from_request(request)
+    confirmed = []
+    for order_id in payload.order_ids:
+        order = await db.orders.find_one({"id": order_id})
+        if not order:
+            continue
+        if order.get("customer_id") != current_user.id and current_user.user_type != "admin":
+            continue
+        if order.get("payment_status") == "paid":
+            confirmed.append(order_id)
+            continue
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "payment_method": "cash",
+                "payment_status": "cod_pending",
+                "status": "confirmed",
+                "confirmed_at": now_iso,
+                "updated_at": now_iso,
+            }},
+        )
+        try:
+            if not order.get("driver_id"):
+                await find_and_assign_driver(order_id)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"COD driver assignment skipped for {order_id}: {exc}")
+        asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
+        confirmed.append(order_id)
+    return {"success": True, "order_ids": confirmed, "payment_method": "cash", "status": "confirmed"}
+
+
 @api_router.post("/orders/{order_id}/cash-collected")
 async def confirm_cash_collected(order_id: str, request: Request):
     """Driver confirms cash collected for a COD order. Marks the order paid-by-cash and
@@ -7593,6 +7632,33 @@ async def get_merchant_payouts(request: Request):
     }
 
 
+@api_router.get("/merchant/payouts/weekly")
+async def get_merchant_weekly_payout(request: Request):
+    """Lightweight 'owed to you this week' summary for the merchant dashboard card."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if not vendor_id:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=7)).isoformat()
+    q = {
+        "$or": [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}],
+        "status": {"$ne": "cancelled"},
+        "created_at": {"$gte": week_start},
+    }
+    orders = await db.orders.find(q, {"_id": 0, "vendor_payout": 1, "vendor_payout_status": 1, "total": 1}).to_list(length=1000)
+    owed = round(sum(float(o.get("vendor_payout") or 0.0) for o in orders if (o.get("vendor_payout_status") or "pending") != "paid"), 2)
+    paid = round(sum(float(o.get("vendor_payout") or 0.0) for o in orders if (o.get("vendor_payout_status") or "pending") == "paid"), 2)
+    return {
+        "owed_this_week": owed,
+        "paid_this_week": paid,
+        "orders_this_week": len(orders),
+        "currency": "USD",
+        "week_start": week_start,
+    }
+
+
 @api_router.post("/payments/checkout/session")
 async def create_order_checkout_session(payload: CheckoutForOrderRequest, request: Request):
     """
@@ -7683,6 +7749,72 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
     return {"url": session.url, "session_id": session.id}
 
 
+class MultiCheckoutRequest(BaseModel):
+    order_ids: List[str]
+    origin_url: str
+
+
+@api_router.post("/payments/checkout/session-multi")
+async def create_multi_order_checkout_session(payload: MultiCheckoutRequest, request: Request):
+    """Combined card checkout for a multi-store cart. The customer pays the full basket
+    total once; the platform collects centrally and each merchant is settled via the
+    existing vendor-payout system (no per-merchant Stripe destination split here, since a
+    single card charge can't route to multiple connected accounts)."""
+    current_user = await get_current_user_from_request(request)
+    if not payload.order_ids:
+        raise HTTPException(status_code=400, detail="No orders to pay")
+
+    orders = await db.orders.find(
+        {"id": {"$in": payload.order_ids}, "customer_id": current_user.id}, {"_id": 0}
+    ).to_list(length=100)
+    if not orders:
+        raise HTTPException(status_code=404, detail="Orders not found")
+    unpaid = [o for o in orders if o.get("payment_status") != "paid"]
+    if not unpaid:
+        raise HTTPException(status_code=400, detail="Orders are already paid")
+
+    amount = round(sum(float(o.get("total") or 0.0) for o in unpaid), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order total")
+
+    order_ids = [o["id"] for o in unpaid]
+    ids_csv = ",".join(order_ids)
+    origin = payload.origin_url.rstrip('/')
+    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&group=1"
+    cancel_url = f"{origin}/cart"
+
+    price_data = {
+        "currency": "usd",
+        "unit_amount": int(round(amount * 100)),
+        "product_data": {"name": f"IslandHop order ({len(order_ids)} store{'s' if len(order_ids) > 1 else ''})"},
+    }
+    session_kwargs = dict(
+        mode="payment",
+        line_items=[{"price_data": price_data, "quantity": 1}],
+        success_url=success_url,
+        cancel_url=cancel_url,
+        payment_intent_data={"metadata": {"order_ids": ids_csv}},
+        metadata={"order_ids": ids_csv, "user_id": current_user.id, "user_email": current_user.email},
+    )
+    try:
+        session = stripe.checkout.Session.create(**session_kwargs)
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe multi-checkout create failed for {ids_csv}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
+
+    payment = PaymentTransaction(
+        session_id=session.id,
+        user_id=current_user.id,
+        email=current_user.email,
+        amount=amount,
+        currency="usd",
+        payment_status="initiated",
+        metadata={"order_ids": ids_csv, "user_id": current_user.id, "payout_method": "platform"},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+    return {"url": session.url, "session_id": session.id, "order_ids": order_ids}
+
+
 @api_router.get("/payments/checkout/status/{session_id}")
 async def get_checkout_status(session_id: str):
     """
@@ -7724,6 +7856,29 @@ async def get_checkout_status(session_id: str):
 
     if status.payment_status == "paid" and not already_paid:
         meta = txn.get("metadata") or {}
+        # Multi-store combined checkout: mark every order in the basket paid.
+        ids_csv = meta.get("order_ids")
+        if ids_csv:
+            group_ids = [i for i in ids_csv.split(",") if i]
+            paid_at = datetime.now(timezone.utc).isoformat()
+            for oid in group_ids:
+                await db.orders.update_one(
+                    {"id": oid, "payment_status": {"$ne": "paid"}},
+                    {"$set": {"payment_status": "paid", "paid_at": paid_at}},
+                )
+            try:
+                customer_id = txn.get("user_id")
+                if customer_id:
+                    await _maybe_complete_referral(customer_id)
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed for txn {session_id}: {ref_exc}")
+            return {
+                "status": status.status,
+                "payment_status": status.payment_status,
+                "amount_total": status.amount_total,
+                "currency": status.currency,
+                "metadata": status.metadata,
+            }
         order_id = meta.get("order_id")
         if order_id:
             order_set = {

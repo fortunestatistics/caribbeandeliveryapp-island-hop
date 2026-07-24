@@ -116,6 +116,7 @@ class Order(BaseModel):
     delivery_address: Dict[str, Any]
     customer_phone: str
     notes: Optional[str] = None
+    cart_group_id: Optional[str] = None  # links orders placed together in one multi-store checkout
     payment_status: str = "pending"
     payment_method: str
     payment_intent_id: Optional[str] = None

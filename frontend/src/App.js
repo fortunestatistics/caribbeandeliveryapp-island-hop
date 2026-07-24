@@ -143,8 +143,11 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
 import { LocationConsentProvider } from './LocationConsentContext';
-import BusinessSearch from './BusinessSearch';
-import PublicTrack from './PublicTrack';
+import BusinessSearch from './BusinessSearch';import PublicTrack from './PublicTrack';
+import { CartProvider } from './CartContext';
+import { CartButton } from './MultiCart';
+const MultiCartPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCartPage })));
+const MultiCheckoutPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCheckoutPage })));
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -544,6 +547,7 @@ const Header = () => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <UnreadChatBell />
+                  <CartButton />
                   <CurrencySwitcher />
                   <ModeSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
@@ -556,6 +560,7 @@ const Header = () => {
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
+                  <CartButton />
                   <CurrencySwitcher />
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
@@ -2030,6 +2035,7 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <CurrencyProvider>
+        <CartProvider>
         <LocationConsentProvider>
         <Router>
           <div className="min-h-screen bg-background">
@@ -2078,6 +2084,8 @@ function App() {
             <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
             <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+            <Route path="/cart" element={<MultiCartPage />} />
+            <Route path="/checkout-group" element={<ProtectedRoute><MultiCheckoutPage /></ProtectedRoute>} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
 
@@ -2122,6 +2130,7 @@ function App() {
         </div>
       </Router>
       </LocationConsentProvider>
+      </CartProvider>
       </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>

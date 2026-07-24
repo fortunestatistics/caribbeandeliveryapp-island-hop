@@ -18,8 +18,8 @@ import {
 } from 'lucide-react';
 import MerchantReviews from './MerchantReviews';
 import axios from 'axios';
-import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
 import { getBusinessConfig } from './businessTypeConfig';
+import { useCart } from './CartContext';
 
 const STOREFRONT_API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -27,50 +27,10 @@ const RestaurantMenu = () => {
   const { format } = useCurrency();
   const navigate = useNavigate();
   const { restaurantId } = useParams();
-  const [cart, setCart] = useState([]);
+  const { cart: globalCart, addItem, setQty, removeItem } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [storefront, setStorefront] = useState(null);
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [profilePhone, setProfilePhone] = useState('');
-  const [placingOrder, setPlacingOrder] = useState(false);
-
-  useEffect(() => {
-    if (!isLoggedIn()) return;
-    fetchProfile().then((p) => {
-      setProfilePhone(p.phone || '');
-      const addr = formatProfileAddress(p.address);
-      if (addr) setDeliveryAddress(addr);
-    });
-  }, []);
-
-  const handleCheckout = async () => {
-    if (!isLoggedIn()) { navigate('/login'); return; }
-    const addr = (deliveryAddress || '').trim();
-    if (!addr) { alert('Please enter a delivery address to continue.'); return; }
-    setPlacingOrder(true);
-    try {
-      const order = await createOrder({
-        customer_id: 'x',
-        service_type: 'food',
-        restaurant_id: restaurant.id,
-        items: cart.map(i => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
-        subtotal: subtotal,
-        delivery_fee: restaurant.deliveryFee,
-        tip: 0,
-        total: total,
-        pickup_address: { location: restaurant.name, full_address: restaurant.address },
-        delivery_address: { location: addr, full_address: addr },
-        customer_phone: profilePhone || '',
-        payment_method: 'cod',
-        notes: '',
-      });
-      navigate(`/checkout/${order.id}`);
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Could not create your order. Please try again.');
-      setPlacingOrder(false);
-    }
-  };
 
   useEffect(() => {
     if (!restaurantId) return;
@@ -278,31 +238,33 @@ const RestaurantMenu = () => {
     return matchesSearch && matchesCategory;
   });
 
+  const serviceType = (() => {
+    const vt = (sf.vendor_type || '').toLowerCase();
+    if (['pharmacy', 'grocery', 'convenience', 'car_rental', 'courier'].includes(vt)) return vt === 'convenience' ? 'grocery' : vt;
+    return 'food';
+  })();
+  const vendorInfo = {
+    vendor_id: restaurant.id,
+    vendor_name: restaurant.name,
+    vendor_type: sf.vendor_type || 'restaurant',
+    service_type: serviceType,
+    delivery_fee: restaurant.deliveryFee,
+    address: restaurant.address,
+  };
+  const cart = (globalCart[restaurant.id]?.items) || [];
+
   const addToCart = (item) => {
-    const existingItem = cart.find(cartItem => cartItem.id === item.id);
-    if (existingItem) {
-      setCart(cart.map(cartItem =>
-        cartItem.id === item.id
-          ? { ...cartItem, quantity: cartItem.quantity + 1 }
-          : cartItem
-      ));
-    } else {
-      setCart([...cart, { ...item, quantity: 1 }]);
-    }
+    addItem(vendorInfo, { id: item.id, name: item.name, price: item.price }, 1);
   };
 
   const updateQuantity = (itemId, change) => {
-    setCart(cart.map(item => {
-      if (item.id === itemId) {
-        const newQuantity = item.quantity + change;
-        return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
-      }
-      return item;
-    }).filter(item => item.quantity > 0));
+    const current = cart.find((i) => String(i.id) === String(itemId));
+    if (!current) return;
+    setQty(restaurant.id, itemId, current.quantity + change);
   };
 
   const removeFromCart = (itemId) => {
-    setCart(cart.filter(item => item.id !== itemId));
+    removeItem(restaurant.id, itemId);
   };
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -571,25 +533,18 @@ const RestaurantMenu = () => {
                       </div>
                     )}
 
-                    <div className="mb-4">
-                      <label className="text-sm font-medium text-foreground mb-1 block">Delivery address</label>
-                      <Input
-                        placeholder="Enter your delivery address"
-                        value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
-                        data-testid="restaurant-delivery-address-input"
-                      />
-                    </div>
-
                     <Button
                       className="w-full bg-gold-gradient text-white"
-                      disabled={subtotal < restaurant.minOrder || placingOrder}
-                      onClick={handleCheckout}
+                      disabled={subtotal < restaurant.minOrder}
+                      onClick={() => navigate('/cart')}
                       data-testid="restaurant-checkout-btn"
                     >
-                      {placingOrder ? 'Creating order…' : 'Proceed to Checkout'}
+                      Go to cart &amp; checkout
                       <ArrowRight className="h-4 w-4 ml-2" />
                     </Button>
+                    <p className="text-xs text-muted-foreground text-center mt-2">
+                      Keep shopping other stores — everything checks out together in one cart.
+                    </p>
                   </>
                 )}
               </CardContent>
