@@ -238,6 +238,7 @@ export default function MerchantSettings() {
             onSave={saveBank}
             saving={savingBank}
             showPayoutMethod
+            onBack={() => navigate('/vendor-dashboard')}
           />
         )}
 

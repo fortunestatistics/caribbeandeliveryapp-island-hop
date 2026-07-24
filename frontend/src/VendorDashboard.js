@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from './components/ui/dropdown-menu';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
 import { 
@@ -24,7 +30,8 @@ import {
   MessageCircle,
   Banknote,
   Bell,
-  BellOff
+  BellOff,
+  ChevronDown
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
@@ -340,36 +347,57 @@ const VendorDashboard = () => {
                   </Button>
                 );
               })()}
-              <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
-                <Store className="h-5 w-5 mr-2" />
-                My Storefront
-              </Button>
-              {vendorId && (
-                <Button
-                  onClick={() => window.open(`/restaurant/${vendorId}`, '_blank', 'noopener')}
-                  variant="outline"
-                  data-testid="vendor-view-storefront-btn"
-                >
-                  <Eye className="h-5 w-5 mr-2" />
-                  View My Storefront
-                </Button>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" data-testid="vendor-storefront-menu-btn">
+                    <Store className="h-5 w-5 mr-2" />
+                    Storefront
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => navigate('/merchant/storefront')} data-testid="vendor-storefront-edit-item">
+                    <Store className="h-4 w-4 mr-2" />
+                    Edit Storefront
+                  </DropdownMenuItem>
+                  {vendorId && (
+                    <DropdownMenuItem
+                      onClick={() => window.open(`/restaurant/${vendorId}`, '_blank', 'noopener')}
+                      data-testid="vendor-view-storefront-item"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View My Storefront
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button onClick={() => navigate('/vendor/connect-stripe')} variant="outline" data-testid="vendor-payments-btn">
                 <Banknote className="h-5 w-5 mr-2" />
                 Payments &amp; Payouts
               </Button>
-              <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
-                <Ticket className="h-5 w-5 mr-2" />
-                Coupons
-              </Button>
-              <Button onClick={() => navigate('/merchant/ads')} variant="outline" data-testid="vendor-ads-btn">
-                <Megaphone className="h-5 w-5 mr-2" />
-                Advertise
-              </Button>
-              <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
-                <DollarSign className="h-5 w-5 mr-2" />
-                Subscription
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" data-testid="vendor-grow-menu-btn">
+                    <Megaphone className="h-5 w-5 mr-2" />
+                    Grow
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => navigate('/merchant/coupons')} data-testid="vendor-coupons-item">
+                    <Ticket className="h-4 w-4 mr-2" />
+                    Coupons
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/merchant/ads')} data-testid="vendor-ads-item">
+                    <Megaphone className="h-4 w-4 mr-2" />
+                    Advertise
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/merchant/subscription')} data-testid="vendor-subscription-item">
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Subscription
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button onClick={() => navigate('/vendor/settings')} variant="outline" data-testid="vendor-settings-btn">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings

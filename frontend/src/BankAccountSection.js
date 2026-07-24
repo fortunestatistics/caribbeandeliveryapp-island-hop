@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
-import { Landmark, Save, Eye, EyeOff } from 'lucide-react';
+import { Landmark, Save, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 
 const COUNTRIES = [
   'Trinidad & Tobago', 'Jamaica', 'Barbados', 'Guyana', 'Grenada',
@@ -42,7 +42,7 @@ export const MaskedField = ({ label, value, onChange, testid, mono }) => {
 
 // Reusable banking (payout) section used by merchants and drivers.
 // `banking` is the banking_info object; `onChange` receives the updated object.
-export const BankAccountSection = ({ banking = {}, onChange, onSave, saving, showPayoutMethod = true }) => {
+export const BankAccountSection = ({ banking = {}, onChange, onSave, saving, showPayoutMethod = true, onBack }) => {
   const b = {
     country: banking.country || 'Trinidad & Tobago',
     bank_name: banking.bank_name || '',
@@ -125,9 +125,16 @@ export const BankAccountSection = ({ banking = {}, onChange, onSave, saving, sho
           </>
         )}
 
-        <Button onClick={onSave} disabled={saving} className="bg-gold-gradient text-white" data-testid="settings-save-bank-btn">
-          <Save className="h-4 w-4 mr-2" /> {saving ? 'Saving…' : 'Save banking details'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button onClick={onSave} disabled={saving} className="bg-gold-gradient text-white" data-testid="settings-save-bank-btn">
+            <Save className="h-4 w-4 mr-2" /> {saving ? 'Saving…' : 'Save banking details'}
+          </Button>
+          {onBack && (
+            <Button type="button" variant="outline" onClick={onBack} data-testid="bank-back-to-dashboard-btn">
+              <ArrowLeft className="h-4 w-4 mr-2" /> Back to dashboard
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

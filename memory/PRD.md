@@ -1,5 +1,10 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Vendor dashboard toolbar consolidation + banking back button
+- **Vendor dashboard (`VendorDashboard.js`) toolbar simplified:** replaced the separate "My Storefront" + "View My Storefront" buttons with a single **Storefront** dropdown (`vendor-storefront-menu-btn`) → items "Edit Storefront" (`vendor-storefront-edit-item` → `/merchant/storefront`) and "View My Storefront" (`vendor-view-storefront-item` → opens public `/restaurant/{vendorId}` in new tab, shown only when vendorId resolved). Replaced the 3 separate Coupons/Advertise/Subscription buttons with a single **Grow** dropdown (`vendor-grow-menu-btn`) → items Coupons (`vendor-coupons-item`), Advertise (`vendor-ads-item`), Subscription (`vendor-subscription-item`). Kept Sound toggle, Manage Catalog, Payments & Payouts, Settings.
+- **Banking & Payouts back button (`BankAccountSection.js`):** added optional `onBack` prop → renders a "Back to dashboard" button (`bank-back-to-dashboard-btn`) next to Save. Wired in `MerchantSettings.js` (`onBack` → `/vendor-dashboard`). Driver usage unaffected (no onBack passed).
+- Verified: clean `CI=true yarn build`. REQUIRES REDEPLOY to reach production.
+
 ## Original Problem Statement
 Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform (Food, Pharmacy, Groceries, Courier, Taxi, Car Rental). Requirements:
 - Real-time order tracking with live GPS
