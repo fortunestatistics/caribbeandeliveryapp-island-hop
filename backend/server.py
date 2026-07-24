@@ -1547,17 +1547,17 @@ async def get_vendor_stats(request: Request):
         }
     })
     
-    # Today's revenue
-    today_orders_list = await db.orders.find({
-        filter_field: vendor_id,
-        "created_at": {
-            "$gte": today.isoformat(),
-            "$lt": tomorrow.isoformat()
-        },
-        "status": {"$ne": "cancelled"}
-    }).to_list(length=None)
-    
-    today_revenue = sum(order.get("vendor_payout", 0) for order in today_orders_list)
+    # Today's revenue — aggregation avoids loading every order into memory
+    today_revenue_pipeline = [
+        {"$match": {
+            filter_field: vendor_id,
+            "created_at": {"$gte": today.isoformat(), "$lt": tomorrow.isoformat()},
+            "status": {"$ne": "cancelled"},
+        }},
+        {"$group": {"_id": None, "total": {"$sum": "$vendor_payout"}}},
+    ]
+    today_revenue_rows = await db.orders.aggregate(today_revenue_pipeline).to_list(length=1)
+    today_revenue = today_revenue_rows[0]["total"] if today_revenue_rows else 0
     
     # Pending orders
     pending_orders = await db.orders.count_documents({
