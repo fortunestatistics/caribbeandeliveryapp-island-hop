@@ -495,7 +495,7 @@ const VendorDashboard = () => {
             </div>
             <div className="flex gap-2">
               <Button
-                onClick={() => { setShowAlerts((v) => !v); if (!showAlerts) markAlertsSeen(); }}
+                onClick={() => setShowAlerts((v) => { if (v) markAlertsSeen(); return !v; })}
                 variant="outline"
                 size="icon"
                 className="relative"
