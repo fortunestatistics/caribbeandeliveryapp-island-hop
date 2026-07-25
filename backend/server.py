@@ -2891,6 +2891,8 @@ async def create_order(order: Order, request: Request):
         )
         # Text/WhatsApp the merchant (best-effort, non-blocking)
         asyncio.create_task(_notify_merchant_new_order(vendor_id, order_dict))
+        # Hands-free auto-dispatch (best-effort) when an admin has enabled it
+        asyncio.create_task(_maybe_auto_dispatch(order_dict))
 
     return order
 
@@ -5663,6 +5665,52 @@ async def dispatch_run(payload: DispatchRunRequest, request: Request):
 
     dispatched = sum(1 for r in results if r.get("success"))
     return {"processed": len(results), "dispatched": dispatched, "results": results}
+
+
+async def _get_dispatch_auto_run() -> bool:
+    doc = await db.app_settings.find_one({"key": "dispatch"}, {"_id": 0, "auto_run": 1})
+    return bool((doc or {}).get("auto_run", False))
+
+
+@api_router.get("/admin/dispatch/settings")
+async def get_dispatch_settings(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return {"auto_run": await _get_dispatch_auto_run()}
+
+
+class DispatchSettingsRequest(BaseModel):
+    auto_run: bool
+
+
+@api_router.post("/admin/dispatch/settings")
+async def set_dispatch_settings(payload: DispatchSettingsRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    await db.app_settings.update_one(
+        {"key": "dispatch"},
+        {"$set": {"key": "dispatch", "auto_run": payload.auto_run,
+                  "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": current_user.id}},
+        upsert=True,
+    )
+    return {"auto_run": payload.auto_run}
+
+
+async def _maybe_auto_dispatch(order: dict):
+    """If hands-free dispatch is on and the order has pickup coordinates, auto-assign a driver."""
+    try:
+        if not await _get_dispatch_auto_run():
+            return
+        if (order.get("service_type") or "food") not in ("food", "grocery", "pharmacy", "courier"):
+            return
+        if not _addr_coords(order.get("pickup_address")):
+            return
+        await find_and_assign_driver(order.get("id"))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Auto-dispatch skipped for {order.get('id')}: {exc}")
 
 
 

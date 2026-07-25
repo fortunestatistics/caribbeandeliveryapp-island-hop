@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Radar, Truck, Package, Zap, Loader2, ArrowLeft, MapPin, Star, AlertTriangle } from 'lucide-react';
+import { Switch } from './components/ui/switch';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -14,6 +15,8 @@ const AdminDispatch = () => {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
+  const [autoRun, setAutoRun] = useState(false);
+  const [savingAuto, setSavingAuto] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -28,9 +31,25 @@ const AdminDispatch = () => {
 
   useEffect(() => {
     load();
+    axios.get(`${API}/admin/dispatch/settings`, { withCredentials: true })
+      .then((r) => setAutoRun(!!r.data?.auto_run)).catch(() => {});
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [load]);
+
+  const toggleAutoRun = async (val) => {
+    setSavingAuto(true);
+    setAutoRun(val);
+    try {
+      await axios.post(`${API}/admin/dispatch/settings`, { auto_run: val }, { withCredentials: true });
+      setMsg(val ? 'Hands-free dispatch is ON — new orders will auto-assign to the best driver.' : 'Hands-free dispatch turned off.');
+    } catch (e) {
+      setAutoRun(!val);
+      setMsg('Could not update auto-dispatch setting.');
+    } finally {
+      setSavingAuto(false);
+    }
+  };
 
   const runDispatch = async (orderId) => {
     setRunning(true); setMsg('');
@@ -70,6 +89,27 @@ const AdminDispatch = () => {
         </div>
 
         {msg && <div className="mb-4 text-sm rounded-lg bg-muted p-3" data-testid="dispatch-message">{msg}</div>}
+
+        {/* Hands-free auto-dispatch */}
+        <Card className="mb-6" data-testid="dispatch-autorun-card">
+          <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg p-2.5" style={{ background: '#0FA3A315' }}>
+                <Zap className="h-5 w-5" style={{ color: '#0FA3A3' }} />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Hands-free auto-dispatch</p>
+                <p className="text-sm text-muted-foreground">When on, every new order is automatically assigned to the best available driver — no clicks needed.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-medium ${autoRun ? 'text-green-600' : 'text-muted-foreground'}`} data-testid="dispatch-autorun-state">
+                {autoRun ? 'ON' : 'OFF'}
+              </span>
+              <Switch checked={autoRun} disabled={savingAuto} onCheckedChange={toggleAutoRun} data-testid="dispatch-autorun-switch" />
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Unassigned orders */}

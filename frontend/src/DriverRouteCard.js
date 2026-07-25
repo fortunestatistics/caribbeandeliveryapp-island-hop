@@ -1,10 +1,59 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { GoogleMap, LoadScript, Marker, Polyline } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Route, Navigation, Zap, Clock, Loader2, MapPin } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const GMAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+
+// Numbered SVG pin data-URL for a given sequence number.
+const numberedPin = (n, color) =>
+  'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="44" viewBox="0 0 34 44">
+      <path d="M17 0C7.6 0 0 7.6 0 17c0 12 17 27 17 27s17-15 17-27C34 7.6 26.4 0 17 0z" fill="${color}"/>
+      <text x="17" y="23" font-size="15" font-family="Arial" font-weight="bold" fill="#fff" text-anchor="middle">${n}</text>
+    </svg>`);
+
+// Live map of the optimized visit sequence: start + numbered drop pins + a route line.
+const RouteMap = ({ data }) => {
+  if (!GMAPS_KEY || !data?.stops?.length) return null;
+  const path = [{ lat: data.start.lat, lng: data.start.lng },
+    ...data.stops.map((s) => ({ lat: s.lat, lng: s.lng }))];
+  const lats = path.map((p) => p.lat);
+  const lngs = path.map((p) => p.lng);
+  const center = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lng: (Math.min(...lngs) + Math.max(...lngs)) / 2 };
+  return (
+    <div className="rounded-lg overflow-hidden border border-border" data-testid="driver-route-map">
+      <LoadScript googleMapsApiKey={GMAPS_KEY}>
+        <GoogleMap
+          mapContainerStyle={{ width: '100%', height: '260px' }}
+          center={center}
+          zoom={11}
+          options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+        >
+          {window.google && (
+            <Marker
+              position={{ lat: data.start.lat, lng: data.start.lng }}
+              icon={{ url: numberedPin('•', '#F47B27'), scaledSize: new window.google.maps.Size(30, 40) }}
+              title="Your location"
+            />
+          )}
+          {window.google && data.stops.map((s) => (
+            <Marker
+              key={s.order_id}
+              position={{ lat: s.lat, lng: s.lng }}
+              icon={{ url: numberedPin(s.seq, '#0FA3A3'), scaledSize: new window.google.maps.Size(34, 44) }}
+              title={s.label}
+            />
+          ))}
+          <Polyline path={path} options={{ strokeColor: '#0FA3A3', strokeWeight: 4, strokeOpacity: 0.85 }} />
+        </GoogleMap>
+      </LoadScript>
+    </div>
+  );
+};
 
 // Smart back-road routing — orders the driver's active deliveries into the
 // shortest visit sequence and shows the distance + time saved.
@@ -74,7 +123,8 @@ const DriverRouteCard = () => {
                 <p className="text-xs text-muted-foreground">time saved</p>
               </div>
             </div>
-            <ol className="space-y-2 mb-4">
+            <RouteMap data={data} />
+            <ol className="space-y-2 mb-4 mt-4">
               {data.stops.map((s) => (
                 <li key={s.order_id} className="flex items-center gap-3" data-testid={`driver-route-stop-${s.order_id}`}>
                   <span className="flex-shrink-0 w-7 h-7 rounded-full text-white text-sm font-bold flex items-center justify-center" style={{ background: '#0FA3A3' }}>{s.seq}</span>
