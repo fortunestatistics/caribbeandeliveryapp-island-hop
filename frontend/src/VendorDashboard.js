@@ -10,6 +10,8 @@ import {
   DropdownMenuItem,
 } from './components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './components/ui/select';
+import { Slider } from './components/ui/slider';
 import { QRCodeCanvas } from 'qrcode.react';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
@@ -36,7 +38,10 @@ import {
   ChevronDown,
   QrCode,
   Printer,
-  Wallet
+  Wallet,
+  Volume2,
+  History,
+  Play
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
@@ -59,6 +64,21 @@ const VendorDashboard = () => {
   );
   const soundOnRef = useRef(soundOn);
   soundOnRef.current = soundOn;
+  const [soundChime, setSoundChime] = useState(
+    () => localStorage.getItem('vendor_sound_chime') || 'classic'
+  );
+  const [soundVolume, setSoundVolume] = useState(
+    () => Number(localStorage.getItem('vendor_sound_volume') || 70)
+  );
+  const soundChimeRef = useRef(soundChime);
+  soundChimeRef.current = soundChime;
+  const soundVolumeRef = useRef(soundVolume);
+  soundVolumeRef.current = soundVolume;
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alertsSeenAt, setAlertsSeenAt] = useState(
+    () => localStorage.getItem('vendor_alerts_seen_at') || ''
+  );
   const [stats, setStats] = useState({
     today_orders: 0,
     today_revenue: 0,
@@ -89,9 +109,32 @@ const VendorDashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Loud-ish attention chime using the Web Audio API (no asset needed).
-  const playChime = () => {
-    if (!soundOnRef.current) return;
+  // Chime presets — each is a list of {freq, at, dur} notes played via Web Audio.
+  const CHIMES = {
+    classic: { label: 'Classic (double beep)', notes: [
+      { f: 880, f2: 1320, at: 0, dur: 0.24 },
+      { f: 880, f2: 1320, at: 0.28, dur: 0.24 },
+      { f: 880, f2: 1320, at: 0.56, dur: 0.24 },
+    ], type: 'sine' },
+    ding: { label: 'Ding', notes: [{ f: 1200, f2: 1200, at: 0, dur: 0.5 }], type: 'sine' },
+    bell: { label: 'Bell', notes: [
+      { f: 660, f2: 660, at: 0, dur: 0.7 },
+      { f: 990, f2: 990, at: 0, dur: 0.7 },
+    ], type: 'triangle' },
+    marimba: { label: 'Marimba', notes: [
+      { f: 523, f2: 523, at: 0, dur: 0.18 },
+      { f: 659, f2: 659, at: 0.16, dur: 0.18 },
+      { f: 784, f2: 784, at: 0.32, dur: 0.28 },
+    ], type: 'triangle' },
+    urgent: { label: 'Urgent (kitchen)', notes: [
+      { f: 1000, f2: 1000, at: 0, dur: 0.14 },
+      { f: 1000, f2: 1000, at: 0.18, dur: 0.14 },
+      { f: 1000, f2: 1000, at: 0.36, dur: 0.14 },
+      { f: 1000, f2: 1000, at: 0.54, dur: 0.14 },
+    ], type: 'square' },
+  };
+
+  const playTone = (chimeName, volumePct) => {
     try {
       if (!audioCtxRef.current) {
         const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -100,21 +143,45 @@ const VendorDashboard = () => {
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') ctx.resume();
       const now = ctx.currentTime;
-      [0, 0.28, 0.56].forEach((offset) => {
+      const peak = Math.max(0.02, Math.min(1, (volumePct || 0) / 100)) * 0.6;
+      const chime = CHIMES[chimeName] || CHIMES.classic;
+      chime.notes.forEach((n) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, now + offset);
-        osc.frequency.setValueAtTime(1320, now + offset + 0.12);
-        gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.exponentialRampToValueAtTime(0.4, now + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.24);
+        osc.type = chime.type || 'sine';
+        osc.frequency.setValueAtTime(n.f, now + n.at);
+        if (n.f2 && n.f2 !== n.f) osc.frequency.setValueAtTime(n.f2, now + n.at + n.dur * 0.5);
+        gain.gain.setValueAtTime(0.0001, now + n.at);
+        gain.gain.exponentialRampToValueAtTime(peak, now + n.at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + n.at + n.dur);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(now + offset);
-        osc.stop(now + offset + 0.26);
+        osc.start(now + n.at);
+        osc.stop(now + n.at + n.dur + 0.02);
       });
     } catch (_) { /* audio may be blocked until user interacts */ }
+  };
+
+  // Attention chime using the merchant's chosen sound + volume.
+  const playChime = () => {
+    if (!soundOnRef.current) return;
+    playTone(soundChimeRef.current, soundVolumeRef.current);
+  };
+
+  const saveSoundChime = (val) => {
+    setSoundChime(val);
+    localStorage.setItem('vendor_sound_chime', val);
+    playTone(val, soundVolumeRef.current);
+  };
+  const saveSoundVolume = (val) => {
+    const v = Array.isArray(val) ? val[0] : val;
+    setSoundVolume(v);
+    localStorage.setItem('vendor_sound_volume', String(v));
+  };
+  const markAlertsSeen = () => {
+    const ts = new Date().toISOString();
+    setAlertsSeenAt(ts);
+    localStorage.setItem('vendor_alerts_seen_at', ts);
   };
 
   const alertNewOrders = (count) => {
@@ -297,6 +364,25 @@ const VendorDashboard = () => {
 
   const filteredOrders = filterOrders(selectedTab);
 
+  // Recent alerts = most recent orders; "unseen" = arrived after the merchant last opened the list.
+  const recentAlerts = [...orders]
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    .slice(0, 15);
+  const unseenAlertCount = alertsSeenAt
+    ? recentAlerts.filter((o) => String(o.created_at || '') > alertsSeenAt).length
+    : recentAlerts.length;
+
+  const timeAgo = (iso) => {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -350,12 +436,82 @@ const VendorDashboard = () => {
               <Badge className="bg-gold-gradient text-white">View</Badge>
             </button>
           )}
+          {showAlerts && (
+            <Card className="mb-4" data-testid="vendor-alerts-panel">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="h-4 w-4 text-gold-500" /> Recent order alerts
+                </CardTitle>
+                <button
+                  type="button"
+                  onClick={markAlertsSeen}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  data-testid="vendor-alerts-mark-seen"
+                >
+                  Mark all seen
+                </button>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {recentAlerts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center" data-testid="vendor-alerts-empty">
+                    No order alerts yet. New orders will show up here.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border max-h-72 overflow-y-auto">
+                    {recentAlerts.map((o) => {
+                      const unseen = alertsSeenAt ? String(o.created_at || '') > alertsSeenAt : true;
+                      return (
+                        <li
+                          key={o.id}
+                          className="flex items-center justify-between gap-3 py-2.5 cursor-pointer hover:bg-muted/50 rounded px-1"
+                          onClick={() => { setSelectedTab('pending'); setShowAlerts(false); }}
+                          data-testid={`vendor-alert-item-${o.id}`}
+                        >
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            {unseen && <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />}
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-foreground truncate">
+                                New order #{String(o.id).substring(0, 8)} · {o.service_type || 'order'}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">{timeAgo(o.created_at)}</span>
+                            </span>
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-semibold text-gold-600">${Number(o.total || 0).toFixed(2)}</span>
+                            <Badge className={getStatusColor(o.status)}>{o.status}</Badge>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Vendor Dashboard</h1>
               <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
+              <Button
+                onClick={() => { setShowAlerts((v) => !v); if (!showAlerts) markAlertsSeen(); }}
+                variant="outline"
+                size="icon"
+                className="relative"
+                title="Recent order alerts"
+                data-testid="vendor-alerts-toggle"
+              >
+                <History className="h-5 w-5 text-gold-500" />
+                {unseenAlertCount > 0 && (
+                  <span
+                    className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
+                    data-testid="vendor-alerts-unseen-count"
+                  >
+                    {unseenAlertCount}
+                  </span>
+                )}
+              </Button>
               <Button
                 onClick={toggleSound}
                 variant="outline"
@@ -364,6 +520,15 @@ const VendorDashboard = () => {
                 data-testid="vendor-sound-toggle"
               >
                 {soundOn ? <Bell className="h-5 w-5 text-gold-500" /> : <BellOff className="h-5 w-5 text-muted-foreground" />}
+              </Button>
+              <Button
+                onClick={() => setShowSoundSettings(true)}
+                variant="outline"
+                size="icon"
+                title="Alert sound settings"
+                data-testid="vendor-sound-settings-btn"
+              >
+                <Volume2 className="h-5 w-5 text-gold-500" />
               </Button>
               {(() => {
                 const cfg = getBusinessConfig(vendorType);
@@ -845,6 +1010,70 @@ const VendorDashboard = () => {
           <Button onClick={handlePrintQR} className="w-full bg-gold-gradient text-white" data-testid="vendor-qr-print-btn">
             <Printer className="h-4 w-4 mr-2" /> Print QR code
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Alert sound settings */}
+      <Dialog open={showSoundSettings} onOpenChange={setShowSoundSettings}>
+        <DialogContent className="max-w-sm" data-testid="vendor-sound-settings-dialog">
+          <DialogHeader>
+            <DialogTitle>New-order alert sound</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 py-1">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Play a sound on new orders</p>
+                <p className="text-xs text-muted-foreground">So a busy kitchen never misses one.</p>
+              </div>
+              <Button
+                onClick={toggleSound}
+                variant={soundOn ? 'default' : 'outline'}
+                size="sm"
+                className={soundOn ? 'bg-gold-gradient text-white' : ''}
+                data-testid="vendor-sound-settings-toggle"
+              >
+                {soundOn ? 'On' : 'Off'}
+              </Button>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Chime</label>
+              <Select value={soundChime} onValueChange={saveSoundChime}>
+                <SelectTrigger data-testid="vendor-sound-chime-select">
+                  <SelectValue placeholder="Choose a chime" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(CHIMES).map(([key, c]) => (
+                    <SelectItem key={key} value={key} data-testid={`vendor-sound-chime-${key}`}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-foreground">Volume</label>
+                <span className="text-xs text-muted-foreground" data-testid="vendor-sound-volume-value">{soundVolume}%</span>
+              </div>
+              <Slider
+                value={[soundVolume]}
+                onValueChange={saveSoundVolume}
+                min={10}
+                max={100}
+                step={5}
+                data-testid="vendor-sound-volume-slider"
+              />
+            </div>
+
+            <Button
+              onClick={() => playTone(soundChime, soundVolume)}
+              variant="outline"
+              className="w-full"
+              data-testid="vendor-sound-test-btn"
+            >
+              <Play className="h-4 w-4 mr-2" /> Test sound
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

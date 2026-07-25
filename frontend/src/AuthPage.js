@@ -169,11 +169,11 @@ const AuthPage = ({ mode = 'login' }) => {
       <div className="container mx-auto px-4 max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">
-            <span className="text-transparent bg-clip-text bg-gold-gradient">
-              IslandHop
-            </span>
-          </h1>
+          <img
+            src={require('./assets/islandhop-logo.png')}
+            alt="IslandHop"
+            className="mx-auto mb-3 w-40 h-auto"
+          />
           <p className="text-muted-foreground">Caribbean Delivery</p>
         </div>
 

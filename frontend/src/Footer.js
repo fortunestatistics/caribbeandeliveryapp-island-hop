@@ -76,6 +76,7 @@ const Footer = () => {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           {/* Brand + socials */}
           <div className="flex items-center gap-3">
+            <img src={require('./assets/islandhop-mark.png')} alt="IslandHop" className="w-10 h-10 object-contain" />
             <div>
               <h2 className="text-lg font-bold text-foreground leading-none">IslandHop</h2>
               <p className="text-xs text-gold-500 mt-0.5">Caribbean Delivery</p>
