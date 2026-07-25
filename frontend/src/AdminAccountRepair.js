@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
-import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink } from 'lucide-react';
+import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
+const dashboardFor = (row) => {
+  const t = (row.driver && 'driver') || row.user_type || (row.merchant && 'business');
+  if (t === 'driver') return '/driver-dashboard';
+  if (t === 'business' || t === 'restaurant') return '/vendor-dashboard';
+  return '/dashboard';
+};
+
 const AdminAccountRepair = () => {
+  const { impersonate } = useAuth();
+  const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
@@ -17,6 +28,7 @@ const AdminAccountRepair = () => {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [audit, setAudit] = useState([]);
   const [showAudit, setShowAudit] = useState(false);
+  const [expanded, setExpanded] = useState({});
 
   const loadAudit = async () => {
     try {
@@ -86,6 +98,17 @@ const AdminAccountRepair = () => {
       toast.error(e?.response?.data?.detail || 'Bulk repair failed');
     } finally {
       setBulkBusy(false);
+    }
+  };
+
+  const viewAs = async (row) => {
+    if (!row.user_id) { toast.error('No user account to view'); return; }
+    try {
+      await impersonate(row.user_id, row.name);
+      toast.success(`Now viewing as ${row.name || 'user'} (read-only)`);
+      navigate(dashboardFor(row));
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not open this account');
     }
   };
 
@@ -168,12 +191,45 @@ const AdminAccountRepair = () => {
                         {row.issues.map((iss, ii) => <li key={ii}>{iss}</li>)}
                       </ul>
                     )}
+                    {row.diagnostics && (
+                      <div className="mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((e) => ({ ...e, [key]: !e[key] }))}
+                          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                          data-testid={`account-repair-details-toggle-${i}`}
+                        >
+                          <ChevronDown className={`h-3 w-3 transition-transform ${expanded[key] ? 'rotate-180' : ''}`} />
+                          {expanded[key] ? 'Hide' : 'View'} full details
+                        </button>
+                        {expanded[key] && (
+                          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground rounded-md bg-muted/50 p-2" data-testid={`account-repair-details-${i}`}>
+                            <div>Role: <span className="text-foreground">{row.diagnostics.role}{row.diagnostics.is_owner ? ' (owner)' : ''}</span></div>
+                            <div>Account: <span className="text-foreground">{row.diagnostics.account_status}</span></div>
+                            <div>Driver record: <span className="text-foreground">{row.diagnostics.driver_record ? `${row.diagnostics.driver_record.status} · wallet ${row.diagnostics.driver_record.has_wallet ? '✓' : '✗'} · role ${row.diagnostics.driver_record.role_promoted ? '✓' : '✗'}` : '—'}</span></div>
+                            <div>Vendor record: <span className="text-foreground">{row.diagnostics.vendor_record ? `${row.diagnostics.vendor_record.type} · ${row.diagnostics.vendor_record.status}` : '—'}</span></div>
+                            <div>Merchant apps: <span className="text-foreground">{(row.diagnostics.merchant_applications || []).map((a) => a.status).join(', ') || '—'}</span></div>
+                            <div>Driver apps: <span className="text-foreground">{(row.diagnostics.driver_applications || []).map((a) => a.status).join(', ') || '—'}</span></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col gap-2 shrink-0">
                     {row.repairable && (
                       <Button size="sm" onClick={() => repair(row, key)} disabled={busyKey === key} data-testid={`account-repair-btn-${i}`}>
                         {busyKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <LifeBuoy className="h-4 w-4 mr-1" />}
                         {row.kind === 'merchant_application' ? 'Provision' : 'Repair'}
+                      </Button>
+                    )}
+                    {row.user_id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => viewAs(row)}
+                        data-testid={`account-repair-viewas-${i}`}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />View as user
                       </Button>
                     )}
                     {storefrontUrl(row) && (

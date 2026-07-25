@@ -35,6 +35,12 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [impersonation, setImpersonation] = useState(() => {
+    try {
+      const raw = localStorage.getItem('impersonation');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  });
 
   const checkAuth = async () => {
     try {
@@ -61,6 +67,40 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Force Re-login: re-fetch the current user (called on a WS 'session_refresh' after an admin repair).
+  const refreshUser = async () => { await checkAuth(); };
+
+  // Admin impersonation (read-only): swap this tab's Bearer to the target's token so the
+  // admin sees the user's own dashboard. The admin cookie stays but the backend prefers the
+  // impersonation Bearer. Writes are blocked server-side.
+  const impersonate = async (userId, targetName) => {
+    const res = await axios.post(`${API}/admin/impersonate/${userId}`, {}, { withCredentials: true });
+    const impToken = res.data.token;
+    try {
+      const admin = localStorage.getItem('token');
+      if (admin) localStorage.setItem('admin_token_backup', admin);
+      localStorage.setItem('token', impToken);
+      const info = { targetName: targetName || res.data.user?.name || res.data.user?.email, readonly: true, userType: res.data.user?.user_type };
+      localStorage.setItem('impersonation', JSON.stringify(info));
+      setImpersonation(info);
+    } catch (e) { /* localStorage unavailable */ }
+    applyAuthToken(impToken);
+    await checkAuth();
+    return res.data.user;
+  };
+
+  const exitImpersonation = async () => {
+    try {
+      const admin = localStorage.getItem('admin_token_backup');
+      if (admin) { localStorage.setItem('token', admin); } else { localStorage.removeItem('token'); }
+      localStorage.removeItem('admin_token_backup');
+      localStorage.removeItem('impersonation');
+    } catch (e) { /* localStorage unavailable */ }
+    applyAuthToken((typeof localStorage !== 'undefined') ? localStorage.getItem('token') : null);
+    setImpersonation(null);
+    await checkAuth();
+  };
+
   const logout = async () => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
@@ -79,7 +119,7 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
-  const value = useMemo(() => ({ user, logout, loading }), [user, loading]);
+  const value = useMemo(() => ({ user, logout, loading, impersonation, impersonate, exitImpersonation, refreshUser }), [user, loading, impersonation]);
 
   return (
     <AuthContext.Provider value={value}>

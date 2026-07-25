@@ -152,6 +152,7 @@ const TechnologyPage = lazy(() => import('./TechnologyPage'));
 const AdminDispatch = lazy(() => import('./AdminDispatch'));
 import OfflineSyncManager from './OfflineSync';
 import OrderNotifier from './OrderNotifier';
+import ImpersonationBanner from './ImpersonationBanner';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -2132,6 +2133,7 @@ function App() {
           <Toaster />
           <OfflineSyncManager />
           <OrderNotifier />
+          <ImpersonationBanner />
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>

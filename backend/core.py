@@ -189,12 +189,27 @@ async def get_current_user(request: Request, credentials: Optional[HTTPAuthoriza
 async def get_current_user_from_request(request: Request):
     """Get current authenticated user from request (supports session token cookie or JWT Bearer)"""
     from models import User
+
+    # Admin impersonation: a read-only impersonation Bearer token ALWAYS wins over the
+    # admin's own session cookie (so the impersonated view works in the same browser).
+    auth_header = request.headers.get("Authorization")
+    bearer = None
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer = _clean_token(auth_header.split(" ", 1)[1])
+    if bearer:
+        try:
+            imp = jwt.decode(bearer, SECRET_KEY, algorithms=[ALGORITHM])
+            if imp.get("impersonated_by") and imp.get("sub"):
+                target = await db.users.find_one({"id": imp["sub"]})
+                if target:
+                    return User(**target)  # block bypassed so staff can inspect
+        except JWTError:
+            pass
+
     session_token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
 
     if not session_token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_token = _clean_token(auth_header.split(" ", 1)[1])
+        session_token = bearer
 
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")

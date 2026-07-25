@@ -51,6 +51,29 @@ from core import (
 # Create the main app without a prefix
 app = FastAPI()
 
+
+@app.middleware("http")
+async def _readonly_impersonation_guard(request: Request, call_next):
+    """Block all mutations while an admin is viewing a user read-only (impersonation)."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        auth = request.headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            tok = auth.split(" ", 1)[1].strip().strip('"')
+            try:
+                from jose import jwt as _jwt
+                claims = _jwt.decode(tok, SECRET_KEY, algorithms=[ALGORITHM])
+                if claims.get("impersonated_by") and claims.get("readonly"):
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Read-only impersonation: changes are disabled while viewing as this user."},
+                    )
+            except Exception:
+                pass
+    return await call_next(request)
+
+
+
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
@@ -2075,6 +2098,32 @@ async def _account_health_entry(user: dict) -> dict:
         issues.append(f"Account is {acct_status} — the user is blocked from logging in.")
         repairable = True
 
+    # Full inline diagnostics (the complete account picture for admins).
+    apps = await db.business_applications.find(
+        {"user_id": uid}, {"_id": 0, "verification_status": 1, "business_name": 1}
+    ).to_list(length=10)
+    drv_apps = await db.driver_applications.find(
+        {"user_id": uid}, {"_id": 0, "status": 1, "verification_status": 1}
+    ).to_list(length=10)
+    has_wallet = bool(driver_info and await db.driver_wallets.find_one({"driver_id": driver_info["id"]}, {"_id": 1}))
+    diagnostics = {
+        "role": utype,
+        "is_owner": bool(user.get("is_owner")),
+        "account_status": acct_status,
+        "driver_record": (
+            {"id": driver_info["id"], "status": driver_info["status"],
+             "role_promoted": driver_info["role_promoted"], "has_wallet": has_wallet}
+            if driver_info else None),
+        "vendor_record": (
+            {"type": merchant.get("type"), "status": merchant.get("status"),
+             "storefront_url": merchant.get("storefront_url")}
+            if merchant and not merchant.get("unprovisioned") else None),
+        "merchant_applications": [
+            {"name": a.get("business_name"), "status": a.get("verification_status")} for a in apps],
+        "driver_applications": [
+            {"status": a.get("status") or a.get("verification_status")} for a in drv_apps],
+    }
+
     return {
         "kind": "account",
         "user_id": uid,
@@ -2085,6 +2134,7 @@ async def _account_health_entry(user: dict) -> dict:
         "account_status": acct_status,
         "driver": driver_info,
         "merchant": merchant,
+        "diagnostics": diagnostics,
         "issues": issues,
         "healthy": not issues,
         "repairable": repairable,
@@ -2224,6 +2274,10 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
                           target={"user_id": uid, "email": refreshed.get("email"),
                                   "application_id": payload.application_id},
                           actions=actions)
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
         return {
             "success": True, "actions": actions,
             "storefront_url": f"/restaurant/{vid}",
@@ -2292,7 +2346,11 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
     health = await _account_health_entry(refreshed)
     note = None
     if any("role" in a for a in actions):
-        note = "Done. The user must LOG OUT and log back in to see their new panel/dashboard."
+        note = "Done. The user's session will refresh automatically; if they're offline they'll see it on next login."
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "success": True,
         "actions": final_actions,
@@ -2330,6 +2388,10 @@ async def admin_repair_all_drivers(request: Request):
             await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
         healed.append({"driver_id": drv["id"], "user_id": uid,
                        "email": u.get("email"), "name": u.get("name")})
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
     if healed:
         await _log_repair(current_user, kind="bulk_drivers",
                           target={"count": len(healed)},
@@ -11454,7 +11516,7 @@ async def admin_impersonate(user_id: str, request: Request, response: Response):
     if (target.get("user_type") or "").lower() == "admin":
         raise HTTPException(status_code=403, detail="Cannot impersonate another admin")
     token = create_access_token(
-        {"sub": user_id, "impersonated_by": current_user.id},
+        {"sub": user_id, "impersonated_by": current_user.id, "readonly": True},
         expires_delta=timedelta(minutes=30),
     )
     await db.impersonation_logs.insert_one({
@@ -11464,8 +11526,9 @@ async def admin_impersonate(user_id: str, request: Request, response: Response):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     logging.info(f"Admin {current_user.email} started viewing portal of {target.get('email')}")
-    set_auth_cookie(response, token)
-    return {"token": token, "user": target, "expires_in_minutes": 30}
+    # NOTE: do NOT set the admin's auth cookie — the frontend uses this token as a
+    # read-only impersonation Bearer so the admin keeps their own session.
+    return {"token": token, "user": target, "readonly": True, "expires_in_minutes": 30}
 
 
 # ---------------------------------------------------------------------------

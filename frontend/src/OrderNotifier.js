@@ -8,7 +8,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 // Global listener: shows an in-app toast when a customer's order is rejected by a store.
 const OrderNotifier = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const wsRef = useRef(null);
@@ -27,6 +27,16 @@ const OrderNotifier = () => {
       ws.onmessage = (event) => {
         let data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
+        if (data.type === 'session_refresh') {
+          // Admin repaired this account — refresh the role live (no logout needed).
+          if (refreshUser) refreshUser();
+          toast({
+            title: 'Your account was updated',
+            description: 'Your access has been refreshed — new features may now be available.',
+            duration: 8000,
+          });
+          return;
+        }
         if (data.type !== 'order_rejected') return;
         const reason = data.reason || 'The store could not fulfill your order';
         const refunded = !!data.refunded;
@@ -60,7 +70,7 @@ const OrderNotifier = () => {
       if (retry) clearTimeout(retry);
       if (wsRef.current) { try { wsRef.current.close(); } catch (_) { /* noop */ } }
     };
-  }, [user?.id, toast, navigate]);
+  }, [user?.id, toast, navigate, refreshUser]);
 
   return null;
 };
