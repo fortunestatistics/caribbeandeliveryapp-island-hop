@@ -50,6 +50,46 @@ import { useToast } from './hooks/use-toast';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Live ETA for when the assigned driver will reach the store to collect the order.
+const DriverEtaBadge = ({ orderId }) => {
+  const [eta, setEta] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await axios.get(`${API}/orders/${orderId}/pickup-eta`, { withCredentials: true });
+        if (alive) setEta(r.data);
+      } catch (_) { /* ignore */ }
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [orderId]);
+
+  if (!eta || !eta.has_driver) {
+    return (
+      <div className="w-full flex items-center gap-2 text-sm text-muted-foreground border rounded-md px-3 py-2" data-testid={`vendor-eta-${orderId}`}>
+        <Clock className="h-4 w-4" /> Waiting for a driver…
+      </div>
+    );
+  }
+  if (eta.picked_up) {
+    return (
+      <div className="w-full flex items-center gap-2 text-sm border rounded-md px-3 py-2" style={{ color: '#0FA3A3', borderColor: '#0FA3A340' }} data-testid={`vendor-eta-${orderId}`}>
+        <Truck className="h-4 w-4" /> {eta.driver_name || 'Driver'} has collected the order
+      </div>
+    );
+  }
+  return (
+    <div className="w-full flex items-center justify-between gap-2 text-sm border rounded-md px-3 py-2" style={{ borderColor: '#0FA3A340' }} data-testid={`vendor-eta-${orderId}`}>
+      <span className="flex items-center gap-2 text-foreground"><Truck className="h-4 w-4" style={{ color: '#0FA3A3' }} /> {eta.driver_name || 'Driver'} arriving to collect</span>
+      {eta.eta_available
+        ? <span className="font-bold whitespace-nowrap" style={{ color: '#0FA3A3' }} data-testid={`vendor-eta-time-${orderId}`}>~{eta.eta_min} min</span>
+        : <span className="text-xs text-muted-foreground">en route</span>}
+    </div>
+  );
+};
+
 const VendorDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -335,6 +375,33 @@ const VendorDashboard = () => {
     } catch (error) {
       console.error('Error updating order:', error);
       alert('Failed to update order');
+    }
+  };
+
+  const REJECT_REASONS = [
+    'Item(s) out of stock',
+    'Store is closing / closed',
+    'Too busy to fulfill right now',
+    'Cannot deliver to that address',
+    'Duplicate or test order',
+  ];
+  const [rejectFor, setRejectFor] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
+
+  const submitReject = async () => {
+    if (!rejectFor) return;
+    setRejecting(true);
+    try {
+      await axios.post(`${API}/orders/${rejectFor}/reject`, { reason: rejectReason || undefined }, { withCredentials: true });
+      setRejectFor(null);
+      setRejectReason('');
+      fetchOrders();
+      fetchStats();
+    } catch (error) {
+      alert(error?.response?.data?.detail || 'Failed to decline order');
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -916,9 +983,10 @@ const VendorDashboard = () => {
                               Accept Order
                             </Button>
                             <Button
-                              onClick={() => handleOrderAction(order.id, 'cancelled')}
+                              onClick={() => { setRejectFor(order.id); setRejectReason(''); }}
                               variant="destructive"
                               className="flex-1"
+                              data-testid={`vendor-reject-btn-${order.id}`}
                             >
                               <X className="h-4 w-4 mr-2" />
                               Reject
@@ -945,10 +1013,16 @@ const VendorDashboard = () => {
                         )}
 
                         {(order.status === 'ready' || order.status === 'picked_up' || order.status === 'in_transit') && (
-                          <Button variant="outline" className="flex-1" disabled>
-                            <Clock className="h-4 w-4 mr-2" />
-                            Waiting for Delivery
-                          </Button>
+                          <div className="flex-1">
+                            {order.driver_id ? (
+                              <DriverEtaBadge orderId={order.id} />
+                            ) : (
+                              <Button variant="outline" className="w-full" disabled>
+                                <Clock className="h-4 w-4 mr-2" />
+                                Finding a driver…
+                              </Button>
+                            )}
+                          </div>
                         )}
 
                         <Button

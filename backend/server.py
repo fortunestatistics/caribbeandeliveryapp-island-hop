@@ -3182,6 +3182,86 @@ async def confirm_order_cod(order_id: str, request: Request):
     return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
 
 
+class RejectOrderRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@api_router.post("/orders/{order_id}/reject")
+async def reject_order(order_id: str, payload: RejectOrderRequest, request: Request):
+    """Merchant declines an order with a reason; the customer is auto-notified."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await _authorize_order_status_change(current_user, order)
+    if order.get("status") in ("delivered", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Order is already {order.get('status')}")
+
+    reason = (payload.reason or "").strip() or "The store could not fulfill this order"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update = {
+        "status": "cancelled",
+        "cancelled_by": "merchant",
+        "rejection_reason": reason,
+        "rejected_at": now_iso,
+        "updated_at": now_iso,
+    }
+    if order.get("payment_status") == "paid":
+        update["payment_status"] = "refund_pending"
+    await db.orders.update_one({"id": order_id}, {"$set": update})
+
+    # Notify the customer (SMS + realtime).
+    phone = order.get("customer_phone")
+    if not phone and order.get("customer_id"):
+        cust = await db.users.find_one({"id": order["customer_id"]}, {"_id": 0, "phone": 1})
+        phone = (cust or {}).get("phone")
+    body = f"IslandHop: Sorry, your order #{str(order_id)[:8]} was declined by the store. Reason: {reason}."
+    if order.get("payment_status") == "paid":
+        body += " A refund is being processed."
+    if phone:
+        asyncio.create_task(_wa_notify(phone, body, user_id=order.get("customer_id"),
+                                       event="order_rejected", order_id=order_id, channel="sms"))
+    try:
+        await manager.send_personal_message(
+            json.dumps({"type": "order_rejected", "order_id": order_id, "reason": reason}),
+            order.get("customer_id"))
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "order_id": order_id, "status": "cancelled", "reason": reason}
+
+
+@api_router.get("/orders/{order_id}/pickup-eta")
+async def order_pickup_eta(order_id: str, request: Request):
+    """Merchant-facing ETA for when the assigned driver will arrive to collect the order."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await _authorize_order_status_change(current_user, order)
+
+    if not order.get("driver_id"):
+        return {"has_driver": False}
+    driver = await db.drivers.find_one({"id": order["driver_id"]}, {"_id": 0, "name": 1, "current_location": 1, "vehicle_type": 1})
+    if not driver:
+        return {"has_driver": False}
+    dloc = driver.get("current_location") or {}
+    dc = _addr_coords(dloc) or ((dloc.get("lat"), dloc.get("lng")) if dloc.get("lat") is not None else None)
+    pc = _addr_coords(order.get("pickup_address"))
+    if not dc or dc[0] is None or not pc:
+        return {"has_driver": True, "driver_name": driver.get("name"), "eta_available": False}
+    dist = _haversine_km(float(dc[0]), float(dc[1]), pc[0], pc[1])
+    return {
+        "has_driver": True,
+        "driver_name": driver.get("name"),
+        "vehicle_type": driver.get("vehicle_type"),
+        "eta_available": True,
+        "distance_km": round(dist, 2),
+        "eta_min": max(1, round((dist / BACKROAD_AVG_KMH) * 60)),
+        "picked_up": order.get("status") in ("picked_up", "in_transit", "delivered"),
+    }
+
+
+
 class MultiOrderRequest(BaseModel):
     order_ids: List[str]
 
