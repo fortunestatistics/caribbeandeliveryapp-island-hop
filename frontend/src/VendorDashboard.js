@@ -41,7 +41,8 @@ import {
   Wallet,
   Volume2,
   History,
-  Play
+  Play,
+  Truck
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
@@ -1147,6 +1148,58 @@ const VendorDashboard = () => {
             >
               <Play className="h-4 w-4 mr-2" /> Test sound
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject order dialog */}
+      <Dialog open={!!rejectFor} onOpenChange={(o) => { if (!o) { setRejectFor(null); setRejectReason(''); } }}>
+        <DialogContent className="max-w-sm" data-testid="vendor-reject-dialog">
+          <DialogHeader>
+            <DialogTitle>Decline this order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Pick a reason (the customer is notified):</p>
+            <div className="flex flex-wrap gap-2">
+              {REJECT_REASONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRejectReason(r)}
+                  data-testid={`vendor-reject-reason-${r.slice(0, 12)}`}
+                  className={`text-sm rounded-full px-3 py-1.5 border transition-colors ${rejectReason === r ? 'bg-red-600 text-white border-red-600' : 'bg-background text-foreground hover:bg-muted'}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Or type a custom reason…"
+              rows={2}
+              data-testid="vendor-reject-reason-input"
+              className="w-full text-sm rounded-md border px-3 py-2 bg-background"
+            />
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => { setRejectFor(null); setRejectReason(''); }}
+                data-testid="vendor-reject-cancel-btn"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={submitReject}
+                disabled={rejecting}
+                data-testid="vendor-reject-confirm-btn"
+              >
+                {rejecting ? 'Declining…' : 'Decline order'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
