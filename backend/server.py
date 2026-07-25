@@ -2934,10 +2934,15 @@ async def _authorize_order_status_change(current_user: User, order: dict) -> Non
     """Raise 403 if current_user cannot update this order's status."""
     if current_user.user_type in ("admin", "agent"):
         return
-    if current_user.user_type == "restaurant":
-        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-        if restaurant and restaurant["id"] == order["restaurant_id"]:
-            return
+    # The order may store its vendor under either restaurant_id or vendor_id, and the
+    # merchant may be a restaurant (db.restaurants) or a business (db.businesses).
+    vendor_ids = {order.get("restaurant_id"), order.get("vendor_id")} - {None, ""}
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if restaurant and restaurant["id"] in vendor_ids:
+        return
+    business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if business and business["id"] in vendor_ids:
+        return
     if current_user.user_type == "driver":
         driver = await db.drivers.find_one({"user_id": current_user.id})
         if driver and driver["id"] == order.get("driver_id"):

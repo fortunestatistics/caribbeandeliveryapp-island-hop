@@ -1,6 +1,12 @@
 # IslandHop — Product Requirements Document
 
-## Session Log — Jun 2026 (fork, cont.) — Live driver tracking (dispatch board) + customer route/ETA map (+order 500 fix)
+## Session Log — Jun 2026 (fork, cont.) — FIX: merchant "Failed to update order" on accept (business merchants)
+- **Bug (production):** a merchant clicking "Accept Order" got "Failed to update order". Root cause: `_authorize_order_status_change` (server.py ~2933) only allowed `user_type == "restaurant"` (looked up `db.restaurants` and did `order["restaurant_id"]`). **Business-type merchants** (grocery/pharmacy/retail, stored in `db.businesses`) had no matching restaurant doc → `PUT /api/orders/{id}/status` returned **403**, surfaced by `VendorDashboard.handleOrderAction` as the alert. Also `order["restaurant_id"]` could KeyError on partial docs.
+- **Fix:** authorize BOTH `db.restaurants` and `db.businesses` for the current user, matching the order's vendor by EITHER `restaurant_id` OR `vendor_id` (set-based). Driver branch unchanged.
+- **Verified end-to-end via curl (business merchant + driver):** merchant accept pending→confirmed→preparing→ready (all 200) → driver accept-driver → picked_up → in_transit → **delivered** (all 200). Full lifecycle unblocked.
+- Backend-only fix (no frontend/zip change). **REQUIRES REDEPLOY** — bug is on production; fix is in preview.
+
+
 - **Live driver tracking on Admin Dispatch board.** `AdminDispatch.js` new `DispatchMap` (@react-google-maps/api) plots online drivers (teal 🚗 pins) + unassigned drops (orange 📦 pins) from the board data, header shows "· N drivers online" + a pulsing "live" badge; board poll sped to 8s so markers reposition as drivers move. Verified (testing_agent iter50): map card `dispatch-live-map-card` / `dispatch-live-map` mounts (51 tiles, 1 driver marker).
 - **Customer route + live ETA map.** `OrderTrackingPageWithMaps.js` (route `/order/:orderId`) already drew the driver→door DirectionsRenderer route + polled driver location; added a live **ETA banner** (`tracking-eta` / `tracking-eta-time`) from the Directions leg (duration + distance "to your door") and sped polling to 6s. Verified (testing_agent iter51): map + driver/delivery markers + blue route line + ETA banner all render.
 - **Fix: `GET /api/orders/{order_id}` 500.** It used strict `response_model=Order`; any order missing `menu_item_id/subtotal/delivery_fee/payment_method` raised a pydantic ValidationError → 500, which the tracking UI disguised as "Order Not Found". Removed the response_model, now returns the raw doc with `_id` stripped (create-path validation unchanged). Verified 200.
