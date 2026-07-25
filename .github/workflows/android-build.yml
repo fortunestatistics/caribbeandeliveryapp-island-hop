@@ -100,12 +100,12 @@ jobs:
         run: npx cap sync android
 
       - name: Build AAB
-        working-directory: frontend/android
+        working-directory: ./frontend/android
         run: ./gradlew bundleRelease
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/*.aab
+          path: ./frontend/android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
