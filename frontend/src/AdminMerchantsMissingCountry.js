@@ -48,7 +48,7 @@ export default function AdminMerchantsMissingCountry() {
               <AlertTriangle className="h-5 w-5 text-amber-500" />
             )}
             <div>
-              <p className="font-semibold text-sm flex items-center gap-2">
+              <div className="font-semibold text-sm flex items-center gap-2">
                 Payment routing readiness
                 {loading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -57,7 +57,7 @@ export default function AdminMerchantsMissingCountry() {
                     {clean ? 'All merchants have a country' : `${count} missing country`}
                   </Badge>
                 )}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Merchants without a country can't be routed to the right payment processor. Fix before launch.
               </p>

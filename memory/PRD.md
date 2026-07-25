@@ -1,5 +1,16 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Admin Impersonate + Force Re-login + Repair Diagnostics
+- **Admin Impersonate (read-only):** `POST /api/admin/impersonate/{user_id}` issues a short-lived (30 min) JWT with `impersonated_by` + `readonly` claims (no longer clobbers the admin's cookie); `core.py get_current_user_from_request` prefers an impersonation Bearer over the session cookie; a global `@app.middleware` blocks all POST/PUT/PATCH/DELETE under a readonly impersonation token; impersonating another admin is 403. Frontend: `AuthContext.impersonate()/exitImpersonation()` swap this tab's Bearer to the target's token (backing up the admin token), `ImpersonationBanner.js` (mounted in App.js) shows a persistent "Viewing as X — admin, read-only" bar with Exit. "View as user" button on each Account Repair row (`account-repair-viewas-*`). **Verified:** /auth/me returns the target, writes → 403, admin impersonation → 403, banner + exit restore admin.
+- **Force Re-login:** repair endpoints (account repair, provision, bulk) send a WS `session_refresh` to the affected user; `OrderNotifier.js` handles it by calling `AuthContext.refreshUser()` (re-fetch /auth/me) so the user's role updates live — no logout/in needed. Repair `note` updated accordingly.
+- **Repair Diagnostics:** `_account_health_entry` now returns a `diagnostics` object (role, is_owner, account_status, driver_record {status/wallet/role}, vendor_record, merchant_applications[], driver_applications[]). Rendered as an expandable "View full details" grid per Account Repair row (`account-repair-details-*`).
+- **Fixed** the long-standing `<div> cannot be a descendant of <p>` hydration warning: `AdminMerchantsMissingCountry.js` had a `<Badge>` (div) inside a `<p>` → changed to a `<div>`.
+- **Verified:** clean `CI=true yarn build`; curl (impersonation token/read-only/admin-guard/diagnostics); testing_agent iter56 = 100% (diagnostics expand, view-as + banner, exit restore). **REQUIRES REDEPLOY.**
+- **Pending / next:** Dual-Role Support (driver + merchant on one account with a role switcher) — deferred as an isolated, carefully-tested change per user agreement.
+- **Note:** accidentally ran `db.driver_wallets.delete_many({})` in PREVIEW during cleanup; immediately recreated all 8 zero-balance wallets. No production impact.
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Kulture driver repair + merchant provisioning robustness
 **User report (production):** approved driver "Kulture D Teacher" (omarcarter64@gmail.com) — driver dashboard still not working, can't access from admin, and the Repair tool "wasn't repairing it."
 
