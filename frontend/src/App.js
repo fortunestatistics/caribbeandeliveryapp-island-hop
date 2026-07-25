@@ -148,6 +148,9 @@ import { CartProvider } from './CartContext';
 import { CartButton } from './MultiCart';
 const MultiCartPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCartPage })));
 const MultiCheckoutPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCheckoutPage })));
+const TechnologyPage = lazy(() => import('./TechnologyPage'));
+const AdminDispatch = lazy(() => import('./AdminDispatch'));
+import OfflineSyncManager from './OfflineSync';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -2086,6 +2089,8 @@ function App() {
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
             <Route path="/cart" element={<MultiCartPage />} />
             <Route path="/checkout-group" element={<ProtectedRoute><MultiCheckoutPage /></ProtectedRoute>} />
+            <Route path="/technology" element={<TechnologyPage />} />
+            <Route path="/admin/dispatch" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminDispatch /></ProtectedRoute>} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
 
@@ -2124,6 +2129,7 @@ function App() {
 
           <Footer />
           <Toaster />
+          <OfflineSyncManager />
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>

@@ -5476,6 +5476,196 @@ async def get_order_driver_location(order_id: str):
 import math as _math
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in km between two lat/lng points."""
+    from math import radians, sin, cos, asin, sqrt
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 2 * R * asin(sqrt(a))
+
+
+def _addr_coords(addr: Optional[dict]):
+    """Pull (lat, lng) from an address dict, tolerating lat/latitude + lng/longitude keys."""
+    if not addr:
+        return None
+    lat = addr.get("latitude", addr.get("lat"))
+    lng = addr.get("longitude", addr.get("lng"))
+    if lat is None or lng is None:
+        return None
+    try:
+        return (float(lat), float(lng))
+    except (TypeError, ValueError):
+        return None
+
+
+ACTIVE_DELIVERY_STATUSES = ["assigned", "confirmed", "preparing", "ready", "picked_up", "in_transit"]
+# Average back-road speed used to convert distance saved → time saved (km/h).
+BACKROAD_AVG_KMH = float(os.environ.get("BACKROAD_AVG_KMH", "22"))
+
+
+def _route_distance(start, ordered_stops) -> float:
+    """Total km travelling start → each stop in the given order."""
+    total = 0.0
+    prev = start
+    for s in ordered_stops:
+        total += _haversine_km(prev[0], prev[1], s["coords"][0], s["coords"][1])
+        prev = s["coords"]
+    return total
+
+
+def _optimize_route(start, stops):
+    """Greedy nearest-neighbour ordering of stops from `start`. Returns ordered list."""
+    remaining = list(stops)
+    ordered = []
+    cur = start
+    while remaining:
+        nxt = min(remaining, key=lambda s: _haversine_km(cur[0], cur[1], s["coords"][0], s["coords"][1]))
+        ordered.append(nxt)
+        cur = nxt["coords"]
+        remaining.remove(nxt)
+    return ordered
+
+
+@api_router.get("/driver/route/optimize")
+async def optimize_driver_route(request: Request):
+    """Smart back-road routing: orders the driver's active deliveries into the shortest
+    nearest-neighbour visit sequence from their current location, and reports the
+    distance + time saved vs. the order the jobs came in."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    orders = await db.orders.find(
+        {"driver_id": driver["id"], "status": {"$in": ACTIVE_DELIVERY_STATUSES}},
+        {"_id": 0, "id": 1, "delivery_address": 1, "status": 1, "total": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(length=100)
+
+    stops = []
+    for o in orders:
+        coords = _addr_coords(o.get("delivery_address"))
+        if not coords:
+            continue
+        stops.append({
+            "order_id": o["id"],
+            "label": (o.get("delivery_address") or {}).get("full_address")
+                     or (o.get("delivery_address") or {}).get("location") or "Delivery stop",
+            "coords": coords,
+        })
+
+    loc = driver.get("current_location") or {}
+    start = None
+    sc = _addr_coords(loc) or ((loc.get("lat"), loc.get("lng")) if loc.get("lat") is not None else None)
+    if sc and sc[0] is not None:
+        start = (float(sc[0]), float(sc[1]))
+    # Fall back to the first stop as the start if the driver has no live location.
+    if start is None and stops:
+        start = stops[0]["coords"]
+
+    if len(stops) < 2 or start is None:
+        return {
+            "optimizable": False,
+            "message": "Add at least two active deliveries with map locations to optimize your route.",
+            "stop_count": len(stops),
+        }
+
+    naive_km = _route_distance(start, stops)
+    optimized = _optimize_route(start, stops)
+    optimized_km = _route_distance(start, optimized)
+    saved_km = max(0.0, naive_km - optimized_km)
+    percent = round((saved_km / naive_km) * 100, 1) if naive_km > 0 else 0.0
+
+    ordered_out = []
+    prev = start
+    for i, s in enumerate(optimized):
+        leg = _haversine_km(prev[0], prev[1], s["coords"][0], s["coords"][1])
+        ordered_out.append({
+            "seq": i + 1,
+            "order_id": s["order_id"],
+            "label": s["label"],
+            "lat": s["coords"][0],
+            "lng": s["coords"][1],
+            "leg_km": round(leg, 2),
+        })
+        prev = s["coords"]
+
+    return {
+        "optimizable": True,
+        "start": {"lat": start[0], "lng": start[1]},
+        "stops": ordered_out,
+        "stop_count": len(stops),
+        "optimized_km": round(optimized_km, 2),
+        "naive_km": round(naive_km, 2),
+        "distance_saved_km": round(saved_km, 2),
+        "percent_saved": percent,
+        "time_saved_min": round((saved_km / BACKROAD_AVG_KMH) * 60, 0),
+    }
+
+
+@api_router.get("/admin/dispatch/board")
+async def dispatch_board(request: Request):
+    """Live courier-dispatch board: unassigned active orders + online drivers."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    unassigned = await db.orders.find(
+        {"$or": [{"driver_id": None}, {"driver_id": ""}, {"driver_id": {"$exists": False}}],
+         "status": {"$in": ["pending"] + ACTIVE_DELIVERY_STATUSES},
+         "service_type": {"$in": ["food", "grocery", "pharmacy", "courier"]}},
+        {"_id": 0, "id": 1, "service_type": 1, "status": 1, "total": 1, "driver_earnings": 1,
+         "pickup_address": 1, "delivery_address": 1, "created_at": 1, "customer_phone": 1},
+    ).sort("created_at", -1).limit(50).to_list(length=50)
+    for o in unassigned:
+        o["has_pickup_coords"] = _addr_coords(o.get("pickup_address")) is not None
+
+    drivers = await db.drivers.find(
+        {"status": "online"},
+        {"_id": 0, "id": 1, "name": 1, "current_location": 1, "rating": 1, "phone": 1, "vehicle_type": 1},
+    ).limit(100).to_list(length=100)
+
+    return {"unassigned_orders": unassigned, "online_drivers": drivers,
+            "unassigned_count": len(unassigned), "online_driver_count": len(drivers)}
+
+
+class DispatchRunRequest(BaseModel):
+    order_id: Optional[str] = None
+
+
+@api_router.post("/admin/dispatch/run")
+async def dispatch_run(payload: DispatchRunRequest, request: Request):
+    """Trigger the smart dispatch engine for one order or all unassigned active orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    query = {"$or": [{"driver_id": None}, {"driver_id": ""}, {"driver_id": {"$exists": False}}],
+             "status": {"$in": ["pending"] + ACTIVE_DELIVERY_STATUSES},
+             "service_type": {"$in": ["food", "grocery", "pharmacy", "courier"]}}
+    if payload.order_id:
+        query = {"id": payload.order_id}
+    targets = await db.orders.find(query, {"_id": 0, "id": 1, "pickup_address": 1}).limit(50).to_list(length=50)
+
+    results = []
+    for o in targets:
+        if not _addr_coords(o.get("pickup_address")):
+            results.append({"order_id": o["id"], "success": False, "message": "Missing pickup coordinates"})
+            continue
+        try:
+            res = await find_and_assign_driver(o["id"])
+            results.append({"order_id": o["id"], **(res if isinstance(res, dict) else {"success": True})})
+        except HTTPException as he:
+            results.append({"order_id": o["id"], "success": False, "message": he.detail})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"order_id": o["id"], "success": False, "message": str(exc)})
+
+    dispatched = sum(1 for r in results if r.get("success"))
+    return {"processed": len(results), "dispatched": dispatched, "results": results}
+
+
+
 async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: int = 10000) -> List[dict]:
     """Find online drivers within radius. Falls back to any online driver if none nearby."""
     nearby = await db.drivers.find({

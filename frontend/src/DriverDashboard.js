@@ -15,6 +15,7 @@ import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import DriverRouteCard from './DriverRouteCard';
 import { useLocationConsent } from './LocationConsentContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -369,6 +370,7 @@ const DriverDashboard = () => {
         )}
 
         {/* Active Orders */}
+        <DriverRouteCard />
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">

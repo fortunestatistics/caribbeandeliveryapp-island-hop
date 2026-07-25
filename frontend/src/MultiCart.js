@@ -8,6 +8,7 @@ import { Badge } from './components/ui/badge';
 import { useCart } from './CartContext';
 import { useCurrency } from './CurrencyContext';
 import { createOrder, fetchProfile, isLoggedIn, formatProfileAddress } from './orderApi';
+import { enqueueOrders, isNetworkError } from './offlineQueue';
 import {
   ShoppingCart, Plus, Minus, Trash2, Store, ArrowLeft, Loader2,
   Banknote, CreditCard, Wallet, ShieldCheck, CheckCircle2, XCircle,
@@ -48,7 +49,7 @@ export const CartButton = () => {
 export const MultiCartPage = () => {
   const navigate = useNavigate();
   const { format } = useCurrency();
-  const { vendors, setQty, removeItem, clearVendor, totalCount, grandSubtotal } = useCart();
+  const { vendors, setQty, removeItem, clearVendor, clear, totalCount, grandSubtotal } = useCart();
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [placing, setPlacing] = useState(false);
@@ -70,30 +71,52 @@ export const MultiCartPage = () => {
     setPlacing(true);
     setError('');
     const groupId = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const buildPayload = (g) => {
+      const subtotal = g.items.reduce((s, i) => s + i.price * i.quantity, 0);
+      return {
+        customer_id: 'x',
+        service_type: g.service_type || 'food',
+        restaurant_id: g.vendor_id,
+        items: g.items.map((i) => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
+        subtotal,
+        delivery_fee: Number(g.delivery_fee) || 0,
+        tip: 0,
+        total: subtotal + (Number(g.delivery_fee) || 0),
+        pickup_address: { location: g.vendor_name || 'Store', full_address: g.address || '' },
+        delivery_address: { location: addr, full_address: addr },
+        customer_phone: phone || '',
+        payment_method: 'pending',
+        notes: '',
+        cart_group_id: groupId,
+      };
+    };
+
+    // Offline / rural T&T: queue every order locally and let OfflineSyncManager
+    // send them the moment connectivity returns.
+    if (!navigator.onLine) {
+      enqueueOrders(vendors.map(buildPayload));
+      clear();
+      setPlacing(false);
+      navigate('/dashboard?offline_saved=1');
+      return;
+    }
+
     try {
       const createdIds = [];
       for (const g of vendors) {
-        const subtotal = g.items.reduce((s, i) => s + i.price * i.quantity, 0);
-        const order = await createOrder({
-          customer_id: 'x',
-          service_type: g.service_type || 'food',
-          restaurant_id: g.vendor_id,
-          items: g.items.map((i) => ({ menu_item_id: String(i.id), name: i.name, quantity: i.quantity, price: i.price })),
-          subtotal,
-          delivery_fee: Number(g.delivery_fee) || 0,
-          tip: 0,
-          total: subtotal + (Number(g.delivery_fee) || 0),
-          pickup_address: { location: g.vendor_name || 'Store', full_address: g.address || '' },
-          delivery_address: { location: addr, full_address: addr },
-          customer_phone: phone || '',
-          payment_method: 'pending',
-          notes: '',
-          cart_group_id: groupId,
-        });
+        const order = await createOrder(buildPayload(g));
         createdIds.push(order.id);
       }
       navigate('/checkout-group', { state: { orderIds: createdIds } });
     } catch (err) {
+      if (isNetworkError(err)) {
+        // Connection dropped mid-checkout — save the whole basket for auto-sync.
+        enqueueOrders(vendors.map(buildPayload));
+        clear();
+        setPlacing(false);
+        navigate('/dashboard?offline_saved=1');
+        return;
+      }
       setError(err.response?.data?.detail || 'Could not create your orders. Please try again.');
       setPlacing(false);
     }
