@@ -1993,6 +1993,187 @@ async def admin_repair_storefront(payload: MerchantRepairRequest, request: Reque
     }
 
 
+# ============================================================
+# Account Repair — heal driver + customer + merchant accounts
+# ============================================================
+_BLOCKED_ACCOUNT_STATES = {"paused", "restricted", "suspended", "banned"}
+
+
+async def _account_health_entry(user: dict) -> dict:
+    """Build a health report for a user account (driver/customer/merchant)."""
+    uid = user.get("id")
+    utype = user.get("user_type") or "customer"
+    acct_status = (user.get("status") or "active").lower()
+    issues = []
+    repairable = False
+
+    driver = await db.drivers.find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+    driver_info = None
+    if driver:
+        d_status = (driver.get("status") or "").lower()
+        role_ok = utype in ("driver", "admin", "agent") or user.get("is_owner")
+        approved = d_status not in ("pending", "pending_approval", "rejected", "")
+        driver_info = {"id": driver.get("id"), "status": driver.get("status"),
+                       "role_promoted": bool(role_ok)}
+        if approved and not role_ok:
+            issues.append("Driver is approved but the account role was never promoted — no Driver panel.")
+            repairable = True
+        elif d_status in ("pending", "pending_approval"):
+            issues.append("Driver application is still pending — approve it in Approvals first.")
+
+    merchant = None
+    for coll, mtype in (("restaurants", "restaurant"), ("businesses", "business"),
+                        ("car_rental_companies", "car_rental")):
+        d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+        if d:
+            m_status = (d.get("status") or "").lower()
+            merchant = {"collection": coll, "id": d.get("id"), "type": mtype, "status": d.get("status")}
+            role_ok = utype in ("restaurant", "business", "admin", "agent") or user.get("is_owner")
+            if m_status != "active" or not role_ok:
+                issues.append("Merchant record isn't active / role not promoted.")
+                repairable = True
+            break
+
+    if acct_status in _BLOCKED_ACCOUNT_STATES:
+        issues.append(f"Account is {acct_status} — the user is blocked from logging in.")
+        repairable = True
+
+    return {
+        "kind": "account",
+        "user_id": uid,
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "user_type": utype,
+        "is_owner": bool(user.get("is_owner")),
+        "account_status": acct_status,
+        "driver": driver_info,
+        "merchant": merchant,
+        "issues": issues,
+        "healthy": not issues,
+        "repairable": repairable,
+    }
+
+
+@api_router.get("/admin/accounts/lookup")
+async def admin_lookup_accounts(q: str, request: Request):
+    """Admin: search ANY account (driver/customer/merchant) by name or email and report
+    health (role promoted? driver/merchant record active? account blocked?). Powers the
+    'Repair account' tool alongside the storefront repair."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Enter at least 2 characters to search")
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    out = []
+    seen = set()
+    async for u in db.users.find({"$or": [{"name": rx}, {"email": rx}]}, {"_id": 0}).limit(25):
+        if u.get("id") in seen:
+            continue
+        seen.add(u.get("id"))
+        out.append(await _account_health_entry(u))
+    # Also surface drivers whose record matches by name but whose user link may be broken.
+    async for d in db.drivers.find(
+        {"$or": [{"personal_info.name": rx}, {"personal_info.email": rx}]}, {"_id": 0}
+    ).limit(15):
+        uid = d.get("user_id")
+        if uid and uid in seen:
+            continue
+        if uid:
+            u = await db.users.find_one({"id": uid}, {"_id": 0})
+            if u:
+                seen.add(uid)
+                out.append(await _account_health_entry(u))
+                continue
+        # Unlinked driver record (no account) — report so admin can relink.
+        pi = d.get("personal_info") or {}
+        out.append({
+            "kind": "unlinked_driver", "user_id": None, "driver_id": d.get("id"),
+            "name": pi.get("name"), "email": pi.get("email"),
+            "driver": {"id": d.get("id"), "status": d.get("status"), "role_promoted": False},
+            "issues": ["Driver record has no linked user account — the applicant must register/log in "
+                       "with the application email, then repair by user."],
+            "healthy": False, "repairable": False,
+        })
+    return {"count": len(out), "results": out}
+
+
+class AccountRepairRequest(BaseModel):
+    user_id: Optional[str] = None
+    driver_id: Optional[str] = None
+
+
+@api_router.post("/admin/accounts/repair")
+async def admin_repair_account(payload: AccountRepairRequest, request: Request):
+    """Admin: heal a driver, customer or merchant account — promote the account role for an
+    approved driver/merchant, activate a stuck driver record, and unblock a paused/restricted
+    account. Idempotent. Provide user_id (preferred) or driver_id."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    uid = payload.user_id
+    if not uid and payload.driver_id:
+        d = await db.drivers.find_one({"id": payload.driver_id}, {"_id": 0, "user_id": 1})
+        if not d:
+            raise HTTPException(status_code=404, detail="Driver record not found")
+        uid = d.get("user_id")
+        if not uid:
+            raise HTTPException(status_code=400, detail="This driver record has no linked user account. "
+                               "Ask the applicant to register/log in with their application email, then repair by user.")
+    if not uid:
+        raise HTTPException(status_code=400, detail="Provide user_id or driver_id")
+
+    user = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    actions = []
+
+    # 1) Unblock a paused/restricted/suspended account.
+    if (user.get("status") or "active").lower() in _BLOCKED_ACCOUNT_STATES:
+        await db.users.update_one({"id": uid}, {"$set": {"status": "active"}})
+        actions.append("re-activated the blocked account")
+
+    # 2) Driver repair — activate an approved/stuck driver record + promote role + ensure wallet.
+    driver = await db.drivers.find_one({"user_id": uid}, {"_id": 0})
+    if driver:
+        d_status = (driver.get("status") or "").lower()
+        if d_status == "rejected":
+            actions.append("driver was previously REJECTED — not auto-activating (re-review in Approvals)")
+        else:
+            if d_status in ("", "pending", "pending_approval"):
+                await db.drivers.update_one({"id": driver["id"]},
+                                            {"$set": {"status": "active", "approval_method": "admin_repair"}})
+                actions.append("activated the driver record")
+            if await promote_user_role(uid, "driver"):
+                actions.append("promoted account role to driver")
+            if not await db.driver_wallets.find_one({"driver_id": driver["id"]}, {"_id": 1}):
+                await db.driver_wallets.insert_one(DriverWallet(driver_id=driver["id"]).dict())
+                actions.append("created the missing driver wallet")
+
+    # 3) Merchant repair — activate vendor record + promote role.
+    for coll, role in (("restaurants", "restaurant"), ("businesses", "business"),
+                       ("car_rental_companies", "business")):
+        d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+        if d:
+            if (d.get("status") or "").lower() != "active":
+                await db[coll].update_one({"id": d["id"]}, {"$set": {"status": "active"}})
+                actions.append(f"activated the {coll[:-1]} record")
+            if await promote_user_role(uid, role):
+                actions.append(f"promoted account role to {role}")
+            break
+
+    refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
+    return {
+        "success": True,
+        "actions": actions or ["no changes needed — account already healthy"],
+        "account": await _account_health_entry(refreshed),
+    }
+
+
+
 
 
 class AdminUserMessage(BaseModel):
@@ -4702,6 +4883,35 @@ async def backfill_approved_merchants():
         logging.info(f"✅ backfill_approved_merchants: provisioned {healed} approved merchant(s)")
 
 
+async def backfill_approved_drivers():
+    """Idempotent self-heal: drivers approved under an older build may have an ACTIVE driver
+    record but an un-promoted `customer` account role — so the Driver panel/dashboard is
+    blocked and they can't go online. Promote the account role for every active/approved
+    driver that has a linked user_id. SECURE: only drivers with a real user_id are touched."""
+    healed = 0
+    cursor = db.drivers.find(
+        {"status": {"$in": ["active", "approved", "online", "busy", "offline"]},
+         "user_id": {"$nin": [None, ""]}},
+        {"_id": 0, "user_id": 1, "status": 1},
+    )
+    async for drv in cursor:
+        uid = drv.get("user_id")
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "is_owner": 1})
+        if not u:
+            continue
+        # Skip privileged accounts (owner/admin/agent) and already-promoted drivers.
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent", "driver"):
+            continue
+        try:
+            if await promote_user_role(uid, "driver"):
+                healed += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"backfill_approved_drivers: failed for user {uid}: {exc}")
+    if healed:
+        logging.info(f"✅ backfill_approved_drivers: promoted {healed} approved driver(s)")
+
+
+
 
 async def seed_owner_admin():
     """Idempotently create the owner/super-admin from env. Never demotes an
@@ -5878,19 +6088,43 @@ async def _maybe_auto_dispatch(order: dict):
 
 
 
+async def _ensure_dispatch(order_id: str):
+    """Best-effort: offer an order to drivers if it has no driver yet. Idempotent, never raises.
+    This is the single entry point used across taxi booking + delivery payment paths so a
+    committed order always reaches available drivers."""
+    try:
+        order = await db.orders.find_one({"id": order_id})
+        if not order:
+            return
+        if order.get("driver_id") or order.get("drivers_notified"):
+            return  # already assigned or already offered
+        if order.get("status") in ("cancelled", "delivered", "refunded"):
+            return
+        if not _addr_coords(order.get("pickup_address")):
+            logging.info(f"_ensure_dispatch: order {order_id} has no pickup coordinates; cannot offer to drivers")
+            return
+        await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_ensure_dispatch failed for {order_id}: {exc}")
+
+
 async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: int = 10000) -> List[dict]:
-    """Find online drivers within radius. Falls back to any online driver if none nearby."""
-    nearby = await db.drivers.find({
-        "status": "online",
-        "current_location": {
-            "$near": {
-                "$geometry": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
-                "$maxDistance": radius_m,
-            }
-        },
-    }).to_list(length=100)
-    if nearby:
-        return nearby
+    """Find online drivers within radius. Falls back to any online driver if none nearby
+    (or if the geo query can't run because locations aren't stored as GeoJSON)."""
+    try:
+        nearby = await db.drivers.find({
+            "status": "online",
+            "current_location": {
+                "$near": {
+                    "$geometry": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
+                    "$maxDistance": radius_m,
+                }
+            },
+        }).to_list(length=100)
+        if nearby:
+            return nearby
+    except Exception as exc:  # noqa: BLE001 — no 2dsphere match / legacy {lat,lng} points
+        logging.info(f"_find_nearby_drivers geo query fell back to all-online: {exc}")
     return await db.drivers.find({"status": "online"}).limit(100).to_list(length=100)
 
 
@@ -6041,54 +6275,67 @@ async def find_and_assign_driver(order_id: str):
     )
     return {"success": True, "drivers_notified": len(notified), "drivers": notified, "phase": "open"}
 
+class DriverAcceptRequest(BaseModel):
+    driver_id: str
+
+
 @api_router.post("/orders/{order_id}/accept-driver")
-async def driver_accept_order(order_id: str, driver_id: str):
-    """Driver accepts an order assignment"""
+async def driver_accept_order(order_id: str, payload: DriverAcceptRequest, request: Request):
+    """Driver accepts an order assignment. Atomic — only the first driver wins."""
+    current_user = await get_current_user_from_request(request)
+    driver_id = payload.driver_id
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    if current_user.user_type not in ("admin", "agent") and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only accept orders for your own driver account")
+
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
     if order.get("driver_id"):
         raise HTTPException(status_code=400, detail="Order already has a driver")
-    
-    # Assign driver
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "driver_id": driver_id,
-            "driver_assigned_at": datetime.now(timezone.utc).isoformat(),
-            "status": "confirmed"
-        }}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_fields = {"driver_id": driver_id, "driver_assigned_at": now_iso, "updated_at": now_iso}
+    # Don't downgrade a delivery the merchant has already progressed; only advance a fresh order.
+    if (order.get("status") or "pending") == "pending":
+        set_fields["status"] = "confirmed"
+
+    # Atomic claim: only assign if still driver-less (prevents two drivers grabbing one order).
+    res = await db.orders.update_one(
+        {"id": order_id, "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}]},
+        {"$set": set_fields},
     )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Order already has a driver")
 
     # Finalize delivery-fee split based on this driver's subscription (10% vs 20%)
     driver_doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
     await _finalize_driver_split(order_id, driver_doc or {})
-    
+
     # Update driver status
-    await db.drivers.update_one(
-        {"id": driver_id},
-        {"$set": {"status": "busy"}}
-    )
-    
+    await db.drivers.update_one({"id": driver_id}, {"$set": {"status": "busy"}})
+
     # Notify customer
     await manager.send_personal_message(
-        json.dumps({
-            "type": "driver_assigned",
-            "order_id": order_id,
-            "driver_id": driver_id
-        }),
-        order["customer_id"]
+        json.dumps({"type": "driver_assigned", "order_id": order_id, "driver_id": driver_id}),
+        order["customer_id"],
     )
-    
     return {"success": True, "message": "Order accepted"}
 
+
 @api_router.post("/orders/{order_id}/reject-driver")
-async def driver_reject_order(order_id: str, driver_id: str):
-    """Driver rejects an order assignment"""
-    # Continue searching for next driver
-    # In production, implement timeout and move to next driver automatically
-    return {"success": True, "message": "Order rejected, searching for another driver"}
+async def driver_reject_order(order_id: str, payload: DriverAcceptRequest, request: Request):
+    """Driver declines an order offer — remove them from the notified list so they aren't
+    re-offered, and keep the order open for other drivers."""
+    current_user = await get_current_user_from_request(request)
+    driver_id = payload.driver_id
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and current_user.user_type not in ("admin", "agent") and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    await db.orders.update_one({"id": order_id}, {"$pull": {"drivers_notified": driver_id}})
+    return {"success": True, "message": "Order declined, searching for another driver"}
 
 # Rating & Review Routes
 async def _award_five_star_bonus(rating: Rating) -> None:
@@ -8286,6 +8533,7 @@ async def get_checkout_status(session_id: str):
                     {"id": oid, "payment_status": {"$ne": "paid"}},
                     {"$set": {"payment_status": "paid", "paid_at": paid_at}},
                 )
+                asyncio.create_task(_ensure_dispatch(oid))
             try:
                 customer_id = txn.get("user_id")
                 if customer_id:
@@ -8315,6 +8563,7 @@ async def get_checkout_status(session_id: str):
                 {"id": order_id, "payment_status": {"$ne": "paid"}},
                 {"$set": order_set},
             )
+            asyncio.create_task(_ensure_dispatch(order_id))
             # Record the instant split for the merchant payouts screen.
             if meta.get("payout_method") == "destination":
                 try:
@@ -8535,6 +8784,7 @@ async def _settle_paypal_order(order_id: str, capture: dict, current_user_id: Op
             {"id": rec["linked_order_id"], "payment_status": {"$ne": "paid"}},
             {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
         )
+        asyncio.create_task(_ensure_dispatch(rec["linked_order_id"]))
     return {"success": True, "purpose": rec.get("purpose"), "amount": amount, "currency": currency}
 
 
@@ -11342,6 +11592,11 @@ async def initialize_data():
         await backfill_approved_merchants()
     except Exception as e:
         print(f"⚠️ Could not backfill approved merchants: {e}")
+
+    try:
+        await backfill_approved_drivers()
+    except Exception as e:
+        print(f"⚠️ Could not backfill approved drivers: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)

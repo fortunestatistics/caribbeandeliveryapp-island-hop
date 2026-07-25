@@ -465,5 +465,12 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
     txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="order_payment",
                             amount=amount, currency="USD", status="completed",
                             order_id=payload.order_id, note="Paid order from wallet")
+    # Offer the now-paid order to available drivers (best-effort).
+    try:
+        import asyncio
+        from server import _ensure_dispatch
+        asyncio.create_task(_ensure_dispatch(payload.order_id))
+    except Exception:  # noqa: BLE001
+        pass
     return {"success": True, "transaction": txn.dict(),
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}
