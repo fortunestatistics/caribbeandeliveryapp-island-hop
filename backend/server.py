@@ -5372,7 +5372,7 @@ async def get_driver_order_requests(request: Request):
         "drivers_notified": driver["id"],
         "driver_id": None,
         "status": "pending"
-    }).to_list(length=None)
+    }, {"_id": 0}).limit(50).to_list(length=50)
     
     return orders
 
@@ -5387,8 +5387,8 @@ async def get_driver_active_orders(request: Request):
     # Get orders assigned to driver that are not yet delivered
     orders = await db.orders.find({
         "driver_id": driver["id"],
-        "status": {"$in": ["ready", "picked_up", "in_transit"]}
-    }).sort("created_at", 1).to_list(length=None)
+        "status": {"$in": ["assigned", "confirmed", "preparing", "ready", "picked_up", "in_transit"]}
+    }, {"_id": 0}).sort("created_at", 1).limit(100).to_list(length=100)
     
     return orders
 
