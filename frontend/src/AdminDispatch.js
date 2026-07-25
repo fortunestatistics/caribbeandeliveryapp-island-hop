@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { GoogleMap, LoadScript, Marker } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -8,6 +9,64 @@ import { Radar, Truck, Package, Zap, Loader2, ArrowLeft, MapPin, Star, AlertTria
 import { Switch } from './components/ui/switch';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const GMAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+
+const pin = (color, glyph) =>
+  'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
+      <path d="M16 0C7.2 0 0 7.2 0 16c0 11 16 26 16 26s16-15 16-26C32 7.2 24.8 0 16 0z" fill="${color}"/>
+      <circle cx="16" cy="16" r="9" fill="#fff"/>
+      <text x="16" y="21" font-size="12" text-anchor="middle">${glyph}</text>
+    </svg>`);
+
+// Live courier map — online drivers (teal 🚗) + unassigned drops (orange 📦),
+// re-plotted on every board refresh so drivers appear to move in real time.
+const DispatchMap = ({ board }) => {
+  if (!GMAPS_KEY) return null;
+  const drivers = (board?.online_drivers || []).filter((d) => d.current_location?.lat != null);
+  const orders = (board?.unassigned_orders || []).filter((o) => (o.delivery_address?.latitude ?? o.delivery_address?.lat) != null);
+  const pts = [
+    ...drivers.map((d) => ({ lat: d.current_location.lat, lng: d.current_location.lng })),
+    ...orders.map((o) => ({ lat: o.delivery_address.latitude ?? o.delivery_address.lat, lng: o.delivery_address.longitude ?? o.delivery_address.lng })),
+  ];
+  const center = pts.length
+    ? { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length }
+    : { lat: 10.6918, lng: -61.2225 }; // Trinidad
+  return (
+    <Card className="mb-6" data-testid="dispatch-live-map-card">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <MapPin className="h-5 w-5" style={{ color: '#0FA3A3' }} /> Live map
+          <span className="text-xs font-normal text-muted-foreground ml-1">· {drivers.length} driver{drivers.length === 1 ? '' : 's'} online</span>
+          <span className="ml-auto flex items-center gap-1 text-xs text-green-600"><span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" /> live</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-lg overflow-hidden border border-border" data-testid="dispatch-live-map">
+          <LoadScript googleMapsApiKey={GMAPS_KEY}>
+            <GoogleMap
+              mapContainerStyle={{ width: '100%', height: '340px' }}
+              center={center}
+              zoom={11}
+              options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+            >
+              {window.google && drivers.map((d) => (
+                <Marker key={`d-${d.id}`} position={{ lat: d.current_location.lat, lng: d.current_location.lng }}
+                  icon={{ url: pin('#0FA3A3', '🚗'), scaledSize: new window.google.maps.Size(32, 42) }}
+                  title={`${d.name || 'Driver'} · ⭐ ${Number(d.rating || 0).toFixed(1)}`} />
+              ))}
+              {window.google && orders.map((o) => (
+                <Marker key={`o-${o.id}`} position={{ lat: o.delivery_address.latitude ?? o.delivery_address.lat, lng: o.delivery_address.longitude ?? o.delivery_address.lng }}
+                  icon={{ url: pin('#F47B27', '📦'), scaledSize: new window.google.maps.Size(28, 37) }}
+                  title={`Unassigned #${String(o.id).substring(0, 8)} · ${o.service_type}`} />
+              ))}
+            </GoogleMap>
+          </LoadScript>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
 const AdminDispatch = () => {
   const navigate = useNavigate();
@@ -33,7 +92,7 @@ const AdminDispatch = () => {
     load();
     axios.get(`${API}/admin/dispatch/settings`, { withCredentials: true })
       .then((r) => setAutoRun(!!r.data?.auto_run)).catch(() => {});
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -110,6 +169,8 @@ const AdminDispatch = () => {
             </div>
           </CardContent>
         </Card>
+
+        <DispatchMap board={board} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Unassigned orders */}
