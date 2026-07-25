@@ -2048,12 +2048,24 @@ async def _account_health_entry(user: dict) -> dict:
         d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
         if d:
             m_status = (d.get("status") or "").lower()
-            merchant = {"collection": coll, "id": d.get("id"), "type": mtype, "status": d.get("status")}
+            merchant = {"collection": coll, "id": d.get("id"), "type": mtype,
+                        "status": d.get("status"), "storefront_url": f"/restaurant/{d.get('id')}"}
             role_ok = utype in ("restaurant", "business", "admin", "agent") or user.get("is_owner")
             if m_status != "active" or not role_ok:
                 issues.append("Merchant record isn't active / role not promoted.")
                 repairable = True
             break
+
+    # Approved merchant application but NO vendor record yet → needs provisioning.
+    if not merchant:
+        app = await db.business_applications.find_one(
+            {"user_id": uid, "verification_status": {"$in": ["verified", "approved"]}},
+            {"_id": 0, "id": 1},
+        )
+        if app:
+            issues.append("Approved merchant application but no vendor record yet — needs provisioning.")
+            repairable = True
+            merchant = {"application_id": app.get("id"), "unprovisioned": True}
 
     if acct_status in _BLOCKED_ACCOUNT_STATES:
         issues.append(f"Account is {acct_status} — the user is blocked from logging in.")
@@ -2117,22 +2129,102 @@ async def admin_lookup_accounts(q: str, request: Request):
                        "with the application email, then repair by user."],
             "healthy": False, "repairable": False,
         })
+    # Approved merchant applications (incl. website leads with no account yet).
+    async for app in db.business_applications.find(
+        {"verification_status": {"$in": ["verified", "approved"]},
+         "$or": [{"business_name": rx}, {"email": rx},
+                 {"business_details.business_name": rx}, {"business_owner.email": rx},
+                 {"business_owner.name": rx}]},
+        {"_id": 0},
+    ).limit(15):
+        uid = app.get("user_id")
+        if uid and uid in seen:
+            continue  # already reported via the user account (health entry flags provisioning)
+        details = app.get("business_details") or {}
+        owner = app.get("business_owner") or {}
+        name = app.get("business_name") or details.get("business_name") or owner.get("name")
+        email = (app.get("email") or owner.get("email") or "").strip().lower()
+        # Is it already provisioned for a linked account?
+        provisioned = False
+        if uid:
+            provisioned = bool(await db.restaurants.find_one({"user_id": uid}, {"_id": 1})
+                               or await db.businesses.find_one({"user_id": uid}, {"_id": 1}))
+        if provisioned:
+            continue
+        has_account = bool(uid) or bool(email and await db.users.find_one({"email": email}, {"_id": 1}))
+        issues = ["Approved merchant application but no vendor record yet — needs provisioning."]
+        if not has_account:
+            issues.append(f"No user account found for {email or 'this application'} — the merchant must "
+                          "sign up first, or provide their signup email below to link + provision.")
+        out.append({
+            "kind": "merchant_application",
+            "user_id": uid,
+            "application_id": app.get("id"),
+            "name": name,
+            "email": email,
+            "has_account": has_account,
+            "issues": issues,
+            "healthy": False,
+            "repairable": True,
+        })
     return {"count": len(out), "results": out}
 
 
 class AccountRepairRequest(BaseModel):
     user_id: Optional[str] = None
     driver_id: Optional[str] = None
+    application_id: Optional[str] = None  # provision an approved merchant application
+    email: Optional[str] = None           # link an unlinked application to this signup email
 
 
 @api_router.post("/admin/accounts/repair")
 async def admin_repair_account(payload: AccountRepairRequest, request: Request):
     """Admin: heal a driver, customer or merchant account — promote the account role for an
-    approved driver/merchant, activate a stuck driver record, and unblock a paused/restricted
-    account. Idempotent. Provide user_id (preferred) or driver_id."""
+    approved driver/merchant, activate a stuck driver record, provision an approved merchant
+    application (optionally linking it to a signup email), and unblock a blocked account.
+    Idempotent. Provide user_id (preferred), driver_id, or application_id."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+
+    # --- Merchant application provisioning (approved but no vendor record) ---
+    if payload.application_id:
+        from routers.admin_records import _provision_merchant_vendor
+        app_doc = await db.business_applications.find_one({"id": payload.application_id}, {"_id": 0})
+        if not app_doc:
+            raise HTTPException(status_code=404, detail="Merchant application not found")
+        if app_doc.get("verification_status") not in ("verified", "approved"):
+            raise HTTPException(status_code=400, detail="Approve the application first, then provision it.")
+        override_email = (payload.email or "").strip().lower()
+        if not app_doc.get("user_id") and override_email:
+            acct = await db.users.find_one({"email": override_email}, {"_id": 0, "id": 1})
+            if not acct:
+                raise HTTPException(status_code=404, detail=f"No user account found for {override_email}. "
+                                   "Ask the merchant to sign up with that email first, then provision.")
+            app_doc["user_id"] = acct["id"]
+            await db.business_applications.update_one(
+                {"id": payload.application_id}, {"$set": {"user_id": acct["id"], "email": override_email}})
+        if not app_doc.get("user_id"):
+            raise HTTPException(status_code=409, detail="This approved application has no linked account. "
+                               "Enter the merchant's signup email to link + provision it.")
+        await _provision_merchant_vendor(app_doc)
+        uid = app_doc["user_id"]
+        r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        vid = (r or b or {}).get("id")
+        if not vid:
+            raise HTTPException(status_code=500, detail="Linked the account but provisioning did not create a vendor record.")
+        refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
+        actions = ["provisioned the vendor record + promoted the merchant role"]
+        await _log_repair(current_user, kind="account",
+                          target={"user_id": uid, "email": refreshed.get("email"),
+                                  "application_id": payload.application_id},
+                          actions=actions)
+        return {
+            "success": True, "actions": actions,
+            "storefront_url": f"/restaurant/{vid}",
+            "account": await _account_health_entry(refreshed),
+        }
 
     uid = payload.user_id
     if not uid and payload.driver_id:
@@ -2193,10 +2285,12 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
                           target={"user_id": uid, "email": refreshed.get("email"),
                                   "name": refreshed.get("name")},
                           actions=final_actions)
+    health = await _account_health_entry(refreshed)
     return {
         "success": True,
         "actions": final_actions,
-        "account": await _account_health_entry(refreshed),
+        "storefront_url": (health.get("merchant") or {}).get("storefront_url"),
+        "account": health,
     }
 
 

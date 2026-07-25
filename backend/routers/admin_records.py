@@ -493,14 +493,30 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
         raise HTTPException(status_code=403, detail="Admin access required")
     result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
     app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    provisioned, storefront_url, provision_hint = False, None, None
     if app_doc:
         await _provision_merchant_vendor(app_doc)
+        refreshed = await db.business_applications.find_one({"id": application_id}, {"_id": 0, "user_id": 1})
+        uid = (refreshed or {}).get("user_id")
+        if uid:
+            r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            vid = (r or b or {}).get("id")
+            if vid:
+                provisioned, storefront_url = True, f"/restaurant/{vid}"
+        if not provisioned:
+            provision_hint = ("Approved, but no vendor record was created — this application isn't linked to a "
+                              "user account. Use Admin → Approvals → Repair account with the merchant's signup "
+                              "email to finish setup.")
     await _notify_merchant_status(application_id, "verified", payload.notes)
     if app_doc and app_doc.get("user_id"):
         btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
         rtype = "supplier" if "supplier" in btype else "merchant"
         await _award_promo_reward(app_doc["user_id"], rtype, "business_approved", require_first_order=True)
         await _release_held_promo_rewards(app_doc["user_id"])
+    if isinstance(result, dict):
+        result.update({"provisioned": provisioned, "storefront_url": storefront_url,
+                       "provision_hint": provision_hint})
     return result
 
 

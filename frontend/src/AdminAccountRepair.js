@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
-import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History } from 'lucide-react';
+import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -42,11 +42,27 @@ const AdminAccountRepair = () => {
   };
 
   const repair = async (row, key) => {
+    let body;
+    if (row.kind === 'merchant_application') {
+      body = { application_id: row.application_id };
+      if (!row.has_account) {
+        const email = window.prompt(
+          `This approved application ("${row.name || 'merchant'}") isn't linked to any account yet.\n\nEnter the merchant's signup email to link + provision it:`,
+          row.email || '');
+        if (!email) return;
+        body.email = email.trim();
+      }
+    } else {
+      body = row.user_id ? { user_id: row.user_id } : { driver_id: row.driver_id };
+    }
     setBusyKey(key);
     try {
-      const body = row.user_id ? { user_id: row.user_id } : { driver_id: row.driver_id };
       const r = await axios.post(`${API}/admin/accounts/repair`, body, { headers: authHeaders() });
-      toast.success(`Repaired: ${(r.data.actions || []).join('; ')}`);
+      const url = r.data.storefront_url;
+      toast.success(`Repaired: ${(r.data.actions || []).join('; ')}`, url ? {
+        action: { label: 'Open storefront', onClick: () => window.open(url, '_blank', 'noopener') },
+        duration: 10000,
+      } : undefined);
       await search();
       loadAudit();
     } catch (e) {
@@ -73,10 +89,13 @@ const AdminAccountRepair = () => {
 
   const roleBadge = (row) => {
     if (row.kind === 'unlinked_driver') return 'unlinked driver';
+    if (row.kind === 'merchant_application') return 'merchant application';
     if (row.driver) return `driver (${row.driver.status || '—'})`;
-    if (row.merchant) return `${row.merchant.type} (${row.merchant.status || '—'})`;
+    if (row.merchant) return `${row.merchant.type || 'merchant'} (${row.merchant.status || 'unprovisioned'})`;
     return row.user_type || 'customer';
   };
+
+  const storefrontUrl = (row) => (row.merchant && row.merchant.storefront_url) || null;
 
   return (
     <Card className="border-neon-cyan/40 bg-neon-cyan/5" data-testid="account-repair-tool">
@@ -152,7 +171,17 @@ const AdminAccountRepair = () => {
                     {row.repairable && (
                       <Button size="sm" onClick={() => repair(row, key)} disabled={busyKey === key} data-testid={`account-repair-btn-${i}`}>
                         {busyKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <LifeBuoy className="h-4 w-4 mr-1" />}
-                        Repair
+                        {row.kind === 'merchant_application' ? 'Provision' : 'Repair'}
+                      </Button>
+                    )}
+                    {storefrontUrl(row) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => window.open(storefrontUrl(row), '_blank', 'noopener')}
+                        data-testid={`account-repair-open-${i}`}
+                      >
+                        <ExternalLink className="h-4 w-4 mr-1" />Open profile
                       </Button>
                     )}
                   </div>
