@@ -151,6 +151,7 @@ const MultiCheckoutPage = lazy(() => import('./MultiCart').then((m) => ({ defaul
 const TechnologyPage = lazy(() => import('./TechnologyPage'));
 const AdminDispatch = lazy(() => import('./AdminDispatch'));
 import OfflineSyncManager from './OfflineSync';
+import OrderNotifier from './OrderNotifier';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -2130,6 +2131,7 @@ function App() {
           <Footer />
           <Toaster />
           <OfflineSyncManager />
+          <OrderNotifier />
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>

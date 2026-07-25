@@ -338,6 +338,17 @@ const RestaurantMenu = () => {
                   <Badge className="bg-gold-500/15 text-gold-700">{restaurant.cuisine}</Badge>
                   <Badge variant="outline">Delivery {format(restaurant.deliveryFee)}</Badge>
                   <Badge variant="outline">Min {format(restaurant.minOrder)}</Badge>
+                  {sf.open_status?.enabled && (
+                    sf.open_status.is_open ? (
+                      <Badge className="bg-green-100 text-green-800" data-testid="storefront-open-badge">
+                        ● Open now{sf.open_status.hours_today ? ` · closes ${sf.open_status.hours_today.close}` : ''}
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-100 text-red-800" data-testid="storefront-closed-badge">
+                        ● Closed
+                      </Badge>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -347,6 +358,20 @@ const RestaurantMenu = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Menu Section */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Closed banner — store isn't accepting orders right now */}
+            {sf.open_status?.enabled && !sf.open_status?.is_open && (
+              <Card className="border-red-300 bg-red-50" data-testid="storefront-closed-banner">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <Clock className="h-5 w-5 text-red-600 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-red-800">This store is currently closed</h3>
+                    <p className="text-sm text-red-700">
+                      You can browse the menu, but orders can only be placed during opening hours.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             {/* Business-type CTA banner (pharmacy Rx upload, grocery/fleet messaging) */}
             {vendorCfg.heroCta && (
               <Card className="border-gold-500/40 bg-gradient-to-r from-gold-500/10 to-neon-cyan/5" data-testid="storefront-type-cta">

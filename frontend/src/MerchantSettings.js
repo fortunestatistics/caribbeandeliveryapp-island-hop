@@ -8,6 +8,7 @@ import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import { useToast } from './hooks/use-toast';
 import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarSign } from 'lucide-react';
+import StoreHoursCard from './StoreHoursCard';
 import { BankAccountSection } from './BankAccountSection';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -23,6 +24,7 @@ export default function MerchantSettings() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
+  const [savingHours, setSavingHours] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
 
   const [account, setAccount] = useState({ name: '', phone: '' });
@@ -46,6 +48,7 @@ export default function MerchantSettings() {
             delivery_fee: prof.data.delivery_fee ?? '', minimum_order: prof.data.minimum_order ?? '',
             collection: prof.data.collection,
             banking_info: prof.data.banking_info || {},
+            business_hours: prof.data.business_hours || null,
           });
         }
       } catch (e) {
@@ -115,6 +118,17 @@ export default function MerchantSettings() {
     } catch (e) {
       toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
     } finally { setSavingBank(false); }
+  };
+
+  const saveHours = async (hours) => {
+    setSavingHours(true);
+    try {
+      const { data } = await axios.put(`${API}/merchant/profile`, { business_hours: hours }, authCfg());
+      toast({ title: 'Store hours saved', description: hours.enabled ? 'Customers can only order during your open hours.' : 'Hours saved (enforcement is off).' });
+      setProfile((p) => ({ ...p, business_hours: data.profile?.business_hours || hours }));
+    } catch (e) {
+      toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
+    } finally { setSavingHours(false); }
   };
 
   if (loading) {
@@ -228,6 +242,11 @@ export default function MerchantSettings() {
           </Card>
         ) : (
           <Card className="mb-6"><CardContent className="p-6 text-sm text-muted-foreground">No merchant business profile found for this account.</CardContent></Card>
+        )}
+
+        {/* Store hours */}
+        {profile && (
+          <StoreHoursCard value={profile.business_hours} onSave={saveHours} saving={savingHours} />
         )}
 
         {/* Banking & payouts */}

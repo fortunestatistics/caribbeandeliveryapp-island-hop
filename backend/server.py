@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 import json
@@ -2839,6 +2840,63 @@ async def taxi_quote(payload: TaxiQuoteRequest):
     return taxi_pricing.compute_fare(distance_km, duration_min, payload.vehicle_type)
 
 
+# ============================================================
+# Store opening hours (Live Store Hours)
+# ============================================================
+_STORE_TZ = ZoneInfo("America/Port_of_Spain")  # AST, UTC-4, no DST
+_DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _hm_to_min(t: Optional[str]) -> Optional[int]:
+    try:
+        hh, mm = str(t).split(":")
+        return int(hh) * 60 + int(mm)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _compute_open_status(business_hours: Optional[dict]) -> dict:
+    """Given a vendor's business_hours dict, return {enabled, is_open, today, hours_today}.
+
+    When hours aren't enabled/configured, is_open defaults True (ordering not gated)."""
+    bh = business_hours or {}
+    if not bh.get("enabled"):
+        return {"enabled": False, "is_open": True}
+    now = datetime.now(_STORE_TZ)
+    key = _DAY_KEYS[now.weekday()]
+    day = (bh.get("days") or {}).get(key) or {}
+    if day.get("closed"):
+        return {"enabled": True, "is_open": False, "today": key, "hours_today": None}
+    o, c = day.get("open"), day.get("close")
+    om, cm = _hm_to_min(o), _hm_to_min(c)
+    if om is None or cm is None:
+        return {"enabled": True, "is_open": True, "today": key}
+    cur = now.hour * 60 + now.minute
+    is_open = (cur >= om or cur < cm) if cm <= om else (om <= cur < cm)
+    return {"enabled": True, "is_open": is_open, "today": key, "hours_today": {"open": o, "close": c}}
+
+
+async def _vendor_business_hours(vendor_id: str) -> Optional[dict]:
+    """Fetch a merchant vendor's business_hours from restaurants or businesses."""
+    if not vendor_id:
+        return None
+    r = await db.restaurants.find_one({"id": vendor_id}, {"_id": 0, "business_hours": 1})
+    if r:
+        return r.get("business_hours")
+    b = await db.businesses.find_one({"id": vendor_id}, {"_id": 0, "business_hours": 1})
+    if b:
+        return b.get("business_hours")
+    return None
+
+
+@api_router.get("/vendors/{vendor_id}/hours")
+async def get_vendor_hours(vendor_id: str):
+    """Public: a merchant's opening hours + current open/closed status."""
+    bh = await _vendor_business_hours(vendor_id)
+    return {"business_hours": bh or None, "open_status": _compute_open_status(bh)}
+
+
+
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
     """Create new order with automatic commission calculation"""
@@ -2863,7 +2921,14 @@ async def create_order(order: Order, request: Request):
     # Determine vendor ID and type
     vendor_id = order.restaurant_id or order.vendor_id
     vendor_type = _derive_vendor_type(order.service_type)
-    
+
+    # Live Store Hours: block new orders while a storefront merchant is closed.
+    _hours = await _vendor_business_hours(vendor_id)
+    _open = _compute_open_status(_hours)
+    if _open.get("enabled") and not _open.get("is_open"):
+        raise HTTPException(status_code=400,
+                            detail="This store is currently closed. Please order during its opening hours.")
+
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)
     
@@ -3199,6 +3264,7 @@ async def reject_order(order_id: str, payload: RejectOrderRequest, request: Requ
 
     reason = (payload.reason or "").strip() or "The store could not fulfill this order"
     now_iso = datetime.now(timezone.utc).isoformat()
+    was_paid = order.get("payment_status") == "paid"
     update = {
         "status": "cancelled",
         "cancelled_by": "merchant",
@@ -3206,9 +3272,15 @@ async def reject_order(order_id: str, payload: RejectOrderRequest, request: Requ
         "rejected_at": now_iso,
         "updated_at": now_iso,
     }
-    if order.get("payment_status") == "paid":
+    if was_paid:
         update["payment_status"] = "refund_pending"
     await db.orders.update_one({"id": order_id}, {"$set": update})
+
+    # Auto-refund a paid order (wallet / PayPal / Stripe) — best-effort.
+    refund_info = None
+    if was_paid:
+        refund_info = await _auto_refund_order(
+            {**order, **update}, reason="requested_by_customer", issued_by=current_user.id)
 
     # Notify the customer (SMS + realtime).
     phone = order.get("customer_phone")
@@ -3216,18 +3288,22 @@ async def reject_order(order_id: str, payload: RejectOrderRequest, request: Requ
         cust = await db.users.find_one({"id": order["customer_id"]}, {"_id": 0, "phone": 1})
         phone = (cust or {}).get("phone")
     body = f"IslandHop: Sorry, your order #{str(order_id)[:8]} was declined by the store. Reason: {reason}."
-    if order.get("payment_status") == "paid":
+    if refund_info and refund_info.get("refunded"):
+        body += " Your payment has been refunded."
+    elif was_paid:
         body += " A refund is being processed."
     if phone:
         asyncio.create_task(_wa_notify(phone, body, user_id=order.get("customer_id"),
                                        event="order_rejected", order_id=order_id, channel="sms"))
     try:
         await manager.send_personal_message(
-            json.dumps({"type": "order_rejected", "order_id": order_id, "reason": reason}),
+            json.dumps({"type": "order_rejected", "order_id": order_id, "reason": reason,
+                        "refunded": bool(refund_info and refund_info.get("refunded"))}),
             order.get("customer_id"))
     except Exception:  # noqa: BLE001
         pass
-    return {"success": True, "order_id": order_id, "status": "cancelled", "reason": reason}
+    return {"success": True, "order_id": order_id, "status": "cancelled", "reason": reason,
+            "refund": refund_info}
 
 
 @api_router.get("/orders/{order_id}/pickup-eta")
@@ -7376,6 +7452,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
             "delivery_fee": doc.get("delivery_fee"),
             "minimum_order": doc.get("minimum_order"),
             "banking_info": doc.get("banking_info") or {},
+            "business_hours": doc.get("business_hours") or None,
         }
     # restaurants / car rental companies use canonical fields
     return {
@@ -7390,6 +7467,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
         "delivery_fee": doc.get("delivery_fee"),
         "minimum_order": doc.get("minimum_order"),
         "banking_info": doc.get("banking_info") or {},
+        "business_hours": doc.get("business_hours") or None,
     }
 
 
@@ -7403,6 +7481,7 @@ class MerchantProfileUpdate(BaseModel):
     delivery_fee: Optional[float] = None
     minimum_order: Optional[float] = None
     banking_info: Optional[Dict[str, Any]] = None
+    business_hours: Optional[Dict[str, Any]] = None
 
 
 @api_router.get("/merchant/profile")
@@ -7439,6 +7518,8 @@ async def update_merchant_profile(payload: MerchantProfileUpdate, request: Reque
                 update[k] = fields[k]
         if "banking_info" in fields:
             update["banking_info"] = fields["banking_info"]
+        if "business_hours" in fields:
+            update["business_hours"] = fields["business_hours"]
     else:
         for k in ("name", "description", "cuisine_type", "phone", "email",
                   "address", "delivery_fee", "minimum_order"):
@@ -7446,6 +7527,8 @@ async def update_merchant_profile(payload: MerchantProfileUpdate, request: Reque
                 update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
         if "banking_info" in fields:
             update["banking_info"] = fields["banking_info"]
+        if "business_hours" in fields:
+            update["business_hours"] = fields["business_hours"]
 
     if update:
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -7597,6 +7680,8 @@ async def get_public_storefront(vendor_id: str):
             "cuisine_type": r.get("cuisine_type"), "delivery_fee": r.get("delivery_fee"),
             "minimum_order": r.get("minimum_order"), "estimated_delivery_time": r.get("estimated_delivery_time"),
             "address": r.get("address"),
+            "business_hours": r.get("business_hours"),
+            "open_status": _compute_open_status(r.get("business_hours")),
         })
         out["menu_items"] = await _vendor_menu_items(vendor_id, r.get("menu_items"))
         return out
@@ -7606,6 +7691,8 @@ async def get_public_storefront(vendor_id: str):
             "name": b.get("business_name"), "vendor_type": b.get("business_type") or "business",
             "description": b.get("business_description", ""),
             "address": b.get("address"),
+            "business_hours": b.get("business_hours"),
+            "open_status": _compute_open_status(b.get("business_hours")),
         })
         out["menu_items"] = await _vendor_menu_items(vendor_id, b.get("products") or b.get("menu_items"))
     return out
@@ -9052,6 +9139,75 @@ async def _refund_via_stripe(order: dict, order_id: str, payload: "RefundRequest
 # ============================================================
 # Phase C: Driver Payouts via Stripe Transfer to connected account
 # ============================================================
+async def _auto_refund_order(order: dict, *, reason: str, issued_by: str) -> dict:
+    """Best-effort automatic FULL refund when a paid order is declined/cancelled.
+
+    Routes by payment_method: wallet → wallet credit; PayPal → capture refund;
+    card → Stripe refund. Never raises. Returns {refunded, method?, amount?, error?}."""
+    order_id = order.get("id")
+    total = float(order.get("total") or 0)
+    method = (order.get("payment_method") or "").lower()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if total <= 0:
+        return {"refunded": False, "reason": "zero_total"}
+    try:
+        # 1) Wallet-paid orders
+        if method == "wallet":
+            lock = await db.orders.update_one(
+                {"id": order_id, "payment_status": {"$in": ["paid", "refund_pending"]}},
+                {"$set": {"payment_status": "refunded", "refunded_amount": total,
+                          "refunded_at": now_iso, "vendor_payout_status": "reversed"}},
+            )
+            if lock.matched_count == 0:
+                return {"refunded": False, "reason": "not_refundable"}
+            await _credit_wallet_with_txn(
+                order.get("customer_id"), total, "USD",
+                txn_type="refund", order_id=order_id, note="Auto-refund: order declined")
+            await _record_refund(order_id, total, method="wallet",
+                                 stripe_refund_id=None, reason=reason, issued_by=issued_by)
+            return {"refunded": True, "method": "wallet", "amount": total}
+
+        # 2) PayPal-paid orders (capture refund)
+        pp = await db.paypal_orders.find_one(
+            {"linked_order_id": order_id, "purpose": "order", "status": "COMPLETED"}, {"_id": 0})
+        if pp and pp.get("capture_id"):
+            res = await paypal_client.refund_capture(
+                pp["capture_id"], amount=None, currency=(pp.get("currency") or "USD"),
+                note="IslandHop: your order was declined by the store")
+            if res.get("success"):
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {"payment_status": "refunded", "refunded_amount": total,
+                              "refund_id": res.get("refund_id"), "refunded_at": now_iso,
+                              "vendor_payout_status": "reversed"}})
+                await _record_refund(order_id, total, method="paypal",
+                                     stripe_refund_id=res.get("refund_id"), reason=reason, issued_by=issued_by)
+                return {"refunded": True, "method": "paypal", "amount": total}
+            return {"refunded": False, "method": "paypal", "error": res.get("error")}
+
+        # 3) Card (Stripe) orders
+        txn = await db.payment_transactions.find_one(
+            {"metadata.order_id": order_id, "payment_status": "paid"}, {"_id": 0})
+        if txn and STRIPE_API_KEY and txn.get("session_id"):
+            session = await asyncio.to_thread(stripe.checkout.Session.retrieve, txn["session_id"])
+            pi = session.payment_intent
+            if pi:
+                refund = await asyncio.to_thread(stripe.Refund.create, payment_intent=pi)
+                amt = (refund.amount or 0) / 100.0
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {"payment_status": "refunded", "refunded_amount": amt,
+                              "refund_id": refund.id, "refunded_at": now_iso,
+                              "vendor_payout_status": "reversed"}})
+                await _record_refund(order_id, amt, method="stripe",
+                                     stripe_refund_id=refund.id, reason=reason, issued_by=issued_by)
+                return {"refunded": True, "method": "stripe", "amount": amt}
+        return {"refunded": False, "reason": "no_processor_txn"}
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Auto-refund failed for order {order_id}: {e}")
+        return {"refunded": False, "error": str(e)}
+
+
 @api_router.post("/drivers/{driver_id}/payout")
 async def process_driver_payout(driver_id: str, request: Request):
     """Phase C: Pay out a driver's accumulated wallet balance to their connected Stripe account."""
