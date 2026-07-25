@@ -1,5 +1,22 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Driver-flow repair + Account Repair tool
+**User report:** approved driver "Kulture D Teacher" couldn't reach the driver panel / go online / receive requests / accept orders (production); and the Admin Repair tool should heal driver + customer accounts, not just merchant storefronts.
+
+**Root causes found & fixed:**
+- **`accept-driver`/`reject-driver` read `driver_id` as a QUERY param but the frontend sends it in the JSON body → 422 "Failed to accept order."** → converted to a Pydantic body model `DriverAcceptRequest`, added auth (driver must own the record, or admin), made assignment **atomic** (first driver wins), and stopped downgrading an in-progress delivery's status. (P0)
+- **Dispatch was never triggered:** nothing in the app called `/orders/{id}/find-driver`; taxi was excluded from `_maybe_auto_dispatch` and delivery dispatch was gated on an admin auto-run toggle (default OFF) → drivers never got requests. → new `_ensure_dispatch(order_id)` (idempotent, best-effort, needs pickup coords) is now called on **payment success** across all paths: Stripe checkout (single + group), PayPal settle, and wallet pay-order (COD already dispatched). Taxi + delivery now reach drivers automatically once paid. (P0)
+- **Approved drivers never role-promoted** (older builds): added `backfill_approved_drivers()` at startup — promotes the account role for every active/approved driver with a linked user_id (skips owner/admin/agent). Self-heals accounts like Kulture D Teacher on redeploy. (P0)
+- **Geo query hardened:** `_find_nearby_drivers` `$near` now wrapped in try/except (locations are stored as `{lat,lng}`, not GeoJSON) → always falls back to all-online drivers instead of erroring. (P1)
+
+**Account Repair tool (explicit request):**
+- Backend `GET /api/admin/accounts/lookup?q=` + `POST /api/admin/accounts/repair` ({user_id? | driver_id?}) + `_account_health_entry`. Searches ANY account by name/email; repair promotes role for approved driver/merchant, activates a stuck driver record, creates a missing driver wallet, and unblocks paused/restricted accounts. Idempotent; admin-gated. Surfaces unlinked driver records too.
+- Frontend `AdminAccountRepair.js` panel mounted under the storefront-repair panel in `AdminApprovals.js` (testids `account-repair-*`).
+
+**Verified:** clean `CI=true yarn build`; curl — accounts lookup/repair (broken driver → healthy: role promoted + record activated + wallet created), driver go-online, find-driver dispatch (driver notified + distance scored), order-requests lists it, **accept-driver JSON body → 200 + assigned** (was 422). testing_agent iter54: Admin Account Repair UI + storefront-repair regression + driver dashboard access + accept-driver body-shape = 100% pass (1 non-blocking pre-existing hydration warning noted). **REQUIRES REDEPLOY to fix production.**
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Refund Receipt Emails
 - **Refund Receipt Email:** new `_send_refund_receipt_email(order, refund_info, reason)` (server.py, after `_auto_refund_order`) sends the customer a branded HTML confirmation (order #, refund amount + currency, method label — Wallet/Card/PayPal, decline reason, and a wallet-vs-card timing line) via `graph_mail.send_mail` to the `support` mailbox. Fire-and-forget (`asyncio.create_task`) from `reject_order` only when `refund_info.refunded` is true; skips placeholder/test emails via `graph_mail.is_real_email`; never raises. **Verified in preview: rejecting a wallet-paid order logged "Refund receipt emailed to <email>" (M365 send succeeded, no exception).** Backend-only change.
 

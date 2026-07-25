@@ -30,6 +30,12 @@
 
 ## Driver test account
 - register customer → `POST /api/drivers` {license_number, vehicle_type, vehicle_plate} (omit banking_info to reproduce null case) → set `user_type='driver'` in Mongo → re-login. `/driver/settings` (ROLES driver|admin). Endpoint: `PUT /api/drivers/profile` (license/vehicle/banking).
+- **QA driver (persisted, preview):** `qatest_1784993477@gmail.com` / `Test1234!` — user_type=driver, driver id `qadrv_2978c0f6` (currently offline). Use for driver dashboard / go-online / accept-order UI testing.
+- **Broken-driver repair seed (persisted, preview):** `brokendriver_1784996815@gmail.com` / `Test1234!` — had an ACTIVE driver record but `user_type` stuck at `customer` (the exact "approved but no panel" bug). Repaired to `driver` via Admin Account Repair. To re-reproduce the "Needs repair" state, set `users.user_type='customer'` for this account in Mongo.
+
+## Admin Repair tools (Jun 2026)
+- **Storefront repair:** `GET /api/admin/merchants/lookup?q=`, `POST /api/admin/merchants/repair-storefront` (component `AdminStorefrontRepair.js`).
+- **Account repair (NEW — drivers/customers/merchants):** `GET /api/admin/accounts/lookup?q=` + `POST /api/admin/accounts/repair` {user_id? | driver_id?} (component `AdminAccountRepair.js`, mounted in `AdminApprovals.js`). Heals: promote role for an approved driver/merchant, activate a stuck driver record, create missing driver wallet, unblock paused/restricted accounts. Idempotent. `backfill_approved_drivers()` runs at startup to auto-heal all approved-but-unpromoted drivers.
 
 ## Business-type-aware options (Jun 2026)
 - Single source of truth: `frontend/src/businessTypeConfig.js` → `getBusinessConfig(type)`.
