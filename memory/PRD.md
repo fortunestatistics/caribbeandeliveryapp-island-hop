@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Reassign-on-decline + Offer timeout + Repair audit + Bulk driver repair
+- **Reassign On Decline:** `reject-driver` now records the decliner in `drivers_declined` (and removes them from `drivers_notified`); if no driver is still holding the offer and the order is unassigned, it immediately re-offers to the next-nearest driver via `_reoffer_next_batch` (excludes everyone already offered/declined). **Curl-verified:** A declines → order auto-offered to B.
+- **Offer Timeout:** every open offer is stamped `last_offer_at` and armed with `_offer_timeout_watchdog` (`DRIVER_OFFER_TIMEOUT_SECONDS`, default 30s, env-overridable). If nobody accepts within the window and it's still the latest offer, the order re-offers to the next batch; when the driver pool is exhausted it's marked `dispatch_status="no_drivers"` and the customer is notified (`dispatch_no_drivers` WS). Armed in `find_and_assign_driver` (open phase), `_priority_second_wave`, and each `_reoffer_next_batch`. **Verified with a temporary 3s window** (watchdog fired, chained re-offer, then exhausted).
+- **Repair Audit Log:** `_log_repair()` writes a `repair_audit` row (actor id/email/name, kind, target, actions, timestamp) from account repair, storefront repair, and bulk repair. New `GET /api/admin/repair-audit`. Frontend: "Show repair history" toggle + list in `AdminAccountRepair.js` (testids `account-repair-audit-toggle` / `account-repair-audit-list`).
+- **Bulk "Repair all approved drivers":** `POST /api/admin/drivers/repair-all` promotes every approved-but-unpromoted driver + ensures wallets (idempotent), logs one audit row. Frontend header button `account-repair-all-drivers-btn`.
+- **Verified:** clean `CI=true yarn build`; curl — repair-all (healed 1), repair-audit (logged), reassign-on-decline, timeout watchdog + exhausted path. testing_agent iter55: bulk button + audit trail + single-search regression + storefront-repair regression = 100% pass. (Known non-blocking: a pre-existing `<div> in <p>` React dev warning in the AdminPanel tree — not introduced here.) **REQUIRES REDEPLOY.**
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Driver-flow repair + Account Repair tool
 **User report:** approved driver "Kulture D Teacher" couldn't reach the driver panel / go online / receive requests / accept orders (production); and the Admin Repair tool should heal driver + customer accounts, not just merchant storefronts.
 
