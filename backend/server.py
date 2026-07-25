@@ -3281,6 +3281,8 @@ async def reject_order(order_id: str, payload: RejectOrderRequest, request: Requ
     if was_paid:
         refund_info = await _auto_refund_order(
             {**order, **update}, reason="requested_by_customer", issued_by=current_user.id)
+        if refund_info and refund_info.get("refunded"):
+            asyncio.create_task(_send_refund_receipt_email({**order, **update}, refund_info, reason))
 
     # Notify the customer (SMS + realtime).
     phone = order.get("customer_phone")
@@ -9206,6 +9208,57 @@ async def _auto_refund_order(order: dict, *, reason: str, issued_by: str) -> dic
     except Exception as e:  # noqa: BLE001
         logging.warning(f"Auto-refund failed for order {order_id}: {e}")
         return {"refunded": False, "error": str(e)}
+
+
+_REFUND_METHOD_LABELS = {
+    "wallet": "IslandHop Wallet",
+    "stripe": "Card",
+    "paypal": "PayPal",
+}
+
+
+async def _send_refund_receipt_email(order: dict, refund_info: dict, reason: str) -> None:
+    """Best-effort: email the customer a refund confirmation (amount + method). Never raises."""
+    try:
+        cust_id = order.get("customer_id")
+        email = order.get("customer_email")
+        name = None
+        if cust_id:
+            user = await db.users.find_one({"id": cust_id}, {"_id": 0, "email": 1, "name": 1})
+            if user:
+                email = email or user.get("email")
+                name = user.get("name")
+        if not email or not graph_mail.is_real_email(email):
+            return
+        amount = float(refund_info.get("amount") or order.get("total") or 0)
+        currency = (order.get("currency") or "USD").upper()
+        method = _REFUND_METHOD_LABELS.get((refund_info.get("method") or "").lower(), "your original payment method")
+        order_no = str(order.get("id") or "")[:8]
+        greeting = name or "there"
+        eta_line = ("The amount is already back in your IslandHop Wallet."
+                    if refund_info.get("method") == "wallet"
+                    else "Depending on your bank, it may take 5–10 business days to appear.")
+        subject = f"Your IslandHop refund of {currency} ${amount:.2f} — order #{order_no}"
+        html = (
+            "<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:520px'>"
+            f"<p>Hi {greeting},</p>"
+            f"<p>Your order <strong>#{order_no}</strong> was declined by the store, so we've issued a full refund.</p>"
+            "<table style='border-collapse:collapse;margin:16px 0;font-size:14px'>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Refund amount</td>"
+            f"<td style='padding:6px 0;font-weight:bold'>{currency} ${amount:.2f}</td></tr>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Refunded to</td>"
+            f"<td style='padding:6px 0'>{method}</td></tr>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Reason</td>"
+            f"<td style='padding:6px 0'>{reason}</td></tr>"
+            "</table>"
+            f"<p>{eta_line}</p>"
+            "<p>We're sorry for the inconvenience — you can find another store on IslandHop anytime.</p>"
+            "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+        )
+        await graph_mail.send_mail(email, subject, html, mailbox=graph_mail.notify_mailbox("support"))
+        logging.info(f"Refund receipt emailed to {email} for order {order.get('id')}")
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Refund receipt email failed for order {order.get('id')}: {e}")
 
 
 @api_router.post("/drivers/{driver_id}/payout")
