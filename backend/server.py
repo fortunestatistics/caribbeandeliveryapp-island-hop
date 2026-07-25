@@ -3362,10 +3362,10 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
     
     return order
 
-@api_router.get("/orders/{order_id}", response_model=Order)
+@api_router.get("/orders/{order_id}")
 async def get_order(order_id: str, current_user: User = Depends(get_current_user)):
     """Get order by ID"""
-    order = await db.orders.find_one({"id": order_id})
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
@@ -3383,7 +3383,8 @@ async def get_order(order_id: str, current_user: User = Depends(get_current_user
         else:
             raise HTTPException(status_code=403, detail="Access denied")
     
-    return Order(**order)
+    # Return the raw document (minus _id) so partial/legacy orders never 500 the tracking UI.
+    return order
 
 @api_router.get("/orders/user/history", response_model=List[Order])
 async def get_user_order_history(
