@@ -1983,6 +1983,10 @@ async def admin_repair_storefront(payload: MerchantRepairRequest, request: Reque
         elif b:
             appears, vtype = (b.get("status") or "").lower() == "active", (b.get("business_type") or "business")
 
+    if actions:
+        await _log_repair(current_user, kind="storefront",
+                          target={"vendor_id": vid, "vendor_type": vtype},
+                          actions=actions)
     return {
         "success": True,
         "actions": actions or ["no changes needed — already healthy"],
@@ -1997,6 +2001,23 @@ async def admin_repair_storefront(payload: MerchantRepairRequest, request: Reque
 # Account Repair — heal driver + customer + merchant accounts
 # ============================================================
 _BLOCKED_ACCOUNT_STATES = {"paused", "restricted", "suspended", "banned"}
+
+
+async def _log_repair(actor, *, kind: str, target: dict, actions: list):
+    """Append an admin repair to the audit trail (who repaired what, when, and the actions)."""
+    try:
+        await db.repair_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "kind": kind,  # 'account' | 'storefront' | 'bulk_drivers'
+            "actor_id": getattr(actor, "id", None),
+            "actor_email": getattr(actor, "email", None),
+            "actor_name": getattr(actor, "name", None),
+            "target": target,
+            "actions": actions,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_log_repair failed: {exc}")
 
 
 async def _account_health_entry(user: dict) -> dict:
@@ -2166,11 +2187,62 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
             break
 
     refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
+    final_actions = actions or ["no changes needed — account already healthy"]
+    if actions:
+        await _log_repair(current_user, kind="account",
+                          target={"user_id": uid, "email": refreshed.get("email"),
+                                  "name": refreshed.get("name")},
+                          actions=final_actions)
     return {
         "success": True,
-        "actions": actions or ["no changes needed — account already healthy"],
+        "actions": final_actions,
         "account": await _account_health_entry(refreshed),
     }
+
+
+@api_router.post("/admin/drivers/repair-all")
+async def admin_repair_all_drivers(request: Request):
+    """Admin: one-click bulk-heal EVERY approved driver whose account role was never promoted.
+    Promotes the role + ensures a driver wallet. Idempotent — safe to run repeatedly."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    healed = []
+    cursor = db.drivers.find(
+        {"status": {"$in": ["active", "approved", "online", "busy", "offline"]},
+         "user_id": {"$nin": [None, ""]}},
+        {"_id": 0, "id": 1, "user_id": 1},
+    )
+    async for drv in cursor:
+        uid = drv.get("user_id")
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "is_owner": 1, "email": 1, "name": 1})
+        if not u or u.get("is_owner") or u.get("user_type") in ("admin", "agent", "driver"):
+            continue
+        try:
+            promoted = await promote_user_role(uid, "driver")
+        except Exception:  # noqa: BLE001
+            promoted = False
+        if not promoted:
+            continue
+        if not await db.driver_wallets.find_one({"driver_id": drv["id"]}, {"_id": 1}):
+            await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
+        healed.append({"driver_id": drv["id"], "user_id": uid,
+                       "email": u.get("email"), "name": u.get("name")})
+    if healed:
+        await _log_repair(current_user, kind="bulk_drivers",
+                          target={"count": len(healed)},
+                          actions=[f"promoted {len(healed)} approved driver(s) to the driver role"])
+    return {"success": True, "healed_count": len(healed), "healed": healed}
+
+
+@api_router.get("/admin/repair-audit")
+async def admin_repair_audit(request: Request, limit: int = 50):
+    """Admin: recent account/storefront repair history (who repaired what, when)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rows = await db.repair_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(min(limit, 200)).to_list(length=200)
+    return {"count": len(rows), "results": rows}
 
 
 
@@ -6194,6 +6266,8 @@ async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n
 
 # Exclusive first-look window (seconds) subscribers get before Standard drivers see the job.
 DRIVER_PRIORITY_WINDOW_SECONDS = int(os.environ.get("DRIVER_PRIORITY_WINDOW_SECONDS", "30"))
+# How long an open offer waits for an accept before moving on to the next-nearest drivers.
+DRIVER_OFFER_TIMEOUT_SECONDS = int(os.environ.get("DRIVER_OFFER_TIMEOUT_SECONDS", "30"))
 
 
 async def _priority_second_wave(order_id: str, already_notified: List[str], delay: int):
@@ -6213,13 +6287,92 @@ async def _priority_second_wave(order_id: str, already_notified: List[str], dela
     if not remaining:
         return
     notified = await _notify_drivers_about_order(order, remaining, top_n=3)
+    ids = [d["driver_id"] for d in notified]
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
-            "drivers_notified": already_notified + [d["driver_id"] for d in notified],
+            "drivers_notified": already_notified + ids,
             "dispatch_opened_to_all_at": datetime.now(timezone.utc).isoformat(),
+            "dispatch_phase": "open",
         }},
     )
+    await _arm_offer_timeout(order_id, already_notified + ids)
+
+
+_DISPATCH_TERMINAL = ("cancelled", "delivered", "refunded")
+
+
+async def _arm_offer_timeout(order_id: str, notified_ids: List[str]):
+    """Stamp an offer time, remember everyone offered so far, and schedule a watchdog that
+    moves the order on to the next-nearest drivers if nobody accepts in time."""
+    offer_at = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"last_offer_at": offer_at},
+         "$addToSet": {"drivers_offered_all": {"$each": list(notified_ids)}}},
+    )
+    asyncio.create_task(_offer_timeout_watchdog(order_id, offer_at))
+
+
+async def _offer_timeout_watchdog(order_id: str, offer_at: str):
+    """After DRIVER_OFFER_TIMEOUT_SECONDS, if the order is still unassigned and this is still
+    the latest offer, re-offer to the next batch of drivers."""
+    await asyncio.sleep(DRIVER_OFFER_TIMEOUT_SECONDS)
+    try:
+        order = await db.orders.find_one(
+            {"id": order_id},
+            {"_id": 0, "driver_id": 1, "status": 1, "last_offer_at": 1},
+        )
+        if not order or order.get("driver_id"):
+            return
+        if order.get("status") in _DISPATCH_TERMINAL:
+            return
+        if order.get("last_offer_at") != offer_at:
+            return  # a newer offer superseded this watchdog
+        await _reoffer_next_batch(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_offer_timeout_watchdog failed for {order_id}: {exc}")
+
+
+async def _reoffer_next_batch(order_id: str) -> int:
+    """Offer an unassigned order to the next-nearest drivers who haven't been offered it yet
+    (and haven't declined). Marks the order 'no_drivers' when the pool is exhausted. Returns
+    the number of drivers newly offered."""
+    order = await db.orders.find_one({"id": order_id})
+    if not order or order.get("driver_id"):
+        return 0
+    if order.get("status") in _DISPATCH_TERMINAL:
+        return 0
+    pickup = order.get("pickup_address", {})
+    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
+    if not pickup_lat or not pickup_lng:
+        return 0
+    exclude = set(order.get("drivers_offered_all") or []) | set(order.get("drivers_declined") or [])
+    drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
+    scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
+    remaining = [s for s in scored if s["driver"]["id"] not in exclude]
+    if not remaining:
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"drivers_notified": [], "dispatch_status": "no_drivers",
+                      "dispatch_exhausted_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        try:
+            await manager.send_personal_message(
+                json.dumps({"type": "dispatch_no_drivers", "order_id": order_id}),
+                order.get("customer_id"))
+        except Exception:  # noqa: BLE001
+            pass
+        logging.info(f"Dispatch exhausted for order {order_id} — no more drivers to offer")
+        return 0
+    notified = await _notify_drivers_about_order(order, remaining, top_n=3)
+    ids = [d["driver_id"] for d in notified]
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"drivers_notified": ids, "dispatch_phase": "open"}},
+    )
+    await _arm_offer_timeout(order_id, ids)
+    return len(notified)
 
 
 # Smart Driver Matching Routes
@@ -6265,14 +6418,16 @@ async def find_and_assign_driver(order_id: str):
 
     # No subscribers online — open to everyone immediately (priority ordering still applies).
     notified = await _notify_drivers_about_order(order, scored, top_n=3)
+    notified_ids = [d["driver_id"] for d in notified]
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
-            "drivers_notified": [d["driver_id"] for d in notified],
+            "drivers_notified": notified_ids,
             "driver_search_started": datetime.now(timezone.utc).isoformat(),
             "dispatch_phase": "open",
         }},
     )
+    await _arm_offer_timeout(order_id, notified_ids)
     return {"success": True, "drivers_notified": len(notified), "drivers": notified, "phase": "open"}
 
 class DriverAcceptRequest(BaseModel):
@@ -6334,7 +6489,20 @@ async def driver_reject_order(order_id: str, payload: DriverAcceptRequest, reque
     driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
     if driver and current_user.user_type not in ("admin", "agent") and driver.get("user_id") != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    await db.orders.update_one({"id": order_id}, {"$pull": {"drivers_notified": driver_id}})
+    # Remove the decliner from the active offer and remember the decline so they aren't re-offered.
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {"drivers_notified": driver_id},
+         "$addToSet": {"drivers_declined": driver_id}},
+    )
+    # If nobody else currently holds the offer and the order is still unassigned, immediately
+    # re-offer to the next-nearest driver instead of leaving it stuck.
+    order = await db.orders.find_one(
+        {"id": order_id}, {"_id": 0, "driver_id": 1, "status": 1, "drivers_notified": 1})
+    if (order and not order.get("driver_id")
+            and order.get("status") not in _DISPATCH_TERMINAL
+            and not (order.get("drivers_notified") or [])):
+        asyncio.create_task(_reoffer_next_batch(order_id))
     return {"success": True, "message": "Order declined, searching for another driver"}
 
 # Rating & Review Routes

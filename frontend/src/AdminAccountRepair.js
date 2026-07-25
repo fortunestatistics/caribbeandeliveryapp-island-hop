@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
-import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -14,6 +14,18 @@ const AdminAccountRepair = () => {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [busyKey, setBusyKey] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [audit, setAudit] = useState([]);
+  const [showAudit, setShowAudit] = useState(false);
+
+  const loadAudit = async () => {
+    try {
+      const r = await axios.get(`${API}/admin/repair-audit`, { params: { limit: 25 }, headers: authHeaders() });
+      setAudit(r.data.results || []);
+    } catch (e) { /* non-blocking */ }
+  };
+
+  useEffect(() => { loadAudit(); }, []);
 
   const search = async () => {
     const term = q.trim();
@@ -36,10 +48,26 @@ const AdminAccountRepair = () => {
       const r = await axios.post(`${API}/admin/accounts/repair`, body, { headers: authHeaders() });
       toast.success(`Repaired: ${(r.data.actions || []).join('; ')}`);
       await search();
+      loadAudit();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Repair failed');
     } finally {
       setBusyKey(null);
+    }
+  };
+
+  const repairAllDrivers = async () => {
+    setBulkBusy(true);
+    try {
+      const r = await axios.post(`${API}/admin/drivers/repair-all`, {}, { headers: authHeaders() });
+      const n = r.data.healed_count || 0;
+      toast.success(n > 0 ? `Repaired ${n} approved driver${n === 1 ? '' : 's'}` : 'All approved drivers are already healthy');
+      loadAudit();
+      if (results) search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Bulk repair failed');
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -53,13 +81,26 @@ const AdminAccountRepair = () => {
   return (
     <Card className="border-neon-cyan/40 bg-neon-cyan/5" data-testid="account-repair-tool">
       <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <LifeBuoy className="h-5 w-5" style={{ color: '#0FA3A3' }} />
-          <h3 className="text-base font-semibold text-foreground">Repair an account (driver / customer / merchant)</h3>
+        <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+          <div className="flex items-center gap-2">
+            <LifeBuoy className="h-5 w-5" style={{ color: '#0FA3A3' }} />
+            <h3 className="text-base font-semibold text-foreground">Repair an account (driver / customer / merchant)</h3>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={repairAllDrivers}
+            disabled={bulkBusy}
+            data-testid="account-repair-all-drivers-btn"
+          >
+            {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
+            Repair all approved drivers
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
-          Search any account by name or email. Fixes an approved driver whose panel won't load, re-activates a
-          paused/blocked account, promotes a stuck role, and creates a missing driver wallet.
+          Search any account by name or email — or bulk-heal every approved driver in one click. Fixes an
+          approved driver whose panel won't load, re-activates a blocked account, promotes a stuck role,
+          and creates a missing driver wallet.
         </p>
         <div className="flex gap-2 mb-3">
           <Input
@@ -120,6 +161,33 @@ const AdminAccountRepair = () => {
             })}
           </div>
         )}
+
+        {/* Repair history / audit trail */}
+        <div className="mt-4 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={() => setShowAudit((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            data-testid="account-repair-audit-toggle"
+          >
+            <History className="h-3.5 w-3.5" />
+            {showAudit ? 'Hide' : 'Show'} repair history ({audit.length})
+          </button>
+          {showAudit && (
+            <div className="mt-2 space-y-1.5" data-testid="account-repair-audit-list">
+              {audit.length === 0 && <p className="text-xs text-muted-foreground">No repairs recorded yet.</p>}
+              {audit.map((a) => (
+                <div key={a.id} className="text-xs text-muted-foreground rounded-md bg-background border border-border px-2.5 py-1.5" data-testid={`account-repair-audit-${a.id}`}>
+                  <span className="text-foreground font-medium">{a.actor_email || a.actor_name || 'admin'}</span>
+                  {' · '}<span className="capitalize">{(a.kind || '').replace('_', ' ')}</span>
+                  {' · '}{(a.actions || []).join('; ')}
+                  {a.target?.email ? ` · ${a.target.email}` : (a.target?.count != null ? ` · ${a.target.count} drivers` : '')}
+                  <span className="block text-[10px] opacity-70">{a.created_at ? new Date(a.created_at).toLocaleString() : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
