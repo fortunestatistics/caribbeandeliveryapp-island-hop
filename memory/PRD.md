@@ -1,5 +1,21 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Kulture driver repair + merchant provisioning robustness
+**User report (production):** approved driver "Kulture D Teacher" (omarcarter64@gmail.com) — driver dashboard still not working, can't access from admin, and the Repair tool "wasn't repairing it."
+
+**Root cause:** the account had BOTH an ACTIVE driver record AND a stray approved merchant application with no vendor record. Since `user_type` is single-valued: (a) the account-repair row kept showing the merchant "needs provisioning" issue even after the driver role was promoted → looked permanently unrepaired; (b) the driver just needed the role promoted + a re-login.
+
+**Fixes:**
+- `_account_health_entry`: **driver is now authoritative** — when an account has a driver record, the "approved merchant application but no vendor record" flag is suppressed (a single account can't be both; provisioning the merchant would clobber the driver role). So a driver account now repairs cleanly to Healthy.
+- `admin_repair_account` now returns a `note`: *"The user must LOG OUT and log back in to see their new panel/dashboard"* (surfaced in the toast) — the real reason it looked broken after repair.
+- Merchant-application provisioning added to the Account Repair tool: lookup surfaces approved-but-unprovisioned business applications (`kind: merchant_application`, incl. website leads with no account), and repair accepts `application_id` (+ optional `email` to link an unlinked application to a signup account) → `_provision_merchant_vendor` → creates vendor + promotes role. Frontend shows a "Provision" button + email prompt for unlinked apps.
+- `admin_approve_business` now returns `provisioned`/`storefront_url`/`provision_hint` so future approvals aren't silent when an application has no linked account.
+- Account-repair rows/response expose `storefront_url` with an "Open profile" link for provisioned merchants.
+
+**Verified (curl, preview):** reproduced Kulture's exact state (active driver + approved biz app + user_type=customer) → repair promoted role to driver + created wallet, row went **Healthy** with the re-login note; after re-login `/auth/me` → `driver`, `/drivers/active-orders` → 200. Clean `CI=true yarn build`. **REQUIRES REDEPLOY; then in Admin → Repair account, search the driver, click Repair, and have them LOG OUT/IN.**
+
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Reassign-on-decline + Offer timeout + Repair audit + Bulk driver repair
 - **Reassign On Decline:** `reject-driver` now records the decliner in `drivers_declined` (and removes them from `drivers_notified`); if no driver is still holding the offer and the order is unassigned, it immediately re-offers to the next-nearest driver via `_reoffer_next_batch` (excludes everyone already offered/declined). **Curl-verified:** A declines → order auto-offered to B.
 - **Offer Timeout:** every open offer is stamped `last_offer_at` and armed with `_offer_timeout_watchdog` (`DRIVER_OFFER_TIMEOUT_SECONDS`, default 30s, env-overridable). If nobody accepts within the window and it's still the latest offer, the order re-offers to the next batch; when the driver pool is exhausted it's marked `dispatch_status="no_drivers"` and the customer is notified (`dispatch_no_drivers` WS). Armed in `find_and_assign_driver` (open phase), `_priority_second_wave`, and each `_reoffer_next_batch`. **Verified with a temporary 3s window** (watchdog fired, chained re-offer, then exhausted).

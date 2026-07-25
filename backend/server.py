@@ -2057,7 +2057,11 @@ async def _account_health_entry(user: dict) -> dict:
             break
 
     # Approved merchant application but NO vendor record yet → needs provisioning.
-    if not merchant:
+    # Skip this when the account already has a driver record: a single account can only hold
+    # one role, and an active driver takes precedence over a stray merchant application
+    # (provisioning it would clobber the driver role). This keeps driver accounts repairable
+    # to "healthy" instead of being stuck on a merchant provisioning flag.
+    if not merchant and not driver:
         app = await db.business_applications.find_one(
             {"user_id": uid, "verification_status": {"$in": ["verified", "approved"]}},
             {"_id": 0, "id": 1},
@@ -2286,9 +2290,13 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
                                   "name": refreshed.get("name")},
                           actions=final_actions)
     health = await _account_health_entry(refreshed)
+    note = None
+    if any("role" in a for a in actions):
+        note = "Done. The user must LOG OUT and log back in to see their new panel/dashboard."
     return {
         "success": True,
         "actions": final_actions,
+        "note": note,
         "storefront_url": (health.get("merchant") or {}).get("storefront_url"),
         "account": health,
     }

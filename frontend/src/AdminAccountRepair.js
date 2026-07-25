@@ -59,10 +59,12 @@ const AdminAccountRepair = () => {
     try {
       const r = await axios.post(`${API}/admin/accounts/repair`, body, { headers: authHeaders() });
       const url = r.data.storefront_url;
-      toast.success(`Repaired: ${(r.data.actions || []).join('; ')}`, url ? {
-        action: { label: 'Open storefront', onClick: () => window.open(url, '_blank', 'noopener') },
-        duration: 10000,
-      } : undefined);
+      const note = r.data.note;
+      toast.success(`Repaired: ${(r.data.actions || []).join('; ')}`, {
+        description: note || undefined,
+        duration: note || url ? 12000 : 5000,
+        action: url ? { label: 'Open profile', onClick: () => window.open(url, '_blank', 'noopener') } : undefined,
+      });
       await search();
       loadAudit();
     } catch (e) {
