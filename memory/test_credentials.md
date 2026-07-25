@@ -41,8 +41,12 @@
 ## Document uploads (routers/documents.py)
 - `POST/GET /api/drivers/documents/{id}/download` and `POST/GET /api/business/documents/{id}/download` (private object storage; supports `?auth=<jwt>` for img/iframe).
 
-## OTP (Twilio MOCKED)
-- `MOCK_TWILIO=true` — `POST /api/otp/send` returns `dev_code`; `POST /api/otp/verify`.
+## Order-alert test merchant (persisted, preview) — added for merchant new-order alert testing
+- **GROCERY merchant "Alert Test Mart":** `merch_1784954600@gmail.com` / `Test1234!` (user_type=business). Has ≥1 pending grocery order. Dashboard at `/vendor-dashboard`. Use to verify the new-order banner/sound + `/api/vendors/my-orders` + `/api/vendors/stats`.
+
+## OTP / Twilio
+- Preview backend `MOCK_TWILIO=false` (real Twilio). Merchant new-order alerts now send via **SMS** (`_wa_notify(..., channel="sms")`) — WhatsApp free-form failed delivery with error 63005 for un-opted-in merchants.
+- `POST /api/otp/send` / `POST /api/otp/verify`.
 
 ## Notes
 - Stripe test keys; WiPay sandbox + Twilio MOCKED. Mercury LIVE (read-only). M365 email live in production.

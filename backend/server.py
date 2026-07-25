@@ -1508,9 +1508,9 @@ async def get_vendor_orders(request: Request):
     business = await db.businesses.find_one({"user_id": current_user.id})
     
     if restaurant:
-        orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
+        orders = await db.orders.find({"$or": [{"restaurant_id": restaurant["id"]}, {"vendor_id": restaurant["id"]}]}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
     elif business:
-        orders = await db.orders.find({"vendor_id": business["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
+        orders = await db.orders.find({"$or": [{"restaurant_id": business["id"]}, {"vendor_id": business["id"]}]}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
     else:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
@@ -1527,20 +1527,22 @@ async def get_vendor_stats(request: Request):
     
     if restaurant:
         vendor_id = restaurant["id"]
-        filter_field = "restaurant_id"
     elif business:
         vendor_id = business["id"]
-        filter_field = "vendor_id"
     else:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    
+
+    # Match orders saved under either restaurant_id or vendor_id (storefront saves restaurant_id
+    # for all vendor types; some flows use vendor_id).
+    vendor_or = [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}]
+
     # Get today's date range
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
     
     # Today's orders
     today_orders = await db.orders.count_documents({
-        filter_field: vendor_id,
+        "$or": vendor_or,
         "created_at": {
             "$gte": today.isoformat(),
             "$lt": tomorrow.isoformat()
@@ -1550,7 +1552,7 @@ async def get_vendor_stats(request: Request):
     # Today's revenue — aggregation avoids loading every order into memory
     today_revenue_pipeline = [
         {"$match": {
-            filter_field: vendor_id,
+            "$or": vendor_or,
             "created_at": {"$gte": today.isoformat(), "$lt": tomorrow.isoformat()},
             "status": {"$ne": "cancelled"},
         }},
@@ -1561,13 +1563,13 @@ async def get_vendor_stats(request: Request):
     
     # Pending orders
     pending_orders = await db.orders.count_documents({
-        filter_field: vendor_id,
+        "$or": vendor_or,
         "status": "pending"
     })
     
     # Total earnings (all time) — aggregation avoids loading every delivered order
     vendor_earnings_pipeline = [
-        {"$match": {filter_field: vendor_id, "status": "delivered"}},
+        {"$match": {"$or": vendor_or, "status": "delivered"}},
         {"$group": {"_id": None, "total": {"$sum": "$vendor_payout"}}},
     ]
     vendor_earnings_rows = await db.orders.aggregate(vendor_earnings_pipeline).to_list(length=1)
@@ -2982,17 +2984,20 @@ async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
 
 async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
                      event: Optional[str] = None, order_id: Optional[str] = None,
-                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None):
-    """Send a WhatsApp-first notification and log it to whatsapp_messages. Never raises.
+                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None,
+                     channel: str = "whatsapp"):
+    """Send a WhatsApp-first (or direct SMS) notification and log it to whatsapp_messages. Never raises.
 
-    Uses the unified WhatsApp-first engine: on 63005 (no 24h session) it logs and skips,
-    on other errors it falls back to SMS. Returns the send result (or None if no phone)."""
+    channel="whatsapp" (default): WhatsApp-first — on 63005 (no 24h session) it logs and skips,
+    on other create-time errors it falls back to SMS.
+    channel="sms": send SMS directly — use for time-critical transactional alerts (e.g. merchant
+    new-order) where WhatsApp free-form messages fail delivery (63005) for un-opted-in recipients."""
     norm = _normalize_phone(phone or "")
     if not norm:
         return None
     try:
         result = twilio_client.send_notification(
-            norm, body, channel="whatsapp",
+            norm, body, channel=channel,
             content_sid=content_sid, content_variables=content_variables,
         )
         await db.whatsapp_messages.insert_one({
@@ -3006,7 +3011,7 @@ async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
             "twilio_sid": result.get("sid"),
             "automated": True,
             "event": event,
-            "channel_used": result.get("channel_used", "whatsapp"),
+            "channel_used": result.get("channel_used", channel),
             "skipped": result.get("skipped", False),
             "mock": result.get("mock", False),
             "error": result.get("error"),
@@ -3076,8 +3081,10 @@ async def _notify_merchant_new_order(vendor_id: str, order: dict):
         except (TypeError, ValueError):
             pass
     body += ". Open your Vendor Dashboard to accept it."
+    # Merchant new-order alerts go via SMS (transactional): WhatsApp free-form messages
+    # fail delivery with 63005 for merchants who haven't opted into WhatsApp.
     await _wa_notify(phone, body, user_id=doc.get("user_id"),
-                     event="merchant_new_order", order_id=order.get("id"))
+                     event="merchant_new_order", order_id=order.get("id"), channel="sms")
 
 
 @api_router.put("/orders/{order_id}/status")
