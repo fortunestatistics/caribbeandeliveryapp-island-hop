@@ -5,7 +5,7 @@ import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from './components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs';
 import { Pencil, Loader2, Save, Upload, Store, User, Truck } from 'lucide-react';
@@ -124,6 +124,7 @@ const AdminManageProfile = ({ row, index }) => {
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="admin-manage-dialog">
         <DialogHeader>
           <DialogTitle>Edit profile — {row.name || row.email || 'user'}</DialogTitle>
+          <DialogDescription>Edit this user's account, merchant, and driver records.</DialogDescription>
         </DialogHeader>
 
         {loading || !data ? (

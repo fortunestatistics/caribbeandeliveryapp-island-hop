@@ -1,5 +1,20 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Admin Edit-Any-Profile panel + Editable impersonation
+**User report:** "admin still doesn't have access to the client profile after link & provision connect; admin should be able to upload and fix any details on merchant/driver/customer profiles or dashboards; trying to access it takes me back to admin profile." (seen on Production + Preview). User chose BOTH a dedicated admin edit panel AND editable impersonation; images only for uploads.
+- **Dedicated Admin "Edit profile" panel (primary, robust — no impersonation needed):** new admin-gated + audited endpoints in `server.py`:
+  - `GET /api/admin/users/{user_id}/manage` → consolidated `{account, merchant(+vendor_id+logo+cover), driver}`.
+  - `PUT /api/admin/users/{user_id}/account` (name/phone/email[uniqueness-checked]/banking_info) → also sends a `session_refresh` WS.
+  - `PUT /api/admin/merchants/{vendor_id}/profile` (name/desc/cuisine/phone/email/address/delivery_fee/min_order/banking/hours) via new `_find_vendor_by_id` + shared `_merchant_update_set` helper (also refactored the self `PUT /merchant/profile` to use it; businesses branch now also saves delivery_fee/min_order).
+  - `PUT /api/admin/merchants/{vendor_id}/storefront` (logo/cover, ≤~1MB each, images only).
+  - `PUT /api/admin/drivers/{driver_id}/profile` (license/vehicle/plate/banking).
+  All log to `repair_audit` via `_log_repair` (kinds edit_account/edit_merchant/edit_driver).
+  Frontend `AdminManageProfile.js` — an "Edit profile" dialog (testid `admin-manage-dialog`) per Account Repair row (`account-manage-btn-<i>`) with Account/Merchant/Driver tabs, image upload (`fileToConstrainedDataURL`), full field set + banking. Mounted in `AdminAccountRepair.js`. Uses the ADMIN'S OWN cookie session (not impersonation) → avoids the "bounce back to admin" issue entirely.
+- **Editable impersonation:** `POST /api/admin/impersonate/{user_id}?edit=1` now mints a NON-readonly token (writes allowed); default (no edit) stays read-only. `AuthContext.impersonate(userId,name,edit)` passes `?edit=1`; `AdminAccountRepair` "Edit as user" button uses edit mode; `ImpersonationBanner` shows "Editing as … (changes are live)" vs "Viewing as … read-only". The middleware `_readonly_impersonation_guard` still blocks writes ONLY on readonly tokens.
+- **Verified:** curl — all 5 admin endpoints 200 + persist; editable-impersonation write 200, read-only write 403; testing_agent iter58 = 11/11 backend + 10/10 frontend UI (dialog opens, account/merchant/driver saves persist, image controls present, Edit-as-user banner + exit). Clean `CI=true yarn build`. Added `DialogDescription` for a11y. **REQUIRES REDEPLOY (Save to GitHub → Deploy) to reach production.**
+- No new test credentials (reused admin owner + `merch_1784954600@gmail.com` + `qatest_1784993477@gmail.com`).
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Admin Impersonate + Force Re-login + Repair Diagnostics
 - **Admin Impersonate (read-only):** `POST /api/admin/impersonate/{user_id}` issues a short-lived (30 min) JWT with `impersonated_by` + `readonly` claims (no longer clobbers the admin's cookie); `core.py get_current_user_from_request` prefers an impersonation Bearer over the session cookie; a global `@app.middleware` blocks all POST/PUT/PATCH/DELETE under a readonly impersonation token; impersonating another admin is 403. Frontend: `AuthContext.impersonate()/exitImpersonation()` swap this tab's Bearer to the target's token (backing up the admin token), `ImpersonationBanner.js` (mounted in App.js) shows a persistent "Viewing as X — admin, read-only" bar with Exit. "View as user" button on each Account Repair row (`account-repair-viewas-*`). **Verified:** /auth/me returns the target, writes → 403, admin impersonation → 403, banner + exit restore admin.
 - **Force Re-login:** repair endpoints (account repair, provision, bulk) send a WS `session_refresh` to the affected user; `OrderNotifier.js` handles it by calling `AuthContext.refreshUser()` (re-fetch /auth/me) so the user's role updates live — no logout/in needed. Repair `note` updated accordingly.
