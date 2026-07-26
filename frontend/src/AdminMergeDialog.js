@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from './components/ui/dialog';
-import { GitMerge, Search, Loader2, ArrowRight } from 'lucide-react';
+import { GitMerge, Search, Loader2, ArrowRight, Store, Truck, ShoppingBag, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -20,8 +20,25 @@ const AdminMergeDialog = ({ row, index, onMerged }) => {
   const [other, setOther] = useState(null);       // the second account
   const [primaryIsRow, setPrimaryIsRow] = useState(true);
   const [merging, setMerging] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const self = { user_id: row.user_id, name: row.name, email: row.email, user_type: row.user_type };
+
+  useEffect(() => {
+    if (!other) { setPreview(null); return; }
+    const primary = primaryIsRow ? self : other;
+    const secondary = primaryIsRow ? other : self;
+    let active = true;
+    setLoadingPreview(true);
+    axios.get(`${API}/admin/accounts/merge-preview`, {
+      params: { primary_user_id: primary.user_id, secondary_user_id: secondary.user_id },
+      headers: authHeaders(),
+    }).then((r) => { if (active) setPreview(r.data); })
+      .catch((e) => { if (active) { setPreview(null); toast.error(e?.response?.data?.detail || 'Preview failed'); } })
+      .finally(() => { if (active) setLoadingPreview(false); });
+    return () => { active = false; };
+  }, [other, primaryIsRow]);
 
   const search = async () => {
     if (q.trim().length < 2) { toast.error('Enter at least 2 characters'); return; }
@@ -111,6 +128,36 @@ const AdminMergeDialog = ({ row, index, onMerged }) => {
               <ArrowRight className="h-3.5 w-3.5" />
               <span className="font-medium">{(primaryIsRow ? self : other).email}</span>
               <span>(the first account is removed)</span>
+            </div>
+
+            {/* Merge preview — exactly what will move */}
+            <div className="rounded-lg border border-border p-3" data-testid="merge-preview">
+              <p className="text-xs font-semibold mb-2 flex items-center gap-1">
+                <ArrowRight className="h-3.5 w-3.5" />What will move into {(primaryIsRow ? self : other).email}
+              </p>
+              {loadingPreview ? (
+                <div className="py-3 flex justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+              ) : preview ? (
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  {preview.moves.driver && (
+                    <div className="flex items-center gap-2" data-testid="preview-driver"><Truck className="h-3.5 w-3.5 text-neon-cyan" />Driver profile ({preview.moves.driver.vehicle_type || 'vehicle'} · {preview.moves.driver.status || 'active'})</div>
+                  )}
+                  {(preview.moves.merchants || []).map((m) => (
+                    <div key={m.id} className="flex items-center gap-2" data-testid="preview-merchant"><Store className="h-3.5 w-3.5 text-neon-cyan" />Business: <span className="text-foreground font-medium">{m.name}</span>{m.has_storefront ? ' + storefront' : ''}</div>
+                  ))}
+                  <div className="flex items-center gap-2"><ShoppingBag className="h-3.5 w-3.5" />{preview.moves.orders} order(s)</div>
+                  <div className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5" />{preview.moves.addresses} saved address(es){preview.moves.applications ? ` · ${preview.moves.applications} application(s)` : ''}</div>
+                  {!preview.moves.driver && (preview.moves.merchants || []).length === 0 && preview.moves.orders === 0 && (
+                    <p className="italic">This account has no linked business/driver records — only its login will be removed.</p>
+                  )}
+                  <div className="pt-1.5 mt-1 border-t border-border text-foreground">
+                    <span className="font-medium">Result:</span> one login that can switch between{' '}
+                    <span className="font-semibold">{(preview.resulting_roles || []).join(', ')}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Preview unavailable.</p>
+              )}
             </div>
           </div>
         )}

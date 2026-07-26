@@ -26,6 +26,7 @@ const AdminAccountRepair = () => {
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [selected, setSelected] = useState({});
   const [busyKey, setBusyKey] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [audit, setAudit] = useState([]);
@@ -170,15 +171,34 @@ const AdminAccountRepair = () => {
     const vid = row.merchant && row.merchant.id;
     if (!vid) return;
     if (!window.confirm(`Delete the business "${row.name || ''}"? This removes the storefront, products and coupons, and turns the owner back into a normal customer. This cannot be undone.`)) return;
+    const reason = window.prompt('Optional: reason for removal (this is emailed to the merchant). Leave blank to skip.', '') || '';
     setBusyKey(vid + ':delbiz');
     try {
-      await axios.delete(`${API}/admin/merchants/${vid}`, { headers: authHeaders() });
-      toast.success('Business deleted');
+      const r = await axios.delete(`${API}/admin/merchants/${vid}`, { params: reason ? { reason } : {}, headers: authHeaders() });
+      toast.success(`Business deleted${r.data.emailed ? ' — owner notified by email' : ''}`);
       loadAudit();
       search();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not delete business');
     } finally { setBusyKey(null); }
+  };
+
+  const toggleSelect = (uid) => setSelected((s) => ({ ...s, [uid]: !s[uid] }));
+  const selectedIds = Object.keys(selected).filter((k) => selected[k]);
+
+  const bulkDeactivate = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Deactivate ${selectedIds.length} selected account(s)? Owner/admin accounts are skipped. This is reversible via Repair.`)) return;
+    setBulkBusy(true);
+    try {
+      const r = await axios.post(`${API}/admin/users/bulk-deactivate`, { user_ids: selectedIds }, { headers: authHeaders() });
+      toast.success(`Deactivated ${r.data.deactivated.length}, skipped ${r.data.skipped.length}`);
+      setSelected({});
+      loadAudit();
+      search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Bulk deactivate failed');
+    } finally { setBulkBusy(false); }
   };
 
   const roleBadge = (row) => {
@@ -247,10 +267,31 @@ const AdminAccountRepair = () => {
 
         {results && results.length > 0 && (
           <div className="space-y-2" data-testid="account-repair-results">
+            {selectedIds.length > 0 && (
+              <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2" data-testid="bulk-deactivate-bar">
+                <span className="text-sm text-red-700 font-medium">{selectedIds.length} account(s) selected</span>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSelected({})} data-testid="bulk-clear-btn">Clear</Button>
+                  <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 border-red-200" onClick={bulkDeactivate} disabled={bulkBusy} data-testid="bulk-deactivate-btn">
+                    {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Ban className="h-4 w-4 mr-1" />}Deactivate selected
+                  </Button>
+                </div>
+              </div>
+            )}
             {results.map((row, i) => {
               const key = row.user_id || row.driver_id || i;
               return (
                 <div key={key} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background p-3" data-testid={`account-repair-row-${i}`}>
+                  {row.user_id && !row.is_owner && (
+                    <input
+                      type="checkbox"
+                      className="mt-1 shrink-0"
+                      checked={!!selected[row.user_id]}
+                      onChange={() => toggleSelect(row.user_id)}
+                      data-testid={`account-select-${i}`}
+                      title="Select for bulk deactivate"
+                    />
+                  )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-foreground truncate">{row.name || '(no name)'}</span>

@@ -2731,14 +2731,16 @@ async def admin_deactivate_user(user_id: str, request: Request):
 
 
 @api_router.delete("/admin/merchants/{vendor_id}")
-async def admin_delete_business(vendor_id: str, request: Request):
+async def admin_delete_business(vendor_id: str, request: Request, reason: str = ""):
     """Admin: delete a business from the app — removes the vendor record, storefront, products
-    and coupons, and demotes the owner back to a normal customer (their login is kept)."""
+    and coupons, demotes the owner back to a normal customer (login kept), and emails the owner."""
     current_user = await _require_strict_admin(request)
     coll, doc = await _find_vendor_by_id(vendor_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Business not found")
     owner_id = doc.get("user_id")
+    biz_name = doc.get("business_name") or doc.get("name") or "your business"
+    owner = await db.users.find_one({"id": owner_id}, {"_id": 0, "email": 1, "name": 1, "user_type": 1, "is_owner": 1}) if owner_id else None
     await db[coll].delete_one({"id": vendor_id})
     await db.merchant_storefronts.delete_many({"vendor_id": vendor_id})
     for c in ("menu_items", "products"):
@@ -2757,19 +2759,112 @@ async def admin_delete_business(vendor_id: str, request: Request):
             if await db[c].find_one({"user_id": owner_id}, {"_id": 1}):
                 still = c
                 break
-        o = await db.users.find_one({"id": owner_id}, {"_id": 0, "user_type": 1, "is_owner": 1})
-        if not still and o and not o.get("is_owner") and o.get("user_type") in ("restaurant", "business", "car_rental"):
+        if not still and owner and not owner.get("is_owner") and owner.get("user_type") in ("restaurant", "business", "car_rental"):
             await db.users.update_one({"id": owner_id}, {"$set": {"user_type": "customer"}})
             demoted = True
-        if owner_id:
-            try:
-                await manager.send_personal_message(json.dumps({"type": "session_refresh"}), owner_id)
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), owner_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    emailed = False
+    if owner and graph_mail.is_real_email(owner.get("email")):
+        reason_html = f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
+        html = f"""
+            <div style="font-family:Arial,sans-serif;color:#0f172a">
+              <h2 style="color:#0FA3A3;margin-bottom:4px">IslandHop</h2>
+              <p>Hi{(' ' + owner.get('name')) if owner.get('name') else ''},</p>
+              <p>We're letting you know that your business <strong>{biz_name}</strong> has been removed from IslandHop by our team, along with its storefront and product listings.</p>
+              {reason_html}
+              <p>Your login still works as a customer account. If you believe this was a mistake or you'd like to re-list, please contact IslandHop support.</p>
+            </div>
+        """
+        try:
+            await graph_mail.send_mail(owner["email"], f"Your IslandHop business \"{biz_name}\" was removed",
+                                       html, mailbox=graph_mail.notify_mailbox("merchant"))
+            emailed = True
+        except Exception:  # noqa: BLE001
+            pass
+
     await _log_repair(current_user, kind="delete_business",
-                      target={"vendor_id": vendor_id, "collection": coll, "user_id": owner_id},
-                      actions=["deleted business + storefront/products" + (" + demoted owner to customer" if demoted else "")])
-    return {"success": True, "demoted_owner": demoted}
+                      target={"vendor_id": vendor_id, "collection": coll, "user_id": owner_id, "reason": reason or None},
+                      actions=["deleted business + storefront/products"
+                               + (" + demoted owner to customer" if demoted else "")
+                               + (" + emailed owner" if emailed else "")])
+    return {"success": True, "demoted_owner": demoted, "emailed": emailed}
+
+
+async def _merge_summary_for(user_id: str):
+    """Count what an account brings into a merge (used by preview)."""
+    orders = await db.orders.count_documents({"$or": [{"customer_id": user_id}, {"user_id": user_id}]})
+    addresses = await db.addresses.count_documents({"user_id": user_id})
+    merchants = []
+    for c in ("restaurants", "businesses", "car_rental_companies"):
+        async for m in db[c].find({"user_id": user_id}, {"_id": 0, "id": 1, "name": 1, "business_name": 1}):
+            has_sf = await db.merchant_storefronts.find_one({"vendor_id": m.get("id")}, {"_id": 1}) is not None
+            merchants.append({"collection": c, "id": m.get("id"),
+                              "name": m.get("business_name") or m.get("name") or "(unnamed)",
+                              "has_storefront": has_sf})
+    drv = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "id": 1, "status": 1, "vehicle_type": 1})
+    apps = (await db.business_applications.count_documents({"user_id": user_id})
+            + await db.driver_applications.count_documents({"user_id": user_id}))
+    return {"orders": orders, "addresses": addresses, "merchants": merchants,
+            "driver": ({"id": drv.get("id"), "status": drv.get("status"), "vehicle_type": drv.get("vehicle_type")} if drv else None),
+            "applications": apps}
+
+
+@api_router.get("/admin/accounts/merge-preview")
+async def admin_merge_preview(primary_user_id: str, secondary_user_id: str, request: Request):
+    """Admin: preview exactly what a merge will move + the resulting unified roles."""
+    await _require_strict_admin(request)
+    if not primary_user_id or not secondary_user_id or primary_user_id == secondary_user_id:
+        raise HTTPException(status_code=400, detail="Pick two different accounts")
+    primary = await db.users.find_one({"id": primary_user_id}, {"_id": 0})
+    secondary = await db.users.find_one({"id": secondary_user_id}, {"_id": 0})
+    if not primary or not secondary:
+        raise HTTPException(status_code=404, detail="One of the accounts was not found")
+    for u in (primary, secondary):
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent"):
+            raise HTTPException(status_code=403, detail="Cannot merge an owner/admin/agent account")
+    p_roles = set(await _available_roles(primary))
+    s_roles = set(await _available_roles(secondary))
+    return {
+        "primary": {"user_id": primary_user_id, "name": primary.get("name"), "email": primary.get("email"),
+                    "user_type": primary.get("user_type")},
+        "secondary": {"user_id": secondary_user_id, "name": secondary.get("name"), "email": secondary.get("email"),
+                      "user_type": secondary.get("user_type")},
+        "moves": await _merge_summary_for(secondary_user_id),
+        "resulting_roles": sorted(p_roles | s_roles),
+    }
+
+
+class BulkDeactivateRequest(BaseModel):
+    user_ids: List[str]
+
+
+@api_router.post("/admin/users/bulk-deactivate")
+async def admin_bulk_deactivate(payload: BulkDeactivateRequest, request: Request):
+    """Admin: deactivate several accounts at once (skips owner/self/admin/agent)."""
+    current_user = await _require_strict_admin(request)
+    results = {"deactivated": [], "skipped": []}
+    for uid in payload.user_ids[:200]:
+        user = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+        if not user:
+            results["skipped"].append({"user_id": uid, "reason": "not found"})
+            continue
+        if user.get("is_owner") or uid == current_user.id or user.get("user_type") in ("admin", "agent"):
+            results["skipped"].append({"user_id": uid, "email": user.get("email"), "reason": "protected"})
+            continue
+        await db.users.update_one({"id": uid}, {"$set": {"status": "disabled"}, "$unset": {"session_token": ""}})
+        results["deactivated"].append({"user_id": uid, "email": user.get("email")})
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    await _log_repair(current_user, kind="bulk_deactivate",
+                      target={"count": len(results["deactivated"])},
+                      actions=[f"deactivated {len(results['deactivated'])} accounts, skipped {len(results['skipped'])}"])
+    return {"success": True, **results}
 
 
 
