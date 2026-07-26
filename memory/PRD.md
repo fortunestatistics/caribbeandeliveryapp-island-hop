@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 — Consolidate repair panels · Merge accounts · Deactivate/Delete
+- **Removed the separate "Repair a merchant storefront" panel** (`AdminStorefrontRepair` import + render deleted from `AdminApprovals.js`). "Repair an account" already provisions/activates merchants, so it's the single tool now.
+- **Merge accounts** (`POST /api/admin/accounts/merge` {primary_user_id, secondary_user_id}, strict-admin, audited): reassigns the secondary's records (drivers/restaurants/businesses/car_rental_companies/business_applications/driver_applications/addresses/orders[customer_id&user_id]/wallet_funding_requests) → primary, unifies roles via `_available_roles` (sets an appropriate active `user_type` + `roles` addToSet), ensures a driver wallet, deletes the duplicate login, sends `session_refresh`. Refuses owner/admin/agent. Frontend `AdminMergeDialog.js` (button `account-merge-btn-<i>`): shows the row account, search+pick the other account, choose which login survives, confirm.
+- **Deactivate account** (soft delete) `POST /api/admin/users/{user_id}/deactivate`: sets `status:"disabled"` (added to `_BLOCKED_ACCOUNT_STATES` + `core._account_block_detail` → login 403), clears session_token. **Reversible via Repair** (repair re-activates blocked accounts). Protects owner/self/admin/agent. Button `account-deactivate-<i>`.
+- **Delete business** `DELETE /api/admin/merchants/{vendor_id}`: deletes the vendor doc + merchant_storefronts + menu_items/products + merchant_coupons, and demotes the owner to `customer` if they own no other vendor (login kept). Button `account-delete-business-<i>`.
+- **Verified:** backend script `/app/backend/tests/test_merge_deactivate_delete.py` (merge unifies roles + removes dup; deactivate→login 403→repair→login 200; delete business removes vendor + demotes owner; owner-protect 403) + testing_agent iter59 (backend 2/2 + full UI flows, panel removed, all 5 row buttons present). Clean build. **REQUIRES REDEPLOY.**
+- Still open from user's list this session: (a) email the temp password to the user (Reset Email), (b) homepage storefront "Island Spice" demo-fallback robustness fix in `RestaurantMenu.js`, (c) group PayPal payouts + bank payout batch + payment-route readiness under one option button.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Admin Edit-Any-Profile panel + Editable impersonation
 **User report:** "admin still doesn't have access to the client profile after link & provision connect; admin should be able to upload and fix any details on merchant/driver/customer profiles or dashboards; trying to access it takes me back to admin profile." (seen on Production + Preview). User chose BOTH a dedicated admin edit panel AND editable impersonation; images only for uploads.
 - **Dedicated Admin "Edit profile" panel (primary, robust — no impersonation needed):** new admin-gated + audited endpoints in `server.py`:
