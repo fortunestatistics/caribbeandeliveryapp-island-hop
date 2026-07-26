@@ -101,6 +101,21 @@ const AdminAccountRepair = () => {
     }
   };
 
+  const provisionAllMerchants = async () => {
+    setBulkBusy(true);
+    try {
+      const r = await axios.post(`${API}/admin/merchants/provision-all`, {}, { headers: authHeaders() });
+      const n = r.data.provisioned_count || 0;
+      toast.success(n > 0 ? `Provisioned ${n} approved merchant${n === 1 ? '' : 's'}` : 'All approved merchants are already provisioned');
+      loadAudit();
+      if (results) search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Bulk provision failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const viewAs = async (row) => {
     if (!row.user_id) { toast.error('No user account to view'); return; }
     try {
@@ -130,6 +145,7 @@ const AdminAccountRepair = () => {
             <LifeBuoy className="h-5 w-5" style={{ color: '#0FA3A3' }} />
             <h3 className="text-base font-semibold text-foreground">Repair an account (driver / customer / merchant)</h3>
           </div>
+          <div className="flex items-center gap-2 flex-wrap">
           <Button
             size="sm"
             variant="outline"
@@ -140,6 +156,17 @@ const AdminAccountRepair = () => {
             {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
             Repair all approved drivers
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={provisionAllMerchants}
+            disabled={bulkBusy}
+            data-testid="account-provision-all-merchants-btn"
+          >
+            {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
+            Provision all approved merchants
+          </Button>
+          </div>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
           Search any account by name or email — or bulk-heal every approved driver in one click. Fixes an

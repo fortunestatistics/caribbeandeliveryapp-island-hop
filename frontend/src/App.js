@@ -58,6 +58,7 @@ const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
 const MerchantAds = lazy(() => import('./MerchantAds'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
+import RoleSwitcher from './RoleSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
 const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'));
@@ -555,6 +556,7 @@ const Header = () => {
                   <CartButton />
                   <CurrencySwitcher />
                   <ModeSwitcher />
+                  <RoleSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
                     Dashboard

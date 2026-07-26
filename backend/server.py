@@ -2424,6 +2424,102 @@ async def admin_repair_audit(request: Request, limit: int = 50):
     return {"count": len(rows), "results": rows}
 
 
+@api_router.post("/admin/merchants/provision-all")
+async def admin_provision_all_merchants(request: Request):
+    """Admin: one-click provision EVERY approved merchant application that has a linked account
+    but no vendor record yet (creates the storefront + promotes the merchant role). Idempotent."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from routers.admin_records import _provision_merchant_vendor
+    provisioned = []
+    cursor = db.business_applications.find(
+        {"verification_status": {"$in": ["verified", "approved"]}, "user_id": {"$nin": [None, ""]}},
+        {"_id": 0},
+    )
+    async for app in cursor:
+        uid = app.get("user_id")
+        if await db.restaurants.find_one({"user_id": uid}, {"_id": 1}) or \
+           await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
+            continue  # already has a vendor record
+        # Don't clobber a driver account (single active role); skip and let admin decide.
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1})
+        if u and u.get("user_type") == "driver":
+            continue
+        try:
+            await _provision_merchant_vendor(app)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"provision-all failed for app {app.get('id')}: {exc}")
+            continue
+        r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        vid = (r or b or {}).get("id")
+        if vid:
+            provisioned.append({"user_id": uid, "name": app.get("business_name"),
+                                "storefront_url": f"/restaurant/{vid}"})
+            try:
+                await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+            except Exception:  # noqa: BLE001
+                pass
+    if provisioned:
+        await _log_repair(current_user, kind="bulk_merchants",
+                          target={"count": len(provisioned)},
+                          actions=[f"provisioned {len(provisioned)} approved merchant(s)"])
+    return {"success": True, "provisioned_count": len(provisioned), "provisioned": provisioned}
+
+
+# ============================================================
+# Dual-Role support — one account can hold multiple roles (e.g. driver + merchant)
+# and switch which one is active.
+# ============================================================
+async def _available_roles(user) -> list:
+    """Derive the concrete roles this account can act as, from its records."""
+    uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
+    utype = getattr(user, "user_type", None) or (user.get("user_type") if isinstance(user, dict) else None)
+    is_owner = getattr(user, "is_owner", None) if not isinstance(user, dict) else user.get("is_owner")
+    if utype in ("admin", "agent") or is_owner:
+        return []  # staff use the admin panel, not the role switcher
+    roles = ["customer"]
+    drv = await db.drivers.find_one(
+        {"user_id": uid, "status": {"$nin": ["rejected", "pending", "pending_approval"]}}, {"_id": 1})
+    if drv:
+        roles.append("driver")
+    if await db.restaurants.find_one({"user_id": uid}, {"_id": 1}):
+        roles.append("restaurant")
+    elif await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
+        roles.append("business")
+    return roles
+
+
+@api_router.get("/users/available-roles")
+async def get_available_roles(request: Request):
+    """The roles the current account can switch between (for the dual-role switcher)."""
+    current_user = await get_current_user_from_request(request)
+    roles = await _available_roles(current_user)
+    return {"active_role": current_user.user_type, "available_roles": roles,
+            "can_switch": len(roles) > 1}
+
+
+class SwitchRoleRequest(BaseModel):
+    role: str
+
+
+@api_router.post("/users/switch-role")
+async def switch_active_role(payload: SwitchRoleRequest, request: Request):
+    """Switch the account's ACTIVE role (only among roles it actually holds). Keeps a single
+    active user_type so all existing authorization keeps working."""
+    current_user = await get_current_user_from_request(request)
+    roles = await _available_roles(current_user)
+    if payload.role not in roles:
+        raise HTTPException(status_code=403, detail="You don't have access to that role")
+    await db.users.update_one({"id": current_user.id},
+                              {"$set": {"user_type": payload.role},
+                               "$addToSet": {"roles": {"$each": roles}}})
+    return {"success": True, "active_role": payload.role, "available_roles": roles}
+
+
+
+
 
 
 
