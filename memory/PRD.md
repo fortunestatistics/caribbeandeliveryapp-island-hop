@@ -1,5 +1,12 @@
 # IslandHop — Product Requirements Document
 
+## Android Build — v20260726 (Jul 26)
+- Regenerated the Capacitor Android project zip with all latest features. Ran `yarn build` + `npx cap sync android` (synced fresh web assets into `frontend/android/app/src/main/assets/public`).
+- Zipped `frontend/android` → `backend/static/android-project.zip` (~22MB), excluding `build/`, `.gradle/`, `app/build/` caches. `SIGNING_GUIDE.txt` confirmed at zip root.
+- Served by `GET /api/download/android-project` (filename updated to `islandhop-android-20260726.zip`). Verified curl 200 / application/zip / 22.7MB.
+- Preview download: `https://logistics-island.preview.emergentagent.com/api/download/android-project`. For production link, redeploy first.
+
+
 ## Session Log — Jun 2026 — Merge Preview · Bulk Deactivate · Delete Email · Customer↔Business/Driver merge
 - **Merge Preview:** `GET /admin/accounts/merge-preview?primary_user_id=&secondary_user_id=` (strict-admin) returns what the secondary brings (orders count, addresses, driver record, merchant records + storefront flag, applications) plus `resulting_roles` (union of both accounts' derived roles via `_available_roles`). Helper `_merge_summary_for(user_id)`. UI: `AdminMergeDialog` now fetches + renders a live preview block (`merge-preview` with `preview-driver`/`preview-merchant` rows) once the other account is picked / survivor changes — confirms exactly what moves before the Merge button. Verified customer↔driver AND customer↔business both merge (reassign_specs already covers drivers/restaurants/businesses/car_rental_companies).
 - **Bulk Deactivate:** `POST /admin/users/bulk-deactivate {user_ids[]}` (strict-admin, ≤200, skips owner/self/admin/agent, returns deactivated/skipped). UI: per-row checkboxes (`account-select-<i>`) on search results + a bulk action bar (`bulk-deactivate-bar` / `bulk-deactivate-btn` / `bulk-clear-btn`).

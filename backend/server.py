@@ -10858,7 +10858,7 @@ async def download_android_project():
     return FileResponse(
         path=str(zip_path),
         media_type="application/zip",
-        filename="islandhop-android-project.zip",
+        filename="islandhop-android-20260726.zip",
     )
 
 
