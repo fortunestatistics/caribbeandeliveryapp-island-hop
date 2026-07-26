@@ -2023,7 +2023,7 @@ async def admin_repair_storefront(payload: MerchantRepairRequest, request: Reque
 # ============================================================
 # Account Repair — heal driver + customer + merchant accounts
 # ============================================================
-_BLOCKED_ACCOUNT_STATES = {"paused", "restricted", "suspended", "banned"}
+_BLOCKED_ACCOUNT_STATES = {"paused", "restricted", "suspended", "banned", "disabled"}
 
 
 async def _log_repair(actor, *, kind: str, target: dict, actions: list):
@@ -2516,6 +2516,148 @@ async def switch_active_role(payload: SwitchRoleRequest, request: Request):
                               {"$set": {"user_type": payload.role},
                                "$addToSet": {"roles": {"$each": roles}}})
     return {"success": True, "active_role": payload.role, "available_roles": roles}
+
+
+# ============================================================
+# Admin: merge accounts · deactivate account · delete a business
+# ============================================================
+async def _require_strict_admin(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+class AccountMergeRequest(BaseModel):
+    primary_user_id: str
+    secondary_user_id: str
+
+
+@api_router.post("/admin/accounts/merge")
+async def admin_merge_accounts(payload: AccountMergeRequest, request: Request):
+    """Admin: merge two accounts of the same person into ONE login. The secondary account's
+    records (merchant, driver, applications, orders, addresses) are reassigned to the primary,
+    roles are unified so they can switch between Customer/Merchant/Driver, and the duplicate
+    login is removed."""
+    current_user = await _require_strict_admin(request)
+    pid, sid = payload.primary_user_id, payload.secondary_user_id
+    if not pid or not sid or pid == sid:
+        raise HTTPException(status_code=400, detail="Pick two different accounts to merge")
+    primary = await db.users.find_one({"id": pid}, {"_id": 0})
+    secondary = await db.users.find_one({"id": sid}, {"_id": 0})
+    if not primary or not secondary:
+        raise HTTPException(status_code=404, detail="One of the accounts was not found")
+    for u in (primary, secondary):
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent"):
+            raise HTTPException(status_code=403, detail="Cannot merge an owner/admin/agent account")
+
+    actions = []
+    reassign_specs = [
+        ("drivers", "user_id"), ("restaurants", "user_id"), ("businesses", "user_id"),
+        ("car_rental_companies", "user_id"), ("business_applications", "user_id"),
+        ("driver_applications", "user_id"), ("addresses", "user_id"),
+        ("orders", "customer_id"), ("orders", "user_id"),
+        ("wallet_funding_requests", "user_id"),
+    ]
+    for coll, field in reassign_specs:
+        try:
+            res = await db[coll].update_many({field: sid}, {"$set": {field: pid}})
+            if res.modified_count:
+                actions.append(f"moved {res.modified_count} {coll}.{field}")
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not primary.get("banking_info") and secondary.get("banking_info"):
+        await db.users.update_one({"id": pid}, {"$set": {"banking_info": secondary["banking_info"]}})
+
+    refreshed_primary = await db.users.find_one({"id": pid}, {"_id": 0})
+    roles = await _available_roles(refreshed_primary)
+    active = next((r for r in ("restaurant", "business", "driver") if r in roles),
+                  refreshed_primary.get("user_type") or "customer")
+    await db.users.update_one({"id": pid},
+                              {"$set": {"user_type": active}, "$addToSet": {"roles": {"$each": roles}}})
+
+    drv = await db.drivers.find_one({"user_id": pid}, {"_id": 0, "id": 1})
+    if drv and not await db.driver_wallets.find_one({"driver_id": drv["id"]}, {"_id": 1}):
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
+
+    await db.users.delete_one({"id": sid})
+    actions.append(f"removed the duplicate account ({secondary.get('email')})")
+
+    await _log_repair(current_user, kind="merge_accounts",
+                      target={"primary": pid, "primary_email": primary.get("email"),
+                              "secondary": sid, "secondary_email": secondary.get("email")},
+                      actions=actions)
+    try:
+        await manager.send_personal_message(json.dumps({"type": "session_refresh"}), pid)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "actions": actions, "available_roles": roles,
+            "account": await _account_health_entry(await db.users.find_one({"id": pid}, {"_id": 0}))}
+
+
+@api_router.post("/admin/users/{user_id}/deactivate")
+async def admin_deactivate_user(user_id: str, request: Request):
+    """Admin: deactivate (soft-delete) an account. The user can no longer log in and is hidden,
+    but the data is kept. Reversible via account Repair (which re-activates blocked accounts)."""
+    current_user = await _require_strict_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_owner") or user_id == current_user.id or user.get("user_type") in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="This account is protected and cannot be deactivated")
+    await db.users.update_one({"id": user_id},
+                              {"$set": {"status": "disabled"}, "$unset": {"session_token": ""}})
+    await _log_repair(current_user, kind="deactivate_account",
+                      target={"user_id": user_id, "email": user.get("email")},
+                      actions=["deactivated the account (soft delete)"])
+    try:
+        await manager.send_personal_message(json.dumps({"type": "session_refresh"}), user_id)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "status": "disabled"}
+
+
+@api_router.delete("/admin/merchants/{vendor_id}")
+async def admin_delete_business(vendor_id: str, request: Request):
+    """Admin: delete a business from the app — removes the vendor record, storefront, products
+    and coupons, and demotes the owner back to a normal customer (their login is kept)."""
+    current_user = await _require_strict_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Business not found")
+    owner_id = doc.get("user_id")
+    await db[coll].delete_one({"id": vendor_id})
+    await db.merchant_storefronts.delete_many({"vendor_id": vendor_id})
+    for c in ("menu_items", "products"):
+        try:
+            await db[c].delete_many({"$or": [{"vendor_id": vendor_id}, {"restaurant_id": vendor_id}]})
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        await db.merchant_coupons.delete_many({"vendor_id": vendor_id})
+    except Exception:  # noqa: BLE001
+        pass
+    demoted = False
+    if owner_id:
+        still = None
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            if await db[c].find_one({"user_id": owner_id}, {"_id": 1}):
+                still = c
+                break
+        o = await db.users.find_one({"id": owner_id}, {"_id": 0, "user_type": 1, "is_owner": 1})
+        if not still and o and not o.get("is_owner") and o.get("user_type") in ("restaurant", "business", "car_rental"):
+            await db.users.update_one({"id": owner_id}, {"$set": {"user_type": "customer"}})
+            demoted = True
+        if owner_id:
+            try:
+                await manager.send_personal_message(json.dumps({"type": "session_refresh"}), owner_id)
+            except Exception:  # noqa: BLE001
+                pass
+    await _log_repair(current_user, kind="delete_business",
+                      target={"vendor_id": vendor_id, "collection": coll, "user_id": owner_id},
+                      actions=["deleted business + storefront/products" + (" + demoted owner to customer" if demoted else "")])
+    return {"success": True, "demoted_owner": demoted}
 
 
 

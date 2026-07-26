@@ -5,9 +5,10 @@ import { useAuth } from './AuthContext';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
-import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown } from 'lucide-react';
+import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown, Ban, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import AdminManageProfile from './AdminManageProfile';
+import AdminMergeDialog from './AdminMergeDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -126,6 +127,35 @@ const AdminAccountRepair = () => {
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not open this account');
     }
+  };
+
+  const deactivate = async (row) => {
+    if (!row.user_id) return;
+    if (!window.confirm(`Deactivate ${row.name || row.email || 'this account'}? They won't be able to log in. You can reactivate it later with Repair.`)) return;
+    setBusyKey(row.user_id + ':deact');
+    try {
+      await axios.post(`${API}/admin/users/${row.user_id}/deactivate`, {}, { headers: authHeaders() });
+      toast.success('Account deactivated');
+      loadAudit();
+      search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not deactivate');
+    } finally { setBusyKey(null); }
+  };
+
+  const deleteBusiness = async (row) => {
+    const vid = row.merchant && row.merchant.id;
+    if (!vid) return;
+    if (!window.confirm(`Delete the business "${row.name || ''}"? This removes the storefront, products and coupons, and turns the owner back into a normal customer. This cannot be undone.`)) return;
+    setBusyKey(vid + ':delbiz');
+    try {
+      await axios.delete(`${API}/admin/merchants/${vid}`, { headers: authHeaders() });
+      toast.success('Business deleted');
+      loadAudit();
+      search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not delete business');
+    } finally { setBusyKey(null); }
   };
 
   const roleBadge = (row) => {
@@ -259,6 +289,31 @@ const AdminAccountRepair = () => {
                         data-testid={`account-repair-viewas-${i}`}
                       >
                         <Eye className="h-4 w-4 mr-1" />Edit as user
+                      </Button>
+                    )}
+                    {row.user_id && <AdminMergeDialog row={row} index={i} onMerged={search} />}
+                    {row.merchant && row.merchant.id && !row.is_owner && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700 border-red-200"
+                        onClick={() => deleteBusiness(row)}
+                        disabled={busyKey === (row.merchant.id + ':delbiz')}
+                        data-testid={`account-delete-business-${i}`}
+                      >
+                        {busyKey === (row.merchant.id + ':delbiz') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}Delete business
+                      </Button>
+                    )}
+                    {row.user_id && !row.is_owner && row.account_status !== 'disabled' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700 border-red-200"
+                        onClick={() => deactivate(row)}
+                        disabled={busyKey === (row.user_id + ':deact')}
+                        data-testid={`account-deactivate-${i}`}
+                      >
+                        {busyKey === (row.user_id + ':deact') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4 mr-1" />}Deactivate
                       </Button>
                     )}
                     {storefrontUrl(row) && (

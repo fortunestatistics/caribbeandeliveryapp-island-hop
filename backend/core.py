@@ -156,6 +156,8 @@ def _account_block_detail(user_doc: dict):
     st = (user_doc.get("status") or "active").lower()
     if st == "paused":
         return "Your account has been paused by an administrator. Please contact IslandHop support."
+    if st == "disabled":
+        return "Your account has been deactivated by an administrator. Please contact IslandHop support to reactivate it."
     if st in ("restricted", "suspended", "banned"):
         return "Your account has been restricted. Please contact IslandHop support."
     return None

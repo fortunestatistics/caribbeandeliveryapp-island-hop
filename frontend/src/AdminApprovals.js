@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { storeSession } from './authToken';
-import AdminStorefrontRepair from './AdminStorefrontRepair';
 import AdminAccountRepair from './AdminAccountRepair';
 import AdminMerchantsMissingCountry from './AdminMerchantsMissingCountry';
 import AdminPayPalPayouts from './AdminPayPalPayouts';
@@ -410,13 +409,8 @@ const AdminApprovals = () => {
         </div>
       </div>
 
-      {/* Storefront repair tool */}
-      <AdminStorefrontRepair />
-
-      {/* Account repair tool — drivers / customers / merchants */}
-      <div className="mt-4">
-        <AdminAccountRepair />
-      </div>
+      {/* Account repair tool — drivers / customers / merchants (also fixes storefronts) */}
+      <AdminAccountRepair />
 
       {/* Payment routing guardrail — merchants missing a country */}
       <AdminMerchantsMissingCountry />
