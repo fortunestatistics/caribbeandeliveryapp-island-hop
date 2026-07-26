@@ -5426,7 +5426,7 @@ async def change_password(payload: ChangePassword, request: Request):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
-    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}})
+    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}, "$unset": {"must_change_password": ""}})
     return {"success": True}
 
 
@@ -8424,6 +8424,7 @@ async def admin_set_user_password(user_id: str, payload: AdminSetPassword, reque
     await db.users.update_one(
         {"id": user_id},
         {"$set": {"hashed_password": get_password_hash(temp_password),
+                  "must_change_password": True,
                   "password_temp_set_at": datetime.now(timezone.utc).isoformat(),
                   "password_temp_set_by": current_user.id},
          "$unset": {"session_token": ""}},

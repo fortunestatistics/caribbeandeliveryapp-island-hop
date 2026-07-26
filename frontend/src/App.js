@@ -154,6 +154,7 @@ const AdminDispatch = lazy(() => import('./AdminDispatch'));
 import OfflineSyncManager from './OfflineSync';
 import OrderNotifier from './OrderNotifier';
 import ImpersonationBanner from './ImpersonationBanner';
+import ForcePasswordChange from './ForcePasswordChange';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -2136,6 +2137,7 @@ function App() {
           <OfflineSyncManager />
           <OrderNotifier />
           <ImpersonationBanner />
+          <ForcePasswordChange />
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>

@@ -203,6 +203,7 @@ class User(BaseModel):
     banking_info: Optional[Dict[str, Any]] = None
     referred_by: Optional[str] = None
     referral_code_used: Optional[str] = None
+    must_change_password: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
