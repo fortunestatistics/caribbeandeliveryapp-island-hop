@@ -2229,6 +2229,7 @@ class AccountRepairRequest(BaseModel):
     driver_id: Optional[str] = None
     application_id: Optional[str] = None  # provision an approved merchant application
     email: Optional[str] = None           # link an unlinked application to this signup email
+    link_user_id: Optional[str] = None    # link an unlinked application to this existing account
 
 
 @api_router.post("/admin/accounts/repair")
@@ -2250,17 +2251,26 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
         if app_doc.get("verification_status") not in ("verified", "approved"):
             raise HTTPException(status_code=400, detail="Approve the application first, then provision it.")
         override_email = (payload.email or "").strip().lower()
-        if not app_doc.get("user_id") and override_email:
+        link_uid = (payload.link_user_id or "").strip()
+        if not app_doc.get("user_id") and link_uid:
+            acct = await db.users.find_one({"id": link_uid}, {"_id": 0, "id": 1, "email": 1})
+            if not acct:
+                raise HTTPException(status_code=404, detail="The account you picked to link no longer exists.")
+            app_doc["user_id"] = acct["id"]
+            await db.business_applications.update_one(
+                {"id": payload.application_id},
+                {"$set": {"user_id": acct["id"], "email": acct.get("email") or app_doc.get("email")}})
+        elif not app_doc.get("user_id") and override_email:
             acct = await db.users.find_one({"email": override_email}, {"_id": 0, "id": 1})
             if not acct:
                 raise HTTPException(status_code=404, detail=f"No user account found for {override_email}. "
-                                   "Ask the merchant to sign up with that email first, then provision.")
+                                   "Ask the merchant to sign up with that email first, or pick an existing account to link.")
             app_doc["user_id"] = acct["id"]
             await db.business_applications.update_one(
                 {"id": payload.application_id}, {"$set": {"user_id": acct["id"], "email": override_email}})
         if not app_doc.get("user_id"):
             raise HTTPException(status_code=409, detail="This approved application has no linked account. "
-                               "Enter the merchant's signup email to link + provision it.")
+                               "Pick an existing account (or enter the merchant's signup email) to link + provision it.")
         await _provision_merchant_vendor(app_doc)
         uid = app_doc["user_id"]
         r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})

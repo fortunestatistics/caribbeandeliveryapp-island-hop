@@ -9,6 +9,7 @@ import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, Ex
 import { toast } from 'sonner';
 import AdminManageProfile from './AdminManageProfile';
 import AdminMergeDialog from './AdminMergeDialog';
+import AdminProvisionLink from './AdminProvisionLink';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -338,7 +339,9 @@ const AdminAccountRepair = () => {
                     )}
                   </div>
                   <div className="flex flex-col gap-2 shrink-0">
-                    {row.repairable && (
+                    {row.kind === 'merchant_application' && !row.has_account ? (
+                      <AdminProvisionLink row={row} index={i} onDone={() => { search(); loadAudit(); }} />
+                    ) : row.repairable && (
                       <Button size="sm" onClick={() => repair(row, key)} disabled={busyKey === key} data-testid={`account-repair-btn-${i}`}>
                         {busyKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <LifeBuoy className="h-4 w-4 mr-1" />}
                         {row.kind === 'merchant_application' ? 'Provision' : 'Repair'}

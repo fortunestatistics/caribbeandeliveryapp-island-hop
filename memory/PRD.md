@@ -1,5 +1,12 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 — Link & Provision unlinked merchant applications
+- **Problem:** approved merchant applications whose signup email matches no account (e.g. Webnest Solution LLC / b_brent_@hotmail.com) couldn't be provisioned — the old flow only accepted an exact email match via `window.prompt` and 404'd otherwise. Williams Dream Cakes (has an account) provisions fine.
+- **Fix:** `AccountRepairRequest` gained `link_user_id`. In the `application_id` branch of `POST /admin/accounts/repair`, if the app has no `user_id`: link to `link_user_id` (verified) OR fall back to exact `email`; persists the link on the application then provisions. Clearer 404/409 messages ("…or pick an existing account to link").
+- **UI:** new `AdminProvisionLink.js` dialog (`provision-link-dialog`) — for merchant_application rows with `!has_account`, the Provision button is replaced by **"Link & provision"** (`account-provision-link-btn-<i>`): search any existing account (`provision-search-input`/`provision-result-<i>`) and pick it, or link by exact email (`provision-manual-email`), then provision. Linked-account rows keep the direct Provision button.
+- **Verified:** backend `/app/backend/tests/test_provision_link.py` (wrong email → 404; link_user_id → 200, vendor created, app linked, owner promoted to business) + browser screenshot (dialog shows application, account search returns results, manual-email fallback). Clean build. **REQUIRES REDEPLOY.**
+
+
 ## Android Build — v20260726 (Jul 26)
 - Regenerated the Capacitor Android project zip with all latest features. Ran `yarn build` + `npx cap sync android` (synced fresh web assets into `frontend/android/app/src/main/assets/public`).
 - Zipped `frontend/android` → `backend/static/android-project.zip` (~22MB), excluding `build/`, `.gradle/`, `app/build/` caches. `SIGNING_GUIDE.txt` confirmed at zip root.
