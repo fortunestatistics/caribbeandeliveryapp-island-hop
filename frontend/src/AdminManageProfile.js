@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from './components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs';
-import { Pencil, Loader2, Save, Upload, Store, User, Truck } from 'lucide-react';
+import { Pencil, Loader2, Save, Upload, Store, User, Truck, KeyRound, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { fileToConstrainedDataURL } from './imageUtils';
 
@@ -33,6 +33,10 @@ const AdminManageProfile = ({ row, index }) => {
   const [merchant, setMerchant] = useState(null);
   const [driver, setDriver] = useState(null);
   const [tab, setTab] = useState('account');
+  const [customPw, setCustomPw] = useState('');
+  const [tempPw, setTempPw] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -111,6 +115,27 @@ const AdminManageProfile = ({ row, index }) => {
     } finally { setSaving(false); }
   };
 
+  const resetPassword = async (generate) => {
+    if (!generate && customPw.trim().length < 8) { toast.error('Password must be at least 8 characters'); return; }
+    setResetting(true);
+    setTempPw('');
+    setCopied(false);
+    try {
+      const r = await axios.put(`${API}/admin/users/${row.user_id}/password`,
+        generate ? { generate: true } : { password: customPw.trim() },
+        { headers: authHeaders() });
+      setTempPw(r.data.temp_password);
+      setCustomPw('');
+      toast.success('Temporary password set — share it with the user');
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to reset password');
+    } finally { setResetting(false); }
+  };
+
+  const copyTempPw = async () => {
+    try { await navigator.clipboard.writeText(tempPw); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) { /* clipboard blocked */ }
+  };
+
   const setAddr = (k, v) => setMerchant((m) => ({ ...m, address: { ...(m.address || {}), [k]: v } }));
   const setBank = (obj, setter, k, v) => setter((o) => ({ ...o, banking_info: { ...(o.banking_info || {}), [k]: v } }));
 
@@ -153,6 +178,29 @@ const AdminManageProfile = ({ row, index }) => {
                   <Field label="Account number" value={account.banking_info?.account_number} onChange={(v) => setBank(account, setAccount, 'account_number', v)} testid="manage-account-bank-number" />
                   <Field label="Branch" value={account.banking_info?.branch} onChange={(v) => setBank(account, setAccount, 'branch', v)} testid="manage-account-bank-branch" />
                 </div>
+              </div>
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs font-medium mb-1 flex items-center gap-1"><KeyRound className="h-3.5 w-3.5" />Reset password</p>
+                <p className="text-[11px] text-muted-foreground mb-2">Set a temporary password so a locked-out user can log back in, then change it themselves.</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => resetPassword(true)} disabled={resetting} data-testid="manage-reset-generate">
+                    {resetting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <KeyRound className="h-4 w-4 mr-1" />}Generate temporary password
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Input value={customPw} onChange={(e) => setCustomPw(e.target.value)} placeholder="or type a password (min 8)" className="w-52" data-testid="manage-reset-custom-input" />
+                    <Button size="sm" variant="outline" onClick={() => resetPassword(false)} disabled={resetting} data-testid="manage-reset-set-custom">Set</Button>
+                  </div>
+                </div>
+                {tempPw && (
+                  <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2" data-testid="manage-reset-result">
+                    <span className="text-xs text-amber-800">Temporary password:</span>
+                    <code className="text-sm font-mono font-semibold text-amber-900" data-testid="manage-reset-temp-pw">{tempPw}</code>
+                    <button type="button" onClick={copyTempPw} className="text-amber-700 hover:text-amber-900" data-testid="manage-reset-copy">
+                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                    <span className="text-[10px] text-amber-700 ml-auto">Shown once — copy it now.</span>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button onClick={saveAccount} disabled={saving} data-testid="manage-account-save">

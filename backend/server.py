@@ -8390,6 +8390,51 @@ async def admin_update_user_account(user_id: str, payload: AdminAccountUpdate, r
     return {"success": True, "account": new}
 
 
+class AdminSetPassword(BaseModel):
+    password: Optional[str] = None
+    generate: bool = False
+
+
+def _generate_temp_password(length: int = 14) -> str:
+    """Server-side strong temp password (stays well under bcrypt's 72-byte limit)."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*-_"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@api_router.put("/admin/users/{user_id}/password")
+async def admin_set_user_password(user_id: str, payload: AdminSetPassword, request: Request):
+    """Admin: set a temporary password for a stuck user so they can log back in.
+    Returns the temp password ONCE (never stored in plaintext / never logged)."""
+    current_user = await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_owner") or (user.get("user_type") == "admin" and user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Cannot reset another admin/owner's password")
+
+    if payload.generate:
+        temp_password = _generate_temp_password()
+    else:
+        temp_password = (payload.password or "").strip()
+        if len(temp_password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        if len(temp_password.encode("utf-8")) > 72:
+            raise HTTPException(status_code=400, detail="Password is too long (max 72 bytes)")
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"hashed_password": get_password_hash(temp_password),
+                  "password_temp_set_at": datetime.now(timezone.utc).isoformat(),
+                  "password_temp_set_by": current_user.id},
+         "$unset": {"session_token": ""}},
+    )
+    await _log_repair(current_user, kind="reset_password",
+                      target={"user_id": user_id, "email": user.get("email")},
+                      actions=["set a temporary password"])
+    logging.info(f"Admin {current_user.email} set a temporary password for {user.get('email')}")
+    return {"success": True, "temp_password": temp_password, "email": user.get("email")}
+
+
 @api_router.put("/admin/merchants/{vendor_id}/profile")
 async def admin_update_merchant_profile(vendor_id: str, payload: MerchantProfileUpdate, request: Request):
     """Admin: edit any merchant's business profile (name, contact, address, fees, hours, banking)."""
