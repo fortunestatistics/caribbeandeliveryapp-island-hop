@@ -1,0 +1,33 @@
+{
+  "summary": "Iter 58 — Admin Edit-Any-Profile panel + editable impersonation. Backend: 11/11 pytest cases PASS (GET /admin/users/{id}/manage returns account+merchant+driver, PUT /account persists, PUT /merchants/{vid}/profile persists description+delivery_fee+min_order, PUT /merchants/{vid}/storefront saves logo/cover, PUT /drivers/{did}/profile persists vehicle_plate, impersonate returns readonly:true by default and readonly:false with ?edit=1, editable-token PUT /users/me returns 200 while readonly-token PUT /users/me returns 403, and non-admin JWT is rejected 401/403). Frontend: (1) admin login -> /admin -> Approvals tab shows account-repair-tool; (2) search 'merch' returns rows with account-manage-btn-0 + account-repair-viewas-0 + account-repair-open-0; (3) Edit-profile opens admin-manage-dialog with manage-tab-account + manage-tab-merchant; (4) Account tab save persists new name after dialog re-open; (5) Merchant tab save persists new description and min_order; logo & cover upload controls (manage-merchant-logo-upload / manage-merchant-cover-upload) present; (6) search 'qatest' -> Driver tab present, vehicle_plate save persists on reload; (7) Edit-as-user on merchant row navigates to /vendor-dashboard and impersonation-banner reads exactly \"Editing as QA58 ... (business) — admin (changes are live) Exit\"; (8) impersonation-exit-btn returns to /admin. All 10 UI checkpoints verified.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminManageProfile dialog", "issues": ["Radix DialogContent is missing a DialogDescription / aria-describedby (console warning). Non-blocking a11y issue — add a <DialogDescription> under the DialogHeader (e.g. 'Edit this user's account, merchant, and driver records.')."]},
+      {"screen": "Admin Panel → Approvals (pre-existing paypal-payouts-count Badge)", "issues": ["Pre-existing hydration warning: <div> nested inside <p>. Carried over from iter 57."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter58_admin_manage_edit.py",
+    "/app/test_reports/pytest/iter58.xml"
+  ],
+  "action_items": [
+    "OPTIONAL a11y: add a DialogDescription to admin-manage-dialog to silence Radix aria-describedby warning.",
+    "OPTIONAL: fix pre-existing <div>-in-<p> hydration warning around paypal-payouts-count (carry-over)."
+  ],
+  "critical_code_review_comments": [
+    "AdminManageProfile.js and AdminAccountRepair.js still send a manual `Authorization: Bearer <localStorage.token>` header. After cookie-migration localStorage.token is the sentinel string 'cookie', which the backend deliberately treats as invalid and falls back to the session_token httpOnly cookie (works only because axios.defaults.withCredentials=true is set globally). Not broken but confusing — consider dropping authHeaders() throughout for consistency.",
+    "The saveAccount handler only sends name/phone/email/banking_info — status, user_type, address etc. are intentionally read-only in the UI. Good.",
+    "admin_update_user_account trims email and checks for uniqueness case-insensitively (409 -> 400 with clear message). Good.",
+    "Editable impersonation is scoped to a 30-min JWT via `impersonated_by` claim with readonly=False; the read-only guard clearly enforces 403 on writes when readonly=True — verified end-to-end."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter58_admin_manage_edit.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (10/10 checkpoints)"},
+  "test_credentials": "Admin: tracyfortune@islandhoptt.com / IslandHopAdmin2026!; Merchant: merch_1784954600@gmail.com / Test1234! (Alert Test Mart, business) — during testing its account name was rewritten to 'QA58 <ts>' and merchant description to 'Iter58UI <ts>'; Driver: qatest_1784993477@gmail.com / Test1234! — vehicle_plate rewritten to 'QA<5digits>'.",
+  "seed_data_creation": "None. Only edited existing merch/driver test accounts as noted above.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin tabs in AdminPanel.js are rendered as plain <button>s (not role=tab) — click by text content or add data-testid. Login for admin dual-role lands on /dashboard by default; navigate directly to /admin (or use the Admin dropdown). The AdminManageProfile dialog picks its initial tab as 'merchant' when merchant record exists (else 'driver' else 'account'), so switch explicitly to 'account' before asserting account fields. Merchant search 'merch' with 2 results: row 0 = actual business user (has manage/viewas/open), row 1 = orphan merchant_application (no user_id -> no Edit-profile). Editable-impersonation token successfully wrote to PUT /api/users/me (returned 200), read-only token got 403. All admin manage endpoints authenticate via the admin's own cookie session; do NOT mint an impersonation JWT for the AdminManageProfile dialog."
+}

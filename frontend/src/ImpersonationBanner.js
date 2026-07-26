@@ -22,8 +22,8 @@ const ImpersonationBanner = () => {
     >
       <Eye className="h-4 w-4 shrink-0" />
       <span className="truncate">
-        Viewing as <strong>{impersonation.targetName}</strong>
-        {impersonation.userType ? ` (${impersonation.userType})` : ''} — admin, read-only
+        {impersonation.readonly ? 'Viewing as' : 'Editing as'} <strong>{impersonation.targetName}</strong>
+        {impersonation.userType ? ` (${impersonation.userType})` : ''} — admin{impersonation.readonly ? ', read-only' : ' (changes are live)'}
       </span>
       <button
         onClick={exit}

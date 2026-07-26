@@ -8163,6 +8163,39 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
     }
 
 
+async def _find_vendor_by_id(vendor_id: str):
+    """Return (collection_name, doc) for a vendor located by its vendor id (any type)."""
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0})
+        if doc:
+            return coll, doc
+    return None, None
+
+
+def _merchant_update_set(coll: str, fields: dict) -> dict:
+    """Map canonical profile fields to the correct per-collection storage keys."""
+    update = {}
+    if coll == "businesses":
+        if "name" in fields:
+            update["business_name"] = fields["name"].strip() if isinstance(fields["name"], str) else fields["name"]
+        if "description" in fields:
+            update["business_description"] = fields["description"]
+        for k in ("phone", "email", "address", "delivery_fee", "minimum_order",
+                  "banking_info", "business_hours"):
+            if k in fields:
+                update[k] = fields[k]
+    else:
+        for k in ("name", "description", "cuisine_type", "phone", "email",
+                  "address", "delivery_fee", "minimum_order"):
+            if k in fields:
+                update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+        if "banking_info" in fields:
+            update["banking_info"] = fields["banking_info"]
+        if "business_hours" in fields:
+            update["business_hours"] = fields["business_hours"]
+    return update
+
+
 class MerchantProfileUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
@@ -8198,29 +8231,7 @@ async def update_merchant_profile(payload: MerchantProfileUpdate, request: Reque
         raise HTTPException(status_code=404, detail="No merchant account found for this user")
 
     fields = {k: v for k, v in payload.dict().items() if v is not None}
-    update = {}
-    if coll == "businesses":
-        # Map canonical → businesses field names
-        if "name" in fields:
-            update["business_name"] = fields["name"].strip()
-        if "description" in fields:
-            update["business_description"] = fields["description"]
-        for k in ("phone", "email", "address"):
-            if k in fields:
-                update[k] = fields[k]
-        if "banking_info" in fields:
-            update["banking_info"] = fields["banking_info"]
-        if "business_hours" in fields:
-            update["business_hours"] = fields["business_hours"]
-    else:
-        for k in ("name", "description", "cuisine_type", "phone", "email",
-                  "address", "delivery_fee", "minimum_order"):
-            if k in fields:
-                update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
-        if "banking_info" in fields:
-            update["banking_info"] = fields["banking_info"]
-        if "business_hours" in fields:
-            update["business_hours"] = fields["business_hours"]
+    update = _merchant_update_set(coll, fields)
 
     if update:
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -8273,6 +8284,173 @@ async def update_my_storefront(payload: StorefrontUpdate, request: Request):
     await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
     doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
     return {"success": True, "storefront": doc}
+
+
+# ============================================================
+# Admin "Manage Profile" — admin can view & edit any merchant / driver /
+# customer profile directly (name, contact, address, banking, store hours,
+# vehicle/license, and logo/cover images). Fully admin-gated + audit-logged.
+# ============================================================
+class AdminAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
+class AdminStorefrontImages(BaseModel):
+    logo: Optional[str] = None
+    cover: Optional[str] = None
+
+
+async def _require_admin(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+@api_router.get("/admin/users/{user_id}/manage")
+async def admin_get_user_manage(user_id: str, request: Request):
+    """Admin: consolidated editable view of a user's account + merchant + driver records."""
+    await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    out = {
+        "user_id": user_id,
+        "account": {
+            "name": user.get("name"),
+            "phone": user.get("phone"),
+            "email": user.get("email"),
+            "user_type": user.get("user_type"),
+            "status": user.get("status") or "active",
+            "banking_info": user.get("banking_info") or {},
+        },
+        "merchant": None,
+        "driver": None,
+    }
+    coll, doc = await _find_vendor_doc(user_id)
+    if doc:
+        prof = _normalize_vendor_profile(coll, doc)
+        sf = await db.merchant_storefronts.find_one(
+            {"vendor_id": doc["id"]}, {"_id": 0, "logo": 1, "cover": 1})
+        prof["vendor_id"] = doc["id"]
+        prof["logo"] = (sf or {}).get("logo")
+        prof["cover"] = (sf or {}).get("cover")
+        out["merchant"] = prof
+    drv = await db.drivers.find_one({"user_id": user_id}, {"_id": 0})
+    if drv:
+        out["driver"] = {
+            "driver_id": drv.get("id"),
+            "license_number": drv.get("license_number"),
+            "vehicle_type": drv.get("vehicle_type"),
+            "vehicle_plate": drv.get("vehicle_plate"),
+            "status": drv.get("status"),
+            "personal_info": drv.get("personal_info") or {},
+            "vehicle_info": drv.get("vehicle_info") or {},
+            "banking_info": drv.get("banking_info") or {},
+        }
+    return out
+
+
+@api_router.put("/admin/users/{user_id}/account")
+async def admin_update_user_account(user_id: str, payload: AdminAccountUpdate, request: Request):
+    """Admin: edit a user's core account fields (name, phone, email, banking)."""
+    current_user = await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    fields = {k: v for k, v in payload.dict().items() if v is not None}
+    update = {}
+    for k in ("name", "phone"):
+        if k in fields:
+            update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+    if "email" in fields:
+        new_email = fields["email"].strip().lower()
+        if new_email and new_email != (user.get("email") or "").lower():
+            clash = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}}, {"_id": 1})
+            if clash:
+                raise HTTPException(status_code=400, detail="Another account already uses that email")
+            update["email"] = new_email
+    if "banking_info" in fields:
+        update["banking_info"] = fields["banking_info"]
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.users.update_one({"id": user_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_account",
+                          target={"user_id": user_id, "email": user.get("email")},
+                          actions=[f"edited account: {', '.join(update.keys())}"])
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), user_id)
+        except Exception:  # noqa: BLE001
+            pass
+    new = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1, "banking_info": 1})
+    return {"success": True, "account": new}
+
+
+@api_router.put("/admin/merchants/{vendor_id}/profile")
+async def admin_update_merchant_profile(vendor_id: str, payload: MerchantProfileUpdate, request: Request):
+    """Admin: edit any merchant's business profile (name, contact, address, fees, hours, banking)."""
+    current_user = await _require_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+    fields = {k: v for k, v in payload.dict().items() if v is not None}
+    update = _merchant_update_set(coll, fields)
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db[coll].update_one({"id": vendor_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_merchant",
+                          target={"vendor_id": vendor_id, "user_id": doc.get("user_id")},
+                          actions=[f"edited merchant: {', '.join(update.keys())}"])
+    new_doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0})
+    return {"success": True, "profile": _normalize_vendor_profile(coll, new_doc)}
+
+
+@api_router.put("/admin/merchants/{vendor_id}/storefront")
+async def admin_update_merchant_storefront(vendor_id: str, payload: AdminStorefrontImages, request: Request):
+    """Admin: upload/replace a merchant's logo & cover image."""
+    current_user = await _require_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+    for field in ("logo", "cover"):
+        val = getattr(payload, field)
+        if val and len(val) > MAX_STOREFRONT_IMG_LEN:
+            raise HTTPException(status_code=413, detail=f"{field.capitalize()} image is too large (max ~1MB)")
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        vt = ("restaurant" if coll == "restaurants"
+              else "car_rental" if coll == "car_rental_companies"
+              else (doc.get("business_type") or "business"))
+        update.update({"vendor_id": vendor_id, "vendor_type": vt,
+                       "updated_at": datetime.now(timezone.utc).isoformat()})
+        await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
+        await _log_repair(current_user, kind="edit_merchant",
+                          target={"vendor_id": vendor_id, "user_id": doc.get("user_id")},
+                          actions=[f"updated images: {', '.join(k for k in update if k in ('logo', 'cover'))}"])
+    sf = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    return {"success": True, "storefront": sf}
+
+
+@api_router.put("/admin/drivers/{driver_id}/profile")
+async def admin_update_driver_profile(driver_id: str, payload: DriverProfileUpdate, request: Request):
+    """Admin: edit any driver's license, vehicle & banking details."""
+    current_user = await _require_admin(request)
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.drivers.update_one({"id": driver_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_driver",
+                          target={"driver_id": driver_id, "user_id": driver.get("user_id")},
+                          actions=[f"edited driver: {', '.join(update.keys())}"])
+    doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    return {"success": True, "driver": doc}
 
 
 @api_router.get("/merchant/fee-savings")
@@ -11615,8 +11793,9 @@ async def admin_list_applicants(request: Request):
 
 
 @api_router.post("/admin/impersonate/{user_id}")
-async def admin_impersonate(user_id: str, request: Request, response: Response):
-    """Admin-only: mint a short-lived token so the admin can view a user's own portal.
+async def admin_impersonate(user_id: str, request: Request, response: Response, edit: bool = False):
+    """Admin-only: mint a short-lived token so the admin can view (or edit) a user's own portal.
+    `?edit=1` mints an editable token (writes allowed); default is read-only inspection.
     Refuses to impersonate other admins; audit-logged."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
@@ -11626,20 +11805,22 @@ async def admin_impersonate(user_id: str, request: Request, response: Response):
         raise HTTPException(status_code=404, detail="This applicant has no user account yet (external lead) — nothing to view.")
     if (target.get("user_type") or "").lower() == "admin":
         raise HTTPException(status_code=403, detail="Cannot impersonate another admin")
+    readonly = not edit
     token = create_access_token(
-        {"sub": user_id, "impersonated_by": current_user.id, "readonly": True},
+        {"sub": user_id, "impersonated_by": current_user.id, "readonly": readonly},
         expires_delta=timedelta(minutes=30),
     )
     await db.impersonation_logs.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": current_user.id, "admin_email": current_user.email,
         "target_user_id": user_id, "target_email": target.get("email"),
+        "mode": "edit" if edit else "readonly",
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    logging.info(f"Admin {current_user.email} started viewing portal of {target.get('email')}")
-    # NOTE: do NOT set the admin's auth cookie — the frontend uses this token as a
-    # read-only impersonation Bearer so the admin keeps their own session.
-    return {"token": token, "user": target, "readonly": True, "expires_in_minutes": 30}
+    logging.info(f"Admin {current_user.email} started {'editing' if edit else 'viewing'} portal of {target.get('email')}")
+    # NOTE: do NOT set the admin's auth cookie — the frontend uses this token as an
+    # impersonation Bearer so the admin keeps their own session.
+    return {"token": token, "user": target, "readonly": readonly, "expires_in_minutes": 30}
 
 
 # ---------------------------------------------------------------------------

@@ -73,14 +73,15 @@ export const AuthProvider = ({ children }) => {
   // Admin impersonation (read-only): swap this tab's Bearer to the target's token so the
   // admin sees the user's own dashboard. The admin cookie stays but the backend prefers the
   // impersonation Bearer. Writes are blocked server-side.
-  const impersonate = async (userId, targetName) => {
-    const res = await axios.post(`${API}/admin/impersonate/${userId}`, {}, { withCredentials: true });
+  const impersonate = async (userId, targetName, edit = false) => {
+    const res = await axios.post(`${API}/admin/impersonate/${userId}`, {}, { params: edit ? { edit: 1 } : {}, withCredentials: true });
     const impToken = res.data.token;
+    const readonly = res.data.readonly !== false;
     try {
       const admin = localStorage.getItem('token');
       if (admin) localStorage.setItem('admin_token_backup', admin);
       localStorage.setItem('token', impToken);
-      const info = { targetName: targetName || res.data.user?.name || res.data.user?.email, readonly: true, userType: res.data.user?.user_type };
+      const info = { targetName: targetName || res.data.user?.name || res.data.user?.email, readonly, userType: res.data.user?.user_type };
       localStorage.setItem('impersonation', JSON.stringify(info));
       setImpersonation(info);
     } catch (e) { /* localStorage unavailable */ }

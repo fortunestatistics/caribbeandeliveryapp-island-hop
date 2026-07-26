@@ -7,6 +7,7 @@ import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
 import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
+import AdminManageProfile from './AdminManageProfile';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -119,8 +120,8 @@ const AdminAccountRepair = () => {
   const viewAs = async (row) => {
     if (!row.user_id) { toast.error('No user account to view'); return; }
     try {
-      await impersonate(row.user_id, row.name);
-      toast.success(`Now viewing as ${row.name || 'user'} (read-only)`);
+      await impersonate(row.user_id, row.name, true);
+      toast.success(`Now editing as ${row.name || 'user'}`);
       navigate(dashboardFor(row));
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not open this account');
@@ -249,6 +250,7 @@ const AdminAccountRepair = () => {
                         {row.kind === 'merchant_application' ? 'Provision' : 'Repair'}
                       </Button>
                     )}
+                    {row.user_id && <AdminManageProfile row={row} index={i} />}
                     {row.user_id && (
                       <Button
                         size="sm"
@@ -256,7 +258,7 @@ const AdminAccountRepair = () => {
                         onClick={() => viewAs(row)}
                         data-testid={`account-repair-viewas-${i}`}
                       >
-                        <Eye className="h-4 w-4 mr-1" />View as user
+                        <Eye className="h-4 w-4 mr-1" />Edit as user
                       </Button>
                     )}
                     {storefrontUrl(row) && (
