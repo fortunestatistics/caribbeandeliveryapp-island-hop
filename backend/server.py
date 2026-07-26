@@ -2324,17 +2324,32 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
                 await db.driver_wallets.insert_one(DriverWallet(driver_id=driver["id"]).dict())
                 actions.append("created the missing driver wallet")
 
-    # 3) Merchant repair — activate vendor record + promote role.
+    # 3) Merchant repair — activate an existing vendor record + promote role.
+    merchant_found = False
     for coll, role in (("restaurants", "restaurant"), ("businesses", "business"),
                        ("car_rental_companies", "business")):
         d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
         if d:
+            merchant_found = True
             if (d.get("status") or "").lower() != "active":
                 await db[coll].update_one({"id": d["id"]}, {"$set": {"status": "active"}})
                 actions.append(f"activated the {coll[:-1]} record")
             if await promote_user_role(uid, role):
                 actions.append(f"promoted account role to {role}")
             break
+
+    # 3b) No vendor record but an APPROVED merchant application exists → provision it now
+    # (skip when the account is a driver — a single account can't hold both roles).
+    if not merchant_found and not driver:
+        app_doc = await db.business_applications.find_one(
+            {"user_id": uid, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0})
+        if app_doc:
+            from routers.admin_records import _provision_merchant_vendor
+            await _provision_merchant_vendor(app_doc)
+            r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            if r or b:
+                actions.append("provisioned the vendor record from the approved application + promoted the merchant role")
 
     refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
     final_actions = actions or ["no changes needed — account already healthy"]
