@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Card, CardContent } from './components/ui/card';
-import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown, Ban, Trash2 } from 'lucide-react';
+import { LifeBuoy, Search, Loader2, CheckCircle, AlertTriangle, Zap, History, ExternalLink, Eye, ChevronDown, Ban, Trash2, GitMerge, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import AdminManageProfile from './AdminManageProfile';
 import AdminMergeDialog from './AdminMergeDialog';
@@ -31,6 +31,8 @@ const AdminAccountRepair = () => {
   const [audit, setAudit] = useState([]);
   const [showAudit, setShowAudit] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [recentMerges, setRecentMerges] = useState([]);
+  const [undoingId, setUndoingId] = useState(null);
 
   const loadAudit = async () => {
     try {
@@ -39,7 +41,28 @@ const AdminAccountRepair = () => {
     } catch (e) { /* non-blocking */ }
   };
 
-  useEffect(() => { loadAudit(); }, []);
+  const loadRecentMerges = async () => {
+    try {
+      const r = await axios.get(`${API}/admin/accounts/recent-merges`, { headers: authHeaders() });
+      setRecentMerges(r.data.merges || []);
+    } catch (e) { /* non-blocking */ }
+  };
+
+  const undoMerge = async (m) => {
+    if (!window.confirm(`Undo the merge and restore ${m.secondary_email || 'the removed account'}?`)) return;
+    setUndoingId(m.id);
+    try {
+      const r = await axios.post(`${API}/admin/accounts/merge/${m.id}/undo`, {}, { headers: authHeaders() });
+      toast.success(`Merge reversed — restored ${r.data.restored_email || 'account'} (${r.data.restored_records} records)`);
+      loadRecentMerges();
+      loadAudit();
+      search();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not undo the merge');
+    } finally { setUndoingId(null); }
+  };
+
+  useEffect(() => { loadAudit(); loadRecentMerges(); }, []);
 
   const search = async () => {
     const term = q.trim();
@@ -291,7 +314,7 @@ const AdminAccountRepair = () => {
                         <Eye className="h-4 w-4 mr-1" />Edit as user
                       </Button>
                     )}
-                    {row.user_id && <AdminMergeDialog row={row} index={i} onMerged={search} />}
+                    {row.user_id && <AdminMergeDialog row={row} index={i} onMerged={() => { search(); loadRecentMerges(); loadAudit(); }} />}
                     {row.merchant && row.merchant.id && !row.is_owner && (
                       <Button
                         size="sm"
@@ -330,6 +353,29 @@ const AdminAccountRepair = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Recent merges — undo window */}
+        {recentMerges.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-border" data-testid="recent-merges">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-2">
+              <GitMerge className="h-3.5 w-3.5" />Recent merges (undo available for 24h)
+            </p>
+            <div className="space-y-1.5">
+              {recentMerges.map((m) => (
+                <div key={m.id} className="flex items-center justify-between gap-2 text-xs rounded-md bg-background border border-border px-2.5 py-1.5" data-testid={`recent-merge-${m.id}`}>
+                  <span className="text-muted-foreground truncate">
+                    Removed <span className="text-foreground font-medium">{m.secondary_email || m.secondary_name || 'account'}</span>
+                    {' · '}{m.moved_count} records moved
+                    <span className="block text-[10px] opacity-70">{m.created_at ? new Date(m.created_at).toLocaleString() : ''}</span>
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => undoMerge(m)} disabled={undoingId === m.id} data-testid={`undo-merge-${m.id}`}>
+                    {undoingId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5 mr-1" />}Undo
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

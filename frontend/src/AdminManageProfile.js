@@ -37,6 +37,7 @@ const AdminManageProfile = ({ row, index }) => {
   const [tempPw, setTempPw] = useState('');
   const [resetting, setResetting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [emailToUser, setEmailToUser] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -122,11 +123,16 @@ const AdminManageProfile = ({ row, index }) => {
     setCopied(false);
     try {
       const r = await axios.put(`${API}/admin/users/${row.user_id}/password`,
-        generate ? { generate: true } : { password: customPw.trim() },
+        generate ? { generate: true, send_email: emailToUser } : { password: customPw.trim(), send_email: emailToUser },
         { headers: authHeaders() });
       setTempPw(r.data.temp_password);
       setCustomPw('');
-      toast.success('Temporary password set — share it with the user');
+      if (emailToUser) {
+        if (r.data.emailed) toast.success('Temporary password set and emailed to the user');
+        else toast.warning(`Password set, but email not sent: ${r.data.email_error || 'unknown error'}`);
+      } else {
+        toast.success('Temporary password set — share it with the user');
+      }
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to reset password');
     } finally { setResetting(false); }
@@ -182,6 +188,10 @@ const AdminManageProfile = ({ row, index }) => {
               <div className="pt-2 border-t border-border">
                 <p className="text-xs font-medium mb-1 flex items-center gap-1"><KeyRound className="h-3.5 w-3.5" />Reset password</p>
                 <p className="text-[11px] text-muted-foreground mb-2">Set a temporary password so a locked-out user can log back in, then change it themselves.</p>
+                <label className="flex items-center gap-2 text-xs mb-2 cursor-pointer" data-testid="manage-reset-email-toggle">
+                  <input type="checkbox" checked={emailToUser} onChange={(e) => setEmailToUser(e.target.checked)} />
+                  Email the temporary password to {account.email || 'the user'}
+                </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="outline" onClick={() => resetPassword(true)} disabled={resetting} data-testid="manage-reset-generate">
                     {resetting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <KeyRound className="h-4 w-4 mr-1" />}Generate temporary password

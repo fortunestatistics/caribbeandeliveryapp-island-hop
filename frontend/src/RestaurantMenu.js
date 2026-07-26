@@ -14,7 +14,9 @@ import {
   Clock,
   MapPin,
   Trash2,
-  ArrowRight
+  ArrowRight,
+  Store,
+  Loader2
 } from 'lucide-react';
 import MerchantReviews from './MerchantReviews';
 import axios from 'axios';
@@ -31,17 +33,23 @@ const RestaurantMenu = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [storefront, setStorefront] = useState(null);
+  const [loadState, setLoadState] = useState('loading'); // 'loading' | 'found' | 'notfound'
 
   useEffect(() => {
-    if (!restaurantId) return;
+    if (!restaurantId) { setLoadState('notfound'); return; }
+    setLoadState('loading');
     axios.get(`${STOREFRONT_API}/merchants/${restaurantId}/storefront`)
       .then((res) => {
         const d = res.data || {};
-        if (d.name || d.logo || d.cover || d.bio || (d.gallery && d.gallery.length) || (d.menu_items && d.menu_items.length)) {
+        const hasData = d.name || d.logo || d.cover || d.bio || (d.gallery && d.gallery.length) || (d.menu_items && d.menu_items.length);
+        if (hasData) {
           setStorefront(d);
+          setLoadState('found');
+        } else {
+          setLoadState('notfound');
         }
       })
-      .catch(() => {});
+      .catch(() => setLoadState('notfound'));
   }, [restaurantId]);
 
   // Real vendor data (from the storefront endpoint) with a safe demo fallback.
@@ -49,7 +57,7 @@ const RestaurantMenu = () => {
   const vendorCfg = getBusinessConfig(sf.vendor_type);
   const restaurant = {
     id: restaurantId || 'island-spice',
-    name: sf.name || 'Island Spice Kitchen',
+    name: sf.name || 'Store',
     cuisine: sf.cuisine_type || (sf.vendor_type ? vendorCfg.customerLabel : 'Caribbean'),
     rating: sf.rating != null ? sf.rating : 4.8,
     reviews: 342,
@@ -82,152 +90,9 @@ const RestaurantMenu = () => {
     spicy: !!m.spicy,
   }));
 
-  const demoMenuItems = [
-    {
-      id: 1,
-      name: 'Jerk Chicken Plate',
-      description: 'Authentic jerk chicken with rice & peas, festival, and plantains',
-      price: 18.00,
-      category: 'Mains',
-      image: '🍗',
-      popular: true,
-      spicy: true
-    },
-    {
-      id: 2,
-      name: 'Curry Goat',
-      description: 'Tender goat meat in Caribbean curry sauce with rice',
-      price: 22.00,
-      category: 'Mains',
-      image: '🍛',
-      popular: true,
-      spicy: false
-    },
-    {
-      id: 3,
-      name: 'Ackee & Saltfish',
-      description: "Jamaica's national dish served with bammy or festival",
-      price: 16.00,
-      category: 'Mains',
-      image: '🐟',
-      popular: true,
-      spicy: false
-    },
-    {
-      id: 4,
-      name: 'Oxtail Dinner',
-      description: 'Braised oxtail with butter beans, rice & peas',
-      price: 28.00,
-      category: 'Mains',
-      image: '🥘',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 5,
-      name: 'Beef Patty',
-      description: 'Flaky pastry filled with seasoned beef',
-      price: 4.50,
-      category: 'Sides',
-      image: '🥟',
-      popular: true,
-      spicy: true
-    },
-    {
-      id: 6,
-      name: 'Rice & Peas',
-      description: 'Coconut rice with kidney beans',
-      price: 5.00,
-      category: 'Sides',
-      image: '🍚',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 7,
-      name: 'Fried Plantains',
-      description: 'Sweet ripe plantains fried to perfection',
-      price: 4.00,
-      category: 'Sides',
-      image: '🍌',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 8,
-      name: 'Festival',
-      description: 'Sweet fried dumplings',
-      price: 3.50,
-      category: 'Sides',
-      image: '🥖',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 9,
-      name: 'Callaloo',
-      description: 'Traditional Caribbean greens',
-      price: 6.00,
-      category: 'Sides',
-      image: '🥬',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 10,
-      name: 'Sorrel Drink',
-      description: 'Refreshing hibiscus drink',
-      price: 3.50,
-      category: 'Drinks',
-      image: '🧃',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 11,
-      name: 'Ginger Beer',
-      description: 'Spicy homemade ginger beer',
-      price: 3.50,
-      category: 'Drinks',
-      image: '🥤',
-      popular: true,
-      spicy: true
-    },
-    {
-      id: 12,
-      name: 'Coconut Water',
-      description: 'Fresh coconut water',
-      price: 4.00,
-      category: 'Drinks',
-      image: '🥥',
-      popular: false,
-      spicy: false
-    },
-    {
-      id: 13,
-      name: 'Rum Cake',
-      description: 'Traditional Caribbean rum cake',
-      price: 7.00,
-      category: 'Desserts',
-      image: '🍰',
-      popular: true,
-      spicy: false
-    },
-    {
-      id: 14,
-      name: 'Sweet Potato Pudding',
-      description: 'Grated sweet potato with coconut',
-      price: 6.00,
-      category: 'Desserts',
-      image: '🍮',
-      popular: false,
-      spicy: false
-    }
-  ];
-
   // Use the merchant's real menu when available. If we resolved a real vendor
-  // (sf.name) but it has no items yet, show an empty menu — not demo food.
-  const menuItems = realMenu.length > 0 ? realMenu : (sf.name ? [] : demoMenuItems);
+  // but it has no items yet, show an empty menu — not demo food.
+  const menuItems = realMenu.length > 0 ? realMenu : [];
 
   const filteredItems = menuItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -270,6 +135,33 @@ const RestaurantMenu = () => {
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const total = subtotal + restaurant.deliveryFee;
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  if (loadState === 'loading') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center" data-testid="storefront-loading">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (loadState === 'notfound') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4" data-testid="storefront-unavailable">
+        <div className="text-center max-w-md">
+          <div className="mx-auto mb-4 h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
+            <Store className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Store unavailable</h1>
+          <p className="text-sm text-muted-foreground mb-6">
+            This business isn't available right now — it may have been removed or isn't open for orders yet.
+          </p>
+          <Button onClick={() => navigate('/businesses')} data-testid="storefront-back-btn">
+            <ArrowRight className="h-4 w-4 mr-1" />Browse other businesses
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br bg-background py-8">

@@ -2559,14 +2559,22 @@ async def admin_merge_accounts(payload: AccountMergeRequest, request: Request):
         ("orders", "customer_id"), ("orders", "user_id"),
         ("wallet_funding_requests", "user_id"),
     ]
+    moved = []  # capture exact doc ids moved, so the merge can be undone
     for coll, field in reassign_specs:
         try:
-            res = await db[coll].update_many({field: sid}, {"$set": {field: pid}})
+            ids = [d.get("id") async for d in db[coll].find({field: sid}, {"_id": 0, "id": 1})]
+            ids = [i for i in ids if i]
+            if not ids:
+                continue
+            res = await db[coll].update_many({field: sid, "id": {"$in": ids}}, {"$set": {field: pid}})
             if res.modified_count:
+                moved.append({"coll": coll, "field": field, "ids": ids})
                 actions.append(f"moved {res.modified_count} {coll}.{field}")
         except Exception:  # noqa: BLE001
             pass
 
+    primary_before = {"user_type": primary.get("user_type"), "roles": primary.get("roles"),
+                      "banking_info": primary.get("banking_info")}
     if not primary.get("banking_info") and secondary.get("banking_info"):
         await db.users.update_one({"id": pid}, {"$set": {"banking_info": secondary["banking_info"]}})
 
@@ -2581,19 +2589,123 @@ async def admin_merge_accounts(payload: AccountMergeRequest, request: Request):
     if drv and not await db.driver_wallets.find_one({"driver_id": drv["id"]}, {"_id": 1}):
         await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
 
+    # Snapshot the secondary account + moved records BEFORE deleting, for a 24h undo window.
+    merge_id = str(uuid.uuid4())
+    await db.account_merges.insert_one({
+        "id": merge_id, "primary_id": pid, "secondary_id": sid,
+        "secondary_snapshot": {k: v for k, v in secondary.items() if k != "_id"},
+        "primary_before": primary_before,
+        "moved": moved,
+        "admin_id": current_user.id, "admin_email": current_user.email,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "undone": False,
+    })
+
     await db.users.delete_one({"id": sid})
     actions.append(f"removed the duplicate account ({secondary.get('email')})")
 
     await _log_repair(current_user, kind="merge_accounts",
                       target={"primary": pid, "primary_email": primary.get("email"),
-                              "secondary": sid, "secondary_email": secondary.get("email")},
+                              "secondary": sid, "secondary_email": secondary.get("email"),
+                              "merge_id": merge_id},
                       actions=actions)
     try:
         await manager.send_personal_message(json.dumps({"type": "session_refresh"}), pid)
     except Exception:  # noqa: BLE001
         pass
-    return {"success": True, "actions": actions, "available_roles": roles,
+    return {"success": True, "merge_id": merge_id, "actions": actions, "available_roles": roles,
             "account": await _account_health_entry(await db.users.find_one({"id": pid}, {"_id": 0}))}
+
+
+MERGE_UNDO_WINDOW_HOURS = 24
+
+
+@api_router.get("/admin/accounts/recent-merges")
+async def admin_recent_merges(request: Request):
+    """List merges still inside the undo window."""
+    await _require_strict_admin(request)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=MERGE_UNDO_WINDOW_HOURS)
+    out = []
+    async for m in db.account_merges.find({"undone": False}, {"_id": 0}).sort("created_at", -1).limit(25):
+        try:
+            created = datetime.fromisoformat(m["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+        except Exception:  # noqa: BLE001
+            continue
+        if created < cutoff:
+            continue
+        snap = m.get("secondary_snapshot") or {}
+        out.append({
+            "id": m["id"], "created_at": m["created_at"],
+            "primary_id": m["primary_id"], "secondary_email": snap.get("email"),
+            "secondary_name": snap.get("name"),
+            "moved_count": sum(len(x.get("ids", [])) for x in m.get("moved", [])),
+        })
+    return {"merges": out, "window_hours": MERGE_UNDO_WINDOW_HOURS}
+
+
+@api_router.post("/admin/accounts/merge/{merge_id}/undo")
+async def admin_undo_merge(merge_id: str, request: Request):
+    """Reverse an account merge within the recovery window: restores the removed login and
+    moves its records back."""
+    current_user = await _require_strict_admin(request)
+    m = await db.account_merges.find_one({"id": merge_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="No merge record found")
+    if m.get("undone"):
+        raise HTTPException(status_code=400, detail="This merge was already undone")
+    try:
+        created = datetime.fromisoformat(m["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:  # noqa: BLE001
+        created = datetime.now(timezone.utc)
+    if datetime.now(timezone.utc) - created > timedelta(hours=MERGE_UNDO_WINDOW_HOURS):
+        raise HTTPException(status_code=400, detail=f"The {MERGE_UNDO_WINDOW_HOURS}h undo window has expired")
+
+    sid = m["secondary_id"]
+    pid = m["primary_id"]
+    snap = m.get("secondary_snapshot") or {}
+    # Restore the removed login (only if the email isn't now taken by someone else)
+    if snap:
+        exists = await db.users.find_one({"id": sid}, {"_id": 1})
+        if not exists:
+            clash = await db.users.find_one({"email": snap.get("email"), "id": {"$ne": sid}}, {"_id": 1})
+            if clash and snap.get("email"):
+                raise HTTPException(status_code=400, detail="Cannot undo: that email is now used by another account")
+            await db.users.insert_one({k: v for k, v in snap.items() if k != "_id"})
+    # Move the previously-moved records back to the secondary account
+    restored = 0
+    for spec in m.get("moved", []):
+        try:
+            res = await db[spec["coll"]].update_many(
+                {spec["field"]: pid, "id": {"$in": spec.get("ids", [])}},
+                {"$set": {spec["field"]: sid}})
+            restored += res.modified_count
+        except Exception:  # noqa: BLE001
+            pass
+    # Recompute the primary's roles from what's left on it
+    primary_doc = await db.users.find_one({"id": pid}, {"_id": 0})
+    if primary_doc:
+        p_roles = await _available_roles(primary_doc)
+        p_active = next((r for r in ("restaurant", "business", "driver") if r in p_roles),
+                        "customer")
+        await db.users.update_one({"id": pid}, {"$set": {"user_type": p_active}})
+    await db.account_merges.update_one({"id": merge_id},
+                                       {"$set": {"undone": True,
+                                                 "undone_at": datetime.now(timezone.utc).isoformat(),
+                                                 "undone_by": current_user.id}})
+    await _log_repair(current_user, kind="undo_merge",
+                      target={"primary": pid, "secondary": sid, "merge_id": merge_id,
+                              "secondary_email": snap.get("email")},
+                      actions=[f"restored the account and {restored} records"])
+    for uid in (pid, sid):
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    return {"success": True, "restored_records": restored, "restored_email": snap.get("email")}
 
 
 @api_router.post("/admin/users/{user_id}/deactivate")
@@ -8535,6 +8647,7 @@ async def admin_update_user_account(user_id: str, payload: AdminAccountUpdate, r
 class AdminSetPassword(BaseModel):
     password: Optional[str] = None
     generate: bool = False
+    send_email: bool = False
 
 
 def _generate_temp_password(length: int = 14) -> str:
@@ -8575,7 +8688,41 @@ async def admin_set_user_password(user_id: str, payload: AdminSetPassword, reque
                       target={"user_id": user_id, "email": user.get("email")},
                       actions=["set a temporary password"])
     logging.info(f"Admin {current_user.email} set a temporary password for {user.get('email')}")
-    return {"success": True, "temp_password": temp_password, "email": user.get("email")}
+
+    emailed = False
+    email_error = None
+    if payload.send_email:
+        to = user.get("email")
+        if not graph_mail.is_real_email(to):
+            email_error = "This account has no valid email address to send to."
+        else:
+            subject = "Your IslandHop temporary password"
+            html = f"""
+                <div style="font-family:Arial,sans-serif;color:#0f172a">
+                  <h2 style="color:#0FA3A3;margin-bottom:4px">IslandHop</h2>
+                  <p>Hi{(' ' + user.get('name')) if user.get('name') else ''},</p>
+                  <p>An administrator has set a <strong>temporary password</strong> for your IslandHop account so you can log back in.</p>
+                  <p style="font-size:16px">Temporary password:
+                     <code style="background:#f1f5f9;padding:4px 8px;border-radius:6px;font-weight:700">{temp_password}</code>
+                  </p>
+                  <p>Please log in with this password. You'll be asked to set your own new password right away.</p>
+                  <p style="color:#64748b;font-size:13px">If you didn't request this, please contact IslandHop support.</p>
+                </div>
+            """
+            try:
+                await graph_mail.send_mail(to, subject, html, mailbox=graph_mail.notify_mailbox("support"))
+                emailed = True
+            except graph_mail.InvalidRecipientEmail:
+                email_error = "The email address was rejected as invalid."
+            except graph_mail.GraphNotConfigured:
+                email_error = "Email is not configured on the server."
+            except graph_mail.GraphConsentMissing:
+                email_error = "Email sending is pending admin consent."
+            except Exception as e:  # noqa: BLE001
+                email_error = f"Could not send email: {e}"
+
+    return {"success": True, "temp_password": temp_password, "email": user.get("email"),
+            "emailed": emailed, "email_error": email_error}
 
 
 @api_router.put("/admin/merchants/{vendor_id}/profile")

@@ -13,9 +13,7 @@ import {
 import { toast } from 'sonner';
 import { storeSession } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
-import AdminMerchantsMissingCountry from './AdminMerchantsMissingCountry';
-import AdminPayPalPayouts from './AdminPayPalPayouts';
-import AdminPayoutBatch from './AdminPayoutBatch';
+import AdminPayoutsPanel from './AdminPayoutsPanel';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -412,14 +410,8 @@ const AdminApprovals = () => {
       {/* Account repair tool — drivers / customers / merchants (also fixes storefronts) */}
       <AdminAccountRepair />
 
-      {/* Payment routing guardrail — merchants missing a country */}
-      <AdminMerchantsMissingCountry />
-
-      {/* PayPal payouts to merchants & drivers who chose PayPal */}
-      <AdminPayPalPayouts />
-
-      {/* Bank bulk-payout batch: review, export, mark paid */}
-      <AdminPayoutBatch />
+      {/* Grouped payouts & payments (PayPal · bank batch · route readiness) */}
+      <AdminPayoutsPanel />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">
