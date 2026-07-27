@@ -4095,6 +4095,12 @@ async def update_order_status(order_id: str, status: str, request: Request):
     # Best-effort WhatsApp update on key milestones (fire-and-forget).
     asyncio.create_task(_notify_order_whatsapp(order, status))
 
+    # If the merchant is progressing an order but no driver is assigned yet, (re)offer it to
+    # online drivers now — covers drivers who came online after checkout, or when the first
+    # dispatch found nobody. This is the core fix for "merchant can't get a driver".
+    if status in ("confirmed", "preparing", "ready", "ready_for_pickup") and not order.get("driver_id"):
+        asyncio.create_task(_redispatch_order(order_id))
+
     return {"message": f"Order status updated to {status}"}
 
 
@@ -6438,6 +6444,11 @@ async def update_driver_status(payload: DriverStatusUpdate, request: Request):
         {"$set": {"status": status}}
     )
 
+    # When a driver comes online, re-offer any unassigned active orders so they immediately
+    # see pending pickups (covers orders created/readied before they came online).
+    if status == "online":
+        asyncio.create_task(_offer_open_orders_to_driver(driver["id"]))
+
     return {"success": True, "status": status}
 
 @api_router.get("/drivers/order-requests")
@@ -6448,11 +6459,12 @@ async def get_driver_order_requests(request: Request):
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     
-    # Get orders where driver was notified but not yet assigned
+    # Orders this driver was offered that are still unassigned (any non-terminal status —
+    # not just "pending" — so ready/confirmed orders awaiting a driver still show up).
     orders = await db.orders.find({
         "drivers_notified": driver["id"],
-        "driver_id": None,
-        "status": "pending"
+        "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
+        "status": {"$nin": ["cancelled", "delivered", "refunded"]},
     }, {"_id": 0}).limit(50).to_list(length=50)
     
     return orders
@@ -6815,6 +6827,37 @@ async def _ensure_dispatch(order_id: str):
         logging.warning(f"_ensure_dispatch failed for {order_id}: {exc}")
 
 
+async def _redispatch_order(order_id: str):
+    """Force a FRESH driver offer for an unassigned order (bypasses the 'already offered'
+    guard). Used when a merchant marks an order ready or a driver comes online. Never raises."""
+    try:
+        order = await db.orders.find_one({"id": order_id})
+        if not order or order.get("driver_id"):
+            return
+        if order.get("status") in ("cancelled", "delivered", "refunded"):
+            return
+        if not _addr_coords(order.get("pickup_address")):
+            return
+        await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_redispatch_order failed for {order_id}: {exc}")
+
+
+async def _offer_open_orders_to_driver(driver_id: str):
+    """When a driver comes online, (re)offer recent unassigned delivery orders so a
+    newly-online driver still receives pending jobs. Bounded + never raises."""
+    try:
+        cursor = db.orders.find({
+            "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
+            "status": {"$nin": ["cancelled", "delivered", "refunded", "rejected"]},
+        }, {"_id": 0, "id": 1, "pickup_address": 1}).sort("created_at", -1).limit(20)
+        async for o in cursor:
+            if _addr_coords(o.get("pickup_address")):
+                await _redispatch_order(o["id"])
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_offer_open_orders_to_driver failed for {driver_id}: {exc}")
+
+
 async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: int = 10000) -> List[dict]:
     """Find online drivers within radius. Falls back to any online driver if none nearby
     (or if the geo query can't run because locations aren't stored as GeoJSON)."""
@@ -6836,13 +6879,19 @@ async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: i
 
 
 def _score_driver_for_pickup(driver: dict, pickup_lat: float, pickup_lng: float) -> Optional[dict]:
-    """Return {driver, distance_km, score} or None if the driver has no location."""
+    """Return {driver, distance, score}. Online drivers WITHOUT a stored GPS location are
+    still eligible (ranked last with a nominal distance) so they still get offered jobs —
+    previously they were silently dropped, which stalled dispatch for online-but-no-GPS drivers."""
     loc = driver.get("current_location") or {}
-    if not loc:
-        return None
-    distance = _math.sqrt(
-        (loc.get("lat", 0) - pickup_lat) ** 2 + (loc.get("lng", 0) - pickup_lng) ** 2
-    ) * 111  # rough km
+    lat = loc.get("lat", loc.get("latitude"))
+    lng = loc.get("lng", loc.get("longitude"))
+    if lat is None or lng is None:
+        distance = 999.0
+    else:
+        try:
+            distance = _math.sqrt((float(lat) - pickup_lat) ** 2 + (float(lng) - pickup_lng) ** 2) * 111
+        except (TypeError, ValueError):
+            distance = 999.0
     score = (driver.get("rating", 3.0) * 10) - distance
     return {"driver": driver, "distance": distance, "score": score}
 
@@ -6912,10 +6961,10 @@ async def _priority_second_wave(order_id: str, already_notified: List[str], dela
     order = await db.orders.find_one({"id": order_id})
     if not order or order.get("driver_id"):
         return  # a subscriber already accepted — never opens to Standard
-    pickup = order.get("pickup_address", {})
-    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
-    if not pickup_lat or not pickup_lng:
+    coords = _addr_coords(order.get("pickup_address"))
+    if not coords:
         return
+    pickup_lat, pickup_lng = coords
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
     remaining = [s for s in scored if s["driver"]["id"] not in set(already_notified)]
@@ -7020,10 +7069,10 @@ async def find_and_assign_driver(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    pickup = order.get("pickup_address", {})
-    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
-    if not pickup_lat or not pickup_lng:
+    coords = _addr_coords(order.get("pickup_address"))
+    if not coords:
         raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
+    pickup_lat, pickup_lng = coords
 
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     if not drivers:
@@ -7112,6 +7161,20 @@ async def driver_accept_order(order_id: str, payload: DriverAcceptRequest, reque
         json.dumps({"type": "driver_assigned", "order_id": order_id, "driver_id": driver_id}),
         order["customer_id"],
     )
+    # Notify the merchant so their dashboard shows the assigned driver live (no manual refresh).
+    try:
+        vendor_id = order.get("vendor_id") or order.get("restaurant_id") or order.get("business_id")
+        owner_uid = order.get("vendor_user_id") or order.get("merchant_id")
+        if not owner_uid and vendor_id:
+            _, vdoc = await _find_vendor_by_id(vendor_id)
+            owner_uid = (vdoc or {}).get("user_id")
+        if owner_uid:
+            await manager.send_personal_message(
+                json.dumps({"type": "driver_assigned", "order_id": order_id, "driver_id": driver_id}),
+                owner_uid,
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return {"success": True, "message": "Order accepted"}
 
 
