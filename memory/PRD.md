@@ -1,5 +1,12 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — FIX: customer "Track Order" did nothing (dead /track route) + new My Orders page
+- **User report:** after paying, going to the customer portal and clicking "Track my order" didn't work.
+- **Root cause:** the customer dashboard "Track Order" quick action did `navigate('/track')`, but there was **no `/track` route** — the catch-all `path="*" → Navigate to "/"` silently bounced the user back to the homepage. There was also no order-list page to pick an order to track.
+- **Fix (frontend only):** new `MyOrdersPage.js` (`/track` + `/orders`, ProtectedRoute) — fetches `GET /api/orders` (withCredentials), splits into **Active** (pending…in_transit) and **Past** sections, each order card shows service/status badge/total/date and a **Track** button → `/order/{id}`. Empty + error states included. Testids: `my-orders-page`, `my-order-<id>`, `my-order-track-<id>`, `my-orders-empty`, `quick-action-track`.
+- **Verified in-browser (real customer + confirmed order):** Dashboard → Track Order → `/track` renders My Orders with the live order → Track → `/order/{id}` renders the full tracking page (live map, order details, status timeline, chat) — no "Order Not Found", no bounce to home. `GET /orders` (list) + `GET /orders/{id}` both 200. Clean `CI=true yarn build`. **REQUIRES REDEPLOY.**
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Store Location Pin (exact pickup coords) + geocode note
 - **Store Location Pin (merchant):** new `StoreLocationCard.js` on `/vendor/settings` (below Store Hours) — a Google Map (`@react-google-maps/api` `LoadScript`/`GoogleMap`/`Marker`, same pattern as DriverRouteCard) where the merchant taps/drags a pin or uses "Use my current location" to set exact store coordinates. Testids: `store-location-card`, `store-location-use-gps`, `store-location-lat`, `store-location-lng`, `store-location-save`. Saves `pickup_coords {lat,lng}` via `PUT /merchant/profile`.
 - **Backend:** `MerchantProfileUpdate` + `_merchant_update_set` + `_normalize_vendor_profile` now persist/return `pickup_coords` (both restaurants & businesses branches). `create_order` **auto-stamps** the vendor's pinned `pickup_coords` onto a new order's `pickup_address` when the client didn't send coordinates → every order gets exact pickup coords → accurate dispatch + driver ETAs, no geocoding needed. `_resolve_pickup_coords` also reads `pickup_coords` (cached).

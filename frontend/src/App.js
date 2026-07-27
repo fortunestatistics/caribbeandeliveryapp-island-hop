@@ -32,6 +32,7 @@ const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default:
 const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
 const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
 const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
+const MyOrdersPage = lazy(() => import('./MyOrdersPage'));
 const DriverEarningsDashboard = lazy(() => import('./DriverEarningsDashboard'));
 const BusinessEarningsDashboard = lazy(() => import('./BusinessEarningsDashboard'));
 const AuthPage = lazy(() => import('./AuthPage'));
@@ -1560,6 +1561,7 @@ const Dashboard = () => {
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
                   onClick={() => navigate('/track')}
+                  data-testid="quick-action-track"
                 >
                   <MapPin className="h-6 w-6" />
                   <span className="text-sm">Track Order</span>
@@ -2081,6 +2083,8 @@ function App() {
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/join/:code" element={<JoinLanding />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
+            <Route path="/track" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
+            <Route path="/orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
