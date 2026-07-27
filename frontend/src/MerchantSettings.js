@@ -9,6 +9,7 @@ import { Textarea } from './components/ui/textarea';
 import { useToast } from './hooks/use-toast';
 import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarSign } from 'lucide-react';
 import StoreHoursCard from './StoreHoursCard';
+import StoreLocationCard from './StoreLocationCard';
 import { BankAccountSection } from './BankAccountSection';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -25,6 +26,7 @@ export default function MerchantSettings() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
   const [savingHours, setSavingHours] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
 
   const [account, setAccount] = useState({ name: '', phone: '' });
@@ -49,6 +51,7 @@ export default function MerchantSettings() {
             collection: prof.data.collection,
             banking_info: prof.data.banking_info || {},
             business_hours: prof.data.business_hours || null,
+            pickup_coords: prof.data.pickup_coords || null,
           });
         }
       } catch (e) {
@@ -120,8 +123,7 @@ export default function MerchantSettings() {
     } finally { setSavingBank(false); }
   };
 
-  const saveHours = async (hours) => {
-    setSavingHours(true);
+  const saveHours = async (hours) => {    setSavingHours(true);
     try {
       const { data } = await axios.put(`${API}/merchant/profile`, { business_hours: hours }, authCfg());
       toast({ title: 'Store hours saved', description: hours.enabled ? 'Customers can only order during your open hours.' : 'Hours saved (enforcement is off).' });
@@ -129,6 +131,18 @@ export default function MerchantSettings() {
     } catch (e) {
       toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
     } finally { setSavingHours(false); }
+  };
+
+  const saveLocation = async (coords) => {
+    if (!coords) return;
+    setSavingLocation(true);
+    try {
+      const { data } = await axios.put(`${API}/merchant/profile`, { pickup_coords: { lat: coords.lat, lng: coords.lng } }, authCfg());
+      toast({ title: 'Store location saved', description: 'Drivers will now be routed to this exact spot for pickups.' });
+      setProfile((p) => ({ ...p, pickup_coords: data.profile?.pickup_coords || coords }));
+    } catch (e) {
+      toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
+    } finally { setSavingLocation(false); }
   };
 
   if (loading) {
@@ -247,6 +261,11 @@ export default function MerchantSettings() {
         {/* Store hours */}
         {profile && (
           <StoreHoursCard value={profile.business_hours} onSave={saveHours} saving={savingHours} />
+        )}
+
+        {/* Store location pin */}
+        {profile && (
+          <StoreLocationCard value={profile.pickup_coords} onSave={saveLocation} saving={savingLocation} />
         )}
 
         {/* Banking & payouts */}

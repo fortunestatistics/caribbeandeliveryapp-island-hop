@@ -3810,6 +3810,16 @@ async def create_order(order: Order, request: Request):
     vendor_id = order.restaurant_id or order.vendor_id
     vendor_type = _derive_vendor_type(order.service_type)
 
+    # Stamp the merchant's pinned store location onto the pickup address when the client
+    # didn't provide coordinates, so dispatch + driver ETAs are accurate from the start.
+    if vendor_id and not _addr_coords(order.pickup_address):
+        vdoc, _vcoll = await _find_vendor_doc_by_vid(vendor_id)
+        vc = _addr_coords((vdoc or {}).get("pickup_coords")) or _addr_coords((vdoc or {}).get("address"))
+        if vc:
+            pa = dict(order.pickup_address or {})
+            pa["latitude"], pa["longitude"] = vc[0], vc[1]
+            order.pickup_address = pa
+
     # Live Store Hours: block new orders while a storefront merchant is closed.
     _hours = await _vendor_business_hours(vendor_id)
     _open = _compute_open_status(_hours)
@@ -6637,7 +6647,7 @@ async def _geocode_address(addr) -> Optional[tuple]:
     return None
 
 
-async def _find_vendor_doc(vendor_id: str):
+async def _find_vendor_doc_by_vid(vendor_id: str):
     """Locate a vendor doc + its collection across restaurants/businesses/car_rental_companies."""
     for coll in (db.restaurants, db.businesses, db.car_rental_companies):
         doc = await coll.find_one({"id": vendor_id})
@@ -6658,7 +6668,7 @@ async def _resolve_pickup_coords(order: dict) -> Optional[tuple]:
     vendor_id = order.get("restaurant_id") or order.get("vendor_id")
     if not vendor_id:
         return None
-    vendor, vcoll = await _find_vendor_doc(vendor_id)
+    vendor, vcoll = await _find_vendor_doc_by_vid(vendor_id)
     if not vendor:
         return None
     # Cached vendor coords (from a prior geocode) or coords already on the vendor address.
@@ -8642,6 +8652,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
             "minimum_order": doc.get("minimum_order"),
             "banking_info": doc.get("banking_info") or {},
             "business_hours": doc.get("business_hours") or None,
+            "pickup_coords": doc.get("pickup_coords") or None,
         }
     # restaurants / car rental companies use canonical fields
     return {
@@ -8657,6 +8668,7 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
         "minimum_order": doc.get("minimum_order"),
         "banking_info": doc.get("banking_info") or {},
         "business_hours": doc.get("business_hours") or None,
+        "pickup_coords": doc.get("pickup_coords") or None,
     }
 
 
@@ -8678,7 +8690,7 @@ def _merchant_update_set(coll: str, fields: dict) -> dict:
         if "description" in fields:
             update["business_description"] = fields["description"]
         for k in ("phone", "email", "address", "delivery_fee", "minimum_order",
-                  "banking_info", "business_hours"):
+                  "banking_info", "business_hours", "pickup_coords"):
             if k in fields:
                 update[k] = fields[k]
     else:
@@ -8690,6 +8702,8 @@ def _merchant_update_set(coll: str, fields: dict) -> dict:
             update["banking_info"] = fields["banking_info"]
         if "business_hours" in fields:
             update["business_hours"] = fields["business_hours"]
+        if "pickup_coords" in fields:
+            update["pickup_coords"] = fields["pickup_coords"]
     return update
 
 
@@ -8704,6 +8718,7 @@ class MerchantProfileUpdate(BaseModel):
     minimum_order: Optional[float] = None
     banking_info: Optional[Dict[str, Any]] = None
     business_hours: Optional[Dict[str, Any]] = None
+    pickup_coords: Optional[Dict[str, float]] = None
 
 
 @api_router.get("/merchant/profile")
