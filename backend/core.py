@@ -43,6 +43,12 @@ if STRIPE_MODE == 'live':
 else:
     STRIPE_API_KEY = os.environ.get('STRIPE_TEST_API_KEY') or os.environ.get('STRIPE_API_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+# Publishable key (safe to expose) — mode-aware, served to the frontend at runtime so
+# going live only requires setting STRIPE_MODE=live + STRIPE_LIVE_* in the environment.
+if STRIPE_MODE == 'live':
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_LIVE_PUBLISHABLE_KEY')
+else:
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_TEST_PUBLISHABLE_KEY')
 SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days

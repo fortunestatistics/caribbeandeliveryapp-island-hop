@@ -1,5 +1,12 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 — Stripe go-live plumbing
+- App already selects Stripe keys by `STRIPE_MODE` (core.py): live → `STRIPE_LIVE_API_KEY`/`STRIPE_LIVE_PUBLISHABLE_KEY`, else test. Secret keys come only from env (never hardcoded).
+- Gap fixed: frontend `PaymentMethodsSelector.js` was pinned to build-time `REACT_APP_STRIPE_PUBLISHABLE_KEY` (test). Added mode-aware public endpoint **`GET /api/stripe/config`** → `{publishable_key, mode}` (core.py now derives `STRIPE_PUBLISHABLE_KEY` from mode; added `STRIPE_TEST_PUBLISHABLE_KEY` public key to backend .env). Frontend now fetches the key at runtime via `getStripe()` (build-time fallback) so live works without a frontend rebuild. Verified: `/api/stripe/config` returns mode=live/pk_live_ in preview; clean build.
+- Go-live is a PRODUCTION env-var + platform action (relayed via support_agent): set STRIPE_MODE=live + STRIPE_LIVE_API_KEY + STRIPE_LIVE_PUBLISHABLE_KEY + STRIPE_WEBHOOK_SECRET in the deployment settings; live webhook URL = `https://islandhop-mvp.emergent.host/api/webhook/stripe` (identity webhook: `/api/webhook/stripe/identity` → STRIPE_WEBHOOK_SECRET_IDENTITY); redeploy to apply.
+- SECURITY: user pasted live rk_live_ + secret key in chat → told to rotate immediately. Restricted-key scopes (Refunds/Connect/Payouts) must be verified. `mk_1TgX…` is not a valid Stripe key format.
+
+
 ## Session Log — Jun 2026 — Link & Provision unlinked merchant applications
 - **Problem:** approved merchant applications whose signup email matches no account (e.g. Webnest Solution LLC / b_brent_@hotmail.com) couldn't be provisioned — the old flow only accepted an exact email match via `window.prompt` and 404'd otherwise. Williams Dream Cakes (has an account) provisions fine.
 - **Fix:** `AccountRepairRequest` gained `link_user_id`. In the `application_id` branch of `POST /admin/accounts/repair`, if the app has no `user_id`: link to `link_user_id` (verified) OR fall back to exact `email`; persists the link on the application then provisions. Clearer 404/409 messages ("…or pick an existing account to link").

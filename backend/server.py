@@ -39,6 +39,7 @@ load_dotenv(ROOT_DIR / '.env')
 from core import (
     client, db,
     EMERGENT_LLM_KEY, STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET, SECRET_KEY,
+    STRIPE_PUBLISHABLE_KEY, STRIPE_MODE,
     ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
     pwd_context, security, ConnectionManager, manager,
     verify_password, get_password_hash, create_access_token,
@@ -10124,6 +10125,13 @@ async def paypal_webhook(request: Request):
             )
     return {"received": True, "verified": True}
 
+
+
+@api_router.get("/stripe/config")
+async def stripe_public_config():
+    """Public: the mode-aware Stripe PUBLISHABLE key (safe to expose) so the frontend
+    uses the correct test/live key at runtime — going live needs no frontend rebuild."""
+    return {"publishable_key": STRIPE_PUBLISHABLE_KEY, "mode": STRIPE_MODE}
 
 
 @api_router.post("/webhook/stripe")
