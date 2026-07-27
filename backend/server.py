@@ -6595,6 +6595,91 @@ def _addr_coords(addr: Optional[dict]):
         return None
 
 
+# Trinidad centroid — a safe dispatch fallback so an order with an un-geocodable pickup
+# still reaches online drivers (T&T is small) instead of silently stalling forever.
+_TT_CENTER = (10.6918, -61.2225)
+
+
+def _address_query_string(addr) -> str:
+    """Flatten an address dict (or string) into a single geocodable query string."""
+    if isinstance(addr, dict):
+        parts = [addr.get("street"), addr.get("full_address"), addr.get("location"),
+                 addr.get("city"), addr.get("parish"), addr.get("state"), addr.get("country")]
+        seen, out = set(), []
+        for p in parts:
+            p = (p or "").strip()
+            if p and p.lower() not in seen:
+                seen.add(p.lower())
+                out.append(p)
+        return ", ".join(out)
+    return str(addr or "").strip()
+
+
+async def _geocode_address(addr) -> Optional[tuple]:
+    """Geocode an address dict/string via Google Maps Geocoding API → (lat, lng) or None."""
+    key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    q = _address_query_string(addr)
+    if not key or not q:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address": q, "region": "tt", "key": key},
+            )
+        data = resp.json()
+        if data.get("status") == "OK" and data.get("results"):
+            loc = data["results"][0]["geometry"]["location"]
+            return (float(loc["lat"]), float(loc["lng"]))
+        logging.info(f"Geocode returned {data.get('status')} for '{q}'")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Geocode failed for '{q}': {exc}")
+    return None
+
+
+async def _find_vendor_doc(vendor_id: str):
+    """Locate a vendor doc + its collection across restaurants/businesses/car_rental_companies."""
+    for coll in (db.restaurants, db.businesses, db.car_rental_companies):
+        doc = await coll.find_one({"id": vendor_id})
+        if doc:
+            return doc, coll
+    return None, None
+
+
+async def _resolve_pickup_coords(order: dict) -> Optional[tuple]:
+    """Return (lat, lng) for an order's pickup point, resolving+persisting coordinates from
+    the vendor's address (geocoded once, then cached) when the order's pickup_address has
+    none. This is the fix for orders whose pickup_address lacks lat/lng — the whole dispatch
+    chain used to silently bail, so drivers never got offered the job. Returns None only when
+    truly unresolvable (caller then falls back to a broad offer)."""
+    coords = _addr_coords(order.get("pickup_address"))
+    if coords:
+        return coords
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not vendor_id:
+        return None
+    vendor, vcoll = await _find_vendor_doc(vendor_id)
+    if not vendor:
+        return None
+    # Cached vendor coords (from a prior geocode) or coords already on the vendor address.
+    vcoords = _addr_coords(vendor.get("address")) or _addr_coords(vendor.get("pickup_coords"))
+    if not vcoords:
+        vcoords = await _geocode_address(vendor.get("address"))
+        if vcoords:
+            await vcoll.update_one(
+                {"id": vendor_id},
+                {"$set": {"pickup_coords": {"lat": vcoords[0], "lng": vcoords[1]}}},
+            )
+    if not vcoords:
+        return None
+    # Persist onto the order's pickup_address so subsequent lookups are instant.
+    pa = dict(order.get("pickup_address") or {})
+    pa["latitude"], pa["longitude"] = vcoords[0], vcoords[1]
+    await db.orders.update_one({"id": order["id"]}, {"$set": {"pickup_address": pa}})
+    order["pickup_address"] = pa
+    return vcoords
+
+
 ACTIVE_DELIVERY_STATUSES = ["assigned", "confirmed", "preparing", "ready", "picked_up", "in_transit"]
 # Average back-road speed used to convert distance saved → time saved (km/h).
 BACKROAD_AVG_KMH = float(os.environ.get("BACKROAD_AVG_KMH", "22"))
@@ -6799,8 +6884,6 @@ async def _maybe_auto_dispatch(order: dict):
             return
         if (order.get("service_type") or "food") not in ("food", "grocery", "pharmacy", "courier"):
             return
-        if not _addr_coords(order.get("pickup_address")):
-            return
         await find_and_assign_driver(order.get("id"))
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"Auto-dispatch skipped for {order.get('id')}: {exc}")
@@ -6819,9 +6902,6 @@ async def _ensure_dispatch(order_id: str):
             return  # already assigned or already offered
         if order.get("status") in ("cancelled", "delivered", "refunded"):
             return
-        if not _addr_coords(order.get("pickup_address")):
-            logging.info(f"_ensure_dispatch: order {order_id} has no pickup coordinates; cannot offer to drivers")
-            return
         await find_and_assign_driver(order_id)
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"_ensure_dispatch failed for {order_id}: {exc}")
@@ -6835,8 +6915,6 @@ async def _redispatch_order(order_id: str):
         if not order or order.get("driver_id"):
             return
         if order.get("status") in ("cancelled", "delivered", "refunded"):
-            return
-        if not _addr_coords(order.get("pickup_address")):
             return
         await find_and_assign_driver(order_id)
     except Exception as exc:  # noqa: BLE001
@@ -6852,8 +6930,7 @@ async def _offer_open_orders_to_driver(driver_id: str):
             "status": {"$nin": ["cancelled", "delivered", "refunded", "rejected"]},
         }, {"_id": 0, "id": 1, "pickup_address": 1}).sort("created_at", -1).limit(20)
         async for o in cursor:
-            if _addr_coords(o.get("pickup_address")):
-                await _redispatch_order(o["id"])
+            await _redispatch_order(o["id"])
     except Exception as exc:  # noqa: BLE001
         logging.warning(f"_offer_open_orders_to_driver failed for {driver_id}: {exc}")
 
@@ -6961,9 +7038,7 @@ async def _priority_second_wave(order_id: str, already_notified: List[str], dela
     order = await db.orders.find_one({"id": order_id})
     if not order or order.get("driver_id"):
         return  # a subscriber already accepted — never opens to Standard
-    coords = _addr_coords(order.get("pickup_address"))
-    if not coords:
-        return
+    coords = await _resolve_pickup_coords(order) or _TT_CENTER
     pickup_lat, pickup_lng = coords
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
@@ -7027,10 +7102,7 @@ async def _reoffer_next_batch(order_id: str) -> int:
         return 0
     if order.get("status") in _DISPATCH_TERMINAL:
         return 0
-    pickup = order.get("pickup_address", {})
-    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
-    if not pickup_lat or not pickup_lng:
-        return 0
+    pickup_lat, pickup_lng = await _resolve_pickup_coords(order) or _TT_CENTER
     exclude = set(order.get("drivers_offered_all") or []) | set(order.get("drivers_declined") or [])
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
@@ -7069,9 +7141,11 @@ async def find_and_assign_driver(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    coords = _addr_coords(order.get("pickup_address"))
+    coords = await _resolve_pickup_coords(order)
     if not coords:
-        raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
+        coords = _TT_CENTER
+        logging.info(f"find_and_assign_driver: order {order_id} pickup coords unresolved; "
+                     f"using T&T-center fallback so online drivers still get offered the job")
     pickup_lat, pickup_lng = coords
 
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
