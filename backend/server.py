@@ -3212,22 +3212,30 @@ async def delete_promo_code(promo_id: str, request: Request):
     return {"success": True}
 
 # Address Management Routes
+class AddressCreate(BaseModel):
+    label: str
+    street_address: str
+    city: str
+    state: str
+    postal_code: Optional[str] = None
+    country: str = "Trinidad & Tobago"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    delivery_instructions: Optional[str] = None
+    is_default: bool = False
+
+
 @api_router.post("/addresses", response_model=Address)
-async def create_address(address: Address, request: Request):
+async def create_address(payload: AddressCreate, request: Request):
     """Create new address"""
     current_user = await get_current_user_from_request(request)
-    address.user_id = current_user.id
-    
-    # If this is set as default, unset other defaults
-    if address.is_default:
+    if payload.is_default:
         await db.addresses.update_many(
             {"user_id": current_user.id},
             {"$set": {"is_default": False}}
         )
-    
-    address_dict = prepare_for_mongo(address.dict())
-    await db.addresses.insert_one(address_dict)
-    
+    address = Address(user_id=current_user.id, **payload.dict())
+    await db.addresses.insert_one(prepare_for_mongo(address.dict()))
     return address
 
 @api_router.get("/addresses")
@@ -3238,34 +3246,28 @@ async def get_user_addresses(request: Request):
     return addresses
 
 @api_router.put("/addresses/{address_id}", response_model=Address)
-async def update_address(address_id: str, address: Address, request: Request):
+async def update_address(address_id: str, payload: AddressCreate, request: Request):
     """Update address"""
     current_user = await get_current_user_from_request(request)
-    
-    # Verify ownership
+
     existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
     if not existing:
         raise HTTPException(status_code=404, detail="Address not found")
-    
-    # Force server-controlled fields (prevent client from overwriting ownership)
-    address.id = address_id
-    address.user_id = current_user.id
-    
-    # If setting as default, unset other defaults
-    if address.is_default:
+
+    if payload.is_default:
         await db.addresses.update_many(
             {"user_id": current_user.id, "id": {"$ne": address_id}},
             {"$set": {"is_default": False}}
         )
-    
-    address.updated_at = datetime.now(timezone.utc)
-    address_dict = prepare_for_mongo(address.dict())
-    
-    await db.addresses.update_one(
-        {"id": address_id},
-        {"$set": address_dict}
+
+    address = Address(
+        id=address_id,
+        user_id=current_user.id,
+        created_at=existing.get("created_at") or datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        **payload.dict(),
     )
-    
+    await db.addresses.update_one({"id": address_id}, {"$set": prepare_for_mongo(address.dict())})
     return address
 
 @api_router.delete("/addresses/{address_id}")
