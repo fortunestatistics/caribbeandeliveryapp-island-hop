@@ -1,5 +1,15 @@
 # IslandHop — Product Requirements Document
 
+## Android Build — v20260727 (Jul 28) — fresh Android Project Zip for Tracy
+- Regenerated the Capacitor Android project zip with ALL latest work. Ran `GENERATE_SOURCEMAP=false CI=true yarn build` + `npx cap sync android` (fresh web assets → `android/app/src/main/assets/public`, index.html dated 2026-07-28).
+- **Bloat fix:** removed stale nested `islandhop-android-20260725.zip` / `-20260726.zip` (~33MB) that were sitting in `frontend/public/` and getting copied into the app bundle (and the web deploy). Zip dropped from a bloated 43MB → **10.6MB**.
+- Zipped the **contents** of `frontend/android` at the archive root (matches prior structure): `SIGNING_GUIDE.txt`, `BUILD_AAB.md`, `keystore.properties`, `keystore/islandhop-upload.jks` all at root; excluded `build/`, `.gradle/`, `app/build/`, plugin `build/` caches. 300 files.
+- Served by `GET /api/download/android-project` → filename updated to **`islandhop-android-20260727.zip`**. Verified curl 200 / application/zip / 10.6MB / SIGNING_GUIDE.txt at root / fresh index.html / no nested zips.
+- Preview link: `https://logistics-island.preview.emergentagent.com/api/download/android-project`. Production link (after redeploy): `https://islandhop-mvp.emergent.host/api/download/android-project`.
+- **Features confirmed present in this build:** Search (`BusinessSearch.js`), Location pop-up (`LocationConsentContext.js`), Documents split (`AdminApprovals.js`), Split Cart (`CartContext.js`/`MultiCart.js`), Weekly Payout (`VendorDashboard.js`), plus this fork's fixes: coordless-dispatch fallback + geocode, Store Location pin (`StoreLocationCard.js`), My Orders page (`MyOrdersPage.js`), merchant order-details dialog, driver pickup/dropoff + new-order alert (`OrderRequestCard.js`/`DriverDashboard.js`).
+- **Security caveat (unchanged P1):** the zip bundles the real upload keystore + `keystore.properties` (owner needs the exact upload key to sign). The keystore was previously exposed in git history — recommend enrolling in Google Play App Signing + rotating the upload key.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Merchant order details dialog + driver sees pickup/dropoff + real new-order alert
 - **User report (production):** (1) merchant order "eye" button went back to the business page instead of full order info (customer order, phone, drop-off). (2) driver gets no notification on a pending pickup and can't see the destination before accepting; taxi drivers need pickup + drop-off before accepting.
 - **Root causes:** (1) the merchant eye button did `navigate('/order-tracking/${id}')` — **no such route** → catch-all bounced home. Inline delivery address used `street_address` (wrong key) → blank. (2) `OrderRequestCard` read `pickup_address.street_address` / `delivery_address.street_address` — keys that don't exist in our data (we store `{street, city, country, latitude, longitude, full_address, location}`) → **pickup/dropoff rendered blank**. The driver dashboard also only silently polled every 10s (no active alert).
