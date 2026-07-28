@@ -1,5 +1,17 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Merchant order details dialog + driver sees pickup/dropoff + real new-order alert
+- **User report (production):** (1) merchant order "eye" button went back to the business page instead of full order info (customer order, phone, drop-off). (2) driver gets no notification on a pending pickup and can't see the destination before accepting; taxi drivers need pickup + drop-off before accepting.
+- **Root causes:** (1) the merchant eye button did `navigate('/order-tracking/${id}')` — **no such route** → catch-all bounced home. Inline delivery address used `street_address` (wrong key) → blank. (2) `OrderRequestCard` read `pickup_address.street_address` / `delivery_address.street_address` — keys that don't exist in our data (we store `{street, city, country, latitude, longitude, full_address, location}`) → **pickup/dropoff rendered blank**. The driver dashboard also only silently polled every 10s (no active alert).
+- **Fixes (frontend only):**
+  - New `formatAddress.js` util (`formatAddress`, `addrCoords`, `mapsLink`) — flexibly flattens any address key shape + builds a Google Maps link (coords or text).
+  - `OrderRequestCard.js`: pickup + dropoff now use `formatAddress` with green/red dots, an "Address not provided" fallback, and a **"View on map"** link each (testids `request-pickup-<id>`, `request-dropoff-<id>`, `request-pickup-map-<id>`, `request-dropoff-map-<id>`). Hides the "km away" line when distance is unknown. Works for taxi (Pickup/Dropoff) and delivery (Pickup store / Delivery to customer).
+  - `DriverDashboard.js`: real-time alert — a WebSocket to `/ws/{driver.user_id}` (when online) refetches on `new_order_request`, plus a Web-Audio **ping + toast** whenever the request count increases (works via both WS and the 10s poll).
+  - `VendorDashboard.js`: the eye button now opens an **Order Details dialog** (`vendor-order-details-dialog`, opener `vendor-order-details-btn-<id>`) showing status/time, customer name + **clickable phone**, itemised list + note, **drop-off location + "View on map"**, and the money breakdown (subtotal/delivery/total/your payout). Inline delivery line now uses `formatAddress`. (Added missing `MapPin` import — caught a runtime `MapPin is not defined` in browser test and fixed it.)
+- **Verified in-browser:** merchant → dashboard → eye → dialog shows items (2× Rice, 1× Eggs), phone +18687778888 (tel link), drop-off "12 Maraval Rd, Port of Spain, Trinidad & Tobago" + map link, payout $29.70. Driver → dashboard → "New Order Requests (1)" card shows **Pickup: San Juan, Alert Test Mart + View on map** and the delivery address. Clean `CI=true yarn build`. **REQUIRES REDEPLOY.**
+- **Note:** on production the driver seeing NO request at all is still gated on deploying the earlier coordless-dispatch fix + Store Location pin work; this session makes the request card actually readable once it arrives and adds an audible/toast alert.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: customer "Track Order" did nothing (dead /track route) + new My Orders page
 - **User report:** after paying, going to the customer portal and clicking "Track my order" didn't work.
 - **Root cause:** the customer dashboard "Track Order" quick action did `navigate('/track')`, but there was **no `/track` route** — the catch-all `path="*" → Navigate to "/"` silently bounced the user back to the homepage. There was also no order-list page to pick an order to track.

@@ -42,11 +42,13 @@ import {
   Volume2,
   History,
   Play,
-  Truck
+  Truck,
+  MapPin
 } from 'lucide-react';
 import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
 import { useToast } from './hooks/use-toast';
+import { formatAddress, mapsLink } from './formatAddress';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -96,6 +98,7 @@ const VendorDashboard = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [chatOpenFor, setChatOpenFor] = useState(null);
+  const [detailsFor, setDetailsFor] = useState(null);
   const [orders, setOrders] = useState([]);
   const seenOrderIdsRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -966,9 +969,8 @@ const VendorDashboard = () => {
                       {/* Delivery Info */}
                       {order.delivery_address && (
                         <div className="mb-4 text-sm text-muted-foreground">
-                          <p className="font-medium">Delivery Address:</p>
-                          <p>{order.delivery_address.street_address}</p>
-                          <p>{order.delivery_address.city}, {order.delivery_address.postal_code}</p>
+                          <p className="font-medium">Drop-off address:</p>
+                          <p>{formatAddress(order.delivery_address) || 'Not provided'}</p>
                         </div>
                       )}
 
@@ -1035,9 +1037,10 @@ const VendorDashboard = () => {
                           <MessageCircle className="h-4 w-4" />
                         </Button>
                         <Button
-                          onClick={() => navigate(`/order-tracking/${order.id}`)}
+                          onClick={() => setDetailsFor(order)}
                           variant="outline"
                           size="sm"
+                          data-testid={`vendor-order-details-btn-${order.id}`}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -1061,6 +1064,68 @@ const VendorDashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Full order details for the merchant */}
+      <Dialog open={!!detailsFor} onOpenChange={(o) => !o && setDetailsFor(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-testid="vendor-order-details-dialog">
+          <DialogHeader>
+            <DialogTitle>Order #{detailsFor?.id?.substring(0, 8)}</DialogTitle>
+          </DialogHeader>
+          {detailsFor && (
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge className={getStatusColor(detailsFor.status)}>{detailsFor.status?.toUpperCase()}</Badge>
+                <span className="text-muted-foreground">{new Date(detailsFor.created_at).toLocaleString()}</span>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/50" data-testid="vendor-details-customer">
+                <p className="font-semibold mb-1">Customer</p>
+                <p className="text-muted-foreground">Name: {detailsFor.customer_name || 'N/A'}</p>
+                <p className="text-muted-foreground">
+                  Phone: {detailsFor.customer_phone
+                    ? <a href={`tel:${detailsFor.customer_phone}`} className="text-gold-600 underline">{detailsFor.customer_phone}</a>
+                    : 'N/A'}
+                </p>
+              </div>
+
+              <div data-testid="vendor-details-items">
+                <p className="font-semibold mb-1">Items</p>
+                {(detailsFor.items || []).length === 0 && <p className="text-muted-foreground">No items listed.</p>}
+                {(detailsFor.items || []).map((it, idx) => (
+                  <div key={`${it.menu_item_id || it.name}-${idx}`} className="flex justify-between">
+                    <span>{it.quantity}× {it.name}</span>
+                    <span>${((it.price || 0) * (it.quantity || 1)).toFixed(2)}</span>
+                  </div>
+                ))}
+                {detailsFor.notes && <p className="text-muted-foreground mt-2">Note: {detailsFor.notes}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div data-testid="vendor-details-dropoff">
+                  <p className="font-semibold mb-1 flex items-center gap-1">
+                    <span className="inline-block h-2 w-2 rounded-full bg-red-500" /> Drop-off location
+                  </p>
+                  <p className="text-muted-foreground">{formatAddress(detailsFor.delivery_address) || 'Not provided'}</p>
+                  {mapsLink(detailsFor.delivery_address) && (
+                    <a href={mapsLink(detailsFor.delivery_address)} target="_blank" rel="noopener noreferrer"
+                       className="inline-flex items-center gap-1 text-xs text-gold-600 underline mt-1"
+                       data-testid="vendor-details-dropoff-map">
+                      <MapPin className="h-3 w-3" /> View on map
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t pt-3 space-y-1">
+                <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${(detailsFor.subtotal || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Delivery fee</span><span>${(detailsFor.delivery_fee || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Order total</span><span>${(detailsFor.total || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-gold-600 font-semibold"><span>Your payout</span><span>${(detailsFor.vendor_payout ?? detailsFor.subtotal ?? 0).toFixed(2)}</span></div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Printable storefront QR code */}
       <Dialog open={showQR} onOpenChange={setShowQR}>

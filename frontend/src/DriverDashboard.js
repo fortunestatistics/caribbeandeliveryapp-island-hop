@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { 
@@ -23,7 +24,10 @@ const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { requestLocationConsent } = useLocationConsent();
+  const wsRef = useRef(null);
+  const prevReqCount = useRef(0);
   const [driver, setDriver] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -67,6 +71,34 @@ const DriverDashboard = () => {
     // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
+  // Real-time new-order alerts over WebSocket (in addition to the 10s poll) so a driver
+  // is actively notified the moment a job is offered, even between polls.
+  useEffect(() => {
+    const uid = driver?.user_id;
+    if (!uid || !isOnline) return undefined;
+    let closed = false;
+    try {
+      const wsUrl = `${API.replace(/^http/, 'ws').replace(/\/api$/, '')}/ws/${uid}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'new_order_request') {
+            fetchOrderRequests();
+          }
+        } catch (_) { /* ignore */ }
+      };
+      ws.onclose = () => { if (!closed) wsRef.current = null; };
+    } catch (_) { /* ignore */ }
+    return () => {
+      closed = true;
+      try { wsRef.current && wsRef.current.close(); } catch (_) { /* ignore */ }
+      wsRef.current = null;
+    };
+    // eslint-disable-next-line -- reconnect only on identity/online change
+  }, [driver?.user_id, isOnline]);
+
   const fetchDriverData = async () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
@@ -81,12 +113,38 @@ const DriverDashboard = () => {
     }
   };
 
+  const playPing = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+      o.start(); o.stop(ctx.currentTime + 0.5);
+    } catch (_) { /* ignore */ }
+  };
+
+  const alertNewRequests = (list) => {
+    const count = Array.isArray(list) ? list.length : 0;
+    if (count > prevReqCount.current) {
+      playPing();
+      toast({ title: '🚗 New order request!', description: 'A pickup is waiting — review and accept it below.' });
+    }
+    prevReqCount.current = count;
+  };
+
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
         withCredentials: true
       });
       setOrderRequests(response.data);
+      alertNewRequests(response.data);
     } catch (error) {
       console.error('Error fetching order requests:', error);
     }

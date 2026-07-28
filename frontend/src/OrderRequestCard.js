@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { MapPin, Clock, CheckCircle, X, Car, TrendingUp } from 'lucide-react';
+import { MapPin, Clock, CheckCircle, X, Car, TrendingUp, Navigation } from 'lucide-react';
+import { formatAddress, mapsLink } from './formatAddress';
 
 /**
  * Single new-order-request card with Accept/Decline buttons.
@@ -38,10 +39,12 @@ const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
             </Badge>
           </div>
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>
-              <MapPin className="h-4 w-4 inline mr-1" />
-              {order.estimated_distance_km?.toFixed(1)} km away
-            </p>
+            {order.estimated_distance_km != null && (
+              <p>
+                <MapPin className="h-4 w-4 inline mr-1" />
+                {order.estimated_distance_km?.toFixed(1)} km away
+              </p>
+            )}
             <p>
               <Clock className="h-4 w-4 inline mr-1" />
               Est. {order.estimated_duration_min || 30} min {isTaxi ? 'ride' : 'delivery'}
@@ -78,12 +81,34 @@ const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
 
       <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-card rounded-lg">
         <div>
-          <p className="font-medium text-sm mb-1">Pickup:</p>
-          <p className="text-sm text-muted-foreground">{order.pickup_address?.street_address}</p>
+          <p className="font-medium text-sm mb-1 flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> Pickup{isTaxi ? '' : ' (store)'}:
+          </p>
+          <p className="text-sm text-muted-foreground" data-testid={`request-pickup-${order.id}`}>
+            {formatAddress(order.pickup_address) || 'Address not provided'}
+          </p>
+          {mapsLink(order.pickup_address) && (
+            <a href={mapsLink(order.pickup_address)} target="_blank" rel="noopener noreferrer"
+               className="inline-flex items-center gap-1 text-xs text-gold-600 underline mt-1"
+               data-testid={`request-pickup-map-${order.id}`}>
+              <Navigation className="h-3 w-3" /> View on map
+            </a>
+          )}
         </div>
         <div>
-          <p className="font-medium text-sm mb-1">{isTaxi ? 'Dropoff:' : 'Delivery:'}</p>
-          <p className="text-sm text-muted-foreground">{order.delivery_address?.street_address}</p>
+          <p className="font-medium text-sm mb-1 flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" /> {isTaxi ? 'Dropoff:' : 'Delivery to customer:'}
+          </p>
+          <p className="text-sm text-muted-foreground" data-testid={`request-dropoff-${order.id}`}>
+            {formatAddress(order.delivery_address) || 'Address not provided'}
+          </p>
+          {mapsLink(order.delivery_address) && (
+            <a href={mapsLink(order.delivery_address)} target="_blank" rel="noopener noreferrer"
+               className="inline-flex items-center gap-1 text-xs text-gold-600 underline mt-1"
+               data-testid={`request-dropoff-map-${order.id}`}>
+              <Navigation className="h-3 w-3" /> View on map
+            </a>
+          )}
         </div>
       </div>
 
