@@ -11020,6 +11020,7 @@ async def root():
 
 
 @api_router.get("/download/android-project")
+@api_router.get("/download/android-project-v2")
 async def download_android_project():
     """Public download of the Capacitor Android project zip (for local .aab builds)."""
     zip_path = ROOT_DIR / "static" / "android-project.zip"
@@ -11028,7 +11029,7 @@ async def download_android_project():
     return FileResponse(
         path=str(zip_path),
         media_type="application/zip",
-        filename="islandhop-android-20260727.zip",
+        filename="islandhop-android-20260727-v2.zip",
     )
 
 

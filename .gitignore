@@ -66,6 +66,8 @@ agenthub/agents/youtube/db
 **/*.zip
 **/*.tar.gz
 **/*.tar
+# Exception: the downloadable Android project zip MUST deploy so the download endpoint works
+!backend/static/android-project.zip
 **/*.tgz
 *.pack
 *.deb

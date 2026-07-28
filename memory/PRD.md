@@ -1,5 +1,15 @@
 # IslandHop — Product Requirements Document
 
+## Android Build — v20260727-v2 (Jul 28) — FIX: download returned HTML (404) on production
+- **Root cause:** `backend/static/android-project.zip` (the file the `/api/download/android-project` endpoint serves) was matched by `.gitignore` `**/*.zip`, so it never got committed/deployed → production served a 404/HTML page. The older zips only "worked" because they lived in `frontend/public/` and were served as frontend assets — which were removed to fix the mobile-app bloat.
+- **Fixes:**
+  - `.gitignore`: added `!backend/static/android-project.zip` exception (after `**/*.zip`) so the archive is tracked & deploys. Verified `git check-ignore` → not ignored; `git add --dry-run` → adds it.
+  - Regenerated a fresh zip (`GENERATE_SOURCEMAP=false yarn build` + `cap sync`, assets dated today). Clean 10.6MB, SIGNING_GUIDE.txt at root, no stale nested zips.
+  - `download_android_project` endpoint: Content-Disposition filename → `islandhop-android-20260727-v2.zip`; added a second route alias `GET /api/download/android-project-v2` for a fresh, cache-busting URL.
+- **Verified (preview curl):** `GET /api/download/android-project-v2` → HTTP 200, `content-type: application/zip`, `content-disposition filename="islandhop-android-20260727-v2.zip"`, 10.6MB, `unzip -t` = no errors, SIGNING_GUIDE.txt present.
+- Links — Preview (live now): `.../api/download/android-project-v2`. Production (works only AFTER Save to GitHub → Deploy): `https://islandhop-mvp.emergent.host/api/download/android-project-v2`.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Referral/promoter reward prices → TT$20/50/80
 - **User request:** referral (Promote & Earn promoter) rewards should be Customer **TT$20**, Driver **TT$50**, Merchant **TT$80** — on both www.islandhopapp.com AND www.islandhoptt.com (both domains = the same production app, so one deploy covers both).
 - **Key gotcha:** the whole app authors money in **USD** and the frontend `CurrencyContext.format()` converts USD→TT$ at `RATE_TTD_PER_USD = 6.78`. Setting `PROMO_REWARDS` to 20/50/80 (naively) made the page show TT$135.60 / 339 / 542.40 (20×6.78 etc.). Fix: store the **USD equivalents** so they render as exactly TT$20/50/80.
