@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { useLocationConsent } from './LocationConsentContext';
+import MapPinPicker from './MapPinPicker';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -366,6 +367,17 @@ const AddressManagement = () => {
                         placeholder="12345"
                       />
                     </div>
+                  </div>
+
+                  {/* Exact drop-off pin */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Pin your exact drop-off spot</label>
+                    <MapPinPicker
+                      lat={formData.latitude}
+                      lng={formData.longitude}
+                      onChange={({ lat, lng }) => setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }))}
+                      testId="address-map-pin"
+                    />
                   </div>
 
                   {/* Delivery Instructions */}

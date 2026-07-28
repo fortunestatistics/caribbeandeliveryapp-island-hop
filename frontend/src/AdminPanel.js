@@ -131,6 +131,9 @@ const AdminPanel = () => {
   const [docActionBusy, setDocActionBusy] = useState(false);
   // Driver cash-outstanding (COD reconciliation)
   const [cashOutstanding, setCashOutstanding] = useState(null);
+  // End-of-day settlements (merchants + drivers)
+  const [settlementBatches, setSettlementBatches] = useState([]);
+  const [settling, setSettling] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -158,6 +161,7 @@ const AdminPanel = () => {
       if (safetySub === 'disputes') fetchDisputes();
     }
     if (selectedTab === 'orders') fetchCashOutstanding();
+    if (selectedTab === 'orders') fetchSettlements();
     // eslint-disable-next-line -- fetchers are stable; re-run only on tab/filter change
   }, [selectedTab, safetySub, financeSub, fraudFilter, claimsFilter]);
 
@@ -179,6 +183,26 @@ const AdminPanel = () => {
       await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: true });
       fetchCashOutstanding();
     } catch (e) { alert(e.response?.data?.detail || 'Failed to settle'); }
+  };
+
+  const fetchSettlements = async () => {
+    try {
+      const r = await axios.get(`${API}/admin/settlements?limit=10`, { headers: authHeaders(), withCredentials: true });
+      setSettlementBatches(r.data?.batches || []);
+    } catch (e) { setSettlementBatches([]); }
+  };
+
+  const runSettlement = async () => {
+    if (!window.confirm('Run settlement now? This credits merchant payouts and driver earnings to their wallets (netting any cash owed) and queues external payouts.')) return;
+    setSettling(true);
+    try {
+      const r = await axios.post(`${API}/admin/settlements/run`, {}, { headers: authHeaders(), withCredentials: true });
+      const b = r.data?.batch || {};
+      alert(`Settlement complete — ${b.merchants_settled || 0} merchant(s) (${money(b.merchants_total)}) and ${b.drivers_settled || 0} driver(s) (${money(b.drivers_total)}) settled.`);
+      fetchSettlements();
+      fetchCashOutstanding();
+    } catch (e) { alert(e.response?.data?.detail || 'Failed to run settlement'); }
+    finally { setSettling(false); }
   };
 
   useEffect(() => {
@@ -749,6 +773,42 @@ const AdminPanel = () => {
 
         {selectedTab === 'orders' && (
           <>
+            <Card className="mb-4 border-gold-300" data-testid="settlement-card">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="flex items-center gap-2"><Banknote className="h-5 w-5 text-gold-600" />End-of-Day Settlement</span>
+                  <Button size="sm" className="bg-gold-gradient text-white" disabled={settling} onClick={runSettlement} data-testid="run-settlement-btn">
+                    {settling ? 'Settling…' : 'Run settlement now'}
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Settles merchant payouts and driver earnings to their in-app wallets (netting any COD cash drivers owe) and queues external payouts. Runs automatically at end of day; use the button to settle on demand.
+                </p>
+                {settlementBatches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No settlement runs yet.</p>
+                ) : (
+                  <div className="border rounded-lg divide-y">
+                    {settlementBatches.map((b) => (
+                      <div key={b.id} className="flex items-center justify-between p-3 text-sm" data-testid={`settlement-batch-${b.id}`}>
+                        <div>
+                          <p className="font-medium">{new Date(b.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {b.merchants_settled} merchant(s) · {b.drivers_settled} driver(s)
+                            {b.drivers_cash_offset > 0 ? ` · ${money(b.drivers_cash_offset)} cash offset` : ''} · {b.actor}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-gold-700">{money(b.merchants_total + b.drivers_total)}</p>
+                          <p className="text-xs text-muted-foreground">M {money(b.merchants_total)} · D {money(b.drivers_total)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             {cashOutstanding && cashOutstanding.drivers?.length > 0 && (
               <Card className="mb-4 border-amber-300" data-testid="cash-outstanding-card">
                 <CardHeader>

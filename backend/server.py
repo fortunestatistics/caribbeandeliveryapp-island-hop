@@ -4385,6 +4385,143 @@ async def admin_settle_driver_cash(driver_id: str, request: Request):
     return {"success": True, "settled_amount": settled}
 
 
+# ============================================================
+# END-OF-DAY AUTO SETTLEMENT (merchants + drivers)
+# Credits in-app wallets AND queues external payouts. Idempotent via per-order
+# settlement status flags. Runs nightly (scheduler) or on demand (admin).
+# ============================================================
+async def _resolve_vendor_user_id(vendor_id: str) -> Optional[str]:
+    vdoc, _ = await _find_vendor_doc_by_vid(vendor_id)
+    if vdoc and vdoc.get("user_id"):
+        return vdoc["user_id"]
+    app_doc = await db.business_applications.find_one({"id": vendor_id}, {"_id": 0, "user_id": 1})
+    return (app_doc or {}).get("user_id")
+
+
+async def run_daily_settlement(actor: str = "scheduler") -> dict:
+    """Settle all outstanding merchant payouts and driver earnings.
+    Merchants: sum unsettled delivered-order vendor_payout → credit wallet + queue external payout.
+    Drivers: sum unsettled prepaid driver_earnings, net against COD cash owed → credit wallet + queue payout.
+    Idempotent — only processes orders/records not already settled."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    batch_id = str(uuid.uuid4())
+    currency = "USD"
+    summary = {"merchants": {"count": 0, "total": 0.0},
+               "drivers": {"count": 0, "total": 0.0, "cash_offset": 0.0}}
+
+    # ---- Merchants ----
+    vendor_map: dict = {}
+    cursor = db.orders.find(
+        {"status": "delivered",
+         "$or": [{"vendor_payout_status": "pending"}, {"vendor_payout_status": {"$exists": False}}]},
+        {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "vendor_payout": 1},
+    )
+    async for o in cursor:
+        vid = o.get("restaurant_id") or o.get("vendor_id")
+        payout = float(o.get("vendor_payout") or 0)
+        if not vid or payout <= 0:
+            continue
+        agg = vendor_map.setdefault(vid, {"total": 0.0, "order_ids": []})
+        agg["total"] += payout
+        agg["order_ids"].append(o["id"])
+    for vid, agg in vendor_map.items():
+        user_id = await _resolve_vendor_user_id(vid)
+        amount = round(agg["total"], 2)
+        if not user_id or amount <= 0:
+            continue
+        await _credit_wallet_with_txn(
+            user_id, amount, currency, txn_type="merchant_settlement",
+            note=f"Daily merchant settlement ({len(agg['order_ids'])} orders)")
+        await db.orders.update_many(
+            {"id": {"$in": agg["order_ids"]}},
+            {"$set": {"vendor_payout_status": "settled", "vendor_settled_at": now_iso}})
+        await db.settlements.insert_one({
+            "id": str(uuid.uuid4()), "batch_id": batch_id, "party_type": "merchant",
+            "vendor_id": vid, "user_id": user_id, "amount": amount, "currency": currency,
+            "order_count": len(agg["order_ids"]), "order_ids": agg["order_ids"],
+            "wallet_credited": True, "external_payout_status": "queued", "created_at": now_iso})
+        summary["merchants"]["count"] += 1
+        summary["merchants"]["total"] += amount
+
+    # ---- Drivers (prepaid earnings netted against COD cash owed) ----
+    driver_map: dict = {}
+    cursor = db.orders.find(
+        {"status": "delivered", "driver_id": {"$nin": [None, ""]}, "payment_method": {"$ne": "cash"},
+         "$or": [{"driver_payout_status": "pending"}, {"driver_payout_status": {"$exists": False}}]},
+        {"_id": 0, "id": 1, "driver_id": 1, "driver_earnings": 1},
+    )
+    async for o in cursor:
+        did = o.get("driver_id")
+        earn = float(o.get("driver_earnings") or 0)
+        if not did or earn <= 0:
+            continue
+        agg = driver_map.setdefault(did, {"earnings": 0.0, "order_ids": []})
+        agg["earnings"] += earn
+        agg["order_ids"].append(o["id"])
+    for did, agg in driver_map.items():
+        d = await db.drivers.find_one({"id": did}, {"_id": 0, "user_id": 1, "cash_outstanding": 1})
+        if not d or not d.get("user_id"):
+            continue
+        earnings = round(agg["earnings"], 2)
+        cash_owed = round(float(d.get("cash_outstanding") or 0), 2)
+        applied = round(min(earnings, cash_owed), 2)       # earnings offset the cash they owe us
+        net_paid = round(earnings - applied, 2)            # remainder paid to the driver
+        new_cash_owed = round(cash_owed - applied, 2)
+        if net_paid > 0:
+            await _credit_wallet_with_txn(
+                d["user_id"], net_paid, currency, txn_type="driver_settlement",
+                note=f"Daily driver settlement ({len(agg['order_ids'])} orders" +
+                     (f", ${applied:.2f} applied to cash owed)" if applied > 0 else ")"))
+        await db.orders.update_many(
+            {"id": {"$in": agg["order_ids"]}},
+            {"$set": {"driver_payout_status": "settled", "driver_settled_at": now_iso}})
+        if applied > 0:
+            await db.drivers.update_one(
+                {"id": did}, {"$set": {"cash_outstanding": new_cash_owed, "updated_at": now_iso}})
+        await db.settlements.insert_one({
+            "id": str(uuid.uuid4()), "batch_id": batch_id, "party_type": "driver",
+            "driver_id": did, "user_id": d["user_id"], "amount": net_paid, "currency": currency,
+            "gross_earnings": earnings, "cash_offset": applied, "remaining_cash_owed": new_cash_owed,
+            "order_count": len(agg["order_ids"]), "order_ids": agg["order_ids"],
+            "wallet_credited": net_paid > 0,
+            "external_payout_status": "queued" if net_paid > 0 else "none", "created_at": now_iso})
+        summary["drivers"]["count"] += 1
+        summary["drivers"]["total"] += net_paid
+        summary["drivers"]["cash_offset"] += applied
+
+    batch = {
+        "id": batch_id, "actor": actor, "created_at": now_iso,
+        "merchants_settled": summary["merchants"]["count"],
+        "merchants_total": round(summary["merchants"]["total"], 2),
+        "drivers_settled": summary["drivers"]["count"],
+        "drivers_total": round(summary["drivers"]["total"], 2),
+        "drivers_cash_offset": round(summary["drivers"]["cash_offset"], 2),
+    }
+    await db.settlement_batches.insert_one(dict(batch))
+    logging.info(f"Settlement batch complete: {batch}")
+    return {"batch": batch}
+
+
+@api_router.post("/admin/settlements/run")
+async def admin_run_settlement(request: Request):
+    """Admin: run the merchant+driver settlement now (same engine as the nightly job)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    result = await run_daily_settlement(actor=f"admin:{current_user.id}")
+    return {"success": True, "batch": result["batch"]}
+
+
+@api_router.get("/admin/settlements")
+async def admin_list_settlements(request: Request, limit: int = 50):
+    """Admin: recent settlement batches (newest first)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    batches = await db.settlement_batches.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"batches": batches}
+
+
 @api_router.post("/orders/create", response_model=Order)
 async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
     """Create new order with payment processing"""
@@ -12784,14 +12921,16 @@ async def initialize_data():
         if not hasattr(app.state, "scheduler") or app.state.scheduler is None:
             scheduler = AsyncIOScheduler(timezone="UTC")
 
-            async def _nightly_payouts():
+            async def _nightly_settlement():
                 try:
-                    await process_daily_vendor_payouts()
-                    logger.info("✅ Nightly vendor payout batch completed")
+                    res = await run_daily_settlement(actor="scheduler")
+                    logger.info(f"✅ Nightly settlement completed: {res['batch']}")
                 except Exception as e:
-                    logger.error(f"❌ Nightly vendor payout failed: {e}")
+                    logger.error(f"❌ Nightly settlement failed: {e}")
 
-            scheduler.add_job(_nightly_payouts, CronTrigger(hour=2, minute=0), id="nightly_vendor_payouts", replace_existing=True)
+            # End-of-day (00:00 AST = 04:00 UTC): settle merchants + drivers,
+            # credit wallets and queue external payouts.
+            scheduler.add_job(_nightly_settlement, CronTrigger(hour=4, minute=0), id="daily_settlement", replace_existing=True)
 
             async def _weekly_top_drivers():
                 try:
