@@ -11341,12 +11341,19 @@ async def _maybe_complete_referral(referee_id: str):
 # Paid immediately if the promoter is ELIGIBLE (admin-approved Ambassador
 # OR an active/approved account); otherwise HELD until they become eligible.
 # ============================================================
+# Promoter referral rewards are set in Trinidad dollars (customer TT$20, driver TT$50,
+# merchant/supplier TT$80) but STORED in USD — the platform's base currency that the
+# frontend currency formatter converts for display — so they render as exactly TT$20/50/80
+# (and their US$ equivalent). Divide the TT$ target by the same rate the UI uses.
+_TTD_PER_USD = float(os.environ.get("RATE_TTD_PER_USD", "6.78"))
+def _ttd_to_usd(amount_ttd: float) -> float:
+    return round(float(amount_ttd) / _TTD_PER_USD, 4)
 PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
 PROMO_REWARDS = {
-    "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
-    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "15")),
-    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "20")),
-    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "25")),
+    "customer": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_CUSTOMER_TTD", "20"))),
+    "driver": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_DRIVER_TTD", "50"))),
+    "merchant": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_MERCHANT_TTD", "80"))),
+    "supplier": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_SUPPLIER_TTD", "80"))),
 }
 PROMO_TYPE_LABEL = {
     "customer": "Customer", "driver": "Driver",

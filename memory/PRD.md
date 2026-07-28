@@ -1,5 +1,13 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Referral/promoter reward prices → TT$20/50/80
+- **User request:** referral (Promote & Earn promoter) rewards should be Customer **TT$20**, Driver **TT$50**, Merchant **TT$80** — on both www.islandhopapp.com AND www.islandhoptt.com (both domains = the same production app, so one deploy covers both).
+- **Key gotcha:** the whole app authors money in **USD** and the frontend `CurrencyContext.format()` converts USD→TT$ at `RATE_TTD_PER_USD = 6.78`. Setting `PROMO_REWARDS` to 20/50/80 (naively) made the page show TT$135.60 / 339 / 542.40 (20×6.78 etc.). Fix: store the **USD equivalents** so they render as exactly TT$20/50/80.
+- **Change (`server.py`, `PROMO_REWARDS`):** added `_TTD_PER_USD` (=6.78, env `RATE_TTD_PER_USD`) + `_ttd_to_usd()`; rewards now defined from TT$ targets (`PROMO_REWARD_{CUSTOMER,DRIVER,MERCHANT,SUPPLIER}_TTD` = 20/50/80/80) divided by the rate → stored USD `{customer:2.9499, driver:7.3746, merchant:11.7994, supplier:11.7994}`, currency stays `USD` (matches the USD-based wallet). Supplier set to TT$80 (user didn't specify; matched merchant).
+- Surfaced via `GET /promoter/me` → `reward_schedule`; `PromoteEarn.js` renders each row with `format()`.
+- **Verified in-browser:** Promote & Earn "Reward Schedule" shows **Customer +TT$20.00, Driver +TT$50.00, Business +TT$80.00, Supplier +TT$80.00** (currency selector TT$). Backend restarted clean. **REQUIRES REDEPLOY** to update both live domains.
+
+
 ## Android Build — v20260727 (Jul 28) — fresh Android Project Zip for Tracy
 - Regenerated the Capacitor Android project zip with ALL latest work. Ran `GENERATE_SOURCEMAP=false CI=true yarn build` + `npx cap sync android` (fresh web assets → `android/app/src/main/assets/public`, index.html dated 2026-07-28).
 - **Bloat fix:** removed stale nested `islandhop-android-20260725.zip` / `-20260726.zip` (~33MB) that were sitting in `frontend/public/` and getting copied into the app bundle (and the web deploy). Zip dropped from a bloated 43MB → **10.6MB**.
