@@ -11353,7 +11353,7 @@ PROMO_REWARDS = {
     "customer": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_CUSTOMER_TTD", "20"))),
     "driver": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_DRIVER_TTD", "50"))),
     "merchant": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_MERCHANT_TTD", "80"))),
-    "supplier": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_SUPPLIER_TTD", "80"))),
+    "supplier": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_SUPPLIER_TTD", "100"))),
 }
 PROMO_TYPE_LABEL = {
     "customer": "Customer", "driver": "Driver",
