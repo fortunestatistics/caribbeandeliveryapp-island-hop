@@ -3488,25 +3488,38 @@ async def close_ticket(ticket_id: str, request: Request):
 # ---- Customer Claims (built on top of support tickets) ----
 ALLOWED_CLAIM_TYPES = {"wrong_item", "missing_item", "damaged", "late", "quality", "other"}
 
+
+class ClaimCreate(BaseModel):
+    order_id: str
+    description: str
+    subject: Optional[str] = None
+    claim_type: Optional[str] = None
+    category: str = "claim"
+    photo_url: Optional[str] = None
+
 @api_router.post("/claims", response_model=SupportTicket)
-async def create_claim(claim: SupportTicket, request: Request):
+async def create_claim(payload: ClaimCreate, request: Request):
     """File a customer claim against an order (creates a support ticket with category='claim')."""
     current_user = await get_current_user_from_request(request)
-    if not claim.order_id:
+    if not payload.order_id:
         raise HTTPException(status_code=400, detail="order_id is required for a claim")
-    if claim.claim_type and claim.claim_type not in ALLOWED_CLAIM_TYPES:
+    if payload.claim_type and payload.claim_type not in ALLOWED_CLAIM_TYPES:
         raise HTTPException(status_code=400, detail=f"claim_type must be one of {sorted(ALLOWED_CLAIM_TYPES)}")
 
     # Verify the order belongs to the user
-    order = await db.orders.find_one({"id": claim.order_id, "customer_id": current_user.id}, {"_id": 0})
+    order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    claim.user_id = current_user.id
-    claim.category = "claim"
-    if not claim.subject:
-        claim.subject = f"Claim: {claim.claim_type or 'other'} (order {claim.order_id[:8]})"
-
+    claim = SupportTicket(
+        user_id=current_user.id,
+        category="claim",
+        order_id=payload.order_id,
+        description=payload.description,
+        subject=payload.subject or f"Claim: {payload.claim_type or 'other'} (order {payload.order_id[:8]})",
+        claim_type=payload.claim_type,
+        photo_url=payload.photo_url,
+    )
     await db.support_tickets.insert_one(prepare_for_mongo(claim.dict()))
     return claim
 
