@@ -1142,6 +1142,14 @@ async def create_restaurant(restaurant: Restaurant, request: Request):
     return restaurant
 
 # Global Search Endpoint
+_TEST_NAME_RE = re.compile(r"\b(test|demo|sample|dummy|example|placeholder|qa|sandbox)\b", re.I)
+
+
+def _is_test_name(name) -> bool:
+    """Heuristic: is this a placeholder/test business (so we can rank it last)."""
+    return bool(name) and bool(_TEST_NAME_RE.search(str(name)))
+
+
 @api_router.get("/search")
 async def global_search(q: str):
     """
@@ -1162,8 +1170,11 @@ async def global_search(q: str):
             {"description": search_query}
         ],
         "status": "active"
-    }).limit(5).to_list(length=None)
-    
+    }).limit(20).to_list(length=None)
+    # Real businesses first; test/demo/sample ones ranked last.
+    restaurants.sort(key=lambda x: 1 if _is_test_name(x.get("name")) else 0)
+    restaurants = restaurants[:8]
+
     for restaurant in restaurants:
         results.append({
             "id": restaurant.get("id"),
@@ -1181,7 +1192,10 @@ async def global_search(q: str):
             {"business_description": search_query}
         ],
         "status": "active"
-    }).limit(15).to_list(length=15)
+    }).limit(30).to_list(length=30)
+    # Real businesses first; test/demo/sample ones ranked last.
+    businesses.sort(key=lambda x: 1 if _is_test_name(x.get("business_name")) else 0)
+    businesses = businesses[:15]
 
     for biz in businesses:
         results.append({
@@ -1235,7 +1249,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
         restaurants = await db.restaurants.find(
             {"status": "active"}, {"_id": 0, "id": 1, "name": 1, "description": 1, "cuisine": 1, "featured": 1, "rating": 1}
         ).limit(50).to_list(length=50)
-        restaurants.sort(key=lambda x: (0 if x.get("featured") else 1, -(x.get("rating") or 0)))
+        restaurants.sort(key=lambda x: (1 if _is_test_name(x.get("name")) else 0, 0 if x.get("featured") else 1, -(x.get("rating") or 0)))
         for r in restaurants:
             rest_results.append({
                 "id": r.get("id"), "name": r.get("name"), "type": "vendor",
@@ -1254,6 +1268,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
         businesses = await db.businesses.find(
             biz_query, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1, "business_type": 1}
         ).limit(40).to_list(length=40)
+        businesses.sort(key=lambda x: 1 if _is_test_name(x.get("business_name")) else 0)
         for b in businesses:
             biz_results.append({
                 "id": b.get("id"), "name": b.get("business_name"), "type": "vendor",
@@ -3841,6 +3856,20 @@ async def create_order(order: Order, request: Request):
     if _open.get("enabled") and not _open.get("is_open"):
         raise HTTPException(status_code=400,
                             detail="This store is currently closed. Please order during its opening hours.")
+
+    # Merchant catalog prices (menu items / products) and the merchant's delivery fee
+    # are authored by merchants in TT$, but the platform ledger (wallet, Stripe charges,
+    # commissions, payouts) is denominated in USD. Convert TT$ -> USD once, here, for
+    # merchant-catalog orders. Taxi & courier fares are already computed in USD upstream,
+    # so they are left untouched.
+    if order.items and order.service_type not in ("taxi", "courier"):
+        order.subtotal = round(float(order.subtotal or 0) / _TTD_PER_USD, 2)
+        order.delivery_fee = round(float(order.delivery_fee or 0) / _TTD_PER_USD, 2)
+        if order.discount:
+            order.discount = round(float(order.discount or 0) / _TTD_PER_USD, 2)
+        for _it in order.items:
+            if _it.price is not None:
+                _it.price = round(float(_it.price) / _TTD_PER_USD, 2)
 
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)

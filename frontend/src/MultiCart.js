@@ -48,7 +48,7 @@ export const CartButton = () => {
 // ---------- /cart : multi-store basket ----------
 export const MultiCartPage = () => {
   const navigate = useNavigate();
-  const { format } = useCurrency();
+  const { formatTTD } = useCurrency();
   const { vendors, setQty, removeItem, clearVendor, clear, totalCount, grandSubtotal } = useCart();
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [phone, setPhone] = useState('');
@@ -166,7 +166,7 @@ export const MultiCartPage = () => {
                     <div key={i.id} className="flex items-center justify-between gap-3" data-testid={`cart-item-${i.id}`}>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{i.name}</p>
-                        <p className="text-sm text-muted-foreground">{format(i.price)}</p>
+                        <p className="text-sm text-muted-foreground">{formatTTD(i.price)}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => setQty(g.vendor_id, i.id, i.quantity - 1)} data-testid={`cart-dec-${i.id}`}>
@@ -184,7 +184,7 @@ export const MultiCartPage = () => {
                   ))}
                   <div className="flex justify-between border-t pt-2 text-sm">
                     <span className="text-muted-foreground">Store subtotal</span>
-                    <span className="font-semibold" data-testid={`cart-store-subtotal-${g.vendor_id}`}>{format(subtotal)}</span>
+                    <span className="font-semibold" data-testid={`cart-store-subtotal-${g.vendor_id}`}>{formatTTD(subtotal)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -200,7 +200,7 @@ export const MultiCartPage = () => {
             </div>
             <div className="flex justify-between items-center border-t pt-3">
               <span className="text-muted-foreground">Items subtotal</span>
-              <span className="text-xl font-bold text-gold-500" data-testid="cart-grand-subtotal">{format(grandSubtotal)}</span>
+              <span className="text-xl font-bold text-gold-500" data-testid="cart-grand-subtotal">{formatTTD(grandSubtotal)}</span>
             </div>
             <p className="text-xs text-muted-foreground">Delivery fees, service fee and any tax are added at payment. You'll pay once for everything.</p>
             {error && <div className="text-sm text-red-600" data-testid="cart-error">{error}</div>}

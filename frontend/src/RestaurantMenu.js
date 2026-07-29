@@ -26,7 +26,7 @@ import { useCart } from './CartContext';
 const STOREFRONT_API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const RestaurantMenu = () => {
-  const { format } = useCurrency();
+  const { formatTTD } = useCurrency();
   const navigate = useNavigate();
   const { restaurantId } = useParams();
   const { cart: globalCart, addItem, setQty, removeItem } = useCart();
@@ -228,8 +228,8 @@ const RestaurantMenu = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                   <Badge className="bg-gold-500/15 text-gold-700">{restaurant.cuisine}</Badge>
-                  <Badge variant="outline">Delivery {format(restaurant.deliveryFee)}</Badge>
-                  <Badge variant="outline">Min {format(restaurant.minOrder)}</Badge>
+                  <Badge variant="outline">Delivery {formatTTD(restaurant.deliveryFee)}</Badge>
+                  <Badge variant="outline">Min {formatTTD(restaurant.minOrder)}</Badge>
                   {sf.open_status?.enabled && (
                     sf.open_status.is_open ? (
                       <Badge className="bg-green-100 text-green-800" data-testid="storefront-open-badge">
@@ -339,7 +339,7 @@ const RestaurantMenu = () => {
                             </h3>
                             <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
                           </div>
-                          <p className="text-xl font-bold text-foreground">{format(item.price)}</p>
+                          <p className="text-xl font-bold text-foreground">{formatTTD(item.price)}</p>
                         </div>
                         <Button
                           className="bg-gold-gradient text-white"
@@ -395,7 +395,7 @@ const RestaurantMenu = () => {
                           <div className="text-3xl">{item.image}</div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold text-foreground truncate">{item.name}</h4>
-                            <p className="text-sm text-muted-foreground">{format(item.price)}</p>
+                            <p className="text-sm text-muted-foreground">{formatTTD(item.price)}</p>
                             <div className="flex items-center space-x-2 mt-2">
                               <Button
                                 size="sm"
@@ -423,7 +423,7 @@ const RestaurantMenu = () => {
                             </div>
                           </div>
                           <div className="font-semibold text-foreground">
-                            {format(item.price * item.quantity)}
+                            {formatTTD(item.price * item.quantity)}
                           </div>
                         </div>
                       ))}
@@ -432,21 +432,21 @@ const RestaurantMenu = () => {
                     <div className="space-y-2 mb-6">
                       <div className="flex justify-between text-muted-foreground">
                         <span>Subtotal</span>
-                        <span>{format(subtotal)}</span>
+                        <span>{formatTTD(subtotal)}</span>
                       </div>
                       <div className="flex justify-between text-muted-foreground">
                         <span>Delivery Fee</span>
-                        <span>{format(restaurant.deliveryFee)}</span>
+                        <span>{formatTTD(restaurant.deliveryFee)}</span>
                       </div>
                       <div className="flex justify-between text-xl font-bold text-foreground pt-2 border-t">
                         <span>Total</span>
-                        <span>{format(total)}</span>
+                        <span>{formatTTD(total)}</span>
                       </div>
                     </div>
 
                     {subtotal < restaurant.minOrder && (
                       <div className="mb-4 p-3 bg-gold-500/10 rounded-lg text-sm text-yellow-800">
-                        Add {format(restaurant.minOrder - subtotal)} more to reach minimum order
+                        Add {formatTTD(restaurant.minOrder - subtotal)} more to reach minimum order
                       </div>
                     )}
 
