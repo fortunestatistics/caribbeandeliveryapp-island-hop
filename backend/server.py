@@ -135,7 +135,11 @@ from wallet_service import (
 #       - PREMIUM ($1,400 TT/mo): platform takes 0%  → driver keeps 100%.
 #     Tips are ALWAYS 100% to the driver. (Drivers also receive monthly incentive payouts.)
 # ---------------------------------------------------------------------------
-PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
+_SVC_FEE_TTD = float(os.environ.get("PLATFORM_SERVICE_FEE_TTD", "3.90"))
+_SVC_RATE = float(os.environ.get("RATE_TTD_PER_USD", "6.78"))
+# Flat customer service fee, authored in TT$ (shown to customers) and stored as its
+# USD equivalent to match the USD ledger. TT$3.90 -> ~US$0.575.
+PLATFORM_SERVICE_FEE = round(_SVC_FEE_TTD / _SVC_RATE, 4)
 
 # Platform's % cut of the delivery fee, keyed by the driver's subscription tier.
 DRIVER_PLAN_RATES = {
@@ -3860,19 +3864,19 @@ async def create_order(order: Order, request: Request):
         raise HTTPException(status_code=400,
                             detail="This store is currently closed. Please order during its opening hours.")
 
-    # Merchant catalog prices (menu items / products) and the merchant's delivery fee
-    # are authored by merchants in TT$, but the platform ledger (wallet, Stripe charges,
-    # commissions, payouts) is denominated in USD. Convert TT$ -> USD once, here, for
-    # merchant-catalog orders. Taxi & courier fares are already computed in USD upstream,
-    # so they are left untouched.
-    if order.items and order.service_type not in ("taxi", "courier"):
-        order.subtotal = round(float(order.subtotal or 0) / _TTD_PER_USD, 2)
+    # Merchant catalog prices (menu items / products), delivery fees and courier fares
+    # are authored in TT$, but the platform ledger (wallet, Stripe, commissions, payouts)
+    # is USD. Convert TT$ -> USD once, here, for these services. Taxi fares are already
+    # computed in USD upstream (taxi_pricing.to_usd), so taxi is exempt.
+    if order.service_type in ("food", "grocery", "pharmacy", "courier", "car_rental"):
+        if order.items:
+            order.subtotal = round(float(order.subtotal or 0) / _TTD_PER_USD, 2)
+            for _it in order.items:
+                if _it.price is not None:
+                    _it.price = round(float(_it.price) / _TTD_PER_USD, 2)
         order.delivery_fee = round(float(order.delivery_fee or 0) / _TTD_PER_USD, 2)
         if order.discount:
             order.discount = round(float(order.discount or 0) / _TTD_PER_USD, 2)
-        for _it in order.items:
-            if _it.price is not None:
-                _it.price = round(float(_it.price) / _TTD_PER_USD, 2)
 
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)
@@ -4726,6 +4730,32 @@ async def admin_purge_test_data(payload: dict, request: Request):
         "total_earnings": 0.0, "total_deliveries": 0, "status": "offline"}})
     logging.warning(f"TEST DATA PURGED by admin {current_user.id}: {deleted}")
     return {"success": True, "deleted": deleted, "wallets_reset": True}
+
+
+@api_router.post("/admin/cleanup-orphan-menu-items")
+async def admin_cleanup_orphan_menu_items(payload: dict, request: Request):
+    """Remove menu items / products whose restaurant_id points at a store that no longer
+    exists (orphaned seed/test data that clutters search but attaches to no storefront).
+    Pass {"dry_run": true} to only count. Real merchants' menus are unaffected (their
+    items are linked to their live vendor id)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    dry_run = bool((payload or {}).get("dry_run"))
+    valid_ids = set()
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        async for d in db[coll].find({}, {"_id": 0, "id": 1}):
+            if d.get("id"):
+                valid_ids.add(d["id"])
+    orphan_ids = []
+    async for m in db.menu_items.find({}, {"_id": 0, "id": 1, "restaurant_id": 1}):
+        if m.get("restaurant_id") not in valid_ids:
+            orphan_ids.append(m.get("id"))
+    removed = 0
+    if not dry_run and orphan_ids:
+        removed = (await db.menu_items.delete_many({"id": {"$in": orphan_ids}})).deleted_count
+        logging.warning(f"ORPHAN MENU ITEMS cleaned by admin {current_user.id}: {removed}")
+    return {"success": True, "orphan_count": len(orphan_ids), "removed": removed, "dry_run": dry_run}
 
 
 @api_router.get("/admin/statements")
@@ -9568,6 +9598,8 @@ async def get_public_storefront(vendor_id: str):
             "name": b.get("business_name"), "vendor_type": b.get("business_type") or "business",
             "description": b.get("business_description", ""),
             "address": b.get("address"),
+            "delivery_fee": b.get("delivery_fee"),
+            "minimum_order": b.get("minimum_order"),
             "business_hours": b.get("business_hours"),
             "open_status": _compute_open_status(b.get("business_hours")),
         })

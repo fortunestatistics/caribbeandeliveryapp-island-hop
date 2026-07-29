@@ -81,9 +81,10 @@ export default function MerchantSettings() {
       };
       if (profile.collection === 'restaurants') {
         body.cuisine_type = profile.cuisine_type;
-        if (profile.delivery_fee !== '') body.delivery_fee = Number(profile.delivery_fee);
-        if (profile.minimum_order !== '') body.minimum_order = Number(profile.minimum_order);
       }
+      // Delivery fee / minimum order (in TT$) apply to every storefront type.
+      if (profile.delivery_fee !== '') body.delivery_fee = Number(profile.delivery_fee);
+      if (profile.minimum_order !== '') body.minimum_order = Number(profile.minimum_order);
       const { data } = await axios.put(`${API}/merchant/profile`, body, authCfg());
       toast({ title: 'Business profile updated', description: 'Your store details were saved.' });
       setProfile((p) => ({ ...p, ...data.profile }));
@@ -237,18 +238,17 @@ export default function MerchantSettings() {
                   )}
                 </div>
               </div>
-              {profile.collection === 'restaurants' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="biz-delivery">Delivery fee</Label>
-                    <Input id="biz-delivery" type="number" value={profile.delivery_fee} onChange={(e) => setProfile({ ...profile, delivery_fee: e.target.value })} data-testid="settings-business-delivery-fee" />
+                    <Label htmlFor="biz-delivery">Delivery fee (TT$)</Label>
+                    <Input id="biz-delivery" type="number" min="0" step="0.01" value={profile.delivery_fee} onChange={(e) => setProfile({ ...profile, delivery_fee: e.target.value })} data-testid="settings-business-delivery-fee" placeholder="e.g. 15.00" />
+                    <p className="text-xs text-muted-foreground mt-1">Shown on your storefront header. Charged in TT$ (converted to US$ at checkout).</p>
                   </div>
                   <div>
-                    <Label htmlFor="biz-min">Minimum order</Label>
-                    <Input id="biz-min" type="number" value={profile.minimum_order} onChange={(e) => setProfile({ ...profile, minimum_order: e.target.value })} data-testid="settings-business-minimum-order" />
+                    <Label htmlFor="biz-min">Minimum order (TT$)</Label>
+                    <Input id="biz-min" type="number" min="0" step="0.01" value={profile.minimum_order} onChange={(e) => setProfile({ ...profile, minimum_order: e.target.value })} data-testid="settings-business-minimum-order" placeholder="e.g. 20.00" />
                   </div>
                 </div>
-              )}
               <Button onClick={saveProfile} disabled={savingProfile} className="bg-gold-gradient text-white" data-testid="settings-save-profile-btn">
                 <Save className="h-4 w-4 mr-2" /> {savingProfile ? 'Saving…' : 'Save business profile'}
               </Button>

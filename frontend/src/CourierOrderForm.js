@@ -6,7 +6,6 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Separator } from './components/ui/separator';
-import CurrencyConverter from './CurrencyConverter';
 import { createOrder, fetchProfile, isLoggedIn } from './orderApi';
 import { 
   Package, 
@@ -21,7 +20,7 @@ import {
 } from 'lucide-react';
 
 const CourierOrderForm = () => {
-  const { format } = useCurrency();
+  const { format, formatTTD } = useCurrency();
   const navigate = useNavigate();
   const [orderData, setOrderData] = useState({
     // Sender Information
@@ -51,12 +50,13 @@ const CourierOrderForm = () => {
     scheduledTime: ''
   });
 
+  // Courier rate card in TT$ (Trinidad going rates).
   const packageTypes = [
-    { id: 'document', name: 'Documents', icon: '📄', baseFare: 5.00 },
-    { id: 'small', name: 'Small Package', icon: '📦', baseFare: 8.00 },
-    { id: 'medium', name: 'Medium Package', icon: '📦', baseFare: 12.00 },
-    { id: 'large', name: 'Large Package', icon: '📦', baseFare: 18.00 },
-    { id: 'fragile', name: 'Fragile Items', icon: '⚠️', baseFare: 15.00 }
+    { id: 'document', name: 'Documents', icon: '📄', baseFare: 25.00 },
+    { id: 'small', name: 'Small Package', icon: '📦', baseFare: 35.00 },
+    { id: 'medium', name: 'Medium Package', icon: '📦', baseFare: 50.00 },
+    { id: 'large', name: 'Large Package', icon: '📦', baseFare: 75.00 },
+    { id: 'fragile', name: 'Fragile Items', icon: '⚠️', baseFare: 65.00 }
   ];
 
   const deliveryOptions = [
@@ -79,22 +79,22 @@ const CourierOrderForm = () => {
     
     let baseFare = packageType.baseFare;
     
-    // Add weight surcharge if over 5kg
+    // Add weight surcharge if over 5kg (TT$10/kg)
     if (orderData.weight && parseFloat(orderData.weight) > 5) {
-      baseFare += (parseFloat(orderData.weight) - 5) * 2;
+      baseFare += (parseFloat(orderData.weight) - 5) * 10;
     }
     
     // Apply delivery speed multiplier
     baseFare *= deliveryOption.multiplier;
     
-    // Add insurance if high value
-    if (orderData.value && parseFloat(orderData.value) > 100) {
-      baseFare += 5;
+    // Add insurance for high-value packages (declared value over TT$700)
+    if (orderData.value && parseFloat(orderData.value) > 700) {
+      baseFare += 25;
     }
     
     // Add signature fee
     if (orderData.requiresSignature) {
-      baseFare += 2;
+      baseFare += 10;
     }
     
     return baseFare.toFixed(2);
@@ -301,7 +301,7 @@ const CourierOrderForm = () => {
                         <CardContent className="p-3 text-center">
                           <div className="text-2xl mb-1">{type.icon}</div>
                           <div className="text-xs font-semibold text-foreground">{type.name}</div>
-                          <div className="text-xs text-muted-foreground">{format(type.baseFare)}</div>
+                          <div className="text-xs text-muted-foreground">{formatTTD(type.baseFare)}</div>
                         </CardContent>
                       </Card>
                     ))}
@@ -444,7 +444,10 @@ const CourierOrderForm = () => {
                     <h3 className="text-lg font-semibold text-foreground">Total Delivery Cost</h3>
                     <p className="text-sm text-muted-foreground mt-1">Includes pickup, delivery, and all fees</p>
                   </div>
-                  <CurrencyConverter amountUSD={parseFloat(calculateFare()) || 0} size="lg" />
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-gold-gradient" data-testid="courier-fare-ttd">{formatTTD(parseFloat(calculateFare()) || 0)}</div>
+                    <div className="text-xs text-muted-foreground">Converted to USD at secure checkout</div>
+                  </div>
                 </div>
               </div>
 

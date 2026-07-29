@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Service fee → TT$3.90, per-store TT$ delivery fee, courier TT$ rates, orphan-menu cleanup
+- **Service fee lowered:** `PLATFORM_SERVICE_FEE` is now authored in TT$ (`PLATFORM_SERVICE_FEE_TTD` env, default **3.90**) and stored as its USD equiv (÷6.78 ≈ US$0.575). Verified: food order now shows service fee **TT$3.90** (was the flat US$3 ≈ TT$20.34).
+- **Per-store delivery fee in TT$ (all merchant types):** `get_public_storefront` businesses branch now returns `delivery_fee`/`minimum_order` (restaurants already did). `MerchantSettings.js` shows the Delivery fee (TT$) + Minimum order (TT$) inputs for EVERY merchant (was restaurants-only) and always sends them. Backend `_merchant_update_set`/`_normalize_vendor_profile` already persist them for businesses. Storefront header (`RestaurantMenu.js`) shows them via `formatTTD`. Verified: business storefront returns delivery_fee 18.0 / min 25.0.
+- **Courier fares in TT$ (Trinidad rates):** `CourierOrderForm.js` rate card re-authored in TT$ (Documents 25, Small 35, Medium 50, Large 75, Fragile 65; weight surcharge TT$10/kg >5kg; insurance +TT$25 for declared value >TT$700; signature +TT$10). Display uses `formatTTD` (removed CurrencyConverter). Backend `create_order` conversion now includes `courier` (and `car_rental`) — service list is `('food','grocery','pharmacy','courier','car_rental')`; **taxi remains exempt** (already USD via `taxi_pricing.to_usd`). Verified: courier fare TT$50 → stored US$7.37, total shown TT$53.90.
+- **Storefront cleanup:** new admin endpoint `POST /api/admin/cleanup-orphan-menu-items` ({dry_run} optional) deletes menu items whose `restaurant_id` matches no existing vendor (junk seed data; real merchants' menus are linked to their live vendor id and untouched). **Ran on preview: removed 49 orphans** (of 71). Run once on production after deploy if needed.
+- **NOTE:** money model unchanged internally (USD ledger + Stripe in USD); customers just see TT$ everywhere with the TT$/US$ toggle kept per user choice.
+- **REQUIRES REDEPLOY.**
+
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: storefront showed inflated (×6.78) prices + real-vs-test business sort
 - **Root cause:** merchants author menu/product prices + delivery fee in **TT$**, but the whole ledger (wallet, Stripe, commissions, payouts) is **USD**. The customer storefront ran `format()` (×6.78) on those TT$ numbers → showed & charged ~6.78× (e.g. TT$12 roti shown/charged as if US$12 = TT$81). User confirmed: raw number = TT$, storefront shows raw TT$, USD charged = TT$ ÷ 6.78, checkout shows TT$ big + US$ small.
 - **Fix (single conversion boundary — no data migration, no merchant-form changes):**
