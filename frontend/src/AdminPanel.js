@@ -51,6 +51,7 @@ import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
 import AdminApprovals from './AdminApprovals';
+import AdminPayouts from './AdminPayouts';
 import AdminPaymentMode from './AdminPaymentMode';
 import AdminDataCleanup from './AdminDataCleanup';
 import AdminWhatsApp from './AdminWhatsApp';
@@ -219,10 +220,10 @@ const AdminPanel = () => {
     // eslint-disable-next-line -- debounced fetch; fetchUsers is stable
   }, [searchQuery, selectedTab, userTypeFilter]);
 
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
+  const ADMIN_TABS = ['overview', 'users', 'orders', 'payouts', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
   const AGENT_TABS = ['overview', 'safety', 'mail'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
-  const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth' };
+  const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth', payouts: 'Payouts' };
 
   const fetchClaims = async () => {
     try {
@@ -890,6 +891,7 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'approvals' && <AdminApprovals />}
+        {selectedTab === 'payouts' && <AdminPayouts />}
 
         {selectedTab === 'safety' && (
           <div className="flex gap-2 mb-4" data-testid="safety-subtabs">

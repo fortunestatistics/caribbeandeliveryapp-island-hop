@@ -4524,6 +4524,170 @@ async def admin_list_settlements(request: Request, limit: int = 50):
     return {"batches": batches}
 
 
+# ============================================================
+# ADMIN PAYOUT MANAGEMENT + TEST-DATA PURGE (go-live tooling)
+# ============================================================
+async def _payout_party_info(party_type, user_id, vendor_id=None, driver_id=None):
+    """Name/email/bank/paypal + wallet balance for a payout party."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0}) if user_id else None
+    wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0}) if user_id else None
+    bal = (wallet or {}).get("balances", {}) if wallet else {}
+    banking = (user or {}).get("banking_info") or {}
+    name = (user or {}).get("name")
+    if party_type == "merchant" and vendor_id:
+        vdoc, _ = await _find_vendor_doc_by_vid(vendor_id)
+        if vdoc:
+            name = vdoc.get("business_name") or vdoc.get("name") or name
+            banking = vdoc.get("banking_info") or banking
+    if party_type == "driver" and driver_id:
+        d = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "banking_info": 1})
+        if d and d.get("banking_info"):
+            banking = d["banking_info"]
+    return {
+        "party_name": name, "party_email": (user or {}).get("email"),
+        "wallet_balance_usd": round(float(bal.get("USD", 0.0)), 2),
+        "wallet_balance_ttd": round(float(bal.get("TTD", 0.0)), 2),
+        "banking_info": banking,
+        "paypal_email": (banking or {}).get("paypal_email") or (user or {}).get("paypal_email"),
+    }
+
+
+@api_router.get("/admin/payouts")
+async def admin_list_payouts(request: Request, party_type: str = "all", status: str = "all", q: str = "", limit: int = 300):
+    """Admin: all driver + merchant payouts (from settlements) with party bank/wallet info."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query = {}
+    if party_type in ("merchant", "driver"):
+        query["party_type"] = party_type
+    if status in ("queued", "paid", "reversed", "none"):
+        query["external_payout_status"] = status
+    rows = await db.settlements.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    out = []
+    for r in rows:
+        info = await _payout_party_info(r.get("party_type"), r.get("user_id"), r.get("vendor_id"), r.get("driver_id"))
+        if q:
+            hay = f"{info.get('party_name') or ''} {info.get('party_email') or ''}".lower()
+            if q.lower() not in hay:
+                continue
+        out.append({**r, **info})
+    return {"payouts": out}
+
+
+@api_router.post("/admin/payouts/{settlement_id}/mark-paid")
+async def admin_mark_payout_paid(settlement_id: str, payload: dict, request: Request):
+    """Admin: mark a payout as paid (money disbursed externally) → debits the wallet to reflect it."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    s = await db.settlements.find_one({"id": settlement_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Payout not found")
+    if s.get("external_payout_status") == "paid":
+        raise HTTPException(status_code=400, detail="Already marked paid")
+    method = (payload or {}).get("method", "manual")
+    reference = (payload or {}).get("reference", "")
+    amount = float(s.get("amount") or 0)
+    currency = s.get("currency", "USD")
+    if amount > 0 and s.get("user_id"):
+        await _debit_wallet(s["user_id"], amount, currency)
+        w = await _get_or_create_wallet(s["user_id"])
+        await _record_txn(user_id=s["user_id"], wallet_id=w["id"], type="payout_disbursed",
+                          amount=_round_money(amount), currency=currency, status="completed",
+                          note=f"Payout paid via {method} {reference}".strip())
+    await db.settlements.update_one({"id": settlement_id}, {"$set": {
+        "external_payout_status": "paid", "paid_method": method, "paid_reference": reference,
+        "paid_at": datetime.now(timezone.utc).isoformat(), "paid_by": current_user.id}})
+    return {"success": True}
+
+
+@api_router.post("/admin/payouts/{settlement_id}/reverse")
+async def admin_reverse_payout(settlement_id: str, payload: dict, request: Request):
+    """Admin: reverse a payout (mistake). Undoes the wallet effect and re-opens the orders for re-settlement."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    s = await db.settlements.find_one({"id": settlement_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Payout not found")
+    if s.get("external_payout_status") == "reversed":
+        raise HTTPException(status_code=400, detail="Already reversed")
+    reason = (payload or {}).get("reason", "")
+    amount = float(s.get("amount") or 0)
+    currency = s.get("currency", "USD")
+    was_paid = s.get("external_payout_status") == "paid"
+    if amount > 0 and s.get("user_id"):
+        if was_paid:
+            await _credit_wallet_with_txn(s["user_id"], amount, currency, txn_type="payout_reversed",
+                                          note=f"Payout reversed: {reason}".strip())
+        else:
+            await _debit_wallet(s["user_id"], amount, currency)
+            w = await _get_or_create_wallet(s["user_id"])
+            await _record_txn(user_id=s["user_id"], wallet_id=w["id"], type="settlement_reversed",
+                              amount=_round_money(amount), currency=currency, status="completed",
+                              note=f"Settlement reversed: {reason}".strip())
+    field = "vendor_payout_status" if s.get("party_type") == "merchant" else "driver_payout_status"
+    if s.get("order_ids"):
+        await db.orders.update_many({"id": {"$in": s["order_ids"]}}, {"$set": {field: "pending"}})
+    await db.settlements.update_one({"id": settlement_id}, {"$set": {
+        "external_payout_status": "reversed", "reversed_reason": reason,
+        "reversed_at": datetime.now(timezone.utc).isoformat(), "reversed_by": current_user.id}})
+    return {"success": True}
+
+
+@api_router.post("/admin/payouts/adjust")
+async def admin_adjust_wallet(payload: dict, request: Request):
+    """Admin: manual wallet credit/debit to fix a payout or account mistake."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    user_id = (payload or {}).get("user_id")
+    amount = float((payload or {}).get("amount") or 0)
+    direction = (payload or {}).get("direction", "credit")
+    currency = (payload or {}).get("currency", "USD")
+    reason = (payload or {}).get("reason", "")
+    if not user_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="user_id and a positive amount are required")
+    if not await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+    if direction == "credit":
+        await _credit_wallet_with_txn(user_id, amount, currency, txn_type="admin_adjustment",
+                                      note=f"Admin credit: {reason}".strip())
+    else:
+        await _debit_wallet(user_id, amount, currency)
+        w = await _get_or_create_wallet(user_id)
+        await _record_txn(user_id=user_id, wallet_id=w["id"], type="admin_adjustment",
+                          amount=_round_money(amount), currency=currency, status="completed",
+                          note=f"Admin debit: {reason}".strip())
+    await db.wallet_adjustments.insert_one({"id": str(uuid.uuid4()), "user_id": user_id, "amount": amount,
+        "direction": direction, "currency": currency, "reason": reason, "by": current_user.id,
+        "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"success": True}
+
+
+@api_router.post("/admin/purge-test-data")
+async def admin_purge_test_data(payload: dict, request: Request):
+    """DANGER: wipe all transactional/test data for a clean go-live. Keeps user accounts, merchants,
+    drivers, products/catalog and saved addresses. Requires body {"confirm": "PURGE"}."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if (payload or {}).get("confirm") != "PURGE":
+        raise HTTPException(status_code=400, detail='Confirmation phrase required: {"confirm": "PURGE"}')
+    deleted = {}
+    for coll in ["orders", "settlements", "settlement_batches", "driver_cash_settlements",
+                 "payouts", "vendor_payouts", "order_requests", "wallet_transactions",
+                 "wallet_adjustments", "wallet_funding_requests"]:
+        deleted[coll] = (await db[coll].delete_many({})).deleted_count
+    deleted["claims"] = (await db.support_tickets.delete_many({"category": "claim"})).deleted_count
+    await db.wallets.update_many({}, {"$set": {"balances.USD": 0.0, "balances.TTD": 0.0}})
+    await db.drivers.update_many({}, {"$set": {"cash_outstanding": 0.0, "cash_collected_total": 0.0,
+        "total_earnings": 0.0, "total_deliveries": 0, "status": "offline"}})
+    logging.warning(f"TEST DATA PURGED by admin {current_user.id}: {deleted}")
+    return {"success": True, "deleted": deleted, "wallets_reset": True}
+
+
 @api_router.post("/orders/create", response_model=Order)
 async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
     """Create new order with payment processing"""

@@ -1,5 +1,18 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Go-live tooling: Purge Test Data + Admin Payout Management
+- **Admin Payout Management panel** (new `AdminPayouts.js`, new admin tab **"Payouts"** in `AdminPanel.js`):
+  - `GET /api/admin/payouts?party_type=&status=&q=` — lists all merchant + driver payouts (from `settlements`) enriched with party name/email, wallet balance (USD+TTD), bank/PayPal details, remaining cash owed. Filters by party type, status (queued/paid/reversed), and name/email search.
+  - `POST /api/admin/payouts/{id}/mark-paid` {method, reference} — "Pay now": marks paid + **debits the wallet** to reflect real disbursement + logs a `payout_disbursed` txn.
+  - `POST /api/admin/payouts/{id}/reverse` {reason} — undoes the wallet effect (debits back if unpaid, re-credits if already paid) and re-opens the orders (`vendor_/driver_payout_status='pending'`) for re-settlement.
+  - `POST /api/admin/payouts/adjust` {user_id, amount, direction, reason} — manual wallet credit/debit to fix mistakes (logs `admin_adjustment` + `wallet_adjustments`).
+  - UI: filters (party/status/search), expandable rows showing bank/PayPal + wallet balance, Pay now / Reverse / Adjust buttons, "Account Repair" link (→ approvals tab). Testids: `admin-payouts-panel`, `payout-party-filter`, `payout-status-filter`, `payout-search`, `payout-row-<id>`, `payout-pay-<id>`, `payout-reverse-<id>`, `payout-adjust-<id>`.
+- **Go-Live "Purge Test Data"** (`POST /api/admin/purge-test-data` {confirm:"PURGE"}; danger card in the Payouts tab with a typed-PURGE confirm): deletes orders, settlements, settlement_batches, driver_cash_settlements, payouts, vendor_payouts, order_requests, wallet_transactions, wallet_adjustments, wallet_funding_requests, and claims; **resets all wallet balances to 0 and driver cash counters to 0**. KEEPS user accounts, merchants, drivers, products/catalog, addresses. Returns deleted counts.
+- **Verified:** all payout endpoints (list/filters/mark-paid→wallet debit/reverse→re-open orders/adjust) return 200 & behave correctly; purge requires the confirm phrase (400 without), wiped preview (45 orders, 1025 wallet txns, 97 claims, etc.) and kept 83 users + 14 businesses; Payouts tab UI renders (filters, empty state, purge card); post-purge live order creation still works (200). Clean `CI=true yarn build`.
+- **Real payouts:** per user choice, disbursement is **manual** ("Pay now" per party) — no automatic external Stripe/PayPal transfers fire. Settlement still auto-runs nightly to credit wallets + queue payouts.
+- **admin.qa@islandhop-demo.com / AdminQA1234!** re-seeded (was 401) — now works.
+- **NOTE:** purge only ran on PREVIEW. User must run the "Purge test data" button on the LIVE site (after deploy) to clear production test orders. All changes REQUIRE REDEPLOY.
+
 ## Session Log — Jun 2026 (fork, cont.) — Claim fix + End-of-day settlement + Delivery Pin
 - **Claim submission bug (P0):** `POST /api/claims` used the shared `SupportTicket` model as the request body, but `SupportTicket.user_id` is required and the frontend can't send it → **422 before the handler ran** (which set user_id) → claim form silently stalled. Fix: added `ClaimCreate` body model (no user_id); server builds the `SupportTicket`. Verified 200 + claim lists.
 - **SAME anti-pattern found by testing agent on `POST /api/addresses` + `PUT /api/addresses/{id}`** (used `Address` model as body; `Address.user_id` required) → broke the new Delivery Pin save with 422. Fix: added `AddressCreate` body model (no user_id, country default 'Trinidad & Tobago'); server constructs `Address`. Verified POST/PUT/GET 200 with lat/lng persisting.
