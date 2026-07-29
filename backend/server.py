@@ -1291,6 +1291,9 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
     else:
         results = (rest_results + biz_results)[:cap]
 
+    # Keep real partners ahead of test/demo ones even after interleaving.
+    results.sort(key=lambda x: 1 if _is_test_name(x.get("name")) else 0)
+
     return {"results": results}
 
 

@@ -74,9 +74,9 @@ const RestaurantMenu = () => {
   // categories that match this business type (menu for restaurants, etc.).
   const derivedCats = Array.from(new Set((sf.menu_items || []).map((m) => m.category).filter(Boolean)));
   const categories = derivedCats.length > 0
-    ? ['All', 'Popular', ...derivedCats]
+    ? Array.from(new Set(['All', 'Popular', ...derivedCats]))
     : (sf.vendor_type
-        ? ['All', ...vendorCfg.categories.slice(0, 6)]
+        ? Array.from(new Set(['All', ...vendorCfg.categories.slice(0, 6)]))
         : ['All', 'Popular', 'Mains', 'Sides', 'Drinks', 'Desserts']);
 
   const realMenu = (sf.menu_items || []).map((m, i) => ({
@@ -300,9 +300,9 @@ const RestaurantMenu = () => {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {categories.map((category) => (
+                  {categories.map((category, ci) => (
                     <Button
-                      key={category}
+                      key={`${category}-${ci}`}
                       size="sm"
                       variant={selectedCategory === category.toLowerCase() ? 'default' : 'outline'}
                       onClick={() => setSelectedCategory(category.toLowerCase())}
