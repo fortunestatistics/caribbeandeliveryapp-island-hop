@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -85,6 +86,17 @@ const DOC_LABELS = {
 
 const AdminPanel = () => {
   const navigate = useNavigate();
+  const { impersonate } = useAuth();
+
+  const openClientPortal = async (user) => {
+    if (!window.confirm(`Open ${user.name || user.email}'s portal in edit mode? You'll be able to view, fix, connect or adjust their account as them. Use "Exit" to return to admin.`)) return;
+    try {
+      await impersonate(user.id, user.name || user.email, true);
+      navigate('/');
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Could not open client portal');
+    }
+  };
   const [stats, setStats] = useState({
     total_users: 0,
     total_orders: 0,
@@ -716,6 +728,15 @@ const AdminPanel = () => {
                               onClick={() => openUserProfile(user)}
                             >
                               <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              data-testid={`open-portal-btn-${user.id}`}
+                              size="sm"
+                              variant="outline"
+                              title="Open this client's portal (view / fix / adjust)"
+                              onClick={() => openClientPortal(user)}
+                            >
+                              <ExternalLink className="h-4 w-4" />
                             </Button>
                             <Button
                               data-testid={`message-user-btn-${user.id}`}

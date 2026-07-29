@@ -4586,6 +4586,14 @@ async def admin_mark_payout_paid(settlement_id: str, payload: dict, request: Req
         raise HTTPException(status_code=404, detail="Payout not found")
     if s.get("external_payout_status") == "paid":
         raise HTTPException(status_code=400, detail="Already marked paid")
+    # PLATFORM FEES FIRST: a driver cannot be paid out while they still owe the platform
+    # collected cash (COD). They must remit what's owed before any payout.
+    if s.get("party_type") == "driver" and s.get("driver_id"):
+        drv = await db.drivers.find_one({"id": s["driver_id"]}, {"_id": 0, "cash_outstanding": 1})
+        owed = round(float((drv or {}).get("cash_outstanding") or 0), 2)
+        if owed > 0.02:
+            raise HTTPException(status_code=400,
+                detail=f"Driver still owes the platform ${owed:.2f} in collected cash. Settle the outstanding cash (Orders tab) before paying out.")
     method = (payload or {}).get("method", "manual")
     reference = (payload or {}).get("reference", "")
     amount = float(s.get("amount") or 0)
@@ -4686,6 +4694,64 @@ async def admin_purge_test_data(payload: dict, request: Request):
         "total_earnings": 0.0, "total_deliveries": 0, "status": "offline"}})
     logging.warning(f"TEST DATA PURGED by admin {current_user.id}: {deleted}")
     return {"success": True, "deleted": deleted, "wallets_reset": True}
+
+
+@api_router.get("/admin/statements")
+async def admin_payout_statement(request: Request, user_id: str, party_type: str = "all"):
+    """Admin: downloadable CSV statement of everything a driver/merchant was paid and when."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query = {"user_id": user_id}
+    if party_type in ("merchant", "driver"):
+        query["party_type"] = party_type
+    rows = await db.settlements.find(query, {"_id": 0}).sort("created_at", 1).to_list(length=1000)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "name": 1, "email": 1})
+    lines = ["Date,Type,Amount,Currency,Orders,Status,PaidMethod,PaidReference,PaidAt"]
+    total = 0.0
+    for r in rows:
+        amt = float(r.get("amount") or 0)
+        if r.get("external_payout_status") == "paid":
+            total += amt
+        lines.append(",".join([
+            str(r.get("created_at", "")), str(r.get("party_type", "")), f"{amt:.2f}",
+            str(r.get("currency", "USD")), str(r.get("order_count", 0)),
+            str(r.get("external_payout_status", "")), str(r.get("paid_method", "")),
+            str(r.get("paid_reference", "")), str(r.get("paid_at", "")),
+        ]))
+    lines.append(f",,,,,,,,")
+    lines.append(f"Total paid,,{total:.2f},USD,,,,,")
+    csv = "\n".join(lines)
+    name = (user or {}).get("name") or user_id
+    fname = f"statement-{str(name).replace(' ', '_')}.csv"
+    return Response(content=csv, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+DRIVER_CASH_ALERT_USD = float(os.environ.get("DRIVER_CASH_ALERT_USD", "75"))
+
+
+@api_router.get("/admin/alerts/driver-cash")
+async def admin_driver_cash_alerts(request: Request, threshold: Optional[float] = None):
+    """Admin: drivers who owe the platform a large amount of collected cash (COD)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    limit_usd = float(threshold) if threshold is not None else DRIVER_CASH_ALERT_USD
+    rows = await db.drivers.find(
+        {"cash_outstanding": {"$gte": limit_usd}},
+        {"_id": 0, "id": 1, "user_id": 1, "cash_outstanding": 1, "name": 1},
+    ).sort("cash_outstanding", -1).to_list(length=200)
+    alerts = []
+    for d in rows:
+        u = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}) if d.get("user_id") else None
+        alerts.append({
+            "driver_id": d.get("id"), "user_id": d.get("user_id"),
+            "name": (u or {}).get("name") or d.get("name"), "email": (u or {}).get("email"),
+            "phone": (u or {}).get("phone"),
+            "cash_outstanding": round(float(d.get("cash_outstanding") or 0), 2),
+        })
+    return {"threshold_usd": limit_usd, "count": len(alerts), "alerts": alerts}
 
 
 @api_router.post("/orders/create", response_model=Order)

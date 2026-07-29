@@ -1,5 +1,13 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Payout statements, cash alerts, fees-first rule, panel move, client-portal access
+- **Platform fees first / block driver payout with cash owed:** `admin_mark_payout_paid` now refuses (400) to pay a driver whose `drivers.cash_outstanding > 0` — "Driver still owes the platform $X in collected cash. Settle before paying out." Settlement already deducts commission/platform fees before computing vendor_payout & driver_earnings, so fees are inherently retained first. UI (`AdminPayouts.js`) hides "Pay now" and shows "Owes platform $X — settle cash before payout" (`payout-blocked-<id>`). Verified: driver owing $37 → mark-paid 400.
+- **Payout statements (downloadable):** `GET /api/admin/statements?user_id=&party_type=` → CSV (Date,Type,Amount,Currency,Orders,Status,PaidMethod,PaidReference,PaidAt + Total paid). "Statement" button per payout row (`payout-statement-<id>`) downloads via authed fetch→blob. Verified 200 text/csv.
+- **Low-balance / cash-owed alerts:** `GET /api/admin/alerts/driver-cash?threshold=` (default env `DRIVER_CASH_ALERT_USD`=75) lists drivers with `cash_outstanding >= threshold`. Amber alert card at top of Payouts tab (`driver-cash-alerts`, rows `cash-alert-<driver_id>`). Verified: threshold 10 → 1 driver ($37).
+- **Moved payouts out of Approvals → Payouts tab:** removed `<AdminPayoutsPanel />` (grouped PayPal/bank-batch payouts) from `AdminApprovals.js`; now rendered inside `AdminPayouts.js` (Payouts tab) below the management panel.
+- **User management → Open client portal:** new external-link button per user row (`open-portal-btn-<id>`) → `useAuth().impersonate(user.id, name, edit=true)` then navigate('/') to enter the client's portal in edit mode to view/fix/connect/adjust. Uses existing `POST /api/admin/impersonate/{id}?edit=1`.
+- Verified in-browser: Payouts tab shows management panel (Pay now/Reverse/Adjust/Statement), moved grouped panel, purge card; Users rows show the Open-portal icon. Clean `CI=true yarn build`. Preview settlement/order data cleared + wallets reset. **REQUIRES REDEPLOY.**
+
 ## Session Log — Jun 2026 (fork, cont.) — Go-live tooling: Purge Test Data + Admin Payout Management
 - **Admin Payout Management panel** (new `AdminPayouts.js`, new admin tab **"Payouts"** in `AdminPanel.js`):
   - `GET /api/admin/payouts?party_type=&status=&q=` — lists all merchant + driver payouts (from `settlements`) enriched with party name/email, wallet balance (USD+TTD), bank/PayPal details, remaining cash owed. Filters by party type, status (queued/paid/reversed), and name/email search.

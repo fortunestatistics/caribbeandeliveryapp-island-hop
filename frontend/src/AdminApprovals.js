@@ -13,7 +13,6 @@ import {
 import { toast } from 'sonner';
 import { storeSession } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
-import AdminPayoutsPanel from './AdminPayoutsPanel';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -409,9 +408,6 @@ const AdminApprovals = () => {
 
       {/* Account repair tool — drivers / customers / merchants (also fixes storefronts) */}
       <AdminAccountRepair />
-
-      {/* Grouped payouts & payments (PayPal · bank batch · route readiness) */}
-      <AdminPayoutsPanel />
 
       {/* Category sub-tabs (application-type filters) */}
       <div className="flex flex-wrap gap-2">

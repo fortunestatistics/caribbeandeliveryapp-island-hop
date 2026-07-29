@@ -8,7 +8,8 @@ import { Badge } from './components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from './components/ui/select';
-import { Banknote, RefreshCw, ChevronDown, Wrench, AlertTriangle, CreditCard, Building2, Car } from 'lucide-react';
+import { Banknote, RefreshCw, ChevronDown, Wrench, AlertTriangle, CreditCard, Building2, Car, FileDown, BellRing } from 'lucide-react';
+import AdminPayoutsPanel from './AdminPayoutsPanel';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const cfg = () => {
@@ -34,6 +35,7 @@ export default function AdminPayouts() {
   const [expanded, setExpanded] = useState(null);
   const [purgeText, setPurgeText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [cashAlerts, setCashAlerts] = useState([]);
 
   const fetchPayouts = useCallback(async () => {
     setLoading(true);
@@ -45,7 +47,30 @@ export default function AdminPayouts() {
     finally { setLoading(false); }
   }, [partyType, status, q]);
 
+  const fetchCashAlerts = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/admin/alerts/driver-cash`, cfg());
+      setCashAlerts(r.data?.alerts || []);
+    } catch (e) { setCashAlerts([]); }
+  }, []);
+
   useEffect(() => { fetchPayouts(); }, [fetchPayouts]);
+  useEffect(() => { fetchCashAlerts(); }, [fetchCashAlerts]);
+
+  const downloadStatement = (p) => {
+    const token = localStorage.getItem('token');
+    const url = `${API}/admin/statements?user_id=${encodeURIComponent(p.user_id)}&party_type=${p.party_type}`;
+    // trigger an authenticated download via fetch + blob (same-origin cookie also works)
+    fetch(url, { credentials: 'include', headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(res => res.blob())
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `statement-${(p.party_name || p.user_id).replace(/\s+/g, '_')}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+      })
+      .catch(() => alert('Could not download statement'));
+  };
 
   const markPaid = async (p) => {
     const method = window.prompt('Payment method used (stripe / paypal / bank / cash):', 'bank');
@@ -104,6 +129,31 @@ export default function AdminPayouts() {
 
   return (
     <div className="space-y-6" data-testid="admin-payouts-panel">
+      {/* Low-balance / cash-owed alerts */}
+      {cashAlerts.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/50" data-testid="driver-cash-alerts">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-700 text-base">
+              <BellRing className="h-5 w-5" />Drivers owing large cash balances ({cashAlerts.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">These drivers have collected COD cash they still owe the platform. They cannot be paid out until it's settled (Orders tab). Chase remittance before it grows.</p>
+            <div className="border rounded-lg divide-y bg-background">
+              {cashAlerts.map((a) => (
+                <div key={a.driver_id} className="flex items-center justify-between p-3 text-sm" data-testid={`cash-alert-${a.driver_id}`}>
+                  <div>
+                    <p className="font-medium">{a.name || a.email || a.driver_id}</p>
+                    <p className="text-xs text-muted-foreground">{a.email || ''}{a.phone ? ` · ${a.phone}` : ''}</p>
+                  </div>
+                  <span className="font-semibold text-red-600">owes {usd(a.cash_outstanding)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Banknote className="h-5 w-5 text-gold-600" />Payout Management — Drivers & Merchants</CardTitle>
@@ -178,13 +228,18 @@ export default function AdminPayouts() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2 mt-3">
-                        {p.external_payout_status === 'queued' && (
+                        {p.external_payout_status === 'queued' && p.party_type === 'driver' && p.remaining_cash_owed > 0 ? (
+                          <span className="text-xs text-red-600 font-medium" data-testid={`payout-blocked-${p.id}`}>
+                            Owes platform {usd(p.remaining_cash_owed)} — settle cash before payout
+                          </span>
+                        ) : p.external_payout_status === 'queued' && (
                           <Button size="sm" className="bg-gold-gradient text-white" disabled={busy} onClick={() => markPaid(p)} data-testid={`payout-pay-${p.id}`}>Pay now</Button>
                         )}
                         {p.external_payout_status !== 'reversed' && (
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => reverse(p)} data-testid={`payout-reverse-${p.id}`}>Reverse</Button>
                         )}
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => adjust(p)} data-testid={`payout-adjust-${p.id}`}>Adjust wallet</Button>
+                        <Button size="sm" variant="outline" onClick={() => downloadStatement(p)} data-testid={`payout-statement-${p.id}`}><FileDown className="h-4 w-4 mr-1" />Statement</Button>
                       </div>
                     </div>
                   )}
@@ -194,6 +249,9 @@ export default function AdminPayouts() {
           )}
         </CardContent>
       </Card>
+
+      {/* Grouped payouts & payments (PayPal · bank batch · route readiness) — moved here from Approvals */}
+      <AdminPayoutsPanel />
 
       {/* Danger zone: go-live purge */}
       <Card className="border-red-300">
