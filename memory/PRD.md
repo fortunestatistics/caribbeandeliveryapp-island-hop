@@ -1,5 +1,11 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — FIX: driver profile not showing (missing drivers-collection record)
+- **Bug:** an APPROVED driver (users.user_type='driver', set only on admin approval per create_driver line ~5700) had NO doc in the `drivers` collection, so `GET /drivers/me` returned 404 and the DriverDashboard couldn't render the profile. Reported for driver "Kulture" (preview record: "Kulture Sim", uid 0b15030d…, no drivers doc/wallet).
+- **Fix (server.py):** new helper `_ensure_driver_record(user: dict)` — if the account role is already 'driver' (approval-gated, so can't grant unearned access) and the drivers doc is missing, it creates a minimal `Driver(status='active')` + `DriverWallet` and returns it. Wired into: (1) `GET /drivers/me` (auto-heals on the driver's next app open) and (2) admin `POST /admin/accounts/repair` section 2 (adds action "recreated the missing driver profile"). 
+- **Verified (preview, curl):** admin repair healed "Kulture Sim" → driver 7c56d1d6, active, wallet=true, healthy. Simulated approved-driver-with-no-record → `GET /drivers/me` self-created the record (active + wallet) and returned the profile.
+- **Prod note:** code fix only in preview → requires redeploy; then the affected driver reopens the app (auto-heal) or an admin clicks Account Repair.
+
 ## Session Log — Jun 2026 (fork, cont.) — Service fee → TT$3.90, per-store TT$ delivery fee, courier TT$ rates, orphan-menu cleanup
 - **Service fee lowered:** `PLATFORM_SERVICE_FEE` is now authored in TT$ (`PLATFORM_SERVICE_FEE_TTD` env, default **3.90**) and stored as its USD equiv (÷6.78 ≈ US$0.575). Verified: food order now shows service fee **TT$3.90** (was the flat US$3 ≈ TT$20.34).
 - **Per-store delivery fee in TT$ (all merchant types):** `get_public_storefront` businesses branch now returns `delivery_fee`/`minimum_order` (restaurants already did). `MerchantSettings.js` shows the Delivery fee (TT$) + Minimum order (TT$) inputs for EVERY merchant (was restaurants-only) and always sends them. Backend `_merchant_update_set`/`_normalize_vendor_profile` already persist them for businesses. Storefront header (`RestaurantMenu.js`) shows them via `formatTTD`. Verified: business storefront returns delivery_fee 18.0 / min 25.0.

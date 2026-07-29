@@ -1829,6 +1829,35 @@ async def repair_driver_profile(user_id: str, request: Request):
     }
 
 
+async def _ensure_driver_record(user: dict) -> Optional[dict]:
+    """Self-heal an APPROVED driver whose record in the drivers collection is missing.
+    A user's role becomes 'driver' only after admin approval (see create_driver), so
+    provisioning here can never grant unearned driver access. Returns the driver doc,
+    or None if the account isn't actually a driver."""
+    if not user:
+        return None
+    roles = user.get("available_roles") or []
+    if user.get("user_type") != "driver" and "driver" not in roles:
+        return None
+    existing = await db.drivers.find_one({"user_id": user["id"]}, {"_id": 0})
+    if existing:
+        return existing
+    driver = Driver(
+        user_id=user["id"],
+        license_number="",
+        vehicle_type="",
+        vehicle_plate="",
+        personal_info={"name": user.get("name"), "email": user.get("email"), "phone": user.get("phone")},
+        banking_info=user.get("banking_info"),
+        status="active",  # role already approved — restore an operational record
+    )
+    await db.drivers.insert_one(prepare_for_mongo(driver.dict()))
+    if not await db.driver_wallets.find_one({"driver_id": driver.id}, {"_id": 1}):
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=driver.id).dict())
+    logging.warning(f"Self-healed missing driver record for approved driver {user['id']} ({user.get('email')})")
+    return await db.drivers.find_one({"id": driver.id}, {"_id": 0})
+
+
 _MERCHANT_ROLE_FOR = {"restaurants": "restaurant", "businesses": "business", "car_rental_companies": "car_rental"}
 
 
@@ -2342,6 +2371,12 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
 
     # 2) Driver repair — activate an approved/stuck driver record + promote role + ensure wallet.
     driver = await db.drivers.find_one({"user_id": uid}, {"_id": 0})
+    if not driver:
+        # Approved driver (role='driver') whose record is missing → recreate it.
+        healed = await _ensure_driver_record(user)
+        if healed:
+            driver = healed
+            actions.append("recreated the missing driver profile")
     if driver:
         d_status = (driver.get("status") or "").lower()
         if d_status == "rejected":
@@ -6844,6 +6879,10 @@ async def get_current_driver(request: Request):
     """Get current driver profile"""
     current_user = await get_current_user_from_request(request)
     driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        # Approved driver (role granted) whose drivers record went missing → self-heal
+        # so the profile always loads instead of showing a broken 404.
+        driver = await _ensure_driver_record(current_user.dict())
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     return driver
