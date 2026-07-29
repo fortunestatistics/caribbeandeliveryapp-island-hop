@@ -529,11 +529,7 @@ const AdminPanel = () => {
               <p className="text-muted-foreground">Platform management & analytics</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => navigate('/pricing')} data-testid="admin-subscription-link">
-                <DollarSign className="h-5 w-5 mr-2" />
-                Subscription Plans
-              </Button>
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => navigate('/profile')} data-testid="admin-settings-link">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
               </Button>
