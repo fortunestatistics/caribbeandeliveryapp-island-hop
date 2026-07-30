@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — FIX: admin "Open client portal" (impersonation) landed on landing page / admin instead of the client's portal
+- **Symptom:** admin couldn't view/fix merchant or driver profiles — opening a client portal redirected to the landing/home ("personal portal") or back to admin.
+- **Two root causes:**
+  1. **Wrong nav target:** `AdminPanel.openClientPortal`, `AdminApprovals.impersonate`, `AdminApplicants.viewPortal` navigated to `'/'` (which renders `LandingPage`), not the role portal. The operational portals are `/driver-dashboard` & `/vendor-dashboard`.
+  2. **Lost impersonation token on web:** Approvals & Applicants used `storeSession(res.data.token)` which on web stores only the sentinel `'cookie'` (real JWT is in an httpOnly cookie), so the impersonation Bearer was discarded and the backend kept authenticating the admin via cookie → admin never switched. (These two also never showed the Exit banner.)
+- **Fix:** added `portalPathForRole(userType)` in `authToken.js` (driver→/driver-dashboard, business|restaurant→/vendor-dashboard, else→/dashboard). All four entry points now use `AuthContext.impersonate()` (sets impersonation Bearer + axios default header + `impersonation` state → ImpersonationBanner/Exit work) then `navigate(portalPathForRole(target.user_type))`. `AdminAccountRepair` already used its own `dashboardFor` (correct). Backend `core.py` already prefers the impersonation Bearer over the admin cookie (verified via curl).
+- **Verified:** testing_agent iter63 — Users→driver→/driver-dashboard, Approvals→merchant→/vendor-dashboard (previously broken on web, now works), Account Repair→correct portal, Exit returns to /admin, admin regression OK. retest_needed=false.
+- **Prod note:** frontend fix — requires redeploy to reach production.
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: driver profile not showing (missing drivers-collection record)
 - **Bug:** an APPROVED driver (users.user_type='driver', set only on admin approval per create_driver line ~5700) had NO doc in the `drivers` collection, so `GET /drivers/me` returned 404 and the DriverDashboard couldn't render the profile. Reported for driver "Kulture" (preview record: "Kulture Sim", uid 0b15030d…, no drivers doc/wallet).
 - **Fix (server.py):** new helper `_ensure_driver_record(user: dict)` — if the account role is already 'driver' (approval-gated, so can't grant unearned access) and the drivers doc is missing, it creates a minimal `Driver(status='active')` + `DriverWallet` and returns it. Wired into: (1) `GET /drivers/me` (auto-heals on the driver's next app open) and (2) admin `POST /admin/accounts/repair` section 2 (adds action "recreated the missing driver profile"). 
