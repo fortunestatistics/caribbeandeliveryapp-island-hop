@@ -29,6 +29,7 @@ const Terms = lazy(() => import('./Terms'));
 const OrderScheduling = lazy(() => import('./OrderScheduling'));
 const CheckoutPage = lazy(() => import('./CheckoutPage').then(m => ({ default: m.CheckoutPage })));
 const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentSuccess })));
+const WalletPage = lazy(() => import('./WalletPage'));
 const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
 const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
 const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
@@ -124,7 +125,8 @@ import {
   Smartphone,
   ArrowRight,
   Search,
-  Megaphone
+  Megaphone,
+  Wallet
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -1566,6 +1568,16 @@ const Dashboard = () => {
                   <MapPin className="h-6 w-6" />
                   <span className="text-sm">Track Order</span>
                 </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col items-center justify-center space-y-2"
+                  onClick={() => navigate('/wallet')}
+                  data-testid="quick-action-wallet"
+                >
+                  <Wallet className="h-6 w-6" />
+                  <span className="text-sm">Wallet</span>
+                </Button>
                 
                 <Button
                   variant="outline"
@@ -2089,7 +2101,7 @@ function App() {
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-            <Route path="/wallet" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/promote" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />

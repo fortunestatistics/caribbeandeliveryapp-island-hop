@@ -641,6 +641,10 @@ const VendorDashboard = () => {
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button onClick={() => navigate('/wallet')} variant="outline" data-testid="vendor-wallet-btn">
+                <Wallet className="h-5 w-5 mr-2" />
+                Wallet
+              </Button>
               <Button onClick={() => navigate('/vendor/connect-stripe')} variant="outline" data-testid="vendor-payments-btn">
                 <Banknote className="h-5 w-5 mr-2" />
                 Payments &amp; Payouts
