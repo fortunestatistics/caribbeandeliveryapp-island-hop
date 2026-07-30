@@ -288,13 +288,13 @@ const DriverDashboard = () => {
       }, {
         withCredentials: true
       });
-      toast.success('Order accepted! Head to pickup.');
+      toast({ title: '✅ Order accepted!', description: 'Head to pickup.' });
       fetchOrderRequests();
       fetchAvailableOrders();
       fetchActiveOrders();
     } catch (error) {
       const msg = error?.response?.data?.detail || 'Failed to accept order — it may have just been taken.';
-      toast.error(msg);
+      toast({ title: 'Could not accept order', description: msg, variant: 'destructive' });
       fetchAvailableOrders();
     }
   };
@@ -456,6 +456,58 @@ const DriverDashboard = () => {
             </CardContent>
           </Card>
         )}
+
+        {/* Available Now — open pool any driver can grab */}
+        {(() => {
+          const offeredIds = new Set(orderRequests.map((o) => o.id));
+          const pool = availableOrders.filter((o) => !offeredIds.has(o.id));
+          if (pool.length === 0) return null;
+          return (
+            <Card className="mb-6 border-l-4 border-l-gold-500" data-testid="driver-available-now-card">
+              <CardHeader>
+                <CardTitle className="text-gold-500 flex items-center justify-between">
+                  <span>Available Now ({pool.length})</span>
+                  <Button size="sm" variant="outline" onClick={fetchAvailableOrders} data-testid="available-refresh-btn">
+                    Refresh
+                  </Button>
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">Waiting jobs any driver can claim — first to accept gets it.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {pool.map((order) => {
+                    const pickup = order.pickup_address || {};
+                    const dropoff = order.delivery_address || {};
+                    const pickupText = pickup.location || pickup.full_address || pickup.street || 'Pickup location';
+                    const dropText = dropoff.location || dropoff.full_address || dropoff.street || '';
+                    return (
+                      <div key={order.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3" data-testid={`available-order-${order.id}`}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-turquoise-500">{order.service_type}</span>
+                            {typeof order.total === 'number' && (
+                              <span className="text-xs text-muted-foreground">${order.total.toFixed(2)}</span>
+                            )}
+                          </div>
+                          <p className="truncate text-sm text-foreground">Pickup: {pickupText}</p>
+                          {dropText && <p className="truncate text-xs text-muted-foreground">Drop-off: {dropText}</p>}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-gold-gradient text-white shrink-0"
+                          onClick={() => handleAcceptOrder(order.id)}
+                          data-testid={`available-accept-btn-${order.id}`}
+                        >
+                          Accept
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Active Orders */}
         <DriverRouteCard />

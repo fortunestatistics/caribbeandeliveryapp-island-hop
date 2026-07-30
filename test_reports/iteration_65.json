@@ -1,0 +1,29 @@
+{
+  "summary": "Iter65 verified: (1) GET /api/drivers/available-orders returns open pool for approved driver and 404 for non-driver; (2) POST /api/orders/{id}/accept-driver atomic claim — first driver wins, second gets 400 'already has a driver', wrong driver_id returns 403/404; (3) new-order WS 'available_orders' broadcast path — WS endpoint reachable and pool populated (best-effort verified); (4) BANK deposit with proof_base64 stored, appears in user list AND admin queue with proof persisted, admin approve credits wallet by exact amount; (5) PayPal WITHDRAW request created + listed in admin pending queue (NOT approved — LIVE mode safety respected). Frontend: DriverDashboard 'Available Now' card renders 5 rows with Accept buttons and Refresh button (correct route is /driver-dashboard, not /driver). Wallet UI deposit flow with proof upload works end-to-end — Pending Deposit·Bank row visible in wallet-pending-requests after submit.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter65_open_pool_wallet.py",
+    "/app/test_reports/pytest/iter65.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 13,843 lines — should be split into feature routers (orders, drivers, admin, dispatch, etc.). Wallet already extracted to routers/wallet.py; continue the pattern.",
+    "DriverDashboard.js WS listener plays a raw AudioContext beep every time an 'available_orders' broadcast arrives. On busy platforms this may fire dozens of times per minute; consider debouncing.",
+    "GET /api/drivers/available-orders limits to 50 orders sorted ascending by created_at. If the pool grows large the oldest are shown but no pagination — consider driver-location proximity filtering."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter65_open_pool_wallet.py"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (2/2 flows)"},
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234!; qatest_1784993477@gmail.com / Test1234! (driver id qadrv_2978c0f6, currently 'busy' from active order left over from tests); fresh customer registered per-run.",
+  "seed_data_creation": "Backend test created a fresh customer per run (test_iter65_<hex>@gmail.com / Test1234!), then a $12.34 wallet deposit request with proof + a $0.50 PayPal withdraw request (LEFT PENDING — DO NOT APPROVE in admin queue).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "DriverDashboard is at /driver-dashboard (not /driver — /driver is the DriverRegistration application form). QA driver qatest_1784993477 is currently status='busy' because the double-accept test claimed a real order. If tests fail because pool is empty, seed a new order as merchant merch_1784954600@gmail.com. Fresh customers should be registered via POST /api/auth/register directly and then localStorage.setItem('token','cookie') to activate cookie sentinel — the /login form Sign-In button (data-testid auth-form-submit-btn) had trouble with playwright form submission (silent no-op) so API login+cookie approach is more reliable for E2E. WARNING: iter65 QA created a $0.50 PayPal withdrawal request left in the pending admin queue — DO NOT approve it (LIVE PayPal). It can be rejected safely via POST /api/admin/wallet/funding-requests/{id}/reject.",
+  "rca of the issue": "No blocking issues found. Prior main-agent fixes (Available Now render section + toast API alignment) are working correctly end-to-end."
+}
