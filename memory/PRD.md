@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Driver Job Sound + Pool Distance Sort + Admin Proof Viewer + WiPay "coming soon"
+- **Driver Job Sound + live badge (DriverDashboard.js):** added `playJobChime()` (distinct two-tone 660→990Hz chime, different from the direct-offer ping) + `alertAvailable(list)` (fires only when online & the pool count grows). `fetchAvailableOrders` now calls it; removed the old raw inline beep in the WS `available_orders` handler. The "Available Now" title shows a live pulsing count `Badge` (`available-count-badge`).
+- **Pool Distance Sort (DriverDashboard.js, frontend-only):** driver GPS captured into `driverLoc` state inside `startLocationTracking`; the pool is sorted nearest-first via haversine (driverLoc → order.pickup_address lat/lng) and each row shows a "~X km away" / "~N m away" tag (`available-distance-<id>`). Orders without coords sink to the bottom; when GPS is unavailable the copy reads "Go online for distances."
+- **Admin Deposit Proof Viewer (AdminWalletRequests.js):** the proof link is now a clickable thumbnail (`proof-<id>`) that opens a full-screen `Dialog` (`proof-viewer-dialog` / `proof-viewer-image`) to zoom the bank-transfer photo before approving.
+- **WiPay "coming soon" (WalletPage.js):** deposit dialog shows a dashed pill "🇹🇹 WiPay (local bank & card) — coming soon" (`wallet-wipay-coming-soon`). User has no WiPay keys yet — will wire the real rail once provided.
+- **Verified (testing_agent iter66 — frontend 100%, 3/3):** badge count matches pool (5==5), accept removes a row + badge→4 + moves to Active Deliveries; admin proof thumbnail → full-screen viewer → Esc closes; WiPay note renders. Distance tags absent under headless GPS-deny (expected/optional). LIVE Stripe/PayPal safety respected (no card/PayPal clicks). Chime is audio — not verifiable headlessly but wired.
+- **REQUIRES REDEPLOY (Save to GitHub → Deploy)** to reach production.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — VERIFIED: Driver "Available Now" open pool + wallet proof-upload + PayPal auto-payout (P0)
 - **Context:** prior session coded the driver open-order pool (WS broadcast `available_orders` on new order + `GET /api/drivers/available-orders` + atomic `POST /orders/{id}/accept-driver`), wallet manual-bank deposit `proof_base64`, and auto PayPal payout on approved PayPal withdrawals — but ended before testing/compiling the frontend.
 - **Bugs found & fixed (frontend only, DriverDashboard.js):**
