@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog';
 import { Landmark, Check, X, RefreshCw, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -13,6 +14,7 @@ const AdminWalletRequests = () => {
   const [reqs, setReqs] = useState([]);
   const [filter, setFilter] = useState('pending');
   const [loading, setLoading] = useState(false);
+  const [proofView, setProofView] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,7 +67,19 @@ const AdminWalletRequests = () => {
                   </p>
                   <p className="text-xs text-muted-foreground">{r.user_email} {r.reference ? `· ref: ${r.reference}` : ''}{r.destination ? `· to: ${r.destination}` : ''}</p>
                   {r.proof_base64 && (
-                    <a href={r.proof_base64} target="_blank" rel="noreferrer" className="text-xs text-gold-500 underline" data-testid={`proof-${r.id}`}>View proof of transfer</a>
+                    <button
+                      type="button"
+                      onClick={() => setProofView(r.proof_base64)}
+                      className="mt-1 flex items-center gap-2 group"
+                      data-testid={`proof-${r.id}`}
+                    >
+                      <img
+                        src={r.proof_base64}
+                        alt="Proof of transfer"
+                        className="h-10 w-10 rounded object-cover border border-border group-hover:ring-2 group-hover:ring-gold-500 transition-all"
+                      />
+                      <span className="text-xs text-gold-500 underline">Tap to view proof</span>
+                    </button>
                   )}
                   {r.payout_auto && <span className="text-[10px] text-green-500">· auto-paid via PayPal</span>}
                   {r.payout_error && <span className="text-[10px] text-rose-500">· auto-payout failed, send manually</span>}
@@ -86,6 +100,19 @@ const AdminWalletRequests = () => {
           ))}
         </div>
       </CardContent>
+
+      <Dialog open={!!proofView} onOpenChange={(o) => !o && setProofView(null)}>
+        <DialogContent className="max-w-3xl" data-testid="proof-viewer-dialog">
+          <DialogHeader>
+            <DialogTitle>Proof of transfer</DialogTitle>
+          </DialogHeader>
+          {proofView && (
+            <div className="max-h-[75vh] overflow-auto flex justify-center">
+              <img src={proofView} alt="Proof of transfer" className="max-w-full rounded-lg" data-testid="proof-viewer-image" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

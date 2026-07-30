@@ -4,6 +4,7 @@ import { useToast } from './hooks/use-toast';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
 import { 
   Navigation,
   Wallet,
@@ -11,7 +12,8 @@ import {
   AlertCircle,
   Star,
   DollarSign,
-  Settings
+  Settings,
+  MapPin
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
@@ -29,7 +31,9 @@ const DriverDashboard = () => {
   const { requestLocationConsent } = useLocationConsent();
   const wsRef = useRef(null);
   const prevReqCount = useRef(0);
+  const prevAvailCount = useRef(0);
   const [driver, setDriver] = useState(null);
+  const [driverLoc, setDriverLoc] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [availableOrders, setAvailableOrders] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -93,14 +97,6 @@ const DriverDashboard = () => {
             fetchAvailableOrders();
           } else if (msg.type === 'available_orders') {
             fetchAvailableOrders();
-            try {
-              const Ctx = window.AudioContext || window.webkitAudioContext;
-              if (Ctx) {
-                const ctx = new Ctx(); const o = ctx.createOscillator(); const g = ctx.createGain();
-                o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; g.gain.value = 0.05;
-                o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 180);
-              }
-            } catch (_) { /* ignore */ }
           }
         } catch (_) { /* ignore */ }
       };
@@ -153,6 +149,36 @@ const DriverDashboard = () => {
     prevReqCount.current = count;
   };
 
+  // Distinct two-tone chime for the open "Available Now" pool (different from the direct-offer ping).
+  const playJobChime = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const tone = (freq, start, dur) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+        g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + start + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+        o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
+      };
+      tone(660, 0, 0.22);
+      tone(990, 0.18, 0.32);
+    } catch (_) { /* ignore */ }
+  };
+
+  const alertAvailable = (list) => {
+    const count = Array.isArray(list) ? list.length : 0;
+    if (isOnline && count > prevAvailCount.current) {
+      playJobChime();
+      toast({ title: '📦 New job available!', description: 'A waiting order just landed in Available Now — grab it fast.' });
+    }
+    prevAvailCount.current = count;
+  };
+
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
@@ -168,7 +194,9 @@ const DriverDashboard = () => {
   const fetchAvailableOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/available-orders`, { withCredentials: true });
-      setAvailableOrders(Array.isArray(response.data) ? response.data : []);
+      const list = Array.isArray(response.data) ? response.data : [];
+      setAvailableOrders(list);
+      alertAvailable(list);
     } catch (error) {
       // silent — driver may be pending approval
     }
@@ -247,7 +275,7 @@ const DriverDashboard = () => {
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-
+        setDriverLoc({ lat: latitude, lng: longitude });
         try {
           const token = localStorage.getItem('token');
           const params = { latitude, longitude };
@@ -460,18 +488,47 @@ const DriverDashboard = () => {
         {/* Available Now — open pool any driver can grab */}
         {(() => {
           const offeredIds = new Set(orderRequests.map((o) => o.id));
-          const pool = availableOrders.filter((o) => !offeredIds.has(o.id));
+          const toRad = (d) => (d * Math.PI) / 180;
+          const haversineKm = (a, b) => {
+            if (!a || !b) return null;
+            const [lat1, lng1] = a; const [lat2, lng2] = b;
+            if ([lat1, lng1, lat2, lng2].some((v) => typeof v !== 'number' || Number.isNaN(v))) return null;
+            const R = 6371;
+            const dLat = toRad(lat2 - lat1); const dLng = toRad(lng2 - lng1);
+            const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+          };
+          const pickupCoords = (o) => {
+            const p = o.pickup_address || {};
+            const lat = p.latitude ?? p.lat; const lng = p.longitude ?? p.lng;
+            return (typeof lat === 'number' && typeof lng === 'number') ? [lat, lng] : null;
+          };
+          const me = driverLoc ? [driverLoc.lat, driverLoc.lng] : null;
+          const pool = availableOrders
+            .filter((o) => !offeredIds.has(o.id))
+            .map((o) => ({ ...o, _distanceKm: me ? haversineKm(me, pickupCoords(o)) : null }))
+            .sort((a, b) => {
+              if (a._distanceKm == null && b._distanceKm == null) return 0;
+              if (a._distanceKm == null) return 1;
+              if (b._distanceKm == null) return -1;
+              return a._distanceKm - b._distanceKm;
+            });
           if (pool.length === 0) return null;
           return (
             <Card className="mb-6 border-l-4 border-l-gold-500" data-testid="driver-available-now-card">
               <CardHeader>
                 <CardTitle className="text-gold-500 flex items-center justify-between">
-                  <span>Available Now ({pool.length})</span>
+                  <span className="flex items-center gap-2">
+                    Available Now
+                    <Badge className="bg-gold-gradient text-white animate-pulse" data-testid="available-count-badge">{pool.length}</Badge>
+                  </span>
                   <Button size="sm" variant="outline" onClick={fetchAvailableOrders} data-testid="available-refresh-btn">
                     Refresh
                   </Button>
                 </CardTitle>
-                <p className="text-sm text-muted-foreground">Waiting jobs any driver can claim — first to accept gets it.</p>
+                <p className="text-sm text-muted-foreground">
+                  Waiting jobs any driver can claim — first to accept gets it.{me ? ' Nearest to you first.' : ' Go online for distances.'}
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -480,13 +537,20 @@ const DriverDashboard = () => {
                     const dropoff = order.delivery_address || {};
                     const pickupText = pickup.location || pickup.full_address || pickup.street || 'Pickup location';
                     const dropText = dropoff.location || dropoff.full_address || dropoff.street || '';
+                    const km = order._distanceKm;
+                    const distLabel = km == null ? null : (km < 1 ? `~${Math.round(km * 1000)} m away` : `~${km.toFixed(1)} km away`);
                     return (
                       <div key={order.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3" data-testid={`available-order-${order.id}`}>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-semibold uppercase tracking-wide text-turquoise-500">{order.service_type}</span>
                             {typeof order.total === 'number' && (
                               <span className="text-xs text-muted-foreground">${order.total.toFixed(2)}</span>
+                            )}
+                            {distLabel && (
+                              <Badge variant="secondary" className="text-xs" data-testid={`available-distance-${order.id}`}>
+                                <MapPin className="h-3 w-3 mr-1" />{distLabel}
+                              </Badge>
                             )}
                           </div>
                           <p className="truncate text-sm text-foreground">Pickup: {pickupText}</p>

@@ -306,6 +306,11 @@ const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) 
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} PayPal
           </Button>
         </DialogFooter>
+        <div className="mt-1 flex items-center justify-center gap-2 text-xs text-muted-foreground" data-testid="wallet-wipay-coming-soon">
+          <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-1">
+            🇹🇹 WiPay (local bank & card) — <span className="font-semibold text-gold-500">coming soon</span>
+          </span>
+        </div>
       </DialogContent>
     </Dialog>
   );
