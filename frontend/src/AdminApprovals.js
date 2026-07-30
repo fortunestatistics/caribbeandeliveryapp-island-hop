@@ -11,7 +11,9 @@ import {
   FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { storeSession } from './authToken';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import { portalPathForRole } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -247,6 +249,8 @@ const DocumentsDialog = ({ open, onClose, record, category }) => {
 };
 
 const AdminApprovals = () => {
+  const navigate = useNavigate();
+  const { impersonate: startImpersonation } = useAuth();
   const [active, setActive] = useState('businesses');
   const [statusFilter, setStatusFilter] = useState('pending');
   const [records, setRecords] = useState([]);
@@ -341,11 +345,8 @@ const AdminApprovals = () => {
     if (!rec.user_id) { toast.error('External lead — no account to view yet.'); return; }
     setBusyId(rec.id);
     try {
-      const res = await axios.post(`${API}/admin/impersonate/${rec.user_id}`, {}, { headers: authHeaders() });
-      localStorage.setItem('impersonator_token', token());
-      localStorage.setItem('impersonating_name', rec.name || 'user');
-      storeSession(res.data.token, res.data.user);
-      window.location.href = '/';
+      const target = await startImpersonation(rec.user_id, rec.name || 'user', true);
+      navigate(portalPathForRole(target?.user_type));
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not open portal');
       setBusyId(null);

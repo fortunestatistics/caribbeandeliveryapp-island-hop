@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { Car, Store, Mail, Phone, MapPin, FileText, LogIn, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
-import { storeSession } from './authToken';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import { portalPathForRole } from './authToken';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -17,6 +19,8 @@ const InfoRow = ({ icon: Icon, children }) => (
 );
 
 const AdminApplicants = () => {
+  const navigate = useNavigate();
+  const { impersonate: startImpersonation } = useAuth();
   const [data, setData] = useState({ drivers: [], merchants: [], counts: {} });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('drivers');
@@ -43,11 +47,8 @@ const AdminApplicants = () => {
     }
     setBusyId(userId);
     try {
-      const res = await axios.post(`${API}/admin/impersonate/${userId}`, {}, { headers: authHeaders() });
-      localStorage.setItem('impersonator_token', token());
-      localStorage.setItem('impersonating_name', name || res.data?.user?.email || 'applicant');
-      storeSession(res.data.token, res.data.user);
-      window.location.href = '/';
+      const target = await startImpersonation(userId, name, true);
+      navigate(portalPathForRole(target?.user_type));
     } catch (e) {
       alert(e?.response?.data?.detail || 'Could not open portal');
       setBusyId(null);

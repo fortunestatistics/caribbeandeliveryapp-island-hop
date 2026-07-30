@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { portalPathForRole } from './authToken';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -91,8 +92,8 @@ const AdminPanel = () => {
   const openClientPortal = async (user) => {
     if (!window.confirm(`Open ${user.name || user.email}'s portal in edit mode? You'll be able to view, fix, connect or adjust their account as them. Use "Exit" to return to admin.`)) return;
     try {
-      await impersonate(user.id, user.name || user.email, true);
-      navigate('/');
+      const target = await impersonate(user.id, user.name || user.email, true);
+      navigate(portalPathForRole(target?.user_type || user.user_type));
     } catch (e) {
       alert(e?.response?.data?.detail || 'Could not open client portal');
     }

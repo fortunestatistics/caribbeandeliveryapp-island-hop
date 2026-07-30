@@ -1,0 +1,34 @@
+{
+  "summary": "Verified the impersonation-navigation bug fix end-to-end via UI (frontend only). All impersonation entry points now correctly navigate to the role-specific portal (not '/', not admin) and set the impersonation Bearer + show the ImpersonationBanner with Exit. Admin regression works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "admin_login": "PASS - /api/auth/login 200, admin can access /admin.",
+    "impersonate_driver_from_users": "PASS - AdminPanel Users → open-portal-btn-82b3489b-6268-42c5-be1c-c5af4b819edd (Tracy Fortune) → navigated to /driver-dashboard. Banner shows 'Editing as Tracy Fortune (driver) — admin (changes are live)' with Exit control.",
+    "exit_impersonation": "PASS - Exit button returned to /admin (own admin session); banner disappears.",
+    "impersonate_merchant_from_approvals": "PASS - Approvals → click 'Merchant/Vendor Applications' sub-tab THEN 'All Records' status filter (order matters: switching category resets status to pending in AdminApprovals.js:421). record-portal-bpapp_10c9e7a0 (BulkProv Store, business) → navigated to /vendor-dashboard. Banner: 'Editing as BulkProv Store (business) — admin (changes are live)'. Exit works. Confirmed this path now switches (previously did not on web).",
+    "impersonate_from_account_repair": "PASS - Approvals → Account Repair tool (data-testid=account-repair-tool) → search 'Tracy' → account-repair-viewas-0 → navigated to /dashboard (Tracy Fortune shown here as customer, so /dashboard is correct per portalPathForRole). Banner 'Editing as Tracy Fortune (customer) — admin (changes are live)' + Exit.",
+    "admin_regression": "PASS - After multiple impersonate + exit cycles, /admin still loads the admin dashboard normally.",
+    "applicants_entry_point": "NOT DRIVEN IN UI - AdminApplicants.viewPortal uses identical startImpersonation + navigate(portalPathForRole(target.user_type)) pattern as AdminApprovals (which was verified). Code parity confirmed by inspection."
+  },
+  "notable_observations": [
+    "In Approvals, clicking a category sub-tab (Driver Applications / Merchant/Vendor Applications / Live Restaurants / …) triggers setStatusFilter(defaultStatusFor(c.key)) (AdminApprovals.js:421) which resets the New/All toggle back to 'pending'. So to reach the merchant record-portal buttons you must click the sub-tab FIRST and THEN switch to 'All Records'. Not a bug for this fix, but a UX gotcha for future tests.",
+    "Impersonation banner is rendered via ImpersonationBanner.js and its Exit button is a plain <button> with text 'Exit'; a data-testid would make it more robust to target."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext.impersonate stores the impersonation JWT into localStorage.token, overwriting the sentinel used by the web cookie-session. On Exit it should restore the sentinel (or clear) — appears handled, but worth a targeted test to ensure the admin's httpOnly cookie is still relied on and no stale Bearer leaks into subsequent admin requests.",
+    "Consider adding data-testid='impersonation-banner' and data-testid='impersonation-exit-btn' to ImpersonationBanner for testability."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only)", "frontend": "100% (5/5 flows verified)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Approvals: click Merchant/Vendor sub-tab THEN [data-testid=approvals-status-all] to reveal record-portal buttons. Admin login via /login form works (httpOnly cookie). ImpersonationBanner has no data-testid; target via text 'Editing as' and button:has-text('Exit')."
+}

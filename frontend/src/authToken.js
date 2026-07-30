@@ -8,6 +8,13 @@
 
 export const WEB_TOKEN_SENTINEL = 'cookie';
 
+// Role -> operational portal route (used after admin impersonation / normal login).
+export const portalPathForRole = (userType) => {
+  if (userType === 'driver') return '/driver-dashboard';
+  if (userType === 'business' || userType === 'restaurant') return '/vendor-dashboard';
+  return '/dashboard';
+};
+
 export const isNativeApp = () => {
   try {
     return !!(
