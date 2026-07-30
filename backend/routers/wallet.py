@@ -85,6 +85,7 @@ class FundingRequestBody(BaseModel):
     reference: Optional[str] = None        # deposit: transfer ref / proof
     payment_method_id: Optional[str] = None  # withdraw: where to send
     destination: Optional[str] = None        # withdraw: free-text (e.g. paypal email)
+    proof_base64: Optional[str] = None       # deposit: photo of the bank transfer (data URL)
     note: Optional[str] = None
 
 
@@ -156,6 +157,7 @@ async def create_funding_request(payload: FundingRequestBody, request: Request):
         "reference": payload.reference,
         "payment_method_id": payload.payment_method_id,
         "destination": payload.destination,
+        "proof_base64": payload.proof_base64 if payload.direction == "deposit" else None,
         "note": payload.note,
         "created_at": now,
         "processed_at": None,
@@ -208,15 +210,41 @@ async def admin_approve_funding_request(request_id: str, request: Request):
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
     new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
+
     if fr["direction"] == "deposit":
         await _notify_funding_client(
             fr["user_id"], "Your IslandHop wallet has been topped up",
             f"We've credited <strong>{currency} {amount:,.2f}</strong> to your wallet. It's ready to use now.")
-    else:
-        await _notify_funding_client(
-            fr["user_id"], "Your IslandHop withdrawal has been sent",
-            f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been approved and sent to your {fr['method']} account.")
-    return {"success": True, "status": "approved", "balance": new_bal}
+        return {"success": True, "status": "approved", "balance": new_bal}
+
+    # Withdrawal: if it's a PayPal payout, send the money automatically via PayPal Payouts.
+    auto_sent = False
+    if fr.get("method") == "paypal":
+        email = fr.get("destination")
+        if not email and fr.get("payment_method_id"):
+            pm = await db.wallet_payment_methods.find_one({"id": fr["payment_method_id"]}, {"_id": 0})
+            email = (pm or {}).get("details", {}).get("email")
+        if email:
+            try:
+                import paypal_client
+                result = await paypal_client.create_payout(
+                    email, amount, currency, note="Your IslandHop withdrawal",
+                    sender_batch_id=f"wd_{request_id}")
+                auto_sent = bool(result.get("success"))
+                await db.wallet_funding_requests.update_one(
+                    {"id": request_id}, {"$set": {"payout_auto": auto_sent, "payout_batch_id": result.get("batch_id"), "payout_raw_status": result.get("status")}})
+            except Exception as exc:  # payout failed — money already debited; admin sends manually
+                import logging
+                logging.error(f"Auto PayPal payout failed for request {request_id}: {exc}")
+                await db.wallet_funding_requests.update_one(
+                    {"id": request_id}, {"$set": {"payout_auto": False, "payout_error": str(exc)[:300]}})
+
+    await _notify_funding_client(
+        fr["user_id"], "Your IslandHop withdrawal has been sent",
+        (f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been sent to your PayPal automatically."
+         if auto_sent else
+         f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been approved and is being sent to your {fr['method']} account."))
+    return {"success": True, "status": "approved", "balance": new_bal, "payout_auto": auto_sent}
 
 
 @router.post("/admin/wallet/funding-requests/{request_id}/reject")

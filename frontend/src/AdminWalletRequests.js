@@ -64,6 +64,11 @@ const AdminWalletRequests = () => {
                     {r.direction === 'deposit' ? 'Deposit' : 'Withdraw'} {r.amount} {r.currency} · <span className="text-muted-foreground font-normal">{r.method}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">{r.user_email} {r.reference ? `· ref: ${r.reference}` : ''}{r.destination ? `· to: ${r.destination}` : ''}</p>
+                  {r.proof_base64 && (
+                    <a href={r.proof_base64} target="_blank" rel="noreferrer" className="text-xs text-gold-500 underline" data-testid={`proof-${r.id}`}>View proof of transfer</a>
+                  )}
+                  {r.payout_auto && <span className="text-[10px] text-green-500">· auto-paid via PayPal</span>}
+                  {r.payout_error && <span className="text-[10px] text-rose-500">· auto-payout failed, send manually</span>}
                 </div>
               </div>
               <div className="flex items-center gap-2">

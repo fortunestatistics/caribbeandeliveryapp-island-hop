@@ -121,8 +121,11 @@ class ConnectionManager:
             await self.user_connections[user_id].send_text(message)
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                pass
 
 
 manager = ConnectionManager()

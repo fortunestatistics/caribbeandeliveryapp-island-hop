@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from './hooks/use-toast';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { 
@@ -30,6 +31,7 @@ const DriverDashboard = () => {
   const prevReqCount = useRef(0);
   const [driver, setDriver] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
+  const [availableOrders, setAvailableOrders] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
   const [earnings, setEarnings] = useState({
     today: 0,
@@ -46,6 +48,7 @@ const DriverDashboard = () => {
   useEffect(() => {
     fetchDriverData();
     fetchOrderRequests();
+    fetchAvailableOrders();
     fetchActiveOrders();
     fetchEarnings();
     fetchSubscription();
@@ -53,6 +56,7 @@ const DriverDashboard = () => {
     // Refresh every 10 seconds
     const interval = setInterval(() => {
       fetchOrderRequests();
+      fetchAvailableOrders();
       fetchActiveOrders();
       fetchEarnings();
     }, 10000);
@@ -86,6 +90,17 @@ const DriverDashboard = () => {
           const msg = JSON.parse(evt.data);
           if (msg.type === 'new_order_request') {
             fetchOrderRequests();
+            fetchAvailableOrders();
+          } else if (msg.type === 'available_orders') {
+            fetchAvailableOrders();
+            try {
+              const Ctx = window.AudioContext || window.webkitAudioContext;
+              if (Ctx) {
+                const ctx = new Ctx(); const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; g.gain.value = 0.05;
+                o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 180);
+              }
+            } catch (_) { /* ignore */ }
           }
         } catch (_) { /* ignore */ }
       };
@@ -147,6 +162,15 @@ const DriverDashboard = () => {
       alertNewRequests(response.data);
     } catch (error) {
       console.error('Error fetching order requests:', error);
+    }
+  };
+
+  const fetchAvailableOrders = async () => {
+    try {
+      const response = await axios.get(`${API}/drivers/available-orders`, { withCredentials: true });
+      setAvailableOrders(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      // silent — driver may be pending approval
     }
   };
 
@@ -264,12 +288,14 @@ const DriverDashboard = () => {
       }, {
         withCredentials: true
       });
-      
+      toast.success('Order accepted! Head to pickup.');
       fetchOrderRequests();
+      fetchAvailableOrders();
       fetchActiveOrders();
     } catch (error) {
-      console.error('Error accepting order:', error);
-      alert('Failed to accept order');
+      const msg = error?.response?.data?.detail || 'Failed to accept order — it may have just been taken.';
+      toast.error(msg);
+      fetchAvailableOrders();
     }
   };
 

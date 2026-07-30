@@ -3943,6 +3943,12 @@ async def create_order(order: Order, request: Request):
         # Hands-free auto-dispatch (best-effort) when an admin has enabled it
         asyncio.create_task(_maybe_auto_dispatch(order_dict))
 
+    # Signal every online driver that a new job is waiting in the open pool (delivery + taxi).
+    if order.service_type not in ("subscription",):
+        asyncio.create_task(manager.broadcast(json.dumps({
+            "type": "available_orders", "order_id": order.id, "service_type": order.service_type,
+        })))
+
     return order
 
 @api_router.get("/orders", response_model=List[Order])
@@ -6960,6 +6966,25 @@ async def get_driver_order_requests(request: Request):
         "status": {"$nin": ["cancelled", "delivered", "refunded"]},
     }, {"_id": 0}).limit(50).to_list(length=50)
     
+    return orders
+
+@api_router.get("/drivers/available-orders")
+async def get_available_orders(request: Request):
+    """Open pool: every unassigned order (delivery, grocery, pharmacy, courier & taxi)
+    awaiting a driver — visible to ALL approved drivers so anyone can grab a waiting job."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    if driver.get("status") in ("pending", "pending_approval", "rejected", "suspended"):
+        return []
+    orders = await db.orders.find({
+        "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}, {"driver_id": ""}],
+        "status": {"$in": [
+            "confirmed", "preparing", "ready", "ready_for_pickup", "searching_driver",
+            "pending_driver", "accepted", "awaiting_driver", "pending",
+        ]},
+    }, {"_id": 0}).sort("created_at", 1).limit(50).to_list(length=50)
     return orders
 
 @api_router.get("/drivers/active-orders")

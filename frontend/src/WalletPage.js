@@ -218,7 +218,17 @@ const WalletPage = () => {
 const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) => {
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
+  const [proof, setProof] = useState('');
   const usd = toUSD(amount);
+
+  const onProof = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4.5 * 1024 * 1024) { toast.error('Image too large (max ~4MB)'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setProof(reader.result);
+    reader.readAsDataURL(file);
+  };
 
   const payWithPayPal = async () => {
     if (usd <= 0) { toast.error('Enter an amount'); return; }
@@ -253,7 +263,7 @@ const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) 
     setBusy(true);
     try {
       await axios.post(`${API}/wallet/funding-request`, {
-        direction: 'deposit', method: 'bank', amount: Number(usd.toFixed(2)), currency: 'USD', reference,
+        direction: 'deposit', method: 'bank', amount: Number(usd.toFixed(2)), currency: 'USD', reference, proof_base64: proof || undefined,
       });
       toast.success('Deposit request submitted. We will credit your wallet once the transfer is confirmed.');
       onClose(); onDone();
@@ -278,6 +288,11 @@ const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) 
           <div>
             <Label htmlFor="dep-ref">Bank transfer reference (optional)</Label>
             <Input id="dep-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Transfer / proof reference" data-testid="wallet-deposit-reference" />
+          </div>
+          <div>
+            <Label htmlFor="dep-proof">Proof of transfer (photo/screenshot, for bank transfers)</Label>
+            <Input id="dep-proof" type="file" accept="image/*" onChange={onProof} data-testid="wallet-deposit-proof" />
+            {proof && <p className="text-xs text-green-600 mt-1">✓ Proof attached</p>}
           </div>
         </div>
         <DialogFooter className="flex-col sm:flex-row gap-2">
