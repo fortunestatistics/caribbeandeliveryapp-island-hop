@@ -28,6 +28,21 @@ async def _require_admin(request: Request):
     return current_user
 
 
+async def _notify_funding_client(user_id: str, subject: str, message: str):
+    """Best-effort email to the client when a funding request is actioned."""
+    try:
+        import graph_mail
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+        if not user or not graph_mail.is_real_email(user.get("email")):
+            return
+        html = (f"<p>Hi {user.get('name') or 'there'},</p><p>{message}</p>"
+                "<p>— The IslandHop Team</p>")
+        await graph_mail.send_mail(user["email"], subject, html, mailbox=graph_mail.notify_mailbox("support"))
+    except Exception as exc:  # graph not configured / transient — never block the action
+        import logging
+        logging.warning(f"Funding client email skipped for {user_id}: {exc}")
+
+
 @router.get("/wallet")
 async def get_my_wallet(request: Request):
     current_user = await get_current_user_from_request(request)
@@ -193,6 +208,14 @@ async def admin_approve_funding_request(request_id: str, request: Request):
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
     new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
+    if fr["direction"] == "deposit":
+        await _notify_funding_client(
+            fr["user_id"], "Your IslandHop wallet has been topped up",
+            f"We've credited <strong>{currency} {amount:,.2f}</strong> to your wallet. It's ready to use now.")
+    else:
+        await _notify_funding_client(
+            fr["user_id"], "Your IslandHop withdrawal has been sent",
+            f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been approved and sent to your {fr['method']} account.")
     return {"success": True, "status": "approved", "balance": new_bal}
 
 
@@ -207,6 +230,10 @@ async def admin_reject_funding_request(request_id: str, request: Request):
     now = datetime.now(timezone.utc).isoformat()
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "rejected", "processed_at": now, "processed_by": admin.email}})
+    await _notify_funding_client(
+        fr["user_id"], "Update on your IslandHop wallet request",
+        f"Your {fr['direction']} request for <strong>{fr['currency']} {fr['amount']:,.2f}</strong> could not be completed. "
+        "Please check your transfer details or contact support, and feel free to try again.")
     return {"success": True, "status": "rejected"}
 
 

@@ -10181,6 +10181,46 @@ async def create_multi_order_checkout_session(payload: MultiCheckoutRequest, req
     return {"url": session.url, "session_id": session.id, "order_ids": order_ids}
 
 
+class WalletDepositCheckoutRequest(BaseModel):
+    amount: float
+    origin_url: str
+    currency: str = "usd"
+
+
+@api_router.post("/payments/checkout/wallet-deposit")
+async def create_wallet_deposit_checkout(payload: WalletDepositCheckoutRequest, request: Request):
+    """Stripe-hosted card top-up for the signed-in user's wallet. On successful payment,
+    the status poll (get_checkout_status) credits the wallet exactly once."""
+    current_user = await get_current_user_from_request(request)
+    amount = round(float(payload.amount or 0), 2)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    origin = payload.origin_url.rstrip('/')
+    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&wallet=1"
+    cancel_url = f"{origin}/wallet?cancelled=1"
+    price_data = {"currency": "usd", "unit_amount": int(round(amount * 100)),
+                  "product_data": {"name": "IslandHop wallet top-up"}}
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price_data": price_data, "quantity": 1}],
+            success_url=success_url, cancel_url=cancel_url,
+            payment_intent_data={"metadata": {"purpose": "wallet_deposit", "user_id": current_user.id}},
+            metadata={"purpose": "wallet_deposit", "user_id": current_user.id, "user_email": current_user.email},
+        )
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe wallet-deposit create failed for {current_user.id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
+
+    payment = PaymentTransaction(
+        session_id=session.id, user_id=current_user.id, email=current_user.email,
+        amount=amount, currency="usd", payment_status="initiated",
+        metadata={"purpose": "wallet_deposit", "user_id": current_user.id},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+    return {"url": session.url, "session_id": session.id}
+
+
 @api_router.get("/payments/checkout/status/{session_id}")
 async def get_checkout_status(session_id: str):
     """
@@ -10287,6 +10327,14 @@ async def get_checkout_status(session_id: str):
                     await _maybe_complete_referral(customer_id)
             except Exception as ref_exc:
                 logging.warning(f"Referral completion failed for txn {session_id}: {ref_exc}")
+
+        # Wallet top-up via card: credit the user's wallet exactly once.
+        if meta.get("purpose") == "wallet_deposit":
+            credit_amount = (float(status.amount_total) / 100.0) if status.amount_total else float(txn.get("amount") or 0)
+            await _credit_wallet_with_txn(
+                txn.get("user_id"), credit_amount, (status.currency or "usd").upper(),
+                txn_type="deposit", external_transfer_id=session_id, note="Card top-up (Stripe)",
+            )
 
     return {
         "status": status.status,

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Wallet, ArrowDownToLine, ArrowUpFromLine, Plus, Trash2, Loader2,
-  Clock, CheckCircle2, XCircle, Building2, ArrowLeft, RefreshCw,
+  Clock, CheckCircle2, XCircle, Building2, ArrowLeft, RefreshCw, CreditCard,
 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -230,7 +230,21 @@ const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) 
       if (r.data?.approve_url) { window.location.href = r.data.approve_url; return; }
       toast.error('Could not start PayPal checkout');
     } catch (e) {
-      toast.error(e?.response?.data?.detail || 'PayPal is unavailable right now. Try a bank transfer instead.');
+      toast.error(e?.response?.data?.detail || 'PayPal is unavailable right now. Try a card or bank transfer instead.');
+    } finally { setBusy(false); }
+  };
+
+  const payWithCard = async () => {
+    if (usd <= 0) { toast.error('Enter an amount'); return; }
+    setBusy(true);
+    try {
+      const r = await axios.post(`${API}/payments/checkout/wallet-deposit`, {
+        amount: Number(usd.toFixed(2)), currency: 'usd', origin_url: window.location.origin,
+      });
+      if (r.data?.url) { window.location.href = r.data.url; return; }
+      toast.error('Could not start card checkout');
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Card payments are unavailable right now. Try a bank transfer instead.');
     } finally { setBusy(false); }
   };
 
@@ -270,8 +284,11 @@ const DepositDialog = ({ open, onClose, toUSD, format, onDone, busy, setBusy }) 
           <Button variant="outline" onClick={requestBank} disabled={busy} data-testid="wallet-deposit-bank-btn">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4 mr-1" />} Bank transfer
           </Button>
-          <Button onClick={payWithPayPal} disabled={busy} className="bg-gold-gradient text-white" data-testid="wallet-deposit-paypal-btn">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Pay with PayPal
+          <Button onClick={payWithCard} disabled={busy} className="bg-gold-gradient text-white" data-testid="wallet-deposit-card-btn">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4 mr-1" />} Pay with card
+          </Button>
+          <Button variant="outline" onClick={payWithPayPal} disabled={busy} data-testid="wallet-deposit-paypal-btn">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} PayPal
           </Button>
         </DialogFooter>
       </DialogContent>

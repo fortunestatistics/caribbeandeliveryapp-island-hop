@@ -1,5 +1,11 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Wallet deposits/payouts: Stripe card top-up (b) + smoother admin bank workflow (c)
+- **Context:** No direct Trinidad-bank integration exists. Rails: PayPal (auto deposit + PayPal payout), Stripe (LIVE — `STRIPE_MODE=live`, `STRIPE_LIVE_API_KEY`; core.py selects the key), bank = manual admin-approved. Mercury = platform's US business bank, READ-ONLY reconciliation only (not a customer rail). User is signing up for WiPay (the real TT rail) — to be wired once they provide keys.
+- **(b) Stripe card wallet top-up:** new `POST /api/payments/checkout/wallet-deposit` (mirrors existing order checkout via `stripe.checkout.Session.create`, metadata purpose=wallet_deposit). `get_checkout_status` now credits the wallet once on `paid` for purpose=wallet_deposit (`_credit_wallet_with_txn(..., txn_type='deposit', external_transfer_id=session_id)`). Frontend WalletPage deposit dialog has 3 options: **Pay with card** (`wallet-deposit-card-btn`), Bank transfer, PayPal. success_url=/payment/success?session_id=..&wallet=1 (PaymentSuccess polls status → credit). ⚠️ **Stripe is LIVE even in preview** → card top-ups charge REAL cards. Verified session creation returns a `cs_live_` URL; full charge→credit not e2e-tested to avoid charging a real card (credit path reuses the proven order-payment flow).
+- **(c) Smoother admin bank workflow:** `routers/wallet.py` `_notify_funding_client()` emails the client (via graph_mail, best-effort) on approve/reject. AdminWalletRequests buttons are now context-aware: deposits → 'Mark paid & credit', withdrawals → 'Send & mark paid', with a confirm dialog and reference/destination shown. Verified: bank deposit → admin approve → wallet credited $20 (200 OK, balance updated), email code runs without error.
+- **Pending:** WiPay integration (awaiting user's WiPay merchant account + API keys) — the proper rail for real Trinidad bank/card money movement.
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: admin "Open client portal" (impersonation) landed on landing page / admin instead of the client's portal
 - **Symptom:** admin couldn't view/fix merchant or driver profiles — opening a client portal redirected to the landing/home ("personal portal") or back to admin.
 - **Two root causes:**
