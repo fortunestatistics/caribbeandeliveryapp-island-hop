@@ -1,5 +1,17 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Currency → TT$ on order mgmt + earnings dashboards; review submit verified
+- **Reported (production):** (1) "Submit review" button erroring/not working; (2) admin Order Management, Driver Earnings dashboard, and Merchant Earnings dashboard still showing US$ — make all money TT$ (unless requested at checkout).
+- **Review submit:** verified end-to-end on preview (curl + browser) — `POST /api/ratings` returns 200, 5-star bonus path is safe (`_credit_wallet_with_txn` → `_get_or_create_wallet`, no 500 on missing wallet), global `axios.defaults.withCredentials=true` so cookie auth works. Could NOT reproduce the error on preview; likely a production cascade from the just-fixed order-access/"Order not found" bugs (needs redeploy). Also tightened `ReviewForm.submit` validation to `hasRating = (showDriver && driverRating>0) || (showVendor && vendorRating>0)` (prevents empty submissions). If it still fails post-deploy, need the exact on-screen error text.
+- **Currency → TT$ (all USD-based values × RATE_TTD_PER_USD=6.78 via `useCurrency().format()`):**
+  - `DriverEarningsDashboard.js`: local `money()` now `format()`.
+  - `BusinessEarningsDashboard.js` (`/business/earnings`): added `useCurrency` + `money()`; replaced ~16 inline `${x.toFixed(2)}`. NOTE: this page still renders DEMO data ("Island Spice Kitchen") — currency fixed, but wiring it to the real merchant API is a separate follow-up.
+  - `AdminPanel.js` (order management): module `money()` helper changed from `$` to `TT$` using imported `RATE_TTD_PER_USD` (covers order totals + claim credits + fraud amounts). (Note: admin panel has no currency toggle, so it's pinned TT$ — matches request.)
+  - (Prior session already did VendorDashboard + driver cards + tracking page.)
+- **Verified (preview screenshots):** Driver Earnings shows TT$0.00/TT$12.00; Merchant Earnings shows TT$23,437.10 / TT$6,051.15 / TT$30,726.96 / Avg TT$464.43. Residual bare `$` only in fixed fee-explanation copy ("$3.00 service fee", "2.9% + $0.3" Stripe rate) — not data. Clean compile.
+- **⚠️ REQUIRES REDEPLOY** (user is on production).
+
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: "Order not found" (merchant/customer/notification) + orders missing from lists + merchant USD→TT$
 - **User (on PRODUCTION):** driver & merchant "Order not found / Go Home"; customer's order didn't appear in their orders list AT ALL; notification bell → "order not found"; merchant dashboard still showed US$ prices. NOTE: user tests on the LIVE site — the *previous* fork's fixes (driver `/order/:id` route, driver TT$ prices) were also not yet deployed, compounding the reports.
 - **Root cause A — `GET /orders` (list) 500'd the whole list:** used strict `response_model=List[Order]` + `[Order(**o) ...]`; a single legacy/partial order raised ValidationError → 500 → the customer saw ZERO orders. Also it only handled `user_type=="restaurant"` (querying `restaurant_id`), so **business merchants** (grocery/pharmacy/retail) always got `[]`. **Fix:** removed response_model, return raw docs (`{_id:0}`); customer matches `customer_id` OR `user_id`; merchant branch now unions vendor ids from `restaurants`+`businesses`+`car_rental_companies` and matches `restaurant_id`/`vendor_id`/`business_id`; admin/agent see all; driver by driver id. Same resilience applied to `GET /orders/user/history`.

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
+import { RATE_TTD_PER_USD } from './CurrencyContext';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -75,7 +76,7 @@ const isPlaceholderEmail = (email) => {
   return PLACEHOLDER_PREFIXES.some((p) => local.startsWith(p));
 };
 
-const money = (v) => `$${Number(v || 0).toFixed(2)}`;
+const money = (v) => `TT$${(Number(v || 0) * RATE_TTD_PER_USD).toFixed(2)}`;
 
 const DOC_LABELS = {
   driversLicense: "Driver's License",
@@ -255,7 +256,7 @@ const AdminPanel = () => {
       if (raw === null) return; // cancelled
       credit = parseFloat(raw) || 0;
     }
-    if (!window.confirm(`Are you sure you want to ${verb} this claim${credit ? ` and credit $${credit.toFixed(2)}` : ''}?`)) return;
+    if (!window.confirm(`Are you sure you want to ${verb} this claim${credit ? ` and credit ${money(credit)}` : ''}?`)) return;
     try {
       await axios.post(
         `${API}/claims/${claimId}/resolve`,
@@ -989,7 +990,7 @@ const AdminPanel = () => {
                                 ORDER #{(flag.order_id || '').slice(0, 8)}
                               </span>
                               <Badge variant="outline">
-                                ${(flag.amount || 0).toFixed(2)}
+                                {money(flag.amount)}
                               </Badge>
                               {flag.status !== 'open' && (
                                 <Badge variant="secondary">{flag.status.replace('_', ' ')}</Badge>
@@ -1098,7 +1099,7 @@ const AdminPanel = () => {
                             </span>
                             {typeof claim.resolution_credit === 'number' && claim.resolution_credit > 0 && (
                               <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
-                                +${claim.resolution_credit.toFixed(2)} credited
+                                +{money(claim.resolution_credit)} credited
                               </Badge>
                             )}
                           </div>
@@ -1637,7 +1638,7 @@ const AdminPanel = () => {
                     </span>
                     {typeof detailClaim.resolution_credit === 'number' && detailClaim.resolution_credit > 0 && (
                       <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
-                        +${detailClaim.resolution_credit.toFixed(2)} credited
+                        +{money(detailClaim.resolution_credit)} credited
                       </Badge>
                     )}
                   </div>
@@ -1698,7 +1699,7 @@ const AdminPanel = () => {
                 <div className="space-y-3 text-sm">
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-muted-foreground">Order</span><p className="font-mono font-medium">#{(detailFraud.order_id || '').slice(0, 8)}</p></div>
-                    <div><span className="text-muted-foreground">Amount</span><p className="font-medium">${(detailFraud.amount || 0).toFixed(2)}</p></div>
+                    <div><span className="text-muted-foreground">Amount</span><p className="font-medium">{money(detailFraud.amount)}</p></div>
                     <div><span className="text-muted-foreground">Service</span><p className="font-medium capitalize">{detailFraud.order?.service_type || '—'}</p></div>
                     <div><span className="text-muted-foreground">Payment</span><p className="font-medium capitalize">{detailFraud.order?.payment_method} · {detailFraud.order?.payment_status}</p></div>
                     <div><span className="text-muted-foreground">Flagged</span><p className="font-medium">{detailFraud.created_at ? new Date(detailFraud.created_at).toLocaleString() : '—'}</p></div>
