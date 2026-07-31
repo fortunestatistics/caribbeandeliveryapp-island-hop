@@ -3951,29 +3951,40 @@ async def create_order(order: Order, request: Request):
 
     return order
 
-@api_router.get("/orders", response_model=List[Order])
+@api_router.get("/orders")
 async def get_user_orders(request: Request):
-    """Get orders for current user"""
+    """Get orders for current user. Returns raw docs (no strict response_model) so a
+    single legacy/partial order can never 500 the whole list."""
     current_user = await get_current_user_from_request(request)
-    
-    if current_user.user_type == "customer":
-        orders = await db.orders.find({"customer_id": current_user.id}).sort("created_at", -1).limit(200).to_list(length=200)
-    elif current_user.user_type == "restaurant":
-        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-        if restaurant:
-            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
-        else:
-            orders = []
+
+    query = None
+    if current_user.user_type in ("admin", "agent"):
+        query = {}
     elif current_user.user_type == "driver":
-        driver = await db.drivers.find_one({"user_id": current_user.id})
-        if driver:
-            orders = await db.orders.find({"driver_id": driver["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
-        else:
-            orders = []
+        driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+        query = {"driver_id": driver["id"]} if driver else None
+    elif current_user.user_type in ("restaurant", "business", "car_rental"):
+        # A merchant may own a restaurant, a business, and/or a car-rental company.
+        vendor_ids = []
+        for coll in ("restaurants", "businesses", "car_rental_companies"):
+            async for v in db[coll].find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+                if v.get("id"):
+                    vendor_ids.append(v["id"])
+        if vendor_ids:
+            query = {"$or": [
+                {"restaurant_id": {"$in": vendor_ids}},
+                {"vendor_id": {"$in": vendor_ids}},
+                {"business_id": {"$in": vendor_ids}},
+            ]}
     else:
-        orders = []
-    
-    return [Order(**order) for order in orders]
+        # Customer (default): match either customer_id or user_id.
+        query = {"$or": [{"customer_id": current_user.id}, {"user_id": current_user.id}]}
+
+    if query is None:
+        return []
+
+    orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
+    return orders
 
 def _status_timestamp_field(status: str) -> Optional[str]:
     """Map order status → the field to set with the current UTC timestamp."""
@@ -4946,18 +4957,19 @@ async def get_order(order_id: str, current_user: User = Depends(get_current_user
     # Return the raw document (minus _id) so partial/legacy orders never 500 the tracking UI.
     return order
 
-@api_router.get("/orders/user/history", response_model=List[Order])
+@api_router.get("/orders/user/history")
 async def get_user_order_history(
     current_user: User = Depends(get_current_user),
     limit: int = 20,
     skip: int = 0
 ):
-    """Get order history for current user"""
+    """Get order history for current user (raw docs — resilient to legacy/partial orders)."""
     orders = await db.orders.find(
-        {"customer_id": current_user.id}
+        {"$or": [{"customer_id": current_user.id}, {"user_id": current_user.id}]},
+        {"_id": 0},
     ).sort("created_at", -1).skip(skip).limit(limit).to_list(length=None)
-    
-    return [Order(**order) for order in orders]
+
+    return orders
 
 # Chat/Messaging Routes — 3-party (customer ↔ driver ↔ merchant) order chat
 async def _resolve_order_participants(order: dict) -> dict:
