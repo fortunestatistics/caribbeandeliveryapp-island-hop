@@ -49,6 +49,7 @@ import axios from 'axios';
 import { getBusinessConfig } from './businessTypeConfig';
 import { useToast } from './hooks/use-toast';
 import { formatAddress, mapsLink } from './formatAddress';
+import { useCurrency } from './CurrencyContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -97,6 +98,7 @@ const VendorDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { format } = useCurrency();
   const [chatOpenFor, setChatOpenFor] = useState(null);
   const [detailsFor, setDetailsFor] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -548,7 +550,7 @@ const VendorDashboard = () => {
                             </span>
                           </span>
                           <span className="flex items-center gap-2 shrink-0">
-                            <span className="text-sm font-semibold text-gold-600">${Number(o.total || 0).toFixed(2)}</span>
+                            <span className="text-sm font-semibold text-gold-600">{format(Number(o.total || 0))}</span>
                             <Badge className={getStatusColor(o.status)}>{o.status}</Badge>
                           </span>
                         </li>
@@ -681,7 +683,7 @@ const VendorDashboard = () => {
 
           {/* Premium fee-savings ROI banner — shows commission saved vs the Standard 10% base */}
           {savings && (() => {
-            const money = (n) => `${savings.currency || 'TTD'} $${Number(n || 0).toFixed(2)}`;
+            const money = (n) => format(Number(n || 0));
             const isPremium = savings.tier === 'premium';
             const isPro = savings.tier === 'pro';
             // Premium/Pro: celebrate savings. Standard: upsell with potential savings.
@@ -798,11 +800,11 @@ const VendorDashboard = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Owed to you this week</p>
                   <p className="text-2xl font-bold text-green-600" data-testid="weekly-payout-amount">
-                    {weekly.currency || 'USD'} ${Number(weekly.owed_this_week || 0).toFixed(2)}
+                    {format(Number(weekly.owed_this_week || 0))}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {weekly.orders_this_week} order{weekly.orders_this_week === 1 ? '' : 's'} in the last 7 days
-                    {weekly.paid_this_week > 0 && ` · $${Number(weekly.paid_this_week).toFixed(2)} already paid out`}
+                    {weekly.paid_this_week > 0 && ` · ${format(Number(weekly.paid_this_week))} already paid out`}
                   </p>
                 </div>
               </div>
@@ -838,7 +840,7 @@ const VendorDashboard = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Today&apos;s Revenue</p>
                     <p className="text-3xl font-bold text-gold-500">
-                      ${stats.today_revenue?.toFixed(2)}
+                      {format(Number(stats.today_revenue || 0))}
                     </p>
                   </div>
                   <div className="bg-gold-500/15 p-3 rounded-lg">
@@ -868,7 +870,7 @@ const VendorDashboard = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Total Earnings</p>
                     <p className="text-3xl font-bold text-green-600">
-                      ${stats.total_earnings?.toFixed(2)}
+                      {format(Number(stats.total_earnings || 0))}
                     </p>
                   </div>
                   <div className="bg-green-100 p-3 rounded-lg">
@@ -951,7 +953,7 @@ const VendorDashboard = () => {
                         </div>
                         <div className="text-right">
                           <p className="text-2xl font-bold text-gold-500">
-                            ${order.vendor_payout?.toFixed(2) || order.subtotal?.toFixed(2)}
+                            {format(Number(order.vendor_payout ?? order.subtotal ?? 0))}
                           </p>
                           <p className="text-xs text-muted-foreground">Your payout</p>
                         </div>
@@ -964,7 +966,7 @@ const VendorDashboard = () => {
                           {order.items.map((item, idx) => (
                             <div key={`${item.menu_item_id || item.name}-${idx}`} className="flex justify-between text-sm">
                               <span>{item.quantity}x {item.name}</span>
-                              <span>${(item.price * item.quantity).toFixed(2)}</span>
+                              <span>{format(Number((item.price || 0) * (item.quantity || 1)))}</span>
                             </div>
                           ))}
                         </div>
@@ -1098,7 +1100,7 @@ const VendorDashboard = () => {
                 {(detailsFor.items || []).map((it, idx) => (
                   <div key={`${it.menu_item_id || it.name}-${idx}`} className="flex justify-between">
                     <span>{it.quantity}× {it.name}</span>
-                    <span>${((it.price || 0) * (it.quantity || 1)).toFixed(2)}</span>
+                    <span>{format(Number((it.price || 0) * (it.quantity || 1)))}</span>
                   </div>
                 ))}
                 {detailsFor.notes && <p className="text-muted-foreground mt-2">Note: {detailsFor.notes}</p>}
@@ -1121,10 +1123,10 @@ const VendorDashboard = () => {
               </div>
 
               <div className="border-t pt-3 space-y-1">
-                <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${(detailsFor.subtotal || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Delivery fee</span><span>${(detailsFor.delivery_fee || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between font-semibold"><span>Order total</span><span>${(detailsFor.total || 0).toFixed(2)}</span></div>
-                <div className="flex justify-between text-gold-600 font-semibold"><span>Your payout</span><span>${(detailsFor.vendor_payout ?? detailsFor.subtotal ?? 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{format(Number(detailsFor.subtotal || 0))}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Delivery fee</span><span>{format(Number(detailsFor.delivery_fee || 0))}</span></div>
+                <div className="flex justify-between font-semibold"><span>Order total</span><span>{format(Number(detailsFor.total || 0))}</span></div>
+                <div className="flex justify-between text-gold-600 font-semibold"><span>Your payout</span><span>{format(Number(detailsFor.vendor_payout ?? detailsFor.subtotal ?? 0))}</span></div>
               </div>
             </div>
           )}

@@ -4922,19 +4922,27 @@ async def get_order(order_id: str, current_user: User = Depends(get_current_user
         raise HTTPException(status_code=404, detail="Order not found")
     
     # Check if user has access to this order
-    if order['customer_id'] != current_user.id:
-        # Check if user is the driver or restaurant owner
-        if current_user.user_type == "driver":
-            driver = await db.drivers.find_one({"user_id": current_user.id})
-            if not driver or order.get('driver_id') != driver['id']:
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user.user_type == "restaurant":
-            restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-            if not restaurant or order.get('restaurant_id') != restaurant['id']:
-                raise HTTPException(status_code=403, detail="Access denied")
-        else:
+    is_customer = order.get('customer_id') == current_user.id or order.get('user_id') == current_user.id
+    if not is_customer and current_user.user_type not in ('admin', 'agent'):
+        allowed = False
+        # Assigned driver?
+        if current_user.user_type == 'driver':
+            driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+            if driver and order.get('driver_id') == driver['id']:
+                allowed = True
+        # Vendor owner? (restaurant OR business OR car rental — match any vendor id on the order)
+        if not allowed:
+            order_vendor_ids = {order.get('restaurant_id'), order.get('vendor_id'), order.get('business_id')}
+            order_vendor_ids.discard(None)
+            if order_vendor_ids:
+                for coll in ('restaurants', 'businesses', 'car_rental_companies'):
+                    vdoc = await db[coll].find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+                    if vdoc and vdoc.get('id') in order_vendor_ids:
+                        allowed = True
+                        break
+        if not allowed:
             raise HTTPException(status_code=403, detail="Access denied")
-    
+
     # Return the raw document (minus _id) so partial/legacy orders never 500 the tracking UI.
     return order
 
