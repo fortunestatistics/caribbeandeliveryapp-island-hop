@@ -5,6 +5,7 @@ import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { MapPin, Clock, CheckCircle, X, Car, TrendingUp, Navigation } from 'lucide-react';
 import { formatAddress, mapsLink } from './formatAddress';
+import { useCurrency } from './CurrencyContext';
 
 /**
  * Single new-order-request card with Accept/Decline buttons.
@@ -12,7 +13,9 @@ import { formatAddress, mapsLink } from './formatAddress';
  */
 const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
   const navigate = useNavigate();
+  const { format } = useCurrency();
   const isTaxi = order.service_type === 'taxi';
+  const earnings = format(Number(order.driver_earnings ?? order.driver_delivery_portion ?? order.delivery_fee ?? 0));
   const plan = subscription?.plan;
   const tier = subscription?.tier || 'standard';
   // Driver's keep % for this job: taxi = 100 - taxi_cut_pct; delivery = driver_keep_pct.
@@ -35,7 +38,7 @@ const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
               </Badge>
             )}
             <Badge className="bg-gold-500/15 text-white">
-              ${order.driver_earnings?.toFixed(2)} Earnings
+              {earnings} Earnings
             </Badge>
           </div>
           <div className="text-sm text-muted-foreground space-y-1">
@@ -53,7 +56,7 @@ const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-gold-500">
-            ${order.driver_earnings?.toFixed(2)}
+            {earnings}
           </p>
           <p className="text-xs text-muted-foreground">You&apos;ll earn</p>
         </div>

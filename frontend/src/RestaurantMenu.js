@@ -62,7 +62,7 @@ const RestaurantMenu = () => {
     rating: sf.rating != null ? sf.rating : 4.8,
     reviews: 342,
     deliveryTime: sf.estimated_delivery_time ? `${sf.estimated_delivery_time} min` : '25-35 min',
-    deliveryFee: sf.delivery_fee != null ? sf.delivery_fee : 12.00,
+    deliveryFee: sf.delivery_fee != null ? sf.delivery_fee : 25.00,
     minOrder: sf.minimum_order != null ? sf.minimum_order : 15.00,
     address: (sf.address && (sf.address.street || sf.address.city))
       ? [sf.address.street, sf.address.city, sf.address.country].filter(Boolean).join(', ')

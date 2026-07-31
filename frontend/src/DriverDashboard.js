@@ -21,6 +21,7 @@ import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
 import DriverRouteCard from './DriverRouteCard';
 import { useLocationConsent } from './LocationConsentContext';
+import { useCurrency } from './CurrencyContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -28,6 +29,7 @@ const API = `${BACKEND_URL}/api`;
 const DriverDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { format } = useCurrency();
   const { requestLocationConsent } = useLocationConsent();
   const wsRef = useRef(null);
   const prevReqCount = useRef(0);
@@ -545,7 +547,7 @@ const DriverDashboard = () => {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-semibold uppercase tracking-wide text-turquoise-500">{order.service_type}</span>
                             {typeof order.total === 'number' && (
-                              <span className="text-xs text-muted-foreground">${order.total.toFixed(2)}</span>
+                              <span className="text-xs text-muted-foreground">{format(order.total)}</span>
                             )}
                             {distLabel && (
                               <Badge variant="secondary" className="text-xs" data-testid={`available-distance-${order.id}`}>
@@ -602,7 +604,7 @@ const DriverDashboard = () => {
                     onNavigate={handleNavigate}
                     onUpdateStatus={handleUpdateOrderStatus}
                     onDeliverCOD={handleDeliverCOD}
-                    onView={(id) => navigate(`/order-tracking/${id}`)}
+                    onView={(id) => navigate(`/order/${id}`)}
                   />
                 ))}
               </div>
