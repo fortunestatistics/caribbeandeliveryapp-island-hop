@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams } from 'react-router-dom';
+import { formatAddress } from './formatAddress';
 import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import ReviewForm from './ReviewForm';
@@ -477,10 +478,7 @@ const OrderTrackingPageWithMaps = () => {
                 
                 <div className="pt-4 border-t">
                   <p className="text-sm text-muted-foreground mb-2">Delivery Address</p>
-                  <p className="font-medium">{order.delivery_address?.street_address}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {order.delivery_address?.city}, {order.delivery_address?.postal_code}
-                  </p>
+                  <p className="font-medium">{formatAddress(order.delivery_address) || 'Address not provided'}</p>
                 </div>
               </CardContent>
             </Card>

@@ -1,5 +1,15 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — FIX: driver-portal prices → TT$, undefined earnings, wrong view-order route, base delivery fee TT$25
+- **All driver-portal money now shows TT$ (was hardcoded US$ `$`):** wired `useCurrency().format()` into `DriverEarningsCards.js` (4 stat cards), `ActiveOrderCard.js` (You-earn + COD collect), `OrderRequestCard.js` (earnings ×2), and the DriverDashboard "Available Now" pool total. Default display currency is TTD (`CurrencyContext`), amounts are USD-based → format() ×6.78 renders correct TT$.
+- **"undefined / off" earnings fixed:** `ActiveOrderCard`/`OrderRequestCard` earnings now fall back gracefully: `driver_earnings ?? driver_delivery_portion ?? delivery_fee ?? 0` so older orders never render `$undefined`. Added `driver-earnings-<id>` testid.
+- **View-order eye icon fixed:** `DriverDashboard` `onView` navigated to `/order-tracking/${id}` (no such route → SPA catch-all bounced to Home/business page). Changed to `/order/${id}` → `OrderTrackingPage` (matches App.js route). Verified it now lands on the order info/tracking page.
+- **Addresses:** `ActiveOrderCard` pickup/dropoff now use `formatAddress` (were the non-existent `street_address` key → blank). Also fixed `OrderTrackingPageWithMaps` Delivery Address block (used `street_address` + rendered a bare ", ") → now `formatAddress(...) || 'Address not provided'`.
+- **Base delivery fee → TT$25:** `RestaurantMenu.js` default delivery-fee fallback bumped 12.00 → **25.00** (applies when a merchant hasn't set a custom fee).
+- **Verified (testing_agent iter67 — frontend 100%, 4/4):** driver cards show TT$0.00 (no US$/undefined); Active Deliveries earnings TT$5.42 / TT$12.00 via `driver-earnings-<id>`; eye icon → `/order/<id>` OrderTrackingPage (not business page); TT$25 fallback confirmed in code. (Minor flag: `formatAddress` can return only a terse label like "Home" when the order address lacks street/city — data-quality, not a bug.)
+- **REQUIRES REDEPLOY (Save to GitHub → Deploy)** — these are preview fixes; production (islandhop-mvp.emergent.host) needs a redeploy to pick them up.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Driver Job Sound + Pool Distance Sort + Admin Proof Viewer + WiPay "coming soon"
 - **Driver Job Sound + live badge (DriverDashboard.js):** added `playJobChime()` (distinct two-tone 660→990Hz chime, different from the direct-offer ping) + `alertAvailable(list)` (fires only when online & the pool count grows). `fetchAvailableOrders` now calls it; removed the old raw inline beep in the WS `available_orders` handler. The "Available Now" title shows a live pulsing count `Badge` (`available-count-badge`).
 - **Pool Distance Sort (DriverDashboard.js, frontend-only):** driver GPS captured into `driverLoc` state inside `startLocationTracking`; the pool is sorted nearest-first via haversine (driverLoc → order.pickup_address lat/lng) and each row shows a "~X km away" / "~N m away" tag (`available-distance-<id>`). Orders without coords sink to the bottom; when GPS is unavailable the copy reads "Go online for distances."
