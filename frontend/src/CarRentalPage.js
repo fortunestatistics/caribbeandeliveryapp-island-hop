@@ -136,11 +136,7 @@ const CarRentalPage = () => {
       };
 
       const response = await axios.post(`${API}/car-rentals/bookings`, bookingData, {
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
 
       toast({

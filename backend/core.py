@@ -14,11 +14,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
-<<<<<<< HEAD
 from fastapi import HTTPException, Request, Response, WebSocket, Depends
-=======
-from fastapi import HTTPException, Request, WebSocket, Depends
->>>>>>> cb805eb
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -38,7 +34,6 @@ db = client[os.environ['DB_NAME']]
 # Config / secrets
 # ---------------------------------------------------------------------------
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
-<<<<<<< HEAD
 # Stripe key selection. The pod injects STRIPE_API_KEY=sk_test_emergent (Emergent's shared
 # sandbox) which does NOT support Connect/marketplace payouts. For real merchant payouts we
 # use the platform's OWN Stripe account keys (from .env) selected by STRIPE_MODE.
@@ -54,15 +49,10 @@ if STRIPE_MODE == 'live':
     STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_LIVE_PUBLISHABLE_KEY')
 else:
     STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_TEST_PUBLISHABLE_KEY')
-=======
-STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
-STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
->>>>>>> cb805eb
 SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-<<<<<<< HEAD
 # Password hashing / bearer scheme.
 # auto_error=False so requests WITHOUT an Authorization header don't 403 outright —
 # we fall back to the httpOnly auth cookie (web) before rejecting.
@@ -106,11 +96,6 @@ def set_auth_cookie(response: Response, token: str) -> None:
 
 def clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
-=======
-# Password hashing / bearer scheme
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
->>>>>>> cb805eb
 
 
 # ---------------------------------------------------------------------------
@@ -136,16 +121,11 @@ class ConnectionManager:
             await self.user_connections[user_id].send_text(message)
 
     async def broadcast(self, message: str):
-<<<<<<< HEAD
         for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
             except Exception:
                 pass
-=======
-        for connection in self.active_connections:
-            await connection.send_text(message)
->>>>>>> cb805eb
 
 
 manager = ConnectionManager()
@@ -185,17 +165,13 @@ def _account_block_detail(user_doc: dict):
     st = (user_doc.get("status") or "active").lower()
     if st == "paused":
         return "Your account has been paused by an administrator. Please contact IslandHop support."
-<<<<<<< HEAD
     if st == "disabled":
         return "Your account has been deactivated by an administrator. Please contact IslandHop support to reactivate it."
-=======
->>>>>>> cb805eb
     if st in ("restricted", "suspended", "banned"):
         return "Your account has been restricted. Please contact IslandHop support."
     return None
 
 
-<<<<<<< HEAD
 async def get_current_user(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     from models import User
     # Prefer a real Bearer token (native/mobile); fall back to the httpOnly cookie (web).
@@ -204,11 +180,6 @@ async def get_current_user(request: Request, credentials: Optional[HTTPAuthoriza
         token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
     if not token:
         raise HTTPException(status_code=401, detail="Invalid authentication credentials")
-=======
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    from models import User
-    token = credentials.credentials
->>>>>>> cb805eb
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
@@ -229,7 +200,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 async def get_current_user_from_request(request: Request):
     """Get current authenticated user from request (supports session token cookie or JWT Bearer)"""
     from models import User
-<<<<<<< HEAD
 
     # Admin impersonation: a read-only impersonation Bearer token ALWAYS wins over the
     # admin's own session cookie (so the impersonated view works in the same browser).
@@ -251,14 +221,6 @@ async def get_current_user_from_request(request: Request):
 
     if not session_token:
         session_token = bearer
-=======
-    session_token = request.cookies.get("session_token")
-
-    if not session_token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
->>>>>>> cb805eb
 
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")

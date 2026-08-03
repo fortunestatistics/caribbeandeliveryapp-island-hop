@@ -246,11 +246,7 @@ const BusinessOnboarding = () => {
       };
 
       await axios.post(`${API}/business/onboarding`, applicationData, {
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
 
       toast({

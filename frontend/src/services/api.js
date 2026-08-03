@@ -8,11 +8,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-<<<<<<< HEAD
   withCredentials: true,
-=======
-  withCredentials: false,
->>>>>>> cb805eb
 });
 
 // Add token to requests

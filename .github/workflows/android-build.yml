@@ -22,15 +22,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-<<<<<<< HEAD
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install web dependencies
-        run: yarn install --frozen-lockfile
-=======
       - name: Prepare Android signing files
         shell: bash
         env:
@@ -84,7 +75,6 @@ jobs:
 
       - name: Install web dependencies
         run: corepack enable && yarn install --frozen-lockfile
->>>>>>> cb805eb
 
       - name: Build web app
         env:
@@ -94,16 +84,6 @@ jobs:
           REACT_APP_BACKEND_URL: ${{ vars.REACT_APP_BACKEND_URL || 'https://islandhopapp.com' }}
         run: yarn build
 
-<<<<<<< HEAD
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-=======
       - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
@@ -120,24 +100,10 @@ jobs:
           if [ -f "$HOME/.gradle/gradle.properties" ]; then
             sed -i '/android\.aapt2FromMavenOverride/d' "$HOME/.gradle/gradle.properties"
           fi
->>>>>>> cb805eb
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
-<<<<<<< HEAD
-      - name: Build signed release bundle
-        working-directory: frontend/android
-        run: |
-          chmod +x ./gradlew
-          ./gradlew bundleRelease --no-daemon
-
-      - name: Upload .aab artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: islandhop-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
-=======
       - name: Build AAB
         working-directory: frontend/android
         run: ./gradlew ${{ env.GRADLE_TASK }}
@@ -147,5 +113,4 @@ jobs:
         with:
           name: app-release-aab
           path: frontend/android/app/build/outputs/bundle/**/*.aab
->>>>>>> cb805eb
           if-no-files-found: error

@@ -116,10 +116,7 @@ class Order(BaseModel):
     delivery_address: Dict[str, Any]
     customer_phone: str
     notes: Optional[str] = None
-<<<<<<< HEAD
     cart_group_id: Optional[str] = None  # links orders placed together in one multi-store checkout
-=======
->>>>>>> cb805eb
     payment_status: str = "pending"
     payment_method: str
     payment_intent_id: Optional[str] = None
@@ -203,15 +200,10 @@ class User(BaseModel):
     phone: Optional[str] = None
     phone_verified: bool = False
     address: Optional[Dict[str, str]] = None
-<<<<<<< HEAD
     banking_info: Optional[Dict[str, Any]] = None
     referred_by: Optional[str] = None
     referral_code_used: Optional[str] = None
     must_change_password: bool = False
-=======
-    referred_by: Optional[str] = None
-    referral_code_used: Optional[str] = None
->>>>>>> cb805eb
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

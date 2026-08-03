@@ -48,11 +48,7 @@ const AssistantWidget = () => {
     setLoadedHistory(true);
     (async () => {
       try {
-<<<<<<< HEAD
         const res = await fetch(`${API}/assistant/history/${sessionId.current}`, { credentials: 'include' });
-=======
-        const res = await fetch(`${API}/assistant/history/${sessionId.current}`);
->>>>>>> cb805eb
         const data = await res.json();
         if (Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages([WELCOME, ...data.messages.map((m) => ({ role: m.role, content: m.content }))]);
@@ -70,10 +66,7 @@ const AssistantWidget = () => {
     try {
       const res = await fetch(`${API}/assistant/chat`, {
         method: 'POST',
-<<<<<<< HEAD
         credentials: 'include',
-=======
->>>>>>> cb805eb
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId.current, message: text }),
       });

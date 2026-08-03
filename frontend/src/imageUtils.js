@@ -19,7 +19,6 @@ export const fileToResizedDataURL = (file, maxDim = 800, quality = 0.82) =>
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-<<<<<<< HEAD
 
 // Like fileToResizedDataURL, but keeps shrinking (quality then dimensions) until
 // the base64 result fits under maxChars. Guarantees the payload won't be rejected
@@ -59,5 +58,3 @@ export const fileToConstrainedDataURL = (file, maxDim = 1280, maxChars = 1_350_0
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-=======
->>>>>>> cb805eb

@@ -162,11 +162,7 @@ const RestaurantOnboarding = () => {
       };
 
       await axios.post(`${API}/restaurants`, restaurantData, {
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
 
       toast({

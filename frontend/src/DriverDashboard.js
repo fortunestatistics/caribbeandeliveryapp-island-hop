@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from './hooks/use-toast';
@@ -6,12 +5,6 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-=======
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
-import { Button } from './components/ui/button';
->>>>>>> cb805eb
 import { 
   Navigation,
   Wallet,
@@ -19,31 +12,22 @@ import {
   AlertCircle,
   Star,
   DollarSign,
-<<<<<<< HEAD
   Settings,
   MapPin
-=======
-  Settings
->>>>>>> cb805eb
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
-<<<<<<< HEAD
 import DriverRouteCard from './DriverRouteCard';
 import { useLocationConsent } from './LocationConsentContext';
 import { useCurrency } from './CurrencyContext';
-=======
-import { useLocationConsent } from './LocationConsentContext';
->>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
-<<<<<<< HEAD
   const { toast } = useToast();
   const { format } = useCurrency();
   const { requestLocationConsent } = useLocationConsent();
@@ -54,11 +38,6 @@ const DriverDashboard = () => {
   const [driverLoc, setDriverLoc] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
   const [availableOrders, setAvailableOrders] = useState([]);
-=======
-  const { requestLocationConsent } = useLocationConsent();
-  const [driver, setDriver] = useState(null);
-  const [orderRequests, setOrderRequests] = useState([]);
->>>>>>> cb805eb
   const [activeOrders, setActiveOrders] = useState([]);
   const [earnings, setEarnings] = useState({
     today: 0,
@@ -70,31 +49,20 @@ const DriverDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [locationTracking, setLocationTracking] = useState(null);
   const [incentives, setIncentives] = useState({ total_earned: 0, incentives: [] });
-<<<<<<< HEAD
   const [subscription, setSubscription] = useState(null);
-=======
->>>>>>> cb805eb
 
   useEffect(() => {
     fetchDriverData();
     fetchOrderRequests();
-<<<<<<< HEAD
     fetchAvailableOrders();
     fetchActiveOrders();
     fetchEarnings();
     fetchSubscription();
-=======
-    fetchActiveOrders();
-    fetchEarnings();
->>>>>>> cb805eb
 
     // Refresh every 10 seconds
     const interval = setInterval(() => {
       fetchOrderRequests();
-<<<<<<< HEAD
       fetchAvailableOrders();
-=======
->>>>>>> cb805eb
       fetchActiveOrders();
       fetchEarnings();
     }, 10000);
@@ -113,7 +81,6 @@ const DriverDashboard = () => {
     // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
-<<<<<<< HEAD
   // Real-time new-order alerts over WebSocket (in addition to the 10s poll) so a driver
   // is actively notified the moment a job is offered, even between polls.
   useEffect(() => {
@@ -149,12 +116,6 @@ const DriverDashboard = () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
         withCredentials: true
-=======
-  const fetchDriverData = async () => {
-    try {
-      const response = await axios.get(`${API}/drivers/me`, {
-        withCredentials: false
->>>>>>> cb805eb
       });
       setDriver(response.data);
       setIsOnline(response.data.status === 'online');
@@ -165,7 +126,6 @@ const DriverDashboard = () => {
     }
   };
 
-<<<<<<< HEAD
   const playPing = () => {
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -228,20 +188,11 @@ const DriverDashboard = () => {
       });
       setOrderRequests(response.data);
       alertNewRequests(response.data);
-=======
-  const fetchOrderRequests = async () => {
-    try {
-      const response = await axios.get(`${API}/drivers/order-requests`, {
-        withCredentials: false
-      });
-      setOrderRequests(response.data);
->>>>>>> cb805eb
     } catch (error) {
       console.error('Error fetching order requests:', error);
     }
   };
 
-<<<<<<< HEAD
   const fetchAvailableOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/available-orders`, { withCredentials: true });
@@ -257,12 +208,6 @@ const DriverDashboard = () => {
     try {
       const response = await axios.get(`${API}/drivers/active-orders`, {
         withCredentials: true
-=======
-  const fetchActiveOrders = async () => {
-    try {
-      const response = await axios.get(`${API}/drivers/active-orders`, {
-        withCredentials: false
->>>>>>> cb805eb
       });
       setActiveOrders(response.data);
     } catch (error) {
@@ -270,7 +215,6 @@ const DriverDashboard = () => {
     }
   };
 
-<<<<<<< HEAD
   const fetchSubscription = async () => {
     try {
       const response = await axios.get(`${API}/driver/subscription`, { withCredentials: true });
@@ -284,12 +228,6 @@ const DriverDashboard = () => {
     try {
       const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
         withCredentials: true
-=======
-  const fetchEarnings = async () => {
-    try {
-      const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
-        withCredentials: false
->>>>>>> cb805eb
       });
       setEarnings({
         today: response.data.today_earnings || 0,
@@ -299,11 +237,7 @@ const DriverDashboard = () => {
       });
       // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
       try {
-<<<<<<< HEAD
         const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
-=======
-        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: false });
->>>>>>> cb805eb
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
       } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
@@ -317,11 +251,7 @@ const DriverDashboard = () => {
       await axios.put(`${API}/drivers/status`, {
         status: newStatus
       }, {
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
       setIsOnline(!isOnline);
     } catch (error) {
@@ -347,11 +277,7 @@ const DriverDashboard = () => {
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-<<<<<<< HEAD
         setDriverLoc({ lat: latitude, lng: longitude });
-=======
-
->>>>>>> cb805eb
         try {
           const token = localStorage.getItem('token');
           const params = { latitude, longitude };
@@ -390,7 +316,6 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/accept-driver`, {
         driver_id: driver.id
       }, {
-<<<<<<< HEAD
         withCredentials: true
       });
       toast({ title: '✅ Order accepted!', description: 'Head to pickup.' });
@@ -401,16 +326,6 @@ const DriverDashboard = () => {
       const msg = error?.response?.data?.detail || 'Failed to accept order — it may have just been taken.';
       toast({ title: 'Could not accept order', description: msg, variant: 'destructive' });
       fetchAvailableOrders();
-=======
-        withCredentials: false
-      });
-      
-      fetchOrderRequests();
-      fetchActiveOrders();
-    } catch (error) {
-      console.error('Error accepting order:', error);
-      alert('Failed to accept order');
->>>>>>> cb805eb
     }
   };
 
@@ -419,11 +334,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/reject-driver`, {
         driver_id: driver.id
       }, {
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
       
       fetchOrderRequests();
@@ -438,11 +349,7 @@ const DriverDashboard = () => {
         status: status
       }, {
         params: { status },
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
       
       fetchActiveOrders();
@@ -457,13 +364,8 @@ const DriverDashboard = () => {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     if (!window.confirm(`Confirm you collected $${Number(order.total || 0).toFixed(2)} cash from the customer?`)) return;
     try {
-<<<<<<< HEAD
       await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: true });
       const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: true });
-=======
-      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: false });
-      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: false });
->>>>>>> cb805eb
       alert(`Cash collected. You keep $${r.data.driver_keeps?.toFixed(2)}; $${r.data.platform_due?.toFixed(2)} is owed to IslandHop.`);
       fetchActiveOrders();
     } catch (error) {
@@ -507,13 +409,10 @@ const DriverDashboard = () => {
               </Button>
               <Button onClick={() => navigate('/driver/earnings')} variant="outline">
                 <Wallet className="h-5 w-5 mr-2" />
-<<<<<<< HEAD
                 Earnings
               </Button>
               <Button onClick={() => navigate('/wallet')} variant="outline" data-testid="driver-wallet-btn">
                 <Wallet className="h-5 w-5 mr-2" />
-=======
->>>>>>> cb805eb
                 Wallet
               </Button>
               <Button onClick={() => navigate('/driver/subscription')} variant="outline" data-testid="driver-subscription-link">
@@ -580,10 +479,7 @@ const DriverDashboard = () => {
                     order={order}
                     onAccept={handleAcceptOrder}
                     onReject={handleRejectOrder}
-<<<<<<< HEAD
                     subscription={subscription}
-=======
->>>>>>> cb805eb
                   />
                 ))}
               </div>
@@ -591,7 +487,6 @@ const DriverDashboard = () => {
           </Card>
         )}
 
-<<<<<<< HEAD
         {/* Available Now — open pool any driver can grab */}
         {(() => {
           const offeredIds = new Set(orderRequests.map((o) => o.id));
@@ -682,9 +577,6 @@ const DriverDashboard = () => {
 
         {/* Active Orders */}
         <DriverRouteCard />
-=======
-        {/* Active Orders */}
->>>>>>> cb805eb
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -712,11 +604,7 @@ const DriverDashboard = () => {
                     onNavigate={handleNavigate}
                     onUpdateStatus={handleUpdateOrderStatus}
                     onDeliverCOD={handleDeliverCOD}
-<<<<<<< HEAD
                     onView={(id) => navigate(`/order/${id}`)}
-=======
-                    onView={(id) => navigate(`/order-tracking/${id}`)}
->>>>>>> cb805eb
                   />
                 ))}
               </div>

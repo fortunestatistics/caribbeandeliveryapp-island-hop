@@ -5,11 +5,8 @@ import { Badge } from './components/ui/badge';
 import { MapPin, CheckCircle, Navigation, Eye, Phone, MessageCircle, X } from 'lucide-react';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
-<<<<<<< HEAD
 import { useCurrency } from './CurrencyContext';
 import { formatAddress } from './formatAddress';
-=======
->>>>>>> cb805eb
 
 const STATUS_BADGE_MAP = {
   picked_up: 'bg-blue-500',
@@ -23,7 +20,6 @@ const STATUS_BADGE_MAP = {
 const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverCOD }) => {
   const badgeCls = STATUS_BADGE_MAP[order.status] || 'bg-green-500';
   const { user } = useAuth();
-<<<<<<< HEAD
   const { format } = useCurrency();
   const [chatOpen, setChatOpen] = useState(false);
   const isCOD = order.payment_method === 'cash' && order.payment_status !== 'cod_collected';
@@ -34,11 +30,6 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
   );
   const pickupText = formatAddress(order.pickup_address) || 'Address not provided';
   const dropoffText = formatAddress(order.delivery_address) || 'Address not provided';
-=======
-  const [chatOpen, setChatOpen] = useState(false);
-  const isCOD = order.payment_method === 'cash' && order.payment_status !== 'cod_collected';
-  const cashDue = Number(order.total || 0).toFixed(2);
->>>>>>> cb805eb
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`active-order-${order.id}`}>
@@ -54,11 +45,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
               </Badge>
               {isCOD && (
                 <Badge data-testid={`cod-badge-${order.id}`} className="bg-amber-100 text-amber-800 border border-amber-300">
-<<<<<<< HEAD
                   COD · collect {cashDue}
-=======
-                  COD · collect ${cashDue}
->>>>>>> cb805eb
                 </Badge>
               )}
             </div>
@@ -67,14 +54,9 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
             </div>
           </div>
           <div className="text-right">
-<<<<<<< HEAD
             <p className="text-xs text-muted-foreground">You earn</p>
             <p className="text-2xl font-bold text-gold-500" data-testid={`driver-earnings-${order.id}`}>
               {format(driverPay)}
-=======
-            <p className="text-2xl font-bold text-gold-500">
-              ${order.driver_earnings?.toFixed(2)}
->>>>>>> cb805eb
             </p>
           </div>
         </div>
@@ -86,11 +68,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
                 <MapPin className="h-4 w-4 text-red-500" />
                 Pickup from:
               </p>
-<<<<<<< HEAD
               <p className="text-sm text-muted-foreground ml-6">{pickupText}</p>
-=======
-              <p className="text-sm text-muted-foreground ml-6">{order.pickup_address?.street_address}</p>
->>>>>>> cb805eb
             </div>
           )}
           <div>
@@ -98,11 +76,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
               <MapPin className="h-4 w-4 text-green-500" />
               Deliver to:
             </p>
-<<<<<<< HEAD
             <p className="text-sm text-muted-foreground ml-6">{dropoffText}</p>
-=======
-            <p className="text-sm text-muted-foreground ml-6">{order.delivery_address?.street_address}</p>
->>>>>>> cb805eb
           </div>
         </div>
 
@@ -147,11 +121,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
                 data-testid={`deliver-cod-${order.id}`}
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-<<<<<<< HEAD
                 Delivered — Collect {cashDue} cash
-=======
-                Delivered — Collect ${cashDue} cash
->>>>>>> cb805eb
               </Button>
             ) : (
               <Button

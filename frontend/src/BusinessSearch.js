@@ -23,7 +23,6 @@ const GRADIENTS = {
   grocery: 'from-green-500 to-emerald-600',
 };
 
-<<<<<<< HEAD
 // A search result card that lazy-loads the business's cover photo (falls back to
 // logo, then a gradient + icon). Media is fetched per-card so the search list
 // response stays small.
@@ -80,8 +79,6 @@ const VendorCard = ({ v, index, onOpen }) => {
 };
 
 
-=======
->>>>>>> cb805eb
 const BusinessSearch = () => {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -130,15 +127,9 @@ const BusinessSearch = () => {
   };
 
   const openVendor = (v) => {
-<<<<<<< HEAD
     // Always open the merchant's own storefront/profile page (type-aware).
     // Only car rentals have a dedicated flow.
     if (v.vendor_type === 'car_rental') navigate('/car-rentals');
-=======
-    if (v.vendor_type === 'pharmacy') navigate('/pharmacy-order');
-    else if (v.vendor_type === 'grocery') navigate('/grocery-order');
-    else if (v.vendor_type === 'car_rental') navigate('/car-rentals');
->>>>>>> cb805eb
     else navigate(`/restaurant/${v.id}`);
   };
 
@@ -191,42 +182,9 @@ const BusinessSearch = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-<<<<<<< HEAD
             {results.map((v, i) => (
               <VendorCard key={v.id || i} v={v} index={i} onOpen={openVendor} />
             ))}
-=======
-            {results.map((v, i) => {
-              const Icon = ICONS[v.vendor_type] || Store;
-              return (
-                <button
-                  key={v.id || i}
-                  onClick={() => openVendor(v)}
-                  data-testid={`business-card-${i}`}
-                  className="text-left bg-card border border-border rounded-xl overflow-hidden hover:border-gold-500 hover:shadow-lg transition-all group"
-                >
-                  <div className={`h-28 bg-gradient-to-br ${GRADIENTS[v.vendor_type] || 'from-slate-500 to-slate-700'} flex items-center justify-center relative`}>
-                    <Icon className="h-10 w-10 text-white/90" />
-                    {v.featured && (
-                      <span className="absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full bg-white/90 text-gold-700 font-semibold flex items-center gap-1">
-                        <Star className="h-3 w-3 fill-gold-500 text-gold-500" />Featured
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <div className="font-semibold text-foreground group-hover:text-gold-600 truncate">{v.name}</div>
-                    <div className="text-xs text-muted-foreground capitalize mb-1">{v.vendor_type}</div>
-                    {v.description && <p className="text-sm text-muted-foreground line-clamp-2">{v.description}</p>}
-                    {v.rating ? (
-                      <div className="mt-2 inline-flex items-center gap-1 text-xs text-amber-600">
-                        <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />{Number(v.rating).toFixed(1)}
-                      </div>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
->>>>>>> cb805eb
           </div>
         )}
       </div>

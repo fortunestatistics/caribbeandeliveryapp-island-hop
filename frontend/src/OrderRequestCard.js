@@ -1,5 +1,4 @@
 import React from 'react';
-<<<<<<< HEAD
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -25,25 +24,12 @@ const OrderRequestCard = ({ order, onAccept, onReject, subscription }) => {
   const planName = plan?.name || (tier === 'standard' ? 'Standard' : tier);
 
   return (
-=======
-import { Card, CardContent } from './components/ui/card';
-import { Button } from './components/ui/button';
-import { Badge } from './components/ui/badge';
-import { MapPin, Clock, CheckCircle, X } from 'lucide-react';
-
-/**
- * Single new-order-request card with Accept/Decline buttons.
- * Props: { order, onAccept(orderId), onReject(orderId) }
- */
-const OrderRequestCard = ({ order, onAccept, onReject }) => (
->>>>>>> cb805eb
   <Card className="bg-gold-500/15" data-testid={`order-request-${order.id}`}>
     <CardContent className="p-6">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
             <h3 className="font-semibold text-lg">
-<<<<<<< HEAD
               {isTaxi ? 'New Ride' : 'New Order'} #{order.id?.substring(0, 8)}
             </h3>
             {isTaxi && (
@@ -65,38 +51,17 @@ const OrderRequestCard = ({ order, onAccept, onReject }) => (
             <p>
               <Clock className="h-4 w-4 inline mr-1" />
               Est. {order.estimated_duration_min || 30} min {isTaxi ? 'ride' : 'delivery'}
-=======
-              New Order #{order.id?.substring(0, 8)}
-            </h3>
-            <Badge className="bg-gold-500/15 text-white">
-              ${order.driver_earnings?.toFixed(2)} Earnings
-            </Badge>
-          </div>
-          <div className="text-sm text-muted-foreground space-y-1">
-            <p>
-              <MapPin className="h-4 w-4 inline mr-1" />
-              {order.estimated_distance_km?.toFixed(1)} km away
-            </p>
-            <p>
-              <Clock className="h-4 w-4 inline mr-1" />
-              Est. {order.estimated_duration_min || 30} min delivery
->>>>>>> cb805eb
             </p>
           </div>
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-gold-500">
-<<<<<<< HEAD
             {earnings}
-=======
-            ${order.driver_earnings?.toFixed(2)}
->>>>>>> cb805eb
           </p>
           <p className="text-xs text-muted-foreground">You&apos;ll earn</p>
         </div>
       </div>
 
-<<<<<<< HEAD
       {/* Live commission — what the driver keeps on THIS job, per their plan */}
       <div
         className="flex items-center justify-between gap-2 mb-4 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25"
@@ -147,16 +112,6 @@ const OrderRequestCard = ({ order, onAccept, onReject }) => (
               <Navigation className="h-3 w-3" /> View on map
             </a>
           )}
-=======
-      <div className="grid md:grid-cols-2 gap-4 mb-4 p-4 bg-card rounded-lg">
-        <div>
-          <p className="font-medium text-sm mb-1">Pickup:</p>
-          <p className="text-sm text-muted-foreground">{order.pickup_address?.street_address}</p>
-        </div>
-        <div>
-          <p className="font-medium text-sm mb-1">Delivery:</p>
-          <p className="text-sm text-muted-foreground">{order.delivery_address?.street_address}</p>
->>>>>>> cb805eb
         </div>
       </div>
 
@@ -167,11 +122,7 @@ const OrderRequestCard = ({ order, onAccept, onReject }) => (
           data-testid={`accept-order-${order.id}`}
         >
           <CheckCircle className="h-4 w-4 mr-2" />
-<<<<<<< HEAD
           {isTaxi ? 'Accept Ride' : 'Accept Order'}
-=======
-          Accept Order
->>>>>>> cb805eb
         </Button>
         <Button
           onClick={() => onReject(order.id)}
@@ -185,11 +136,7 @@ const OrderRequestCard = ({ order, onAccept, onReject }) => (
       </div>
     </CardContent>
   </Card>
-<<<<<<< HEAD
   );
 };
-=======
-);
->>>>>>> cb805eb
 
 export default OrderRequestCard;

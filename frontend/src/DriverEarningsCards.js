@@ -1,20 +1,14 @@
 import React from 'react';
 import { Card, CardContent } from './components/ui/card';
 import { DollarSign, TrendingUp, Wallet, Clock } from 'lucide-react';
-<<<<<<< HEAD
 import { useCurrency } from './CurrencyContext';
-=======
->>>>>>> cb805eb
 
 /**
  * 4-stat cards row for driver earnings.
  * Props: { earnings: { today, week, balance, pending } }
  */
 const DriverEarningsCards = ({ earnings }) => {
-<<<<<<< HEAD
   const { format } = useCurrency();
-=======
->>>>>>> cb805eb
   const cards = [
     {
       label: "Today's Earnings",
@@ -63,11 +57,7 @@ const DriverEarningsCards = ({ earnings }) => {
               <div>
                 <p className="text-sm text-muted-foreground">{label}</p>
                 <p className={`text-3xl font-bold ${valueColor}`} data-testid={testid}>
-<<<<<<< HEAD
                   {format(value)}
-=======
-                  ${value.toFixed(2)}
->>>>>>> cb805eb
                 </p>
               </div>
               <div className={`${iconBg} p-3 rounded-lg`}>

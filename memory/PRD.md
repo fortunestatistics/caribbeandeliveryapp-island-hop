@@ -1,6 +1,5 @@
 # IslandHop — Product Requirements Document
 
-<<<<<<< HEAD
 ## Session Log — Jun 2026 (fork, cont.) — Currency → TT$ on order mgmt + earnings dashboards; review submit verified
 - **Reported (production):** (1) "Submit review" button erroring/not working; (2) admin Order Management, Driver Earnings dashboard, and Merchant Earnings dashboard still showing US$ — make all money TT$ (unless requested at checkout).
 - **Review submit:** verified end-to-end on preview (curl + browser) — `POST /api/ratings` returns 200, 5-star bonus path is safe (`_credit_wallet_with_txn` → `_get_or_create_wallet`, no 500 on missing wallet), global `axios.defaults.withCredentials=true` so cookie auth works. Could NOT reproduce the error on preview; likely a production cascade from the just-fixed order-access/"Order not found" bugs (needs redeploy). Also tightened `ReviewForm.submit` validation to `hasRating = (showDriver && driverRating>0) || (showVendor && vendorRating>0)` (prevents empty submissions). If it still fails post-deploy, need the exact on-screen error text.
@@ -395,8 +394,6 @@ User (production) reported no new-order alert at all: no banner, no sound, no br
 - **Banking & Payouts back button (`BankAccountSection.js`):** added optional `onBack` prop → renders a "Back to dashboard" button (`bank-back-to-dashboard-btn`) next to Save. Wired in `MerchantSettings.js` (`onBack` → `/vendor-dashboard`). Driver usage unaffected (no onBack passed).
 - Verified: clean `CI=true yarn build`. REQUIRES REDEPLOY to reach production.
 
-=======
->>>>>>> cb805eb
 ## Original Problem Statement
 Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform (Food, Pharmacy, Groceries, Courier, Taxi, Car Rental). Requirements:
 - Real-time order tracking with live GPS
@@ -412,7 +409,6 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 - **Code quality safe-batch cleanup** (Feb 2026): lint fixes, stable React keys, nested ternaries → lookups, console.log removed.
 
 
-<<<<<<< HEAD
 ## Session Log — Jul 24, 2026 — Bank payout batch: review + export (Republic/Scotiabank) + mark paid
 - **Context:** user registered IslandHop Technologies (T&T) + opening a Republic/Scotiabank business account. Advised: collect via WiPay/FAC, distribute via bank bulk-transfer file (no turnkey T&T marketplace payout rail). Built the distribution workflow (option C: review + export).
 - **Backend:** `GET /admin/payouts/owing` — aggregates everyone owed: merchants (unpaid `status:delivered, vendor_payout_status:pending` orders, summed by vendor with order_ids) + drivers (`driver_wallets.balance > 0`), each with name + full `banking_info` + payout_method. `POST /admin/payouts/mark-paid` — merchants: flip those orders to `vendor_payout_status:paid` + insert `vendor_payouts` record; drivers: decrement `driver_wallets.balance` (+`total_withdrawn`) + insert `driver_withdrawals` record. Both admin/agent-only. Verified via curl: owed $61.25 → mark-paid → owed $0.
@@ -554,8 +550,6 @@ Build **IslandHop**, a comprehensive Caribbean multi-service logistics platform 
 
 
 
-=======
->>>>>>> cb805eb
 ## Session Log — Jun 2026 (fork, cont.) — Type-specific customer storefront + PRODUCTION BUILD FIX
 - **DEPLOY BLOCKER FIXED:** the production build (`CI=true yarn build`) was failing with `Definition for rule 'react-hooks/exhaustive-deps' was not found` in `MerchantSettings.js`/`DriverSettings.js` — my `// eslint-disable-next-line react-hooks/exhaustive-deps` comments referenced a rule this project's ESLint config doesn't register, which is a hard error under CI. Removed both comments; `yarn build` now succeeds. This was the cause of the failed `islandhop-mvp` production deploy.
 - **IMPROVEMENT — type-specific customer storefront (`RestaurantMenu.js`, now generic):** extended `businessTypeConfig.js` with per-type `itemIcon`, `addLabel`, `searchPlaceholder`, `heroCta`. Storefront now adapts: pharmacy shows a "Have a prescription? Upload your Rx…" CTA (`storefront-type-cta` → `/pharmacy-order`), grocery/car-rental show tailored hero copy, search placeholder + item thumbnail icon + Add button label all match the business type. Verified via screenshot (CarePlus Pharmacy storefront).

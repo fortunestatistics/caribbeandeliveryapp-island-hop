@@ -31,7 +31,6 @@ export const CurrencyProvider = ({ children }) => {
     return `${SYMBOLS[currency]}${str}`;
   }, [convert, currency]);
 
-<<<<<<< HEAD
   // Display a value that is ALREADY authored in TT$ (e.g. merchant menu prices).
   // In TT$ mode we show it raw; in US$ mode we divide by the rate. This is the
   // inverse of `format` (which takes a USD base).
@@ -46,12 +45,6 @@ export const CurrencyProvider = ({ children }) => {
     currency, setCurrency, convert, format, formatTTD,
     symbol: SYMBOLS[currency], rate: RATE_TTD_PER_USD,
   }), [currency, setCurrency, convert, format, formatTTD]);
-=======
-  const value = useMemo(() => ({
-    currency, setCurrency, convert, format,
-    symbol: SYMBOLS[currency], rate: RATE_TTD_PER_USD,
-  }), [currency, setCurrency, convert, format]);
->>>>>>> cb805eb
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
 };
@@ -63,10 +56,7 @@ export const useCurrency = () => {
     return {
       currency: 'USD', setCurrency: () => {}, convert: (u) => Number(u) || 0,
       format: (u, o = {}) => `US$${(Number(u) || 0).toFixed(o.decimals ?? 2)}`,
-<<<<<<< HEAD
       formatTTD: (t, o = {}) => `TT$${(Number(t) || 0).toFixed(o.decimals ?? 2)}`,
-=======
->>>>>>> cb805eb
       symbol: 'US$', rate: RATE_TTD_PER_USD,
     };
   }

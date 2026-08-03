@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-<<<<<<< HEAD
 import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
 import { RATE_TTD_PER_USD } from './CurrencyContext';
-=======
->>>>>>> cb805eb
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -57,10 +54,7 @@ import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
 import AdminApprovals from './AdminApprovals';
-<<<<<<< HEAD
 import AdminPayouts from './AdminPayouts';
-=======
->>>>>>> cb805eb
 import AdminPaymentMode from './AdminPaymentMode';
 import AdminDataCleanup from './AdminDataCleanup';
 import AdminWhatsApp from './AdminWhatsApp';
@@ -82,11 +76,7 @@ const isPlaceholderEmail = (email) => {
   return PLACEHOLDER_PREFIXES.some((p) => local.startsWith(p));
 };
 
-<<<<<<< HEAD
 const money = (v) => `TT$${(Number(v || 0) * RATE_TTD_PER_USD).toFixed(2)}`;
-=======
-const money = (v) => `$${Number(v || 0).toFixed(2)}`;
->>>>>>> cb805eb
 
 const DOC_LABELS = {
   driversLicense: "Driver's License",
@@ -98,7 +88,6 @@ const DOC_LABELS = {
 
 const AdminPanel = () => {
   const navigate = useNavigate();
-<<<<<<< HEAD
   const { impersonate } = useAuth();
 
   const openClientPortal = async (user) => {
@@ -110,8 +99,6 @@ const AdminPanel = () => {
       alert(e?.response?.data?.detail || 'Could not open client portal');
     }
   };
-=======
->>>>>>> cb805eb
   const [stats, setStats] = useState({
     total_users: 0,
     total_orders: 0,
@@ -159,12 +146,9 @@ const AdminPanel = () => {
   const [docActionBusy, setDocActionBusy] = useState(false);
   // Driver cash-outstanding (COD reconciliation)
   const [cashOutstanding, setCashOutstanding] = useState(null);
-<<<<<<< HEAD
   // End-of-day settlements (merchants + drivers)
   const [settlementBatches, setSettlementBatches] = useState([]);
   const [settling, setSettling] = useState(false);
-=======
->>>>>>> cb805eb
 
   useEffect(() => {
     fetchStats();
@@ -192,10 +176,7 @@ const AdminPanel = () => {
       if (safetySub === 'disputes') fetchDisputes();
     }
     if (selectedTab === 'orders') fetchCashOutstanding();
-<<<<<<< HEAD
     if (selectedTab === 'orders') fetchSettlements();
-=======
->>>>>>> cb805eb
     // eslint-disable-next-line -- fetchers are stable; re-run only on tab/filter change
   }, [selectedTab, safetySub, financeSub, fraudFilter, claimsFilter]);
 
@@ -206,11 +187,7 @@ const AdminPanel = () => {
 
   const fetchCashOutstanding = async () => {
     try {
-<<<<<<< HEAD
       const r = await axios.get(`${API}/admin/drivers/cash-outstanding`, { headers: authHeaders(), withCredentials: true });
-=======
-      const r = await axios.get(`${API}/admin/drivers/cash-outstanding`, { headers: authHeaders(), withCredentials: false });
->>>>>>> cb805eb
       setCashOutstanding(r.data);
     } catch (e) { setCashOutstanding(null); }
   };
@@ -218,16 +195,11 @@ const AdminPanel = () => {
   const settleDriverCash = async (driverId) => {
     if (!window.confirm('Mark this driver\'s outstanding cash as settled (remitted)?')) return;
     try {
-<<<<<<< HEAD
       await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: true });
-=======
-      await axios.post(`${API}/admin/drivers/${driverId}/settle-cash`, {}, { headers: authHeaders(), withCredentials: false });
->>>>>>> cb805eb
       fetchCashOutstanding();
     } catch (e) { alert(e.response?.data?.detail || 'Failed to settle'); }
   };
 
-<<<<<<< HEAD
   const fetchSettlements = async () => {
     try {
       const r = await axios.get(`${API}/admin/settlements?limit=10`, { headers: authHeaders(), withCredentials: true });
@@ -248,8 +220,6 @@ const AdminPanel = () => {
     finally { setSettling(false); }
   };
 
-=======
->>>>>>> cb805eb
   useEffect(() => {
     axios.get(`${API}/auth/me`, { headers: authHeaders() })
       .then((r) => setMyRole(r.data.user_type))
@@ -264,17 +234,10 @@ const AdminPanel = () => {
     // eslint-disable-next-line -- debounced fetch; fetchUsers is stable
   }, [searchQuery, selectedTab, userTypeFilter]);
 
-<<<<<<< HEAD
   const ADMIN_TABS = ['overview', 'users', 'orders', 'payouts', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
   const AGENT_TABS = ['overview', 'safety', 'mail'];
   const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
   const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth', payouts: 'Payouts' };
-=======
-  const ADMIN_TABS = ['overview', 'users', 'orders', 'approvals', 'safety', 'wallet', 'team', 'mail', 'whatsapp', 'analytics', 'cleanup'];
-  const AGENT_TABS = ['overview', 'safety', 'mail'];
-  const visibleTabs = myRole === 'agent' ? AGENT_TABS : ADMIN_TABS;
-  const TAB_LABELS = { safety: 'Safety & Disputes', wallet: 'Finance & Zones', team: 'Team & Growth' };
->>>>>>> cb805eb
 
   const fetchClaims = async () => {
     try {
@@ -293,11 +256,7 @@ const AdminPanel = () => {
       if (raw === null) return; // cancelled
       credit = parseFloat(raw) || 0;
     }
-<<<<<<< HEAD
     if (!window.confirm(`Are you sure you want to ${verb} this claim${credit ? ` and credit ${money(credit)}` : ''}?`)) return;
-=======
-    if (!window.confirm(`Are you sure you want to ${verb} this claim${credit ? ` and credit $${credit.toFixed(2)}` : ''}?`)) return;
->>>>>>> cb805eb
     try {
       await axios.post(
         `${API}/claims/${claimId}/resolve`,
@@ -377,11 +336,7 @@ const AdminPanel = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API}/admin/stats`, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       setStats(response.data);
       setLoading(false);
@@ -398,11 +353,7 @@ const AdminPanel = () => {
       if (userTypeFilter && userTypeFilter !== 'all') params.set('user_type', userTypeFilter);
       const qs = params.toString() ? `?${params.toString()}` : '';
       const response = await axios.get(`${API}/admin/users${qs}`, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       setUsers(response.data);
     } catch (error) {
@@ -413,11 +364,7 @@ const AdminPanel = () => {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/admin/orders`, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       setOrders(response.data);
     } catch (error) {
@@ -428,11 +375,7 @@ const AdminPanel = () => {
   const fetchDisputes = async () => {
     try {
       const response = await axios.get(`${API}/admin/disputes`, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       setDisputes(response.data);
     } catch (error) {
@@ -443,11 +386,7 @@ const AdminPanel = () => {
   const handleUserAction = async (userId, action) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/${action}`, {}, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       fetchUsers();
     } catch (error) {
@@ -459,11 +398,7 @@ const AdminPanel = () => {
   const handleSetUserStatus = async (userId, status) => {
     try {
       await axios.post(`${API}/admin/users/${userId}/set-status`, { status }, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       fetchUsers(searchQuery);
     } catch (error) {
@@ -486,11 +421,7 @@ const AdminPanel = () => {
       const r = await axios.post(
         `${API}/admin/users/${msgUser.id}/message`,
         { subject: msgSubject.trim(), body: msgBody.trim() },
-<<<<<<< HEAD
         { headers: authHeaders(), withCredentials: true }
-=======
-        { headers: authHeaders(), withCredentials: false }
->>>>>>> cb805eb
       );
       setMsgFeedback({ type: 'success', text: `Email sent to ${r.data.sent_to}` });
       setMsgSubject('');
@@ -512,11 +443,7 @@ const AdminPanel = () => {
     setDocsReviewed(false);
     setProfileLoading(true);
     try {
-<<<<<<< HEAD
       const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: true });
-=======
-      const r = await axios.get(`${API}/admin/users/${user.id}/profile`, { headers: authHeaders(), withCredentials: false });
->>>>>>> cb805eb
       setProfileData(r.data);
     } catch (e) {
       setProfileData({ error: e.response?.data?.detail || 'Failed to load profile' });
@@ -525,11 +452,7 @@ const AdminPanel = () => {
     }
     // Load documents + linked applicant record (non-blocking)
     try {
-<<<<<<< HEAD
       const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: true });
-=======
-      const d = await axios.get(`${API}/admin/users/${user.id}/documents`, { headers: authHeaders(), withCredentials: false });
->>>>>>> cb805eb
       setProfileDocs(d.data);
     } catch (e) {
       setProfileDocs({ documents: [], applicant: null });
@@ -542,11 +465,7 @@ const AdminPanel = () => {
     if (!applicant?.record_id) return;
     setDocActionBusy(true);
     try {
-<<<<<<< HEAD
       await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: true });
-=======
-      await axios.post(`${API}/admin/${APPLICANT_APPROVE_EP[applicant.kind]}/${applicant.record_id}/${action}`, { notes: '' }, { headers: authHeaders(), withCredentials: false });
->>>>>>> cb805eb
       toast.success(`Applicant ${action === 'approve' ? 'approved' : 'rejected'}`);
       setProfileUser(null); setProfileData(null); setProfileDocs(null);
       fetchUsers(searchQuery);
@@ -561,11 +480,7 @@ const AdminPanel = () => {
   const handleOrderAction = async (orderId, action) => {
     try {
       await axios.post(`${API}/admin/orders/${orderId}/${action}`, {}, {
-<<<<<<< HEAD
         headers: authHeaders(), withCredentials: true
-=======
-        headers: authHeaders(), withCredentials: false
->>>>>>> cb805eb
       });
       fetchOrders();
     } catch (error) {
@@ -616,15 +531,7 @@ const AdminPanel = () => {
               <p className="text-muted-foreground">Platform management & analytics</p>
             </div>
             <div className="flex gap-2">
-<<<<<<< HEAD
               <Button variant="outline" onClick={() => navigate('/profile')} data-testid="admin-settings-link">
-=======
-              <Button variant="outline" onClick={() => navigate('/pricing')} data-testid="admin-subscription-link">
-                <DollarSign className="h-5 w-5 mr-2" />
-                Subscription Plans
-              </Button>
-              <Button variant="outline">
->>>>>>> cb805eb
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
               </Button>
@@ -821,7 +728,6 @@ const AdminPanel = () => {
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button
-<<<<<<< HEAD
                               data-testid={`open-portal-btn-${user.id}`}
                               size="sm"
                               variant="outline"
@@ -831,8 +737,6 @@ const AdminPanel = () => {
                               <ExternalLink className="h-4 w-4" />
                             </Button>
                             <Button
-=======
->>>>>>> cb805eb
                               data-testid={`message-user-btn-${user.id}`}
                               size="sm"
                               variant="outline"
@@ -889,7 +793,6 @@ const AdminPanel = () => {
 
         {selectedTab === 'orders' && (
           <>
-<<<<<<< HEAD
             <Card className="mb-4 border-gold-300" data-testid="settlement-card">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between flex-wrap gap-2">
@@ -926,8 +829,6 @@ const AdminPanel = () => {
                 )}
               </CardContent>
             </Card>
-=======
->>>>>>> cb805eb
             {cashOutstanding && cashOutstanding.drivers?.length > 0 && (
               <Card className="mb-4 border-amber-300" data-testid="cash-outstanding-card">
                 <CardHeader>
@@ -1009,10 +910,7 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'approvals' && <AdminApprovals />}
-<<<<<<< HEAD
         {selectedTab === 'payouts' && <AdminPayouts />}
-=======
->>>>>>> cb805eb
 
         {selectedTab === 'safety' && (
           <div className="flex gap-2 mb-4" data-testid="safety-subtabs">
@@ -1092,11 +990,7 @@ const AdminPanel = () => {
                                 ORDER #{(flag.order_id || '').slice(0, 8)}
                               </span>
                               <Badge variant="outline">
-<<<<<<< HEAD
                                 {money(flag.amount)}
-=======
-                                ${(flag.amount || 0).toFixed(2)}
->>>>>>> cb805eb
                               </Badge>
                               {flag.status !== 'open' && (
                                 <Badge variant="secondary">{flag.status.replace('_', ' ')}</Badge>
@@ -1205,11 +1099,7 @@ const AdminPanel = () => {
                             </span>
                             {typeof claim.resolution_credit === 'number' && claim.resolution_credit > 0 && (
                               <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
-<<<<<<< HEAD
                                 +{money(claim.resolution_credit)} credited
-=======
-                                +${claim.resolution_credit.toFixed(2)} credited
->>>>>>> cb805eb
                               </Badge>
                             )}
                           </div>
@@ -1748,11 +1638,7 @@ const AdminPanel = () => {
                     </span>
                     {typeof detailClaim.resolution_credit === 'number' && detailClaim.resolution_credit > 0 && (
                       <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/40">
-<<<<<<< HEAD
                         +{money(detailClaim.resolution_credit)} credited
-=======
-                        +${detailClaim.resolution_credit.toFixed(2)} credited
->>>>>>> cb805eb
                       </Badge>
                     )}
                   </div>
@@ -1813,11 +1699,7 @@ const AdminPanel = () => {
                 <div className="space-y-3 text-sm">
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-muted-foreground">Order</span><p className="font-mono font-medium">#{(detailFraud.order_id || '').slice(0, 8)}</p></div>
-<<<<<<< HEAD
                     <div><span className="text-muted-foreground">Amount</span><p className="font-medium">{money(detailFraud.amount)}</p></div>
-=======
-                    <div><span className="text-muted-foreground">Amount</span><p className="font-medium">${(detailFraud.amount || 0).toFixed(2)}</p></div>
->>>>>>> cb805eb
                     <div><span className="text-muted-foreground">Service</span><p className="font-medium capitalize">{detailFraud.order?.service_type || '—'}</p></div>
                     <div><span className="text-muted-foreground">Payment</span><p className="font-medium capitalize">{detailFraud.order?.payment_method} · {detailFraud.order?.payment_status}</p></div>
                     <div><span className="text-muted-foreground">Flagged</span><p className="font-medium">{detailFraud.created_at ? new Date(detailFraud.created_at).toLocaleString() : '—'}</p></div>

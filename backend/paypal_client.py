@@ -13,10 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-<<<<<<< HEAD
 import uuid
-=======
->>>>>>> cb805eb
 from typing import Any, Dict, Optional
 
 import httpx
@@ -143,7 +140,6 @@ async def get_order(order_id: str) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
-<<<<<<< HEAD
 async def refund_capture(capture_id: str, amount: Optional[float] = None,
                          currency: str = "USD", note: str = "") -> Dict[str, Any]:
     """Refund a captured PayPal payment (full when amount is None, else partial).
@@ -179,8 +175,6 @@ async def refund_capture(capture_id: str, amount: Optional[float] = None,
         return {"success": False, "error": str(exc)}
 
 
-=======
->>>>>>> cb805eb
 async def create_payout(email: str, amount: float, currency: str, note: str,
                         sender_batch_id: str) -> Dict[str, Any]:
     """Send a single payout to a PayPal email. Returns {success, batch_id, status, raw}."""

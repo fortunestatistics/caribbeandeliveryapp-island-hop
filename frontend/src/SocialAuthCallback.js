@@ -2,10 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
-<<<<<<< HEAD
 import { storeSession } from './authToken';
-=======
->>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -33,12 +30,7 @@ const SocialAuthCallback = () => {
     (async () => {
       try {
         const res = await axios.post(`${API}/auth/social/google`, { session_id: sessionId });
-<<<<<<< HEAD
         storeSession(res.data.access_token, res.data.user);
-=======
-        localStorage.setItem('token', res.data.access_token);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
->>>>>>> cb805eb
         // Full reload so AuthContext re-initializes from the new token.
         window.location.href = '/dashboard';
       } catch (err) {

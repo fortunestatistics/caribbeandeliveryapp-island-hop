@@ -1,13 +1,8 @@
-<<<<<<< HEAD
 import React, { useState, useEffect, useRef } from 'react';
-=======
-import React, { useState, useEffect } from 'react';
->>>>>>> cb805eb
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-<<<<<<< HEAD
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -18,8 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/u
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './components/ui/select';
 import { Slider } from './components/ui/slider';
 import { QRCodeCanvas } from 'qrcode.react';
-=======
->>>>>>> cb805eb
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
 import { 
@@ -38,7 +31,6 @@ import {
   Store,
   Ticket,
   Megaphone,
-<<<<<<< HEAD
   MessageCircle,
   Banknote,
   Bell,
@@ -58,17 +50,10 @@ import { getBusinessConfig } from './businessTypeConfig';
 import { useToast } from './hooks/use-toast';
 import { formatAddress, mapsLink } from './formatAddress';
 import { useCurrency } from './CurrencyContext';
-=======
-  MessageCircle
-} from 'lucide-react';
-import axios from 'axios';
-import { getBusinessConfig } from './businessTypeConfig';
->>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-<<<<<<< HEAD
 // Live ETA for when the assigned driver will reach the store to collect the order.
 const DriverEtaBadge = ({ orderId }) => {
   const [eta, setEta] = useState(null);
@@ -140,13 +125,6 @@ const VendorDashboard = () => {
   const [alertsSeenAt, setAlertsSeenAt] = useState(
     () => localStorage.getItem('vendor_alerts_seen_at') || ''
   );
-=======
-const VendorDashboard = () => {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const [chatOpenFor, setChatOpenFor] = useState(null);
-  const [orders, setOrders] = useState([]);
->>>>>>> cb805eb
   const [stats, setStats] = useState({
     today_orders: 0,
     today_revenue: 0,
@@ -161,7 +139,6 @@ const VendorDashboard = () => {
     fetchStats();
     fetchSetupStatus();
     fetchSavings();
-<<<<<<< HEAD
     // Ask for desktop notification permission so merchants get alerted even off-tab
     try {
       if ('Notification' in window && Notification.permission === 'default') {
@@ -174,19 +151,10 @@ const VendorDashboard = () => {
       fetchOrders();
       fetchStats();
     }, 15000);
-=======
-    
-    // Refresh every 30 seconds
-    const interval = setInterval(() => {
-      fetchOrders();
-      fetchStats();
-    }, 30000);
->>>>>>> cb805eb
 
     return () => clearInterval(interval);
   }, []);
 
-<<<<<<< HEAD
   // Chime presets — each is a list of {freq, at, dur} notes played via Web Audio.
   const CHIMES = {
     classic: { label: 'Classic (double beep)', notes: [
@@ -288,28 +256,18 @@ const VendorDashboard = () => {
   const [weekly, setWeekly] = useState(null);
   const [showQR, setShowQR] = useState(false);
   const [storeName, setStoreName] = useState('');
-=======
-  const [setup, setSetup] = useState(null);
-  const [savings, setSavings] = useState(null);
-  const [vendorType, setVendorType] = useState('');
->>>>>>> cb805eb
   const [setupDismissed, setSetupDismissed] = useState(
     () => localStorage.getItem('storefront_setup_dismissed') === '1'
   );
   const fetchSavings = async () => {
     try {
       const token = localStorage.getItem('token');
-<<<<<<< HEAD
       const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
-=======
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
->>>>>>> cb805eb
       const { data } = await axios.get(`${API}/merchant/fee-savings`, cfg);
       setSavings(data);
     } catch (e) {
       setSavings(null);
     }
-<<<<<<< HEAD
     try {
       const token = localStorage.getItem('token');
       const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
@@ -318,17 +276,11 @@ const VendorDashboard = () => {
     } catch (e) {
       setWeekly(null);
     }
-=======
->>>>>>> cb805eb
   };
   const fetchSetupStatus = async () => {
     try {
       const token = localStorage.getItem('token');
-<<<<<<< HEAD
       const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
-=======
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
->>>>>>> cb805eb
       const [sf, pr] = await Promise.all([
         axios.get(`${API}/merchant/storefront`, cfg),
         axios.get(`${API}/merchant/products`, cfg),
@@ -340,7 +292,6 @@ const VendorDashboard = () => {
         hasProducts: (pr.data?.products || []).length > 0,
       });
       if (pr.data?.vendor_type) setVendorType(pr.data.vendor_type);
-<<<<<<< HEAD
       if (sf.data?.vendor_id) setVendorId(sf.data.vendor_id);
       if (sf.data?.name) setStoreName(sf.data.name);
     } catch (e) {
@@ -354,17 +305,11 @@ const VendorDashboard = () => {
     } catch (e) {
       setStripeStatus(null);
     }
-=======
-    } catch (e) {
-      setSetup(null); // not a merchant yet / not resolvable — hide banner
-    }
->>>>>>> cb805eb
   };
 
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${API}/vendors/my-orders`, {
-<<<<<<< HEAD
         withCredentials: true
       });
       const list = response.data || [];
@@ -382,11 +327,6 @@ const VendorDashboard = () => {
         if (fresh.length > 0) alertNewOrders(fresh.length);
         seenOrderIdsRef.current = new Set(activeIds);
       }
-=======
-        withCredentials: false
-      });
-      setOrders(response.data);
->>>>>>> cb805eb
       setLoading(false);
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -394,7 +334,6 @@ const VendorDashboard = () => {
     }
   };
 
-<<<<<<< HEAD
   const toggleSound = () => {
     setSoundOn((prev) => {
       const next = !prev;
@@ -421,12 +360,6 @@ const VendorDashboard = () => {
     try {
       const response = await axios.get(`${API}/vendors/stats`, {
         withCredentials: true
-=======
-  const fetchStats = async () => {
-    try {
-      const response = await axios.get(`${API}/vendors/stats`, {
-        withCredentials: false
->>>>>>> cb805eb
       });
       setStats(response.data);
     } catch (error) {
@@ -440,11 +373,7 @@ const VendorDashboard = () => {
         status: status
       }, {
         params: { status },
-<<<<<<< HEAD
         withCredentials: true
-=======
-        withCredentials: false
->>>>>>> cb805eb
       });
       
       fetchOrders();
@@ -455,7 +384,6 @@ const VendorDashboard = () => {
     }
   };
 
-<<<<<<< HEAD
   const REJECT_REASONS = [
     'Item(s) out of stock',
     'Store is closing / closed',
@@ -483,8 +411,6 @@ const VendorDashboard = () => {
     }
   };
 
-=======
->>>>>>> cb805eb
   const getStatusColor = (status) => {
     const colors = {
       pending: 'bg-gold-500/15 text-yellow-800',
@@ -511,7 +437,6 @@ const VendorDashboard = () => {
 
   const filteredOrders = filterOrders(selectedTab);
 
-<<<<<<< HEAD
   // Recent alerts = most recent orders; "unseen" = arrived after the merchant last opened the list.
   const recentAlerts = [...orders]
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
@@ -531,8 +456,6 @@ const VendorDashboard = () => {
     return `${Math.floor(h / 24)}d ago`;
   };
 
-=======
->>>>>>> cb805eb
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -544,7 +467,6 @@ const VendorDashboard = () => {
   return (
     <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4 max-w-7xl">
-<<<<<<< HEAD
         {stripeStatus && !stripeStatus.payouts_enabled && (
           <div
             className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-gold-500/40 bg-gold-500/10 p-4"
@@ -639,17 +561,12 @@ const VendorDashboard = () => {
               </CardContent>
             </Card>
           )}
-=======
-        {/* Header */}
-        <div className="mb-8">
->>>>>>> cb805eb
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Vendor Dashboard</h1>
               <p className="text-muted-foreground">Manage your orders and business</p>
             </div>
             <div className="flex gap-2">
-<<<<<<< HEAD
               <Button
                 onClick={() => setShowAlerts((v) => { if (v) markAlertsSeen(); return !v; })}
                 variant="outline"
@@ -686,8 +603,6 @@ const VendorDashboard = () => {
               >
                 <Volume2 className="h-5 w-5 text-gold-500" />
               </Button>
-=======
->>>>>>> cb805eb
               {(() => {
                 const cfg = getBusinessConfig(vendorType);
                 const Icon = vendorType === 'restaurant' ? ChefHat : Package;
@@ -698,7 +613,6 @@ const VendorDashboard = () => {
                   </Button>
                 );
               })()}
-<<<<<<< HEAD
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" data-testid="vendor-storefront-menu-btn">
@@ -760,24 +674,6 @@ const VendorDashboard = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-=======
-              <Button onClick={() => navigate('/merchant/storefront')} variant="outline" data-testid="vendor-storefront-btn">
-                <Store className="h-5 w-5 mr-2" />
-                My Storefront
-              </Button>
-              <Button onClick={() => navigate('/merchant/coupons')} variant="outline" data-testid="vendor-coupons-btn">
-                <Ticket className="h-5 w-5 mr-2" />
-                Coupons
-              </Button>
-              <Button onClick={() => navigate('/merchant/ads')} variant="outline" data-testid="vendor-ads-btn">
-                <Megaphone className="h-5 w-5 mr-2" />
-                Advertise
-              </Button>
-              <Button onClick={() => navigate('/merchant/subscription')} variant="outline" data-testid="vendor-subscription-link">
-                <DollarSign className="h-5 w-5 mr-2" />
-                Subscription
-              </Button>
->>>>>>> cb805eb
               <Button onClick={() => navigate('/vendor/settings')} variant="outline" data-testid="vendor-settings-btn">
                 <Settings className="h-5 w-5 mr-2" />
                 Settings
@@ -787,11 +683,7 @@ const VendorDashboard = () => {
 
           {/* Premium fee-savings ROI banner — shows commission saved vs the Standard 10% base */}
           {savings && (() => {
-<<<<<<< HEAD
             const money = (n) => format(Number(n || 0));
-=======
-            const money = (n) => `${savings.currency || 'TTD'} $${Number(n || 0).toFixed(2)}`;
->>>>>>> cb805eb
             const isPremium = savings.tier === 'premium';
             const isPro = savings.tier === 'pro';
             // Premium/Pro: celebrate savings. Standard: upsell with potential savings.
@@ -895,7 +787,6 @@ const VendorDashboard = () => {
             );
           })()}
 
-<<<<<<< HEAD
           {/* Owed-to-you-this-week payout card */}
           {weekly && (
             <div
@@ -928,8 +819,6 @@ const VendorDashboard = () => {
             </div>
           )}
 
-=======
->>>>>>> cb805eb
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
               <CardContent className="p-6">
@@ -951,11 +840,7 @@ const VendorDashboard = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Today&apos;s Revenue</p>
                     <p className="text-3xl font-bold text-gold-500">
-<<<<<<< HEAD
                       {format(Number(stats.today_revenue || 0))}
-=======
-                      ${stats.today_revenue?.toFixed(2)}
->>>>>>> cb805eb
                     </p>
                   </div>
                   <div className="bg-gold-500/15 p-3 rounded-lg">
@@ -985,11 +870,7 @@ const VendorDashboard = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Total Earnings</p>
                     <p className="text-3xl font-bold text-green-600">
-<<<<<<< HEAD
                       {format(Number(stats.total_earnings || 0))}
-=======
-                      ${stats.total_earnings?.toFixed(2)}
->>>>>>> cb805eb
                     </p>
                   </div>
                   <div className="bg-green-100 p-3 rounded-lg">
@@ -1072,11 +953,7 @@ const VendorDashboard = () => {
                         </div>
                         <div className="text-right">
                           <p className="text-2xl font-bold text-gold-500">
-<<<<<<< HEAD
                             {format(Number(order.vendor_payout ?? order.subtotal ?? 0))}
-=======
-                            ${order.vendor_payout?.toFixed(2) || order.subtotal?.toFixed(2)}
->>>>>>> cb805eb
                           </p>
                           <p className="text-xs text-muted-foreground">Your payout</p>
                         </div>
@@ -1089,11 +966,7 @@ const VendorDashboard = () => {
                           {order.items.map((item, idx) => (
                             <div key={`${item.menu_item_id || item.name}-${idx}`} className="flex justify-between text-sm">
                               <span>{item.quantity}x {item.name}</span>
-<<<<<<< HEAD
                               <span>{format(Number((item.price || 0) * (item.quantity || 1)))}</span>
-=======
-                              <span>${(item.price * item.quantity).toFixed(2)}</span>
->>>>>>> cb805eb
                             </div>
                           ))}
                         </div>
@@ -1102,14 +975,8 @@ const VendorDashboard = () => {
                       {/* Delivery Info */}
                       {order.delivery_address && (
                         <div className="mb-4 text-sm text-muted-foreground">
-<<<<<<< HEAD
                           <p className="font-medium">Drop-off address:</p>
                           <p>{formatAddress(order.delivery_address) || 'Not provided'}</p>
-=======
-                          <p className="font-medium">Delivery Address:</p>
-                          <p>{order.delivery_address.street_address}</p>
-                          <p>{order.delivery_address.city}, {order.delivery_address.postal_code}</p>
->>>>>>> cb805eb
                         </div>
                       )}
 
@@ -1125,16 +992,10 @@ const VendorDashboard = () => {
                               Accept Order
                             </Button>
                             <Button
-<<<<<<< HEAD
                               onClick={() => { setRejectFor(order.id); setRejectReason(''); }}
                               variant="destructive"
                               className="flex-1"
                               data-testid={`vendor-reject-btn-${order.id}`}
-=======
-                              onClick={() => handleOrderAction(order.id, 'cancelled')}
-                              variant="destructive"
-                              className="flex-1"
->>>>>>> cb805eb
                             >
                               <X className="h-4 w-4 mr-2" />
                               Reject
@@ -1161,7 +1022,6 @@ const VendorDashboard = () => {
                         )}
 
                         {(order.status === 'ready' || order.status === 'picked_up' || order.status === 'in_transit') && (
-<<<<<<< HEAD
                           <div className="flex-1">
                             {order.driver_id ? (
                               <DriverEtaBadge orderId={order.id} />
@@ -1172,12 +1032,6 @@ const VendorDashboard = () => {
                               </Button>
                             )}
                           </div>
-=======
-                          <Button variant="outline" className="flex-1" disabled>
-                            <Clock className="h-4 w-4 mr-2" />
-                            Waiting for Delivery
-                          </Button>
->>>>>>> cb805eb
                         )}
 
                         <Button
@@ -1189,16 +1043,10 @@ const VendorDashboard = () => {
                           <MessageCircle className="h-4 w-4" />
                         </Button>
                         <Button
-<<<<<<< HEAD
                           onClick={() => setDetailsFor(order)}
                           variant="outline"
                           size="sm"
                           data-testid={`vendor-order-details-btn-${order.id}`}
-=======
-                          onClick={() => navigate(`/order-tracking/${order.id}`)}
-                          variant="outline"
-                          size="sm"
->>>>>>> cb805eb
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -1222,7 +1070,6 @@ const VendorDashboard = () => {
           </CardContent>
         </Card>
       </div>
-<<<<<<< HEAD
 
       {/* Full order details for the merchant */}
       <Dialog open={!!detailsFor} onOpenChange={(o) => !o && setDetailsFor(null)}>
@@ -1427,8 +1274,6 @@ const VendorDashboard = () => {
           </div>
         </DialogContent>
       </Dialog>
-=======
->>>>>>> cb805eb
     </div>
   );
 };

@@ -32,10 +32,7 @@ export const CheckoutPage = () => {
   const [walletBalance, setWalletBalance] = useState(null);
   const [payingWallet, setPayingWallet] = useState(false);
   const [error, setError] = useState('');
-<<<<<<< HEAD
   const [paymentOptions, setPaymentOptions] = useState(null); // {processor, cod_enabled, wallet_enabled}
-=======
->>>>>>> cb805eb
 
   useEffect(() => {
     const load = async () => {
@@ -51,7 +48,6 @@ export const CheckoutPage = () => {
       } finally {
         setLoading(false);
       }
-<<<<<<< HEAD
       // Which online processor to show for this merchant (WiPay vs Stripe).
       try {
         const opt = await axios.get(`${API}/orders/${orderId}/payment-options`, { headers: authHeaders() });
@@ -59,8 +55,6 @@ export const CheckoutPage = () => {
       } catch (_) {
         setPaymentOptions({ processor: 'wipay', cod_enabled: true, wallet_enabled: true });
       }
-=======
->>>>>>> cb805eb
       // Best-effort wallet balance for the "Pay with wallet" option.
       try {
         const w = await axios.get(`${API}/wallet`, { headers: authHeaders() });
@@ -138,26 +132,17 @@ export const CheckoutPage = () => {
     }
   };
 
-<<<<<<< HEAD
   const handleStripe = async () => {
-=======
-  const handleWiPay = async () => {
->>>>>>> cb805eb
     setCreating(true);
     setError('');
     try {
       const res = await axios.post(
-<<<<<<< HEAD
         `${API}/payments/checkout/session`,
-=======
-        `${API}/payments/wipay/checkout/session`,
->>>>>>> cb805eb
         { order_id: orderId, origin_url: window.location.origin },
         { headers: authHeaders() }
       );
       window.location.href = res.data.url;
     } catch (e) {
-<<<<<<< HEAD
       setError(e?.response?.data?.detail || 'Failed to start card checkout');
       setCreating(false);
     }
@@ -180,9 +165,6 @@ export const CheckoutPage = () => {
       }
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to start PayPal checkout');
-=======
-      setError(e?.response?.data?.detail || 'Failed to start WiPay checkout');
->>>>>>> cb805eb
       setCreating(false);
     }
   };
@@ -409,11 +391,7 @@ export const CheckoutPage = () => {
             <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between" data-testid="checkout-accepted-methods">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
-<<<<<<< HEAD
                 Cash on Delivery &amp; secure card checkout (Stripe)
-=======
-                Cash on Delivery &amp; secure WiPay checkout
->>>>>>> cb805eb
               </div>
             </div>
 
@@ -467,7 +445,6 @@ export const CheckoutPage = () => {
                   </>
                 )}
                 <Button
-<<<<<<< HEAD
                   onClick={handleStripe}
                   disabled={creating || tipSaving}
                   variant="outline"
@@ -507,17 +484,6 @@ export const CheckoutPage = () => {
                     </p>
                   </>
                 )}
-=======
-                  onClick={handleWiPay}
-                  disabled={creating || tipSaving}
-                  variant="outline"
-                  className="w-full"
-                  data-testid="checkout-pay-wipay-btn"
-                >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Pay with WiPay (Caribbean cards · Sandbox)
-                </Button>
->>>>>>> cb805eb
               </div>
             )}
           </CardContent>

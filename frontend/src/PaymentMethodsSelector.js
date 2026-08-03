@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
-<<<<<<< HEAD
 import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -30,16 +29,10 @@ const getStripe = async () => {
   _stripePromise = key ? loadStripe(key) : Promise.resolve(null);
   return _stripePromise;
 };
-=======
-
-const STRIPE_API_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = STRIPE_API_KEY ? loadStripe(STRIPE_API_KEY) : Promise.resolve(null);
->>>>>>> cb805eb
 
 const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
   const [selectedMethod, setSelectedMethod] = useState('card');
   const [showStripeForm, setShowStripeForm] = useState(false);
-<<<<<<< HEAD
   const [stripePromise, setStripePromise] = useState(null);
 
   useEffect(() => {
@@ -47,8 +40,6 @@ const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
     getStripe().then((p) => { if (mounted) setStripePromise(p); });
     return () => { mounted = false; };
   }, []);
-=======
->>>>>>> cb805eb
   
   const paymentMethods = [
     {
