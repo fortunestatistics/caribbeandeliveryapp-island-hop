@@ -42,6 +42,9 @@ jobs:
         env:
           GENERATE_SOURCEMAP: 'false'
           CI: 'false'
+          # Production backend the Play Store app must talk to.
+          # Override by setting a repo Variable named REACT_APP_BACKEND_URL.
+          REACT_APP_BACKEND_URL: ${{ vars.REACT_APP_BACKEND_URL || 'https://islandhopapp.com' }}
 
       - name: Sync web build into Android (Capacitor)
         run: npx cap sync android
