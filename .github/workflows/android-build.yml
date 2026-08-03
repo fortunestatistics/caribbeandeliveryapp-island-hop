@@ -49,22 +49,24 @@ jobs:
             test -n "$key_password" || { echo "::error::Missing key password secret. Expected one of: ANDROID_KEY_PASSWORD, KEY_PASSWORD, ANDROID_UPLOAD_KEY_PASSWORD"; exit 1; }
             mkdir -p android/keystore
             echo "$keystore_b64" | base64 --decode > android/keystore/islandhop-upload.jks
+            gradle_task=bundleRelease
           elif [ -f android/keystore/islandhop-upload.jks ]; then
             echo "::warning::No keystore secrets found — using the bundled dev keystore."
             keystore_password="${keystore_password:-islandhop2026}"
             key_alias="${key_alias:-islandhop}"
             key_password="${key_password:-islandhop2026}"
+            gradle_task=bundleRelease
           else
-            echo "::warning::No keystore secrets found (ANDROID_KEYSTORE_BASE64 / KEYSTORE_BASE64 / ANDROID_UPLOAD_KEYSTORE_BASE64). The AAB will be signed with the debug key only and cannot be uploaded to the Play Store."
-            exit 0
+            echo "::warning::No keystore secrets found (ANDROID_KEYSTORE_BASE64 / KEYSTORE_BASE64 / ANDROID_UPLOAD_KEYSTORE_BASE64). Building a debug AAB — cannot be uploaded to the Play Store."
+            gradle_task=bundleDebug
           fi
 
-          cat > android/keystore.properties <<EOF
-          storeFile=../keystore/islandhop-upload.jks
-          storePassword=$keystore_password
-          keyAlias=$key_alias
-          keyPassword=$key_password
-          EOF
+          echo "GRADLE_TASK=$gradle_task" >> "$GITHUB_ENV"
+
+          if [ "$gradle_task" != "bundleDebug" ]; then
+            printf 'storeFile=../keystore/islandhop-upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$keystore_password" "$key_alias" "$key_password" > android/keystore.properties
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -104,11 +106,11 @@ jobs:
 
       - name: Build AAB
         working-directory: frontend/android
-        run: ./gradlew bundleRelease
+        run: ./gradlew ${{ env.GRADLE_TASK }}
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/*.aab
+          path: frontend/android/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
