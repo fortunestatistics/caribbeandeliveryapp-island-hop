@@ -84,16 +84,21 @@ jobs:
           retention-days: 30
 
       # ---------------------------------------------------------------------
-      # OPTIONAL: auto-publish to Google Play (internal track).
-      # Requires a Play service-account JSON stored as the PLAY_SERVICE_ACCOUNT_JSON
-      # secret, and the app already created + first APK/AAB uploaded manually once.
-      # Uncomment to enable.
+      # Auto-publish to Google Play (internal track).
+      # Opt-in & safe: only runs when you set a repo VARIABLE named
+      #   ENABLE_PLAY_PUBLISH = true
+      # and a repo SECRET named PLAY_SERVICE_ACCOUNT_JSON (Play API service-account key).
+      # Prerequisite: the app must already exist in Play Console AND have had one
+      # AAB uploaded manually at least once (Play requires the very first upload
+      # to be manual). The .aab artifact above is uploaded regardless, so a
+      # publish misconfig never costs you the build output.
       # ---------------------------------------------------------------------
-      # - name: Publish to Google Play (internal)
-      #   uses: r0adkll/upload-google-play@v1
-      #   with:
-      #     serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-      #     packageName: com.islandhop.app
-      #     releaseFiles: frontend/android/app/build/outputs/bundle/release/app-release.aab
-      #     track: internal
-      #     status: completed
+      - name: Publish to Google Play (internal)
+        if: ${{ vars.ENABLE_PLAY_PUBLISH == 'true' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.islandhop.app
+          releaseFiles: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
