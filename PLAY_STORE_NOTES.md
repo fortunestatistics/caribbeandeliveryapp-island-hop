@@ -25,7 +25,7 @@
 - VIBRATE
 - Network Security Config: `res/xml/network_security_config.xml` (HTTPS-only, no cleartext)
 
-## Build commands (run on a machine with Android Studio / Android SDK + JDK 17)
+## Build commands (run on a machine with Android Studio / Android SDK + JDK 21)
 ```bash
 cd /app/frontend
 yarn build
