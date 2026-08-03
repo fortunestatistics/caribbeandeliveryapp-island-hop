@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+<<<<<<< HEAD
 import islandHopMark from './assets/islandhop-mark.png';
 import {
+=======
+import {
+  Package,
+>>>>>>> cb805eb
   ChevronDown,
   User,
   Truck,
@@ -62,12 +67,21 @@ const SubAppsDropdown = () => {
         data-testid="sub-apps-trigger"
         className="flex items-center gap-2 group focus:outline-none"
       >
+<<<<<<< HEAD
         <div className="w-11 h-11 flex items-center justify-center transition-transform group-hover:scale-105">
           <img src={islandHopMark} alt="IslandHop" className="w-full h-full object-contain" />
         </div>
         <div className="hidden sm:block text-left">
           <span className="block text-xl font-bold leading-tight" style={{ color: '#0FA3A3' }}>IslandHop</span>
           <p className="text-xs flex items-center gap-1" style={{ color: '#F47B27' }}>
+=======
+        <div className="w-10 h-10 bg-gold-gradient rounded-xl flex items-center justify-center transition-transform group-hover:scale-105">
+          <Package className="h-6 w-6 text-white" />
+        </div>
+        <div className="hidden sm:block text-left">
+          <span className="block text-xl font-bold text-foreground leading-tight">IslandHop</span>
+          <p className="text-xs text-gold-500 flex items-center gap-1">
+>>>>>>> cb805eb
             Choose a panel <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
           </p>
         </div>

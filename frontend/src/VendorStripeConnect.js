@@ -12,11 +12,16 @@ const authHeaders = () => {
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
+<<<<<<< HEAD
 const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 
 const VendorStripeConnect = () => {
   const [status, setStatus] = useState(null);
   const [payouts, setPayouts] = useState(null);
+=======
+const VendorStripeConnect = () => {
+  const [status, setStatus] = useState(null);
+>>>>>>> cb805eb
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -31,12 +36,15 @@ const VendorStripeConnect = () => {
     } finally {
       setLoading(false);
     }
+<<<<<<< HEAD
     try {
       const pr = await axios.get(`${API}/merchant/payouts`, { headers: authHeaders() });
       setPayouts(pr.data);
     } catch (e) {
       /* payouts are best-effort; ignore */
     }
+=======
+>>>>>>> cb805eb
   };
 
   useEffect(() => { refresh(); }, []);
@@ -120,7 +128,11 @@ const VendorStripeConnect = () => {
             {payoutsEnabled ? (
               <div className="flex items-center gap-2 text-green-700 text-sm">
                 <CheckCircle2 className="h-5 w-5" />
+<<<<<<< HEAD
                 You&apos;re all set — each order&apos;s share is sent to your Stripe account automatically and paid to your bank on Stripe&apos;s payout schedule.
+=======
+                You&apos;re all set — payouts will arrive automatically at 02:00 UTC daily.
+>>>>>>> cb805eb
               </div>
             ) : (
               <Button
@@ -144,6 +156,7 @@ const VendorStripeConnect = () => {
             )}
           </CardContent>
         </Card>
+<<<<<<< HEAD
 
         {payouts && (
           <Card className="mt-8" data-testid="merchant-payouts-card">
@@ -207,6 +220,8 @@ const VendorStripeConnect = () => {
             </CardContent>
           </Card>
         )}
+=======
+>>>>>>> cb805eb
       </div>
     </div>
   );

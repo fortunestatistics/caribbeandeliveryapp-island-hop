@@ -17,7 +17,10 @@ import {
   ChefHat
 } from 'lucide-react';
 import axios from 'axios';
+<<<<<<< HEAD
 import { fileToConstrainedDataURL } from './imageUtils';
+=======
+>>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -56,7 +59,11 @@ const RestaurantMenuManagement = () => {
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const response = await axios.get(`${API}/restaurants/my-menu`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setMenuItems(response.data);
       setLoading(false);
@@ -111,7 +118,11 @@ const RestaurantMenuManagement = () => {
 
     try {
       await axios.delete(`${API}/menu-items/${itemId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchMenuItems();
     } catch (error) {
@@ -126,7 +137,11 @@ const RestaurantMenuManagement = () => {
         ...item,
         available: !item.available
       }, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchMenuItems();
     } catch (error) {
@@ -141,12 +156,20 @@ const RestaurantMenuManagement = () => {
       if (editingItem) {
         // Update existing item
         await axios.put(`${API}/menu-items/${editingItem.id}`, formData, {
+<<<<<<< HEAD
           withCredentials: true
+=======
+          withCredentials: false
+>>>>>>> cb805eb
         });
       } else {
         // Create new item
         await axios.post(`${API}/menu-items`, formData, {
+<<<<<<< HEAD
           withCredentials: true
+=======
+          withCredentials: false
+>>>>>>> cb805eb
         });
       }
 
@@ -161,12 +184,23 @@ const RestaurantMenuManagement = () => {
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+<<<<<<< HEAD
     try {
       const dataUrl = await fileToConstrainedDataURL(file, 800, 1_350_000);
       setFormData(prev => ({ ...prev, image_url: dataUrl }));
     } catch (_e) {
       alert('Could not process that image. Please try a smaller one.');
     }
+=======
+
+    // In production, upload to Cloudinary/S3
+    // For now, use a placeholder
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFormData(prev => ({ ...prev, image_url: reader.result }));
+    };
+    reader.readAsDataURL(file);
+>>>>>>> cb805eb
   };
 
   const filteredItems = selectedCategory === 'all' 

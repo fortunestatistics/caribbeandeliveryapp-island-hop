@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCurrency } from './CurrencyContext';
 import { useNavigate, useParams } from 'react-router-dom';
+<<<<<<< HEAD
 import { formatAddress } from './formatAddress';
+=======
+>>>>>>> cb805eb
 import { GoogleMap, LoadScript, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import ReviewForm from './ReviewForm';
@@ -49,7 +52,10 @@ const OrderTrackingPageWithMaps = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [directions, setDirections] = useState(null);
+<<<<<<< HEAD
   const [eta, setEta] = useState(null);
+=======
+>>>>>>> cb805eb
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratings, setRatings] = useState({
     vendor_rating: 5,
@@ -85,7 +91,11 @@ const OrderTrackingPageWithMaps = () => {
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await axios.get(`${API}/orders/${orderId}`, {
           headers,
+<<<<<<< HEAD
           withCredentials: true,
+=======
+          withCredentials: false,
+>>>>>>> cb805eb
         });
         setOrder(response.data);
         setLoading(false);
@@ -114,7 +124,11 @@ const OrderTrackingPageWithMaps = () => {
   const checkIfRated = async () => {
     try {
       const response = await axios.get(`${API}/ratings?order_id=${orderId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       return response.data.length > 0;
     } catch (error) {
@@ -141,7 +155,11 @@ const OrderTrackingPageWithMaps = () => {
     };
 
     fetchDriverLocation();
+<<<<<<< HEAD
     const interval = setInterval(fetchDriverLocation, 6000); // Update every 6 seconds
+=======
+    const interval = setInterval(fetchDriverLocation, 10000); // Update every 10 seconds
+>>>>>>> cb805eb
 
     return () => clearInterval(interval);
     // eslint-disable-next-line -- poll driver location while order is active
@@ -161,8 +179,11 @@ const OrderTrackingPageWithMaps = () => {
       (result, status) => {
         if (status === window.google.maps.DirectionsStatus.OK) {
           setDirections(result);
+<<<<<<< HEAD
           const leg = result?.routes?.[0]?.legs?.[0];
           if (leg) setEta({ duration: leg.duration?.text, distance: leg.distance?.text });
+=======
+>>>>>>> cb805eb
         }
       }
     );
@@ -228,7 +249,11 @@ const OrderTrackingPageWithMaps = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       setNewMessage('');
@@ -244,7 +269,11 @@ const OrderTrackingPageWithMaps = () => {
         order_id: orderId,
         ...ratings
       }, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       setShowRatingModal(false);
@@ -383,6 +412,7 @@ const OrderTrackingPageWithMaps = () => {
                   </GoogleMap>
                 </LoadScript>
 
+<<<<<<< HEAD
                 {/* Live ETA to your door */}
                 {driverLocation?.has_driver && eta && (
                   <div className="mt-4 p-4 rounded-lg flex items-center justify-between" style={{ background: '#0FA3A315' }} data-testid="tracking-eta">
@@ -397,6 +427,8 @@ const OrderTrackingPageWithMaps = () => {
                   </div>
                 )}
 
+=======
+>>>>>>> cb805eb
                 {/* Driver Info Below Map */}
                 {driverLocation?.has_driver && (
                   <div className="mt-4 p-4 bg-neon-cyan/10 rounded-lg">
@@ -478,7 +510,14 @@ const OrderTrackingPageWithMaps = () => {
                 
                 <div className="pt-4 border-t">
                   <p className="text-sm text-muted-foreground mb-2">Delivery Address</p>
+<<<<<<< HEAD
                   <p className="font-medium">{formatAddress(order.delivery_address) || 'Address not provided'}</p>
+=======
+                  <p className="font-medium">{order.delivery_address?.street_address}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {order.delivery_address?.city}, {order.delivery_address?.postal_code}
+                  </p>
+>>>>>>> cb805eb
                 </div>
               </CardContent>
             </Card>

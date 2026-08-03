@@ -6,13 +6,21 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { useToast } from './hooks/use-toast';
+<<<<<<< HEAD
 import { ArrowLeft, User, Car, Lock, Save, DollarSign } from 'lucide-react';
 import { BankAccountSection } from './BankAccountSection';
+=======
+import { ArrowLeft, User, Car, Landmark, Lock, Save, DollarSign } from 'lucide-react';
+>>>>>>> cb805eb
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authCfg = () => {
   const token = localStorage.getItem('token');
+<<<<<<< HEAD
   return { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+=======
+  return { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+>>>>>>> cb805eb
 };
 
 export default function DriverSettings() {
@@ -41,7 +49,16 @@ export default function DriverSettings() {
             license_number: drv.data.license_number || '',
             vehicle_type: drv.data.vehicle_type || '',
             vehicle_plate: drv.data.vehicle_plate || '',
+<<<<<<< HEAD
             banking_info: drv.data.banking_info || {},
+=======
+            banking_info: {
+              bank_name: drv.data.banking_info?.bank_name || '',
+              account_name: drv.data.banking_info?.account_name || '',
+              account_number: drv.data.banking_info?.account_number || '',
+              branch: drv.data.banking_info?.branch || '',
+            },
+>>>>>>> cb805eb
           });
         }
       } catch (e) {
@@ -103,7 +120,11 @@ export default function DriverSettings() {
     } finally { setSavingPw(false); }
   };
 
+<<<<<<< HEAD
   const setBank = (patch) => setDriver((d) => ({ ...d, banking_info: patch }));
+=======
+  const setBank = (k, v) => setDriver((d) => ({ ...d, banking_info: { ...d.banking_info, [k]: v } }));
+>>>>>>> cb805eb
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading settings…</div>;
@@ -171,6 +192,7 @@ export default function DriverSettings() {
               </CardContent>
             </Card>
 
+<<<<<<< HEAD
             {/* Banking & payouts */}
             <BankAccountSection
               banking={driver.banking_info}
@@ -179,6 +201,35 @@ export default function DriverSettings() {
               saving={savingBank}
               showPayoutMethod
             />
+=======
+            {/* Banking */}
+            <Card className="mb-6">
+              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Landmark className="h-5 w-5 text-gold-500" /> Banking (payouts)</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="bank-name">Bank name</Label>
+                    <Input id="bank-name" value={driver.banking_info.bank_name} onChange={(e) => setBank('bank_name', e.target.value)} data-testid="settings-bank-name" />
+                  </div>
+                  <div>
+                    <Label htmlFor="acct-name">Account name</Label>
+                    <Input id="acct-name" value={driver.banking_info.account_name} onChange={(e) => setBank('account_name', e.target.value)} data-testid="settings-account-holder" />
+                  </div>
+                  <div>
+                    <Label htmlFor="acct-num">Account number</Label>
+                    <Input id="acct-num" value={driver.banking_info.account_number} onChange={(e) => setBank('account_number', e.target.value)} data-testid="settings-account-number" />
+                  </div>
+                  <div>
+                    <Label htmlFor="branch">Branch</Label>
+                    <Input id="branch" value={driver.banking_info.branch} onChange={(e) => setBank('branch', e.target.value)} data-testid="settings-bank-branch" />
+                  </div>
+                </div>
+                <Button onClick={saveBank} disabled={savingBank} className="bg-gold-gradient text-white" data-testid="settings-save-bank-btn">
+                  <Save className="h-4 w-4 mr-2" /> {savingBank ? 'Saving…' : 'Save banking details'}
+                </Button>
+              </CardContent>
+            </Card>
+>>>>>>> cb805eb
           </>
         ) : (
           <Card className="mb-6"><CardContent className="p-6 text-sm text-muted-foreground">No driver profile found for this account.</CardContent></Card>

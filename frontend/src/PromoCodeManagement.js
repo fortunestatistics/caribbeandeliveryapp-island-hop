@@ -49,7 +49,11 @@ const PromoCodeManagement = () => {
   const fetchPromoCodes = async () => {
     try {
       const response = await axios.get(`${API}/promo-codes`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setPromoCodes(response.data);
       setLoading(false);
@@ -65,11 +69,19 @@ const PromoCodeManagement = () => {
     try {
       if (editingPromo) {
         await axios.put(`${API}/promo-codes/${editingPromo.id}`, formData, {
+<<<<<<< HEAD
           withCredentials: true
         });
       } else {
         await axios.post(`${API}/promo-codes`, formData, {
           withCredentials: true
+=======
+          withCredentials: false
+        });
+      } else {
+        await axios.post(`${API}/promo-codes`, formData, {
+          withCredentials: false
+>>>>>>> cb805eb
         });
       }
 
@@ -87,7 +99,11 @@ const PromoCodeManagement = () => {
 
     try {
       await axios.delete(`${API}/promo-codes/${promoId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchPromoCodes();
     } catch (error) {
@@ -102,7 +118,11 @@ const PromoCodeManagement = () => {
         ...promo,
         active: !promo.active
       }, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchPromoCodes();
     } catch (error) {

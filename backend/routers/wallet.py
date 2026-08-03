@@ -28,6 +28,7 @@ async def _require_admin(request: Request):
     return current_user
 
 
+<<<<<<< HEAD
 async def _notify_funding_client(user_id: str, subject: str, message: str):
     """Best-effort email to the client when a funding request is actioned."""
     try:
@@ -43,6 +44,8 @@ async def _notify_funding_client(user_id: str, subject: str, message: str):
         logging.warning(f"Funding client email skipped for {user_id}: {exc}")
 
 
+=======
+>>>>>>> cb805eb
 @router.get("/wallet")
 async def get_my_wallet(request: Request):
     current_user = await get_current_user_from_request(request)
@@ -85,7 +88,10 @@ class FundingRequestBody(BaseModel):
     reference: Optional[str] = None        # deposit: transfer ref / proof
     payment_method_id: Optional[str] = None  # withdraw: where to send
     destination: Optional[str] = None        # withdraw: free-text (e.g. paypal email)
+<<<<<<< HEAD
     proof_base64: Optional[str] = None       # deposit: photo of the bank transfer (data URL)
+=======
+>>>>>>> cb805eb
     note: Optional[str] = None
 
 
@@ -157,7 +163,10 @@ async def create_funding_request(payload: FundingRequestBody, request: Request):
         "reference": payload.reference,
         "payment_method_id": payload.payment_method_id,
         "destination": payload.destination,
+<<<<<<< HEAD
         "proof_base64": payload.proof_base64 if payload.direction == "deposit" else None,
+=======
+>>>>>>> cb805eb
         "note": payload.note,
         "created_at": now,
         "processed_at": None,
@@ -210,6 +219,7 @@ async def admin_approve_funding_request(request_id: str, request: Request):
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
     new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
+<<<<<<< HEAD
 
     if fr["direction"] == "deposit":
         await _notify_funding_client(
@@ -245,6 +255,9 @@ async def admin_approve_funding_request(request_id: str, request: Request):
          if auto_sent else
          f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been approved and is being sent to your {fr['method']} account."))
     return {"success": True, "status": "approved", "balance": new_bal, "payout_auto": auto_sent}
+=======
+    return {"success": True, "status": "approved", "balance": new_bal}
+>>>>>>> cb805eb
 
 
 @router.post("/admin/wallet/funding-requests/{request_id}/reject")
@@ -258,10 +271,13 @@ async def admin_reject_funding_request(request_id: str, request: Request):
     now = datetime.now(timezone.utc).isoformat()
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "rejected", "processed_at": now, "processed_by": admin.email}})
+<<<<<<< HEAD
     await _notify_funding_client(
         fr["user_id"], "Update on your IslandHop wallet request",
         f"Your {fr['direction']} request for <strong>{fr['currency']} {fr['amount']:,.2f}</strong> could not be completed. "
         "Please check your transfer details or contact support, and feel free to try again.")
+=======
+>>>>>>> cb805eb
     return {"success": True, "status": "rejected"}
 
 
@@ -520,6 +536,7 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
     txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="order_payment",
                             amount=amount, currency="USD", status="completed",
                             order_id=payload.order_id, note="Paid order from wallet")
+<<<<<<< HEAD
     # Offer the now-paid order to available drivers (best-effort).
     try:
         import asyncio
@@ -527,5 +544,7 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
         asyncio.create_task(_ensure_dispatch(payload.order_id))
     except Exception:  # noqa: BLE001
         pass
+=======
+>>>>>>> cb805eb
     return {"success": True, "transaction": txn.dict(),
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}

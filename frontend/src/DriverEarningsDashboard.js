@@ -8,13 +8,19 @@ import { Separator } from './components/ui/separator';
 import {
   TrendingUp, Clock, CheckCircle, Wallet, CreditCard, Info, Loader2, Inbox,
 } from 'lucide-react';
+<<<<<<< HEAD
 import { useCurrency } from './CurrencyContext';
+=======
+>>>>>>> cb805eb
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const DriverEarningsDashboard = () => {
   const navigate = useNavigate();
+<<<<<<< HEAD
   const { format } = useCurrency();
+=======
+>>>>>>> cb805eb
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState({
@@ -24,7 +30,11 @@ const DriverEarningsDashboard = () => {
   useEffect(() => {
     const load = async () => {
       const token = localStorage.getItem('token');
+<<<<<<< HEAD
       const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+=======
+      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+>>>>>>> cb805eb
       try {
         const me = await axios.get(`${API}/drivers/me`, cfg);
         const driverId = me.data?.id;
@@ -58,7 +68,11 @@ const DriverEarningsDashboard = () => {
     load();
   }, []);
 
+<<<<<<< HEAD
   const money = (n) => format(Number(n || 0));
+=======
+  const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+>>>>>>> cb805eb
 
   return (
     <div className="min-h-screen bg-background py-8" data-testid="driver-earnings-page">

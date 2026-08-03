@@ -66,8 +66,11 @@ agenthub/agents/youtube/db
 **/*.zip
 **/*.tar.gz
 **/*.tar
+<<<<<<< HEAD
 # Exception: the downloadable Android project zip MUST deploy so the download endpoint works
 !backend/static/android-project.zip
+=======
+>>>>>>> cb805eb
 **/*.tgz
 *.pack
 *.deb
@@ -93,6 +96,12 @@ frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/6.pack
 frontend/node_modules/.cache/default-development/0.pack
 frontend/node_modules/.cache/default-development/2.pack
+<<<<<<< HEAD
+=======
+.env
+.env.*
+*.env
+>>>>>>> cb805eb
 memory/test_credentials.md
 frontend/node_modules/.cache/default-development/8.pack
 frontend/node_modules/.cache/default-development/1.pack
@@ -104,12 +113,23 @@ frontend/node_modules/.cache/default-development/11.pack
 frontend/node_modules/.cache/default-development/7.pack
 frontend/node_modules/.cache/default-development/14.pack
 frontend/node_modules/.cache/default-development/14.pack
+<<<<<<< HEAD
+=======
+.env
+.env.*
+*.env
+>>>>>>> cb805eb
 
 # Android signing secrets — never commit these
 frontend/android/keystore.properties
 *.jks
 *.keystore
 
+<<<<<<< HEAD
 .env
 .env.*
 *.env
+=======
+# Allow the bundled dev/CI keystore (credentials are known; production builds use secrets)
+!frontend/android/keystore/islandhop-upload.jks
+>>>>>>> cb805eb

@@ -106,7 +106,11 @@ const CustomerSupport = () => {
   const fetchTickets = async () => {
     try {
       const response = await axios.get(`${API}/support/tickets`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setTickets(response.data);
       setLoading(false);
@@ -119,7 +123,11 @@ const CustomerSupport = () => {
   const fetchTicketMessages = async (ticketId) => {
     try {
       const response = await axios.get(`${API}/support/tickets/${ticketId}/messages`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setMessages(response.data);
     } catch (error) {
@@ -132,7 +140,11 @@ const CustomerSupport = () => {
 
     try {
       await axios.post(`${API}/support/tickets`, newTicketData, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       setShowNewTicketModal(false);
@@ -158,7 +170,11 @@ const CustomerSupport = () => {
         message: newMessage,
         sender_type: 'customer'
       }, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       setNewMessage('');
@@ -171,7 +187,11 @@ const CustomerSupport = () => {
   const handleCloseTicket = async (ticketId) => {
     try {
       await axios.put(`${API}/support/tickets/${ticketId}/close`, {}, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchTickets();
       setSelectedTicket(null);

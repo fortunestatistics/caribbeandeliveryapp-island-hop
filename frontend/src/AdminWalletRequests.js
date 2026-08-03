@@ -3,7 +3,10 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+<<<<<<< HEAD
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog';
+=======
+>>>>>>> cb805eb
 import { Landmark, Check, X, RefreshCw, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,7 +17,10 @@ const AdminWalletRequests = () => {
   const [reqs, setReqs] = useState([]);
   const [filter, setFilter] = useState('pending');
   const [loading, setLoading] = useState(false);
+<<<<<<< HEAD
   const [proofView, setProofView] = useState(null);
+=======
+>>>>>>> cb805eb
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,6 +32,7 @@ const AdminWalletRequests = () => {
 
   useEffect(() => { load(); }, [load]);
 
+<<<<<<< HEAD
   const act = async (id, action, r) => {
     const isDep = r?.direction === 'deposit';
     const verb = action === 'approve'
@@ -35,6 +42,12 @@ const AdminWalletRequests = () => {
     try {
       await axios.post(`${API}/admin/wallet/funding-requests/${id}/${action}`, {}, { headers: authHeaders() });
       toast.success(action === 'approve' ? (isDep ? 'Wallet credited & client emailed' : 'Marked paid, wallet debited & client emailed') : 'Rejected & client emailed');
+=======
+  const act = async (id, action) => {
+    try {
+      const r = await axios.post(`${API}/admin/wallet/funding-requests/${id}/${action}`, {}, { headers: authHeaders() });
+      toast.success(action === 'approve' ? 'Approved & wallet updated' : 'Rejected');
+>>>>>>> cb805eb
       load();
     } catch (e) { toast.error(e?.response?.data?.detail || 'Action failed'); }
   };
@@ -66,6 +79,7 @@ const AdminWalletRequests = () => {
                     {r.direction === 'deposit' ? 'Deposit' : 'Withdraw'} {r.amount} {r.currency} · <span className="text-muted-foreground font-normal">{r.method}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">{r.user_email} {r.reference ? `· ref: ${r.reference}` : ''}{r.destination ? `· to: ${r.destination}` : ''}</p>
+<<<<<<< HEAD
                   {r.proof_base64 && (
                     <button
                       type="button"
@@ -83,16 +97,23 @@ const AdminWalletRequests = () => {
                   )}
                   {r.payout_auto && <span className="text-[10px] text-green-500">· auto-paid via PayPal</span>}
                   {r.payout_error && <span className="text-[10px] text-rose-500">· auto-payout failed, send manually</span>}
+=======
+>>>>>>> cb805eb
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Badge className={`text-[10px] ${r.status === 'pending' ? 'bg-amber-500/15 text-amber-500' : r.status === 'approved' ? 'bg-green-500/15 text-green-500' : 'bg-rose-500/15 text-rose-500'}`}>{r.status}</Badge>
                 {r.status === 'pending' && (
                   <>
+<<<<<<< HEAD
                     <Button size="sm" onClick={() => act(r.id, 'approve', r)} data-testid={`approve-${r.id}`}>
                       <Check className="h-4 w-4 mr-1" /> {r.direction === 'deposit' ? 'Mark paid & credit' : 'Send & mark paid'}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => act(r.id, 'reject', r)} data-testid={`reject-${r.id}`}><X className="h-4 w-4" /></Button>
+=======
+                    <Button size="sm" onClick={() => act(r.id, 'approve')} data-testid={`approve-${r.id}`}><Check className="h-4 w-4 mr-1" /> Approve</Button>
+                    <Button size="sm" variant="outline" onClick={() => act(r.id, 'reject')} data-testid={`reject-${r.id}`}><X className="h-4 w-4" /></Button>
+>>>>>>> cb805eb
                   </>
                 )}
               </div>
@@ -100,6 +121,7 @@ const AdminWalletRequests = () => {
           ))}
         </div>
       </CardContent>
+<<<<<<< HEAD
 
       <Dialog open={!!proofView} onOpenChange={(o) => !o && setProofView(null)}>
         <DialogContent className="max-w-3xl" data-testid="proof-viewer-dialog">
@@ -113,6 +135,8 @@ const AdminWalletRequests = () => {
           )}
         </DialogContent>
       </Dialog>
+=======
+>>>>>>> cb805eb
     </Card>
   );
 };

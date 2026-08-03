@@ -6,7 +6,10 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
+<<<<<<< HEAD
 import { storeSession } from './authToken';
+=======
+>>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -38,7 +41,11 @@ const AdminInviteAccept = () => {
     setSubmitting(true);
     try {
       const r = await axios.post(`${API}/auth/invite/accept`, { token, name, password });
+<<<<<<< HEAD
       storeSession(r.data.access_token, r.data.user);
+=======
+      localStorage.setItem('token', r.data.access_token);
+>>>>>>> cb805eb
       toast.success('Welcome to the IslandHop team!');
       window.location.href = '/admin';
     } catch (e) {

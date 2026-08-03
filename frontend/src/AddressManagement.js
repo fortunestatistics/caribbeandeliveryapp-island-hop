@@ -17,7 +17,10 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { useLocationConsent } from './LocationConsentContext';
+<<<<<<< HEAD
 import MapPinPicker from './MapPinPicker';
+=======
+>>>>>>> cb805eb
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -50,7 +53,11 @@ const AddressManagement = () => {
   const fetchAddresses = async () => {
     try {
       const response = await axios.get(`${API}/addresses`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setAddresses(response.data);
       setLoading(false);
@@ -108,11 +115,19 @@ const AddressManagement = () => {
     try {
       if (editingAddress) {
         await axios.put(`${API}/addresses/${editingAddress.id}`, formData, {
+<<<<<<< HEAD
           withCredentials: true
         });
       } else {
         await axios.post(`${API}/addresses`, formData, {
           withCredentials: true
+=======
+          withCredentials: false
+        });
+      } else {
+        await axios.post(`${API}/addresses`, formData, {
+          withCredentials: false
+>>>>>>> cb805eb
         });
       }
 
@@ -130,7 +145,11 @@ const AddressManagement = () => {
 
     try {
       await axios.delete(`${API}/addresses/${addressId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchAddresses();
     } catch (error) {
@@ -142,7 +161,11 @@ const AddressManagement = () => {
   const handleSetDefault = async (addressId) => {
     try {
       await axios.post(`${API}/addresses/${addressId}/set-default`, {}, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchAddresses();
     } catch (error) {
@@ -369,6 +392,7 @@ const AddressManagement = () => {
                     </div>
                   </div>
 
+<<<<<<< HEAD
                   {/* Exact drop-off pin */}
                   <div>
                     <label className="block text-sm font-medium mb-2">Pin your exact drop-off spot</label>
@@ -380,6 +404,8 @@ const AddressManagement = () => {
                     />
                   </div>
 
+=======
+>>>>>>> cb805eb
                   {/* Delivery Instructions */}
                   <div>
                     <label className="block text-sm font-medium mb-2">Delivery Instructions</label>

@@ -29,11 +29,17 @@ const Terms = lazy(() => import('./Terms'));
 const OrderScheduling = lazy(() => import('./OrderScheduling'));
 const CheckoutPage = lazy(() => import('./CheckoutPage').then(m => ({ default: m.CheckoutPage })));
 const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentSuccess })));
+<<<<<<< HEAD
 const WalletPage = lazy(() => import('./WalletPage'));
 const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
 const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
 const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
 const MyOrdersPage = lazy(() => import('./MyOrdersPage'));
+=======
+const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
+const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
+const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
+>>>>>>> cb805eb
 const DriverEarningsDashboard = lazy(() => import('./DriverEarningsDashboard'));
 const BusinessEarningsDashboard = lazy(() => import('./BusinessEarningsDashboard'));
 const AuthPage = lazy(() => import('./AuthPage'));
@@ -60,7 +66,10 @@ const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
 const MerchantAds = lazy(() => import('./MerchantAds'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
+<<<<<<< HEAD
 import RoleSwitcher from './RoleSwitcher';
+=======
+>>>>>>> cb805eb
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
 const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'));
@@ -125,8 +134,12 @@ import {
   Smartphone,
   ArrowRight,
   Search,
+<<<<<<< HEAD
   Megaphone,
   Wallet
+=======
+  Megaphone
+>>>>>>> cb805eb
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -147,6 +160,7 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
 import { LocationConsentProvider } from './LocationConsentContext';
+<<<<<<< HEAD
 import BusinessSearch from './BusinessSearch';import PublicTrack from './PublicTrack';
 import { CartProvider } from './CartContext';
 import { CartButton } from './MultiCart';
@@ -158,6 +172,10 @@ import OfflineSyncManager from './OfflineSync';
 import OrderNotifier from './OrderNotifier';
 import ImpersonationBanner from './ImpersonationBanner';
 import ForcePasswordChange from './ForcePasswordChange';
+=======
+import BusinessSearch from './BusinessSearch';
+import PublicTrack from './PublicTrack';
+>>>>>>> cb805eb
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -275,9 +293,16 @@ const GlobalSearch = () => {
     // Navigate based on result type. Route names must match App.js <Routes>:
     //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
+<<<<<<< HEAD
       // Always open the merchant's own storefront/profile page (type-aware).
       if (result.vendor_type === 'car_rental') {
         navigate('/car-rentals');
+=======
+      if (result.vendor_type === 'pharmacy') {
+        navigate('/pharmacy-order');
+      } else if (result.vendor_type === 'grocery') {
+        navigate('/grocery-order');
+>>>>>>> cb805eb
       } else {
         navigate(`/restaurant/${result.id}`);
       }
@@ -557,10 +582,15 @@ const Header = () => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <UnreadChatBell />
+<<<<<<< HEAD
                   <CartButton />
                   <CurrencySwitcher />
                   <ModeSwitcher />
                   <RoleSwitcher />
+=======
+                  <CurrencySwitcher />
+                  <ModeSwitcher />
+>>>>>>> cb805eb
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
                     Dashboard
@@ -571,7 +601,10 @@ const Header = () => {
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
+<<<<<<< HEAD
                   <CartButton />
+=======
+>>>>>>> cb805eb
                   <CurrencySwitcher />
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
@@ -1481,7 +1514,11 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API}/business/onboarding`, {
+<<<<<<< HEAD
         withCredentials: true,
+=======
+        withCredentials: false,
+>>>>>>> cb805eb
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setApplications(response.data);
@@ -1563,11 +1600,15 @@ const Dashboard = () => {
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
                   onClick={() => navigate('/track')}
+<<<<<<< HEAD
                   data-testid="quick-action-track"
+=======
+>>>>>>> cb805eb
                 >
                   <MapPin className="h-6 w-6" />
                   <span className="text-sm">Track Order</span>
                 </Button>
+<<<<<<< HEAD
 
                 <Button
                   variant="outline"
@@ -1578,6 +1619,8 @@ const Dashboard = () => {
                   <Wallet className="h-6 w-6" />
                   <span className="text-sm">Wallet</span>
                 </Button>
+=======
+>>>>>>> cb805eb
                 
                 <Button
                   variant="outline"
@@ -1830,7 +1873,11 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       toast({
@@ -2057,7 +2104,10 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <CurrencyProvider>
+<<<<<<< HEAD
         <CartProvider>
+=======
+>>>>>>> cb805eb
         <LocationConsentProvider>
         <Router>
           <div className="min-h-screen bg-background">
@@ -2095,23 +2145,33 @@ function App() {
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/join/:code" element={<JoinLanding />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
+<<<<<<< HEAD
             <Route path="/track" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
+=======
+>>>>>>> cb805eb
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+<<<<<<< HEAD
             <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
+=======
+            <Route path="/wallet" element={<Navigate to="/dashboard" replace />} />
+>>>>>>> cb805eb
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/promote" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />
             <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
             <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+<<<<<<< HEAD
             <Route path="/cart" element={<MultiCartPage />} />
             <Route path="/checkout-group" element={<ProtectedRoute><MultiCheckoutPage /></ProtectedRoute>} />
             <Route path="/technology" element={<TechnologyPage />} />
             <Route path="/admin/dispatch" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminDispatch /></ProtectedRoute>} />
+=======
+>>>>>>> cb805eb
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
 
@@ -2150,17 +2210,23 @@ function App() {
 
           <Footer />
           <Toaster />
+<<<<<<< HEAD
           <OfflineSyncManager />
           <OrderNotifier />
           <ImpersonationBanner />
           <ForcePasswordChange />
+=======
+>>>>>>> cb805eb
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>
         </div>
       </Router>
       </LocationConsentProvider>
+<<<<<<< HEAD
       </CartProvider>
+=======
+>>>>>>> cb805eb
       </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>

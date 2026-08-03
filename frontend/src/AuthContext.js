@@ -4,10 +4,13 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+<<<<<<< HEAD
 // Send the httpOnly auth cookie on EVERY axios request (web relies on it; the real
 // JWT is no longer kept in localStorage). Runs at module load, before any request.
 axios.defaults.withCredentials = true;
 
+=======
+>>>>>>> cb805eb
 // Attach the stored JWT to ALL axios requests globally so components using the raw
 // `axios` import (driver/vendor dashboards, etc.) are authenticated. Runs at module
 // load, before any component mounts.
@@ -35,12 +38,15 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+<<<<<<< HEAD
   const [impersonation, setImpersonation] = useState(() => {
     try {
       const raw = localStorage.getItem('impersonation');
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
   });
+=======
+>>>>>>> cb805eb
 
   const checkAuth = async () => {
     try {
@@ -48,7 +54,11 @@ export const AuthProvider = ({ children }) => {
       applyAuthToken(token);
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const response = await axios.get(`${API}/auth/me`, {
+<<<<<<< HEAD
         withCredentials: true,
+=======
+        withCredentials: false,
+>>>>>>> cb805eb
         headers,
         validateStatus: (status) => status < 500,
       });
@@ -67,6 +77,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+<<<<<<< HEAD
   // Force Re-login: re-fetch the current user (called on a WS 'session_refresh' after an admin repair).
   const refreshUser = async () => { await checkAuth(); };
 
@@ -105,6 +116,11 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
+=======
+  const logout = async () => {
+    try {
+      await axios.post(`${API}/auth/logout`, {}, { withCredentials: false });
+>>>>>>> cb805eb
     } catch (error) {
       console.error('Logout request failed:', error);
     }
@@ -120,7 +136,11 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
+<<<<<<< HEAD
   const value = useMemo(() => ({ user, logout, loading, impersonation, impersonate, exitImpersonation, refreshUser }), [user, loading, impersonation]);
+=======
+  const value = useMemo(() => ({ user, logout, loading }), [user, loading]);
+>>>>>>> cb805eb
 
   return (
     <AuthContext.Provider value={value}>

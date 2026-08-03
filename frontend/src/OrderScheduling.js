@@ -47,7 +47,11 @@ const OrderScheduling = () => {
   const fetchScheduledOrders = async () => {
     try {
       const response = await axios.get(`${API}/scheduled-orders`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setScheduledOrders(response.data);
       setLoading(false);
@@ -60,7 +64,11 @@ const OrderScheduling = () => {
   const fetchRecurringOrders = async () => {
     try {
       const response = await axios.get(`${API}/recurring-orders`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       setRecurringOrders(response.data);
     } catch (error) {
@@ -73,7 +81,11 @@ const OrderScheduling = () => {
 
     try {
       await axios.post(`${API}/scheduled-orders`, scheduleData, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
 
       setShowScheduleModal(false);
@@ -93,7 +105,11 @@ const OrderScheduling = () => {
 
     try {
       await axios.delete(`${API}/scheduled-orders/${orderId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchScheduledOrders();
     } catch (error) {
@@ -107,7 +123,11 @@ const OrderScheduling = () => {
 
     try {
       await axios.delete(`${API}/recurring-orders/${recurringId}`, {
+<<<<<<< HEAD
         withCredentials: true
+=======
+        withCredentials: false
+>>>>>>> cb805eb
       });
       fetchRecurringOrders();
       fetchScheduledOrders();

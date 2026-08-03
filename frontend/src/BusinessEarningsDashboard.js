@@ -19,12 +19,18 @@ import {
   PieChart,
   AlertCircle
 } from 'lucide-react';
+<<<<<<< HEAD
 import { useCurrency } from './CurrencyContext';
 
 const BusinessEarningsDashboard = () => {
   const navigate = useNavigate();
   const { format } = useCurrency();
   const money = (n) => format(Number(n || 0));
+=======
+
+const BusinessEarningsDashboard = () => {
+  const navigate = useNavigate();
+>>>>>>> cb805eb
   const [timeRange, setTimeRange] = useState('week');
 
   // Demo data - replace with API call
@@ -161,7 +167,11 @@ const BusinessEarningsDashboard = () => {
                 <Badge className="bg-green-100 text-green-700">Available</Badge>
               </div>
               <p className="text-sm text-muted-foreground mb-1">Current Balance</p>
+<<<<<<< HEAD
               <h3 className="text-2xl font-bold text-foreground">{money(earningsData.currentBalance)}</h3>
+=======
+              <h3 className="text-2xl font-bold text-foreground">${earningsData.currentBalance.toFixed(2)}</h3>
+>>>>>>> cb805eb
               <Button 
                 size="sm" 
                 className="w-full mt-4 bg-gradient-to-r from-green-500 to-green-600 text-white"
@@ -181,7 +191,11 @@ const BusinessEarningsDashboard = () => {
                 <Badge className="bg-gold-500/15 text-yellow-700">Processing</Badge>
               </div>
               <p className="text-sm text-muted-foreground mb-1">Pending Earnings</p>
+<<<<<<< HEAD
               <h3 className="text-2xl font-bold text-foreground">{money(earningsData.pendingEarnings)}</h3>
+=======
+              <h3 className="text-2xl font-bold text-foreground">${earningsData.pendingEarnings.toFixed(2)}</h3>
+>>>>>>> cb805eb
               <p className="text-xs text-muted-foreground mt-2">Available in 24-48 hours</p>
             </CardContent>
           </Card>
@@ -194,7 +208,11 @@ const BusinessEarningsDashboard = () => {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground mb-1">Weekly Revenue</p>
+<<<<<<< HEAD
               <h3 className="text-2xl font-bold text-foreground">{money(earningsData.weeklyRevenue)}</h3>
+=======
+              <h3 className="text-2xl font-bold text-foreground">${earningsData.weeklyRevenue.toFixed(2)}</h3>
+>>>>>>> cb805eb
               <div className="flex items-center text-sm text-green-600 mt-2">
                 <ArrowUpRight className="h-4 w-4 mr-1" />
                 <span>+18% from last week</span>
@@ -211,7 +229,11 @@ const BusinessEarningsDashboard = () => {
               </div>
               <p className="text-sm text-muted-foreground mb-1">Total Orders</p>
               <h3 className="text-2xl font-bold text-foreground">{earningsData.totalOrders}</h3>
+<<<<<<< HEAD
               <p className="text-xs text-muted-foreground mt-2">Avg: {money(earningsData.averageOrderValue)}/order</p>
+=======
+              <p className="text-xs text-muted-foreground mt-2">Avg: ${earningsData.averageOrderValue.toFixed(2)}/order</p>
+>>>>>>> cb805eb
             </CardContent>
           </Card>
         </div>
@@ -340,7 +362,11 @@ const BusinessEarningsDashboard = () => {
                           <p className="text-xs text-muted-foreground">{order.date}</p>
                         </div>
                         <div className="text-right">
+<<<<<<< HEAD
                           <p className="text-2xl font-bold text-green-600">+{money(order.yourEarnings)}</p>
+=======
+                          <p className="text-2xl font-bold text-green-600">+${order.yourEarnings.toFixed(2)}</p>
+>>>>>>> cb805eb
                           <p className="text-xs text-muted-foreground">Your Revenue</p>
                         </div>
                       </div>
@@ -361,25 +387,45 @@ const BusinessEarningsDashboard = () => {
                       <div className="bg-background rounded-lg p-3 space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Order Subtotal:</span>
+<<<<<<< HEAD
                           <span className="text-foreground font-semibold">{money(order.orderSubtotal)}</span>
                         </div>
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Delivery Fee (driver):</span>
                           <span className="text-muted-foreground">{money(order.deliveryFee)}</span>
+=======
+                          <span className="text-foreground font-semibold">${order.orderSubtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Delivery Fee (driver):</span>
+                          <span className="text-muted-foreground">${order.deliveryFee.toFixed(2)}</span>
+>>>>>>> cb805eb
                         </div>
                         <Separator />
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Platform Commission (15%):</span>
+<<<<<<< HEAD
                           <span className="text-red-600">-{money(order.platformCommission)}</span>
                         </div>
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Payment Processing:</span>
                           <span className="text-red-600">-{money(order.paymentProcessing)}</span>
+=======
+                          <span className="text-red-600">{order.platformCommission.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Payment Processing:</span>
+                          <span className="text-red-600">{order.paymentProcessing.toFixed(2)}</span>
+>>>>>>> cb805eb
                         </div>
                         <Separator />
                         <div className="flex justify-between font-semibold">
                           <span className="text-foreground">Your Net Revenue:</span>
+<<<<<<< HEAD
                           <span className="text-green-600">{money(order.yourEarnings)}</span>
+=======
+                          <span className="text-green-600">${order.yourEarnings.toFixed(2)}</span>
+>>>>>>> cb805eb
                         </div>
                       </div>
 
@@ -415,7 +461,11 @@ const BusinessEarningsDashboard = () => {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Payout Amount:</span>
+<<<<<<< HEAD
                     <span className="font-semibold text-foreground">{money(earningsData.currentBalance)}</span>
+=======
+                    <span className="font-semibold text-foreground">${earningsData.currentBalance.toFixed(2)}</span>
+>>>>>>> cb805eb
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Payout Method:</span>
@@ -443,7 +493,11 @@ const BusinessEarningsDashboard = () => {
               <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Amount:</span>
+<<<<<<< HEAD
                   <span className="text-xl font-bold text-green-600">{money(earningsData.lastPayout.amount)}</span>
+=======
+                  <span className="text-xl font-bold text-green-600">${earningsData.lastPayout.amount.toFixed(2)}</span>
+>>>>>>> cb805eb
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm text-muted-foreground">Date:</span>
@@ -495,6 +549,7 @@ const BusinessEarningsDashboard = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Total Revenue (All Time):</span>
+<<<<<<< HEAD
                     <span className="font-semibold text-foreground">{money(earningsData.totalEarnings)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -504,11 +559,26 @@ const BusinessEarningsDashboard = () => {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">This Week:</span>
                     <span className="font-semibold text-foreground">{money(earningsData.weeklyRevenue)}</span>
+=======
+                    <span className="font-semibold text-foreground">${earningsData.totalEarnings.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">This Month:</span>
+                    <span className="font-semibold text-foreground">${earningsData.monthlyRevenue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">This Week:</span>
+                    <span className="font-semibold text-foreground">${earningsData.weeklyRevenue.toFixed(2)}</span>
+>>>>>>> cb805eb
                   </div>
                   <Separator />
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Average Order Value:</span>
+<<<<<<< HEAD
                     <span className="font-semibold text-foreground">{money(earningsData.averageOrderValue)}</span>
+=======
+                    <span className="font-semibold text-foreground">${earningsData.averageOrderValue.toFixed(2)}</span>
+>>>>>>> cb805eb
                   </div>
                 </div>
               </CardContent>

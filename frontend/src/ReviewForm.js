@@ -63,8 +63,12 @@ const ReviewForm = ({ orderId, showDriver = true, showVendor = true, onClose, on
   }, [orderId]);
 
   const submit = async () => {
+<<<<<<< HEAD
     const hasRating = (showDriver && driverRating > 0) || (showVendor && vendorRating > 0);
     if (!hasRating) {
+=======
+    if (showDriver && driverRating === 0 && showVendor && vendorRating === 0) {
+>>>>>>> cb805eb
       setError('Please rate at least one of: driver or merchant');
       return;
     }

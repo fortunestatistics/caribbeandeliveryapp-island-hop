@@ -4,12 +4,43 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
+<<<<<<< HEAD
 import { Camera, MapPin, User as UserIcon, Loader2, CheckCircle2, Landmark } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from './services/api';
 import { useAuth } from './AuthContext';
 import { fileToConstrainedDataURL } from './imageUtils';
 import { MaskedField } from './BankAccountSection';
+=======
+import { Camera, MapPin, User as UserIcon, Loader2, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { authAPI } from './services/api';
+import { useAuth } from './AuthContext';
+
+const MAX_DIM = 400; // resize avatar to keep base64 small
+
+// Resize + compress an image file into a base64 data URL.
+const fileToResizedDataURL = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+>>>>>>> cb805eb
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -19,7 +50,10 @@ const ProfilePage = () => {
   const [form, setForm] = useState({
     name: '', phone: '', picture: '',
     street: '', city: '', country: '',
+<<<<<<< HEAD
     bank_name: '', account_name: '', account_number: '', branch: '',
+=======
+>>>>>>> cb805eb
   });
 
   useEffect(() => {
@@ -32,10 +66,13 @@ const ProfilePage = () => {
       street: user.address?.street || '',
       city: user.address?.city || '',
       country: user.address?.country || '',
+<<<<<<< HEAD
       bank_name: user.banking_info?.bank_name || '',
       account_name: user.banking_info?.account_name || '',
       account_number: user.banking_info?.account_number || '',
       branch: user.banking_info?.branch || '',
+=======
+>>>>>>> cb805eb
     });
   }, [user, authLoading, navigate]);
 
@@ -47,10 +84,17 @@ const ProfilePage = () => {
       return;
     }
     try {
+<<<<<<< HEAD
       const dataUrl = await fileToConstrainedDataURL(file, 400, 2_800_000);
       setForm((f) => ({ ...f, picture: dataUrl }));
     } catch (_e) {
       toast.error('Could not process that image. Please try a smaller one.');
+=======
+      const dataUrl = await fileToResizedDataURL(file);
+      setForm((f) => ({ ...f, picture: dataUrl }));
+    } catch (_e) {
+      toast.error('Could not read that image. Try another.');
+>>>>>>> cb805eb
     }
   };
 
@@ -67,10 +111,13 @@ const ProfilePage = () => {
         phone: form.phone || undefined,
         picture: form.picture,
         address: { street: form.street, city: form.city, country: form.country },
+<<<<<<< HEAD
         banking_info: {
           bank_name: form.bank_name, account_name: form.account_name,
           account_number: form.account_number, branch: form.branch,
         },
+=======
+>>>>>>> cb805eb
       });
       localStorage.setItem('user', JSON.stringify(res.data));
       toast.success('Profile updated!');
@@ -169,6 +216,7 @@ const ProfilePage = () => {
               </div>
             </div>
 
+<<<<<<< HEAD
             {/* Banking (optional — for refunds & payouts) */}
             <div className="pt-2 border-t">
               <p className="font-medium text-foreground flex items-center gap-2 mb-1 mt-3">
@@ -195,6 +243,8 @@ const ProfilePage = () => {
               </div>
             </div>
 
+=======
+>>>>>>> cb805eb
             <Button onClick={handleSave} disabled={saving} className="w-full" data-testid="profile-save-btn">
               {saving ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>) : 'Save Profile'}
             </Button>

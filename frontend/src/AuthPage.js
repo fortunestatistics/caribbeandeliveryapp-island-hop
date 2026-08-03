@@ -20,7 +20,10 @@ import {
 import { authAPI } from './services/api';
 import OTPVerification from './OTPVerification';
 import { Checkbox } from './components/ui/checkbox';
+<<<<<<< HEAD
 import { storeSession } from './authToken';
+=======
+>>>>>>> cb805eb
 import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -90,8 +93,13 @@ const AuthPage = ({ mode = 'login' }) => {
         });
         
         // Save token and user
+<<<<<<< HEAD
         localStorage.setItem('user', JSON.stringify(response.data.user));
         storeSession(response.data.access_token, response.data.user);
+=======
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+>>>>>>> cb805eb
         
         // Full reload so AuthContext re-initializes from the new token
         // (SPA navigate() leaves stale auth state and bounces back to /login).
@@ -110,8 +118,13 @@ const AuthPage = ({ mode = 'login' }) => {
         });
         
         // Save token and user
+<<<<<<< HEAD
         localStorage.setItem('user', JSON.stringify(response.data.user));
         storeSession(response.data.access_token, response.data.user);
+=======
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+>>>>>>> cb805eb
         
         // Full reload so AuthContext re-initializes from the new token.
         window.location.href = '/dashboard';
@@ -169,11 +182,19 @@ const AuthPage = ({ mode = 'login' }) => {
       <div className="container mx-auto px-4 max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
+<<<<<<< HEAD
           <img
             src={require('./assets/islandhop-logo.png')}
             alt="IslandHop"
             className="mx-auto mb-3 w-40 h-auto"
           />
+=======
+          <h1 className="text-4xl font-bold mb-2">
+            <span className="text-transparent bg-clip-text bg-gold-gradient">
+              IslandHop
+            </span>
+          </h1>
+>>>>>>> cb805eb
           <p className="text-muted-foreground">Caribbean Delivery</p>
         </div>
 
