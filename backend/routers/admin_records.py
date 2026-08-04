@@ -113,11 +113,25 @@ def _clean_full(doc: dict, category: str) -> dict:
     return full
 
 
+_PENDING_APP_STATUSES = [
+    "pending", "pending_approval", "pending_review", "under_review", "submitted",
+    "applied", "new", "incomplete", "draft", "started", "unverified",
+    "identity_pending", "verifying", "id_pending", "identity_review", "identity",
+]
+_IDCHECK_STATUSES = ["identity_pending", "verifying", "id_pending", "identity_review", "identity"]
+_INCOMPLETE_STATUSES = ["incomplete", "draft", "started", "unverified"]
+
+
 @router.get("/admin/records/{category}")
 async def admin_list_records(category: str, request: Request, q: Optional[str] = None, status: Optional[str] = None, limit: int = 500):
     """Admin: all records of a category (any status) with full submitted data.
     category ∈ restaurants | drivers | car_rentals | businesses | users.
-    Optional `status` filter: 'pending' (new applications) or a specific status; ignored for users."""
+    Optional `status` filter:
+      - 'pending'    → every application awaiting a decision (broad, non-terminal)
+      - 'id_check'   → stuck in identity verification
+      - 'incomplete' → started but not fully submitted
+      - a specific status string → exact match
+    A search query (`q`) always searches across ALL statuses so no applicant is ever hidden."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -129,17 +143,26 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
         rx = {"$regex": re.escape(q), "$options": "i"}
         fields = {
             "restaurants": ["name", "email", "phone"],
-            "drivers": ["name", "email", "phone", "license_number", "vehicle_plate"],
-            "car_rentals": ["company_name"],
-            "businesses": ["business_name", "email", "phone"],
+            "drivers": ["name", "email", "phone", "license_number", "vehicle_plate",
+                        "personal_info.name", "personal_info.email", "personal_info.phone"],
+            "car_rentals": ["company_name", "contact_info.email", "contact_info.phone"],
+            "businesses": ["business_name", "email", "phone", "business_owner.name", "business_owner.email"],
             "shops": ["business_name", "email", "phone"],
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
     st = (status or "").lower().strip()
-    if st and st != "all" and category != "users":
+    # A search must find applicants in ANY status, so only apply a status filter when NOT searching.
+    if st and st != "all" and category != "users" and not q:
         sf = _RECORD_CATEGORIES[category]["status_field"]
-        query[sf] = {"$in": ["pending", "pending_approval"]} if st == "pending" else st
+        if st == "pending":
+            query[sf] = {"$in": _PENDING_APP_STATUSES}
+        elif st == "id_check":
+            query[sf] = {"$in": _IDCHECK_STATUSES}
+        elif st == "incomplete":
+            query[sf] = {"$in": _INCOMPLETE_STATUSES}
+        else:
+            query[sf] = st
     cap = min(limit, 2000)
     records = []
     async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):

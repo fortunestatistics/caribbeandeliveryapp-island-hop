@@ -390,8 +390,11 @@ const AdminApprovals = () => {
           >
             <CheckCircle className="h-4 w-4 mr-2" />Ready to approve
           </Button>
-          <div className="flex items-center gap-1 rounded-lg border border-border p-1" data-testid="approvals-status-filter">
-            {[['pending', 'New Applications'], ['all', 'All Records']].map(([val, label]) => (
+          <div className="flex items-center gap-1 rounded-lg border border-border p-1 flex-wrap" data-testid="approvals-status-filter">
+            {(APPLICATION_CATEGORIES.has(active)
+              ? [['pending', 'New'], ['id_check', 'ID Check'], ['incomplete', 'Incomplete'], ['all', 'All']]
+              : [['pending', 'New Applications'], ['all', 'All Records']]
+            ).map(([val, label]) => (
               <Button
                 key={val}
                 size="sm"

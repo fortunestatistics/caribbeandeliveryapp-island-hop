@@ -12951,75 +12951,129 @@ async def admin_cleanup_execute(request: Request):
 
 
 
+_TERMINAL_DRIVER_STATUSES = [
+    "active", "approved", "online", "offline", "busy", "on_delivery", "en_route",
+    "delivering", "available", "rejected", "suspended", "deactivated", "banned",
+    "disabled", "deleted",
+]
+
+
+async def _serialize_driver_applicant(d: dict) -> dict:
+    pi = d.get("personal_info") or {}
+    docs = []
+    if d.get("user_id"):
+        async for doc in db.driver_documents.find(
+            {"user_id": d["user_id"], "is_deleted": False},
+            {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1},
+        ):
+            docs.append({"document_id": doc["id"], "doc_type": doc.get("doc_type"), "filename": doc.get("original_filename")})
+    return {
+        "id": d.get("id"), "user_id": d.get("user_id"),
+        "name": d.get("name") or pi.get("name"),
+        "email": d.get("email") or pi.get("email"),
+        "phone": d.get("phone") or pi.get("phone"),
+        "city": d.get("city") or pi.get("city"),
+        "status": d.get("status") or "pending",
+        "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
+        "license_number": d.get("license_number"),
+        "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),
+        "created_at": d.get("created_at"), "documents": docs,
+    }
+
+
+def _serialize_merchant_applicant(b: dict) -> dict:
+    bd = b.get("business_details") or {}
+    bo = b.get("business_owner") or {}
+    raw_docs = b.get("documents") or bd.get("documents") or {}
+    docs = []
+    if isinstance(raw_docs, dict):
+        for k, v in raw_docs.items():
+            if v:
+                docs.append({"label": k, "url": v})
+    elif isinstance(raw_docs, list):
+        for it in raw_docs:
+            docs.append(it if isinstance(it, dict) else {"label": "document", "url": it})
+    return {
+        "id": b.get("id"), "user_id": b.get("user_id"),
+        "business_name": b.get("business_name") or bd.get("business_name"),
+        "owner_name": bo.get("name"),
+        "email": b.get("email") or bo.get("email"),
+        "phone": b.get("phone") or bo.get("phone"),
+        "business_type": bd.get("business_type"),
+        "status": b.get("verification_status") or b.get("status") or "pending",
+        "address": bd.get("address") or bo.get("address"),
+        "description": bd.get("description"), "website": bd.get("website"),
+        "source": b.get("source"), "is_external_lead": bool(b.get("is_external_lead")),
+        "created_at": b.get("created_at") or b.get("application_date"), "documents": docs,
+    }
+
+
 @api_router.get("/admin/applicants")
 async def admin_list_applicants(request: Request):
-    """Admin-only: full detail of pending Driver + Merchant applications, incl. uploaded files."""
+    """Admin-only: full detail of pending Driver + Merchant applications, incl. uploaded files.
+
+    Shows every driver awaiting an admin decision — EXCLUDES only operational/terminal
+    statuses rather than matching one exact "pending" string, so applicants left in
+    "pending_approval", "identity_pending", "under_review", "incomplete" etc. by the
+    Stripe-Identity flow are never hidden."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # Show every driver awaiting an admin decision. We EXCLUDE only operational/terminal
-    # statuses (approved & working, or already rejected) rather than matching one exact
-    # "pending" string — applicants can be left in "pending_approval", "identity_pending",
-    # "under_review", "incomplete" etc. by the Stripe-Identity flow, and those must NOT be hidden.
-    _TERMINAL_DRIVER_STATUSES = [
-        "active", "approved", "online", "offline", "busy", "on_delivery", "en_route",
-        "delivering", "available", "rejected", "suspended", "deactivated", "banned",
-        "disabled", "deleted",
-    ]
     drivers = []
     async for d in db.drivers.find(
         {"status": {"$nin": _TERMINAL_DRIVER_STATUSES}}, {"_id": 0}
     ).sort("created_at", -1).limit(500):
-        pi = d.get("personal_info") or {}
-        docs = []
-        if d.get("user_id"):
-            async for doc in db.driver_documents.find(
-                {"user_id": d["user_id"], "is_deleted": False},
-                {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1},
-            ):
-                docs.append({"document_id": doc["id"], "doc_type": doc.get("doc_type"), "filename": doc.get("original_filename")})
-        drivers.append({
-            "id": d.get("id"), "user_id": d.get("user_id"),
-            "name": d.get("name") or pi.get("name"),
-            "email": d.get("email") or pi.get("email"),
-            "phone": d.get("phone") or pi.get("phone"),
-            "city": d.get("city") or pi.get("city"),
-            "status": d.get("status") or "pending",
-            "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
-            "license_number": d.get("license_number"),
-            "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),
-            "created_at": d.get("created_at"), "documents": docs,
-        })
+        drivers.append(await _serialize_driver_applicant(d))
 
     merchants = []
-    async for b in db.business_applications.find({"verification_status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
-        bd = b.get("business_details") or {}
-        bo = b.get("business_owner") or {}
-        raw_docs = b.get("documents") or bd.get("documents") or {}
-        docs = []
-        if isinstance(raw_docs, dict):
-            for k, v in raw_docs.items():
-                if v:
-                    docs.append({"label": k, "url": v})
-        elif isinstance(raw_docs, list):
-            for it in raw_docs:
-                docs.append(it if isinstance(it, dict) else {"label": "document", "url": it})
-        merchants.append({
-            "id": b.get("id"), "user_id": b.get("user_id"),
-            "business_name": b.get("business_name") or bd.get("business_name"),
-            "owner_name": bo.get("name"),
-            "email": b.get("email") or bo.get("email"),
-            "phone": b.get("phone") or bo.get("phone"),
-            "business_type": bd.get("business_type"),
-            "address": bd.get("address") or bo.get("address"),
-            "description": bd.get("description"), "website": bd.get("website"),
-            "source": b.get("source"), "is_external_lead": bool(b.get("is_external_lead")),
-            "created_at": b.get("created_at") or b.get("application_date"), "documents": docs,
-        })
+    async for b in db.business_applications.find(
+        {"verification_status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).limit(500):
+        merchants.append(_serialize_merchant_applicant(b))
 
     return {"drivers": drivers, "merchants": merchants,
             "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
+
+
+@api_router.get("/admin/applicants/search")
+async def admin_search_applicants(request: Request, q: str = ""):
+    """Admin-only: find ANY driver or merchant applicant by name / email / phone —
+    regardless of status. Catches edge cases the default queue hides (already approved,
+    rejected, external website leads, odd statuses)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"drivers": [], "merchants": [], "query": q,
+                "counts": {"drivers": 0, "merchants": 0}}
+
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    driver_query = {"$or": [
+        {"name": rx}, {"email": rx}, {"phone": rx}, {"vehicle_plate": rx},
+        {"license_number": rx},
+        {"personal_info.name": rx}, {"personal_info.email": rx},
+        {"personal_info.phone": rx}, {"personal_info.city": rx},
+    ]}
+    drivers = []
+    async for d in db.drivers.find(driver_query, {"_id": 0}).sort("created_at", -1).limit(100):
+        drivers.append(await _serialize_driver_applicant(d))
+
+    biz_query = {"$or": [
+        {"business_name": rx}, {"email": rx}, {"phone": rx},
+        {"business_owner.name": rx}, {"business_owner.email": rx},
+        {"business_owner.phone": rx}, {"business_details.business_name": rx},
+    ]}
+    merchants = []
+    async for b in db.business_applications.find(biz_query, {"_id": 0}).sort("created_at", -1).limit(100):
+        merchants.append(_serialize_merchant_applicant(b))
+
+    return {"drivers": drivers, "merchants": merchants, "query": q,
+            "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
+
+
 
 
 @api_router.post("/admin/impersonate/{user_id}")

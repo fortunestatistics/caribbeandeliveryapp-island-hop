@@ -3,7 +3,8 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { Car, Store, Mail, Phone, MapPin, FileText, LogIn, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
+import { Input } from './components/ui/input';
+import { Car, Store, Mail, Phone, MapPin, FileText, LogIn, Loader2, RefreshCw, ExternalLink, Search, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
@@ -18,14 +19,31 @@ const InfoRow = ({ icon: Icon, children }) => (
   </div>
 );
 
+// Map a raw driver status to a queue category for the filter sub-tabs.
+const STATUS_CATEGORIES = {
+  pending: ['pending', 'pending_approval', 'under_review', 'submitted', 'applied', 'new', ''],
+  id_check: ['identity_pending', 'verifying', 'id_pending', 'identity_review', 'identity'],
+  incomplete: ['incomplete', 'draft', 'started', 'unverified'],
+};
+const categoryOf = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (STATUS_CATEGORIES.id_check.includes(s)) return 'id_check';
+  if (STATUS_CATEGORIES.incomplete.includes(s)) return 'incomplete';
+  return 'pending';
+};
+
 const AdminApplicants = () => {
   const navigate = useNavigate();
   const { impersonate: startImpersonation } = useAuth();
   const [data, setData] = useState({ drivers: [], merchants: [], counts: {} });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('drivers');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
 
   const load = async () => {
     setLoading(true); setError('');
@@ -39,6 +57,25 @@ const AdminApplicants = () => {
     }
   };
   useEffect(() => { load(); }, []);
+
+  const runSearch = async (e) => {
+    if (e) e.preventDefault();
+    const q = query.trim();
+    if (q.length < 2) { setSearchResults(null); return; }
+    setSearching(true); setError('');
+    try {
+      const res = await axios.get(`${API}/admin/applicants/search`, {
+        params: { q }, headers: authHeaders(),
+      });
+      setSearchResults(res.data);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const clearSearch = () => { setQuery(''); setSearchResults(null); setError(''); };
 
   const viewPortal = async (userId, name, isExternal) => {
     if (isExternal || !userId) {
@@ -57,7 +94,22 @@ const AdminApplicants = () => {
 
   const driverDocUrl = (docId) => `${API}/drivers/documents/${docId}/download?auth=${encodeURIComponent(token())}`;
 
-  const list = tab === 'drivers' ? data.drivers : data.merchants;
+  const isSearchMode = !!searchResults;
+  const source = isSearchMode ? searchResults : data;
+  let list = tab === 'drivers' ? (source.drivers || []) : (source.merchants || []);
+  if (tab === 'drivers' && !isSearchMode && statusFilter !== 'all') {
+    list = list.filter((a) => categoryOf(a.status) === statusFilter);
+  }
+
+  const driverCatCounts = (data.drivers || []).reduce((acc, a) => {
+    const c = categoryOf(a.status); acc[c] = (acc[c] || 0) + 1; return acc;
+  }, {});
+  const STATUS_TABS = [
+    { key: 'all', label: 'All', count: (data.drivers || []).length },
+    { key: 'pending', label: 'Pending', count: driverCatCounts.pending || 0 },
+    { key: 'id_check', label: 'ID Check', count: driverCatCounts.id_check || 0 },
+    { key: 'incomplete', label: 'Incomplete', count: driverCatCounts.incomplete || 0 },
+  ];
 
   return (
     <div className="space-y-6" data-testid="admin-applicants-section">
@@ -75,10 +127,57 @@ const AdminApplicants = () => {
         </Button>
       </div>
 
+      {/* Search any applicant by name / email / phone — finds edge cases the queue hides */}
+      <form onSubmit={runSearch} className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-md">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search applicants by name, email or phone…"
+            className="pl-9"
+            data-testid="applicants-search-input"
+          />
+        </div>
+        <Button type="submit" disabled={searching || query.trim().length < 2} data-testid="applicants-search-btn">
+          {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+        </Button>
+        {isSearchMode && (
+          <Button type="button" variant="ghost" onClick={clearSearch} data-testid="applicants-search-clear">
+            <X className="h-4 w-4 mr-1" /> Clear
+          </Button>
+        )}
+      </form>
+
+      {isSearchMode && (
+        <p className="text-sm text-muted-foreground" data-testid="applicants-search-summary">
+          Search results for “{searchResults.query}” — {searchResults.counts?.drivers ?? 0} driver(s), {searchResults.counts?.merchants ?? 0} merchant(s).
+        </p>
+      )}
+
+      {/* Driver status filter sub-tabs (hidden while searching) */}
+      {tab === 'drivers' && !isSearchMode && (
+        <div className="flex flex-wrap gap-2" data-testid="applicants-status-filters">
+          {STATUS_TABS.map((s) => (
+            <Button
+              key={s.key}
+              size="sm"
+              variant={statusFilter === s.key ? 'default' : 'outline'}
+              onClick={() => setStatusFilter(s.key)}
+              data-testid={`applicants-status-filter-${s.key}`}
+            >
+              {s.label} ({s.count})
+            </Button>
+          ))}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600" data-testid="applicants-error">{error}</p>}
 
       {!loading && list.length === 0 && (
-        <p className="text-sm text-muted-foreground" data-testid="applicants-empty">No pending {tab} applications.</p>
+        <p className="text-sm text-muted-foreground" data-testid="applicants-empty">
+          {isSearchMode ? `No ${tab} match your search.` : `No ${tab} applications in this view.`}
+        </p>
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -93,7 +192,7 @@ const AdminApplicants = () => {
                   ? <Badge variant="secondary">Website lead</Badge>
                   : <Badge variant="outline">In-app</Badge>}
               </div>
-              {tab === 'drivers' && a.status && a.status !== 'pending' && (
+              {a.status && a.status !== 'pending' && (
                 <Badge variant="secondary" className="mt-1 w-fit capitalize" data-testid={`applicant-status-${a.id}`}>
                   {String(a.status).replace(/_/g, ' ')}
                 </Badge>

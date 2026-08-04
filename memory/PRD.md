@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Applicant search + status-filter tabs (and the REAL "not populating" fix)
+- **Key discovery:** `AdminApplicants.js` + `GET /api/admin/applicants` are **orphaned** (not mounted anywhere). The admin actually reviews applications in **`AdminApprovals.js`** → **`GET /api/admin/records/{category}`** (in `backend/routers/admin_records.py`). So last turn's fix to `/admin/applicants` did NOT affect the live admin view — the true bug was in `admin_records`.
+- **REAL root-cause fix (`admin_records.py`):** the `status=pending` filter matched only `{pending, pending_approval}`, hiding applicants left in `identity_pending`, `incomplete`, `under_review`, `unverified`, etc. Broadened `pending` to a full non-terminal set, and added two new filter values `id_check` and `incomplete`. Also: a search query (`q`) now searches across **ALL** statuses (status filter is skipped when searching) and matches nested `personal_info.*` / `business_owner.*` fields — so no applicant is ever hidden.
+- **Frontend (`AdminApprovals.js`):** status-filter tabs for application categories are now **New / ID Check / Incomplete / All** (was just New / All). Search box already existed; it's now a true global lookup.
+- **Verified (preview curl + screenshot):** `status=pending` returns both a forced `identity_pending` AND an `incomplete` test driver (previously hidden); `id_check` and `incomplete` filters return only their bucket; name search finds an applicant regardless of status. Admin screenshot shows the New/ID Check/Incomplete/All tabs rendering. Test data cleaned up. Clean compile.
+- **Note:** the orphaned `AdminApplicants.js` + `/admin/applicants` (+ new `/admin/applicants/search`) were also improved last/this turn but remain unmounted — harmless, left as-is.
+- **⚠️ REQUIRES REDEPLOY** to reach production.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — FIX: driver applications not populating in admin (Ketura William, Johanna Clement)
 - **Reported (production):** 2 customers applied as drivers but don't show in the admin applicants list.
 - **Root cause:** `GET /api/admin/applicants` matched **only** `db.drivers.find({"status": "pending"})`. But the apply→Stripe-Identity flow can leave an applicant in `pending_approval`, `identity_pending`, `under_review`, `incomplete`, etc. — all invisible to admins. Any applicant who didn't land on the exact string `"pending"` was hidden.
