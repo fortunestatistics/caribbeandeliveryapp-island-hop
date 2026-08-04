@@ -1,0 +1,26 @@
+{
+  "summary": "Iter67 frontend-only verification of the 4 production regression fixes for the driver portal. ALL PASS. (1) Driver TT$ currency: after login as qatest_1784993477@gmail.com the 4 earnings stat cards render 'TT$0.00' (earnings-today/week/balance/pending). No US$ / $undefined anywhere in dashboard. (2) Active Deliveries 'You earn' shows valid TT$ amounts: order ec14d14b → TT$5.42, order 2712e890 → TT$12.00 via data-testid driver-earnings-<id> — no 'undefined' or blank. Addresses render (Deliver to: 'Home' — value comes through formatAddress; not blank). (3) View-order navigation fix VERIFIED: clicking the small Eye outline button inside active-order-ec14d14b… navigates to https://…/order/ec14d14b-56e9-4881-b356-aba75cf774ad which renders the Order Tracking page (map, 'Order ID: ec14d14b', driver info car·QA59138, Order Status timeline PENDING→CONFIRMED→…→DELIVERED, chat panel). NOT the business/landing page. (4) Base delivery fee TT$25 fallback: RestaurantMenu.js line 65 confirmed `sf.delivery_fee != null ? sf.delivery_fee : 25.00` — code fallback in place; seeded vendors have custom fees so visual is not exercised (per spec this is a lower-priority code check).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "OrderTrackingPage (/order/:id)", "issues": ["Delivery Address renders as just ', ' (comma) for the tested order — the tracking page's address formatter appears to receive an object with empty street/city fields. Not part of this regression suite but worth flagging."]},
+      {"screen": "Driver Active Deliveries card", "issues": ["Pickup/Deliver-to addresses render very tersely as 'Home' (only the label field). formatAddress may be prioritising label over street/city. Not blank, so passes acceptance criterion, but readability could be improved."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "formatAddress may be returning only the address label ('Home') when street/city are present. Consider composing 'label · street, city' for driver-facing views so the driver sees the actual delivery street.",
+    "OrderTrackingPage 'Delivery Address' shows an empty ', ' — guard against blank city/street or hide the block when both are empty."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only per request)", "frontend": "100% (4/4 fixes)" },
+  "test_credentials": "Used pre-supplied creds: qatest_1784993477@gmail.com / Test1234! (QA driver). No new customer/merchant registrations needed — the driver already had 2 stale active orders (ec14d14b… and 2712e890…) which were sufficient to verify TT$ earnings + eye-icon nav.",
+  "seed_data_creation": "None — existing stale active orders on the QA driver were used per spec's suggestion.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth: POST /api/auth/login → localStorage.setItem('token', access_token) → /driver-dashboard. If Go Online triggers the location consent modal, pre-set localStorage.setItem('ih_location_consent','denied') or click the 'Deny' button before interacting with active-order cards, otherwise the modal overlay intercepts pointer events. Eye button inside ActiveOrderCard is `[data-testid=\"active-order-<id>\"] button:has(svg.lucide-eye)` and correctly routes to /order/<id> → OrderTrackingPage. All driver-side money now uses useCurrency().format so TT$ shows by default (TTD is the default in CurrencyContext).",
+  "rca of the issue": "Prior bug: driver dashboard onView used `/order-tracking/${id}` which hit the SPA catch-all and rendered Home/Business. Fix in DriverDashboard.js line ~607 sets `onView={(id) => navigate(`/order/${id}`)}` — matches App.js route `/order/:orderId` → OrderTrackingPage. Prior '$undefined' bug: ActiveOrderCard used a raw field that could be undefined. Fix uses `format(Number(order.driver_earnings ?? order.driver_delivery_portion ?? order.delivery_fee ?? 0))` with TT$ symbol from CurrencyContext. Base delivery fee fallback bumped from 12.00 → 25.00 in RestaurantMenu.js line 65."
+}

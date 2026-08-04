@@ -8,11 +8,13 @@ import { Separator } from './components/ui/separator';
 import {
   TrendingUp, Clock, CheckCircle, Wallet, CreditCard, Info, Loader2, Inbox,
 } from 'lucide-react';
+import { useCurrency } from './CurrencyContext';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const DriverEarningsDashboard = () => {
   const navigate = useNavigate();
+  const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState({
@@ -22,7 +24,7 @@ const DriverEarningsDashboard = () => {
   useEffect(() => {
     const load = async () => {
       const token = localStorage.getItem('token');
-      const cfg = { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+      const cfg = { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
       try {
         const me = await axios.get(`${API}/drivers/me`, cfg);
         const driverId = me.data?.id;
@@ -56,7 +58,7 @@ const DriverEarningsDashboard = () => {
     load();
   }, []);
 
-  const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+  const money = (n) => format(Number(n || 0));
 
   return (
     <div className="min-h-screen bg-background py-8" data-testid="driver-earnings-page">

@@ -1,0 +1,52 @@
+{
+  "summary": "Frontend-only verification of (1) Admin Dispatch live map and (2) Customer route+ETA tracking map. Admin dispatch live map WORKS end-to-end. Customer tracking page is BLOCKED because GET /api/orders/{order_id} returns HTTP 500 (pydantic ValidationError on the Order response_model) for the referenced order 57547619-3a1e-4913-939f-9129dbcf83af, so the OrderTrackingPageWithMaps falls back to 'Order Not Found' and never mounts the map / ETA banner.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/orders/{order_id}",
+        "issue": "Returns 500 for order 57547619-3a1e-4913-939f-9129dbcf83af. Pydantic Order response_model requires items[].menu_item_id, subtotal, delivery_fee, payment_method - the stored order (auto-dispatch food order 'Roti') is missing all four fields, so FastAPI errors instead of returning it. This makes the customer tracking page unreachable ('Order Not Found') and blocks verification of the new route line + ETA banner feature.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Customer order tracking (/order/:orderId)",
+        "issue": "OrderTrackingPageWithMaps shows 'Order Not Found' because initial GET /api/orders/{id} 500s. Consequently data-testid='tracking-eta', 'tracking-eta-time', the Google Map, driver+delivery markers and DirectionsRenderer route line are never rendered. Cannot be validated until backend Order response_model is relaxed / stored order backfilled.",
+        "affected_selectors": ["[data-testid='tracking-eta']", "[data-testid='tracking-eta-time']", ".gm-style"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_50.json"],
+  "action_items": [
+    "Backend: relax the Order Pydantic model on GET /api/orders/{order_id} (server.py:3365) - make items[].menu_item_id, subtotal, delivery_fee and payment_method Optional (or drop response_model=Order and return the raw doc with _id stripped). Without this, no customer can open ANY dispatch-created order tracking page, not just this one.",
+    "Alternative: backfill the stored order document 57547619-... with the missing fields (subtotal, delivery_fee, payment_method, items[].menu_item_id) so it validates against the current Order schema. But same class of order will keep breaking without the schema fix.",
+    "After the fix, retest customer flow to confirm the driver marker, delivery marker, DirectionsRenderer route polyline and 'tracking-eta' / 'tracking-eta-time' banner all render, and that polling every 6s continues to update ETA/distance."
+  ],
+  "critical_code_review_comments": [
+    "server.py GET /api/orders/{order_id} uses response_model=Order with strict required fields (menu_item_id, subtotal, delivery_fee, payment_method). Real production/dispatch-created documents don't carry all of these, causing a 500 that bubbles up to the tracking UI. Either make those fields Optional or bypass response_model and hand-serialize (excluding _id).",
+    "AdminDispatch DispatchMap looks good - renders Google Map, 'N drivers online' count, pulsing 'live' badge; but the map is quite short (h~342px) and the initial center/zoom shows the driver marker very small over the ocean - consider fitBounds() around visible drivers+orders on first load for better UX.",
+    "OrderTrackingPageWithMaps should not conflate 'API 500' with 'Order not found' - a 5xx response should surface a distinguishable error state (retry / support link), otherwise real integration bugs get silently disguised as missing data."
+  ],
+  "admin_dispatch_verified": {
+    "dispatch-live-map-card": "PRESENT",
+    "dispatch-live-map": "PRESENT (.gm-style mounted, 51 tile imgs loaded, 1070x342)",
+    "header_text": "'Live map · 1 driver online' with pulsing 'live' badge",
+    "auto_dispatch_button": "PRESENT ('Auto-dispatch all (23)')",
+    "panels": "Unassigned orders (23) + Online drivers (1) 'Route Driver' both render",
+    "console": "No page errors on dispatch page"
+  },
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run; ancillary backend probe surfaced a 500)", "frontend": "50% (admin dispatch PASS, customer tracking BLOCKED by backend 500)"},
+  "test_credentials": "Admin tracyfortune@islandhoptt.com / IslandHopAdmin2026! - /api/auth/login 200. Customer autodisp_1784960104@gmail.com / Test1234! - /api/auth/login 200. Both credentials in /app/memory/test_credentials.md confirmed valid via curl.",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Admin dispatch live map verified visually and via DOM: data-testid 'dispatch-live-map-card' + 'dispatch-live-map' present, .gm-style mounts, header text '· 1 driver online' + 'live' pulsing indicator present, Auto-dispatch button present, Unassigned (23) + Online drivers (1) panels intact. Customer tracking blocked at data-fetch (GET /api/orders/{id} -> 500 ValidationError). Once backend fix lands, log in customer via /login form (httpOnly cookie - do NOT inject JWT), navigate to /order/57547619-3a1e-4913-939f-9129dbcf83af, wait ~8s for Directions + first driver-location poll, then assert [data-testid='tracking-eta'] visible with 'to your door' text and [data-testid='tracking-eta-time'] showing 'X min(s)'. Note: /api/orders/{id}/driver-location returns 200 fine (has_driver true, Route Driver at 10.6549,-61.5019) - the ONLY blocker is the parent order fetch.",
+  "rca of the issue": "Root cause: /api/orders/{order_id} handler in backend/server.py line 3365 declares response_model=Order. The stored order document for 57547619-3a1e-4913-939f-9129dbcf83af does NOT contain items[0].menu_item_id, subtotal, delivery_fee, or payment_method, but the Order pydantic model marks these as required. FastAPI serializes the return value through Order(**doc) and raises pydantic_core.ValidationError -> 500. Frontend OrderTrackingPageWithMaps.fetchOrder catches the AxiosError and sets order=null, so the page renders the 'Order Not Found' branch instead of the map/ETA UI. Reproduction: curl -b <cookie> https://logistics-island.preview.emergentagent.com/api/orders/57547619-3a1e-4913-939f-9129dbcf83af -> HTTP 500 'Internal Server Error'; backend log shows '4 validation errors for Order (items.0.menu_item_id, subtotal, delivery_fee, payment_method required)'. Mitigation: mark these four Order fields Optional (with sensible defaults) OR drop response_model=Order on this GET and manually strip _id; a data backfill clears the current record but not future ones."
+}

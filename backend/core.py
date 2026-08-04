@@ -14,7 +14,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
-from fastapi import HTTPException, Request, WebSocket, Depends
+from fastapi import HTTPException, Request, Response, WebSocket, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -34,15 +34,68 @@ db = client[os.environ['DB_NAME']]
 # Config / secrets
 # ---------------------------------------------------------------------------
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
-STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY')
+# Stripe key selection. The pod injects STRIPE_API_KEY=sk_test_emergent (Emergent's shared
+# sandbox) which does NOT support Connect/marketplace payouts. For real merchant payouts we
+# use the platform's OWN Stripe account keys (from .env) selected by STRIPE_MODE.
+STRIPE_MODE = os.environ.get('STRIPE_MODE', 'test').lower()
+if STRIPE_MODE == 'live':
+    STRIPE_API_KEY = os.environ.get('STRIPE_LIVE_API_KEY') or os.environ.get('STRIPE_API_KEY')
+else:
+    STRIPE_API_KEY = os.environ.get('STRIPE_TEST_API_KEY') or os.environ.get('STRIPE_API_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+# Publishable key (safe to expose) — mode-aware, served to the frontend at runtime so
+# going live only requires setting STRIPE_MODE=live + STRIPE_LIVE_* in the environment.
+if STRIPE_MODE == 'live':
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_LIVE_PUBLISHABLE_KEY')
+else:
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_TEST_PUBLISHABLE_KEY')
 SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-# Password hashing / bearer scheme
+# Password hashing / bearer scheme.
+# auto_error=False so requests WITHOUT an Authorization header don't 403 outright —
+# we fall back to the httpOnly auth cookie (web) before rejecting.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+
+# ---------------------------------------------------------------------------
+# httpOnly auth cookie (web). The real JWT is stored ONLY in this cookie so it
+# is never readable by JavaScript (XSS token-theft protection). The web client
+# keeps a non-secret 'cookie' sentinel in localStorage; native/mobile keeps the
+# real Bearer token (cross-origin WebViews can't rely on the cookie).
+# ---------------------------------------------------------------------------
+AUTH_COOKIE_NAME = "session_token"
+AUTH_COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+# Values the web client may send in the Authorization header / ?auth= that are
+# NOT real credentials — treat them as absent so we use the cookie instead.
+_PLACEHOLDER_TOKENS = {"", "cookie", "null", "undefined", "none", "bearer"}
+
+
+def _clean_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    t = token.strip()
+    if t.lower() in _PLACEHOLDER_TOKENS:
+        return None
+    return t
+
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    """Store the JWT as an httpOnly, Secure, SameSite=Lax cookie (same-origin SPA+API)."""
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +121,11 @@ class ConnectionManager:
             await self.user_connections[user_id].send_text(message)
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                pass
 
 
 manager = ConnectionManager()
@@ -109,14 +165,21 @@ def _account_block_detail(user_doc: dict):
     st = (user_doc.get("status") or "active").lower()
     if st == "paused":
         return "Your account has been paused by an administrator. Please contact IslandHop support."
+    if st == "disabled":
+        return "Your account has been deactivated by an administrator. Please contact IslandHop support to reactivate it."
     if st in ("restricted", "suspended", "banned"):
         return "Your account has been restricted. Please contact IslandHop support."
     return None
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     from models import User
-    token = credentials.credentials
+    # Prefer a real Bearer token (native/mobile); fall back to the httpOnly cookie (web).
+    token = _clean_token(credentials.credentials if credentials else None)
+    if not token:
+        token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
@@ -137,12 +200,27 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 async def get_current_user_from_request(request: Request):
     """Get current authenticated user from request (supports session token cookie or JWT Bearer)"""
     from models import User
-    session_token = request.cookies.get("session_token")
+
+    # Admin impersonation: a read-only impersonation Bearer token ALWAYS wins over the
+    # admin's own session cookie (so the impersonated view works in the same browser).
+    auth_header = request.headers.get("Authorization")
+    bearer = None
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer = _clean_token(auth_header.split(" ", 1)[1])
+    if bearer:
+        try:
+            imp = jwt.decode(bearer, SECRET_KEY, algorithms=[ALGORITHM])
+            if imp.get("impersonated_by") and imp.get("sub"):
+                target = await db.users.find_one({"id": imp["sub"]})
+                if target:
+                    return User(**target)  # block bypassed so staff can inspect
+        except JWTError:
+            pass
+
+    session_token = _clean_token(request.cookies.get(AUTH_COOKIE_NAME))
 
     if not session_token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
+        session_token = bearer
 
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")

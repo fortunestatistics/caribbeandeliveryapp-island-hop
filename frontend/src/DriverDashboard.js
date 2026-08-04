@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './hooks/use-toast';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
 import { 
   Navigation,
   Wallet,
@@ -9,22 +12,32 @@ import {
   AlertCircle,
   Star,
   DollarSign,
-  Settings
+  Settings,
+  MapPin
 } from 'lucide-react';
 import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import DriverRouteCard from './DriverRouteCard';
 import { useLocationConsent } from './LocationConsentContext';
+import { useCurrency } from './CurrencyContext';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { format } = useCurrency();
   const { requestLocationConsent } = useLocationConsent();
+  const wsRef = useRef(null);
+  const prevReqCount = useRef(0);
+  const prevAvailCount = useRef(0);
   const [driver, setDriver] = useState(null);
+  const [driverLoc, setDriverLoc] = useState(null);
   const [orderRequests, setOrderRequests] = useState([]);
+  const [availableOrders, setAvailableOrders] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
   const [earnings, setEarnings] = useState({
     today: 0,
@@ -36,16 +49,20 @@ const DriverDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [locationTracking, setLocationTracking] = useState(null);
   const [incentives, setIncentives] = useState({ total_earned: 0, incentives: [] });
+  const [subscription, setSubscription] = useState(null);
 
   useEffect(() => {
     fetchDriverData();
     fetchOrderRequests();
+    fetchAvailableOrders();
     fetchActiveOrders();
     fetchEarnings();
+    fetchSubscription();
 
     // Refresh every 10 seconds
     const interval = setInterval(() => {
       fetchOrderRequests();
+      fetchAvailableOrders();
       fetchActiveOrders();
       fetchEarnings();
     }, 10000);
@@ -64,10 +81,41 @@ const DriverDashboard = () => {
     // eslint-disable-next-line -- start/stop tracking helpers are stable
   }, [isOnline, driver]);
 
+  // Real-time new-order alerts over WebSocket (in addition to the 10s poll) so a driver
+  // is actively notified the moment a job is offered, even between polls.
+  useEffect(() => {
+    const uid = driver?.user_id;
+    if (!uid || !isOnline) return undefined;
+    let closed = false;
+    try {
+      const wsUrl = `${API.replace(/^http/, 'ws').replace(/\/api$/, '')}/ws/${uid}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'new_order_request') {
+            fetchOrderRequests();
+            fetchAvailableOrders();
+          } else if (msg.type === 'available_orders') {
+            fetchAvailableOrders();
+          }
+        } catch (_) { /* ignore */ }
+      };
+      ws.onclose = () => { if (!closed) wsRef.current = null; };
+    } catch (_) { /* ignore */ }
+    return () => {
+      closed = true;
+      try { wsRef.current && wsRef.current.close(); } catch (_) { /* ignore */ }
+      wsRef.current = null;
+    };
+    // eslint-disable-next-line -- reconnect only on identity/online change
+  }, [driver?.user_id, isOnline]);
+
   const fetchDriverData = async () => {
     try {
       const response = await axios.get(`${API}/drivers/me`, {
-        withCredentials: false
+        withCredentials: true
       });
       setDriver(response.data);
       setIsOnline(response.data.status === 'online');
@@ -78,21 +126,88 @@ const DriverDashboard = () => {
     }
   };
 
+  const playPing = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+      o.start(); o.stop(ctx.currentTime + 0.5);
+    } catch (_) { /* ignore */ }
+  };
+
+  const alertNewRequests = (list) => {
+    const count = Array.isArray(list) ? list.length : 0;
+    if (count > prevReqCount.current) {
+      playPing();
+      toast({ title: '🚗 New order request!', description: 'A pickup is waiting — review and accept it below.' });
+    }
+    prevReqCount.current = count;
+  };
+
+  // Distinct two-tone chime for the open "Available Now" pool (different from the direct-offer ping).
+  const playJobChime = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const tone = (freq, start, dur) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+        g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + start + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+        o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
+      };
+      tone(660, 0, 0.22);
+      tone(990, 0.18, 0.32);
+    } catch (_) { /* ignore */ }
+  };
+
+  const alertAvailable = (list) => {
+    const count = Array.isArray(list) ? list.length : 0;
+    if (isOnline && count > prevAvailCount.current) {
+      playJobChime();
+      toast({ title: '📦 New job available!', description: 'A waiting order just landed in Available Now — grab it fast.' });
+    }
+    prevAvailCount.current = count;
+  };
+
   const fetchOrderRequests = async () => {
     try {
       const response = await axios.get(`${API}/drivers/order-requests`, {
-        withCredentials: false
+        withCredentials: true
       });
       setOrderRequests(response.data);
+      alertNewRequests(response.data);
     } catch (error) {
       console.error('Error fetching order requests:', error);
+    }
+  };
+
+  const fetchAvailableOrders = async () => {
+    try {
+      const response = await axios.get(`${API}/drivers/available-orders`, { withCredentials: true });
+      const list = Array.isArray(response.data) ? response.data : [];
+      setAvailableOrders(list);
+      alertAvailable(list);
+    } catch (error) {
+      // silent — driver may be pending approval
     }
   };
 
   const fetchActiveOrders = async () => {
     try {
       const response = await axios.get(`${API}/drivers/active-orders`, {
-        withCredentials: false
+        withCredentials: true
       });
       setActiveOrders(response.data);
     } catch (error) {
@@ -100,10 +215,19 @@ const DriverDashboard = () => {
     }
   };
 
+  const fetchSubscription = async () => {
+    try {
+      const response = await axios.get(`${API}/driver/subscription`, { withCredentials: true });
+      setSubscription(response.data);
+    } catch (error) {
+      console.error('Error fetching subscription:', error);
+    }
+  };
+
   const fetchEarnings = async () => {
     try {
       const response = await axios.get(`${API}/drivers/${driver?.id}/wallet`, {
-        withCredentials: false
+        withCredentials: true
       });
       setEarnings({
         today: response.data.today_earnings || 0,
@@ -113,7 +237,7 @@ const DriverDashboard = () => {
       });
       // Fetch review-driven bonuses (5-star bonuses + weekly top-driver bonuses)
       try {
-        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: false });
+        const inc = await axios.get(`${API}/drivers/${driver?.id}/incentives`, { withCredentials: true });
         setIncentives(inc.data || { total_earned: 0, incentives: [] });
       } catch (incErr) { console.debug('No incentives for driver:', incErr?.message); }
     } catch (error) {
@@ -127,7 +251,7 @@ const DriverDashboard = () => {
       await axios.put(`${API}/drivers/status`, {
         status: newStatus
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       setIsOnline(!isOnline);
     } catch (error) {
@@ -153,7 +277,7 @@ const DriverDashboard = () => {
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude, heading, speed } = position.coords;
-
+        setDriverLoc({ lat: latitude, lng: longitude });
         try {
           const token = localStorage.getItem('token');
           const params = { latitude, longitude };
@@ -192,14 +316,16 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/accept-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: false
+        withCredentials: true
       });
-      
+      toast({ title: '✅ Order accepted!', description: 'Head to pickup.' });
       fetchOrderRequests();
+      fetchAvailableOrders();
       fetchActiveOrders();
     } catch (error) {
-      console.error('Error accepting order:', error);
-      alert('Failed to accept order');
+      const msg = error?.response?.data?.detail || 'Failed to accept order — it may have just been taken.';
+      toast({ title: 'Could not accept order', description: msg, variant: 'destructive' });
+      fetchAvailableOrders();
     }
   };
 
@@ -208,7 +334,7 @@ const DriverDashboard = () => {
       await axios.post(`${API}/orders/${orderId}/reject-driver`, {
         driver_id: driver.id
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchOrderRequests();
@@ -223,7 +349,7 @@ const DriverDashboard = () => {
         status: status
       }, {
         params: { status },
-        withCredentials: false
+        withCredentials: true
       });
       
       fetchActiveOrders();
@@ -238,8 +364,8 @@ const DriverDashboard = () => {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     if (!window.confirm(`Confirm you collected $${Number(order.total || 0).toFixed(2)} cash from the customer?`)) return;
     try {
-      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: false });
-      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: false });
+      await axios.put(`${API}/orders/${order.id}/status`, { status: 'delivered' }, { params: { status: 'delivered' }, headers, withCredentials: true });
+      const r = await axios.post(`${API}/orders/${order.id}/cash-collected`, {}, { headers, withCredentials: true });
       alert(`Cash collected. You keep $${r.data.driver_keeps?.toFixed(2)}; $${r.data.platform_due?.toFixed(2)} is owed to IslandHop.`);
       fetchActiveOrders();
     } catch (error) {
@@ -282,6 +408,10 @@ const DriverDashboard = () => {
                 {isOnline ? 'Go Offline' : 'Go Online'}
               </Button>
               <Button onClick={() => navigate('/driver/earnings')} variant="outline">
+                <Wallet className="h-5 w-5 mr-2" />
+                Earnings
+              </Button>
+              <Button onClick={() => navigate('/wallet')} variant="outline" data-testid="driver-wallet-btn">
                 <Wallet className="h-5 w-5 mr-2" />
                 Wallet
               </Button>
@@ -349,6 +479,7 @@ const DriverDashboard = () => {
                     order={order}
                     onAccept={handleAcceptOrder}
                     onReject={handleRejectOrder}
+                    subscription={subscription}
                   />
                 ))}
               </div>
@@ -356,7 +487,96 @@ const DriverDashboard = () => {
           </Card>
         )}
 
+        {/* Available Now — open pool any driver can grab */}
+        {(() => {
+          const offeredIds = new Set(orderRequests.map((o) => o.id));
+          const toRad = (d) => (d * Math.PI) / 180;
+          const haversineKm = (a, b) => {
+            if (!a || !b) return null;
+            const [lat1, lng1] = a; const [lat2, lng2] = b;
+            if ([lat1, lng1, lat2, lng2].some((v) => typeof v !== 'number' || Number.isNaN(v))) return null;
+            const R = 6371;
+            const dLat = toRad(lat2 - lat1); const dLng = toRad(lng2 - lng1);
+            const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+          };
+          const pickupCoords = (o) => {
+            const p = o.pickup_address || {};
+            const lat = p.latitude ?? p.lat; const lng = p.longitude ?? p.lng;
+            return (typeof lat === 'number' && typeof lng === 'number') ? [lat, lng] : null;
+          };
+          const me = driverLoc ? [driverLoc.lat, driverLoc.lng] : null;
+          const pool = availableOrders
+            .filter((o) => !offeredIds.has(o.id))
+            .map((o) => ({ ...o, _distanceKm: me ? haversineKm(me, pickupCoords(o)) : null }))
+            .sort((a, b) => {
+              if (a._distanceKm == null && b._distanceKm == null) return 0;
+              if (a._distanceKm == null) return 1;
+              if (b._distanceKm == null) return -1;
+              return a._distanceKm - b._distanceKm;
+            });
+          if (pool.length === 0) return null;
+          return (
+            <Card className="mb-6 border-l-4 border-l-gold-500" data-testid="driver-available-now-card">
+              <CardHeader>
+                <CardTitle className="text-gold-500 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    Available Now
+                    <Badge className="bg-gold-gradient text-white animate-pulse" data-testid="available-count-badge">{pool.length}</Badge>
+                  </span>
+                  <Button size="sm" variant="outline" onClick={fetchAvailableOrders} data-testid="available-refresh-btn">
+                    Refresh
+                  </Button>
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Waiting jobs any driver can claim — first to accept gets it.{me ? ' Nearest to you first.' : ' Go online for distances.'}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {pool.map((order) => {
+                    const pickup = order.pickup_address || {};
+                    const dropoff = order.delivery_address || {};
+                    const pickupText = pickup.location || pickup.full_address || pickup.street || 'Pickup location';
+                    const dropText = dropoff.location || dropoff.full_address || dropoff.street || '';
+                    const km = order._distanceKm;
+                    const distLabel = km == null ? null : (km < 1 ? `~${Math.round(km * 1000)} m away` : `~${km.toFixed(1)} km away`);
+                    return (
+                      <div key={order.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3" data-testid={`available-order-${order.id}`}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-turquoise-500">{order.service_type}</span>
+                            {typeof order.total === 'number' && (
+                              <span className="text-xs text-muted-foreground">{format(order.total)}</span>
+                            )}
+                            {distLabel && (
+                              <Badge variant="secondary" className="text-xs" data-testid={`available-distance-${order.id}`}>
+                                <MapPin className="h-3 w-3 mr-1" />{distLabel}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="truncate text-sm text-foreground">Pickup: {pickupText}</p>
+                          {dropText && <p className="truncate text-xs text-muted-foreground">Drop-off: {dropText}</p>}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-gold-gradient text-white shrink-0"
+                          onClick={() => handleAcceptOrder(order.id)}
+                          data-testid={`available-accept-btn-${order.id}`}
+                        >
+                          Accept
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {/* Active Orders */}
+        <DriverRouteCard />
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -384,7 +604,7 @@ const DriverDashboard = () => {
                     onNavigate={handleNavigate}
                     onUpdateStatus={handleUpdateOrderStatus}
                     onDeliverCOD={handleDeliverCOD}
-                    onView={(id) => navigate(`/order-tracking/${id}`)}
+                    onView={(id) => navigate(`/order/${id}`)}
                   />
                 ))}
               </div>

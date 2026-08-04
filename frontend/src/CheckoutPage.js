@@ -32,6 +32,7 @@ export const CheckoutPage = () => {
   const [walletBalance, setWalletBalance] = useState(null);
   const [payingWallet, setPayingWallet] = useState(false);
   const [error, setError] = useState('');
+  const [paymentOptions, setPaymentOptions] = useState(null); // {processor, cod_enabled, wallet_enabled}
 
   useEffect(() => {
     const load = async () => {
@@ -46,6 +47,13 @@ export const CheckoutPage = () => {
         setError(e?.response?.data?.detail || 'Order not found');
       } finally {
         setLoading(false);
+      }
+      // Which online processor to show for this merchant (WiPay vs Stripe).
+      try {
+        const opt = await axios.get(`${API}/orders/${orderId}/payment-options`, { headers: authHeaders() });
+        setPaymentOptions(opt.data);
+      } catch (_) {
+        setPaymentOptions({ processor: 'wipay', cod_enabled: true, wallet_enabled: true });
       }
       // Best-effort wallet balance for the "Pay with wallet" option.
       try {
@@ -124,18 +132,39 @@ export const CheckoutPage = () => {
     }
   };
 
-  const handleWiPay = async () => {
+  const handleStripe = async () => {
     setCreating(true);
     setError('');
     try {
       const res = await axios.post(
-        `${API}/payments/wipay/checkout/session`,
+        `${API}/payments/checkout/session`,
         { order_id: orderId, origin_url: window.location.origin },
         { headers: authHeaders() }
       );
       window.location.href = res.data.url;
     } catch (e) {
-      setError(e?.response?.data?.detail || 'Failed to start WiPay checkout');
+      setError(e?.response?.data?.detail || 'Failed to start card checkout');
+      setCreating(false);
+    }
+  };
+
+  const handlePayPal = async () => {
+    setCreating(true);
+    setError('');
+    try {
+      const res = await axios.post(
+        `${API}/payments/paypal/create-order`,
+        { amount: Number(order.total || 0), currency: 'USD', purpose: 'order', order_id: orderId, origin_url: window.location.origin },
+        { headers: authHeaders() }
+      );
+      if (res.data?.approve_url) {
+        window.location.href = res.data.approve_url;
+      } else {
+        setError('PayPal did not return an approval link');
+        setCreating(false);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to start PayPal checkout');
       setCreating(false);
     }
   };
@@ -362,7 +391,7 @@ export const CheckoutPage = () => {
             <div className="bg-card border border-border rounded-lg p-3 flex items-center justify-between" data-testid="checkout-accepted-methods">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="h-4 w-4 text-green-600" />
-                Cash on Delivery &amp; secure WiPay checkout
+                Cash on Delivery &amp; secure card checkout (Stripe)
               </div>
             </div>
 
@@ -416,15 +445,45 @@ export const CheckoutPage = () => {
                   </>
                 )}
                 <Button
-                  onClick={handleWiPay}
+                  onClick={handleStripe}
                   disabled={creating || tipSaving}
                   variant="outline"
                   className="w-full"
-                  data-testid="checkout-pay-wipay-btn"
+                  data-testid="checkout-pay-stripe-btn"
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
-                  Pay with WiPay (Caribbean cards · Sandbox)
+                  Pay with Card (Stripe)
                 </Button>
+                {paymentOptions?.paypal_enabled && (
+                  <button
+                    type="button"
+                    onClick={handlePayPal}
+                    disabled={creating || tipSaving}
+                    className="w-full flex items-center justify-center gap-1 rounded-full py-3 font-bold bg-[#FFC439] hover:bg-[#F0B90B] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="checkout-pay-paypal-btn"
+                    aria-label="Pay with PayPal"
+                  >
+                    <span className="italic text-[#253B80] text-lg leading-none">Pay</span>
+                    <span className="italic text-[#179BD7] text-lg leading-none">Pal</span>
+                  </button>
+                )}
+                {paymentOptions?.wipay_coming_soon && (
+                  <>
+                    <Button
+                      disabled
+                      variant="outline"
+                      className="w-full opacity-60 cursor-not-allowed"
+                      data-testid="checkout-pay-wipay-btn"
+                    >
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Pay with WiPay
+                      <Badge className="ml-2 bg-gold-500/15 text-gold-700">Coming soon</Badge>
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center -mt-1" data-testid="checkout-wipay-note">
+                      WiPay (local Caribbean bank cards) is being set up. Please use card, wallet, or cash for now.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </CardContent>

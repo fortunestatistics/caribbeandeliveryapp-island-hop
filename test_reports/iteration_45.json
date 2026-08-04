@@ -1,0 +1,35 @@
+{
+  "summary": "End-to-end test of Split-Cart Checkout, Merchant Storefront QR, and Weekly Payout card. Wrote /app/backend/tests/test_split_cart_iter45.py (14 tests, ALL PASS) covering order creation with cart_group_id, POST /api/payments/checkout/session-multi (401 guard, empty-list guard, cross-user isolation, real Stripe URL), POST /api/orders/confirm-cod-multi (401 guard, cross-user isolation, multi-order confirm+persistence), and GET /api/merchant/payouts/weekly (401 guard, customer→404, restaurant owner→schema). UI drive of /cart + /checkout-group verified all data-testids (cart-store-*, cart-store-subtotal-*, cart-address-input, cart-grand-subtotal, cart-checkout-btn, group-grand-total, group-cod-btn, group-card-btn, group-wallet-btn, group-order-*). Clicking group-card-btn produced a real Stripe checkout URL (cs_live_...) — not completed, as instructed. Merchant dashboard drive: weekly-payout-card + weekly-payout-amount render correctly ($0 on a fresh merchant), Storefront and Grow dropdowns expose all expected items, QR dialog shows canvas + print button + encoded storefront URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_split_cart_iter45.py",
+    "/app/test_reports/pytest/split_cart_iter45.xml"
+  ],
+  "action_items": [
+    "Seed data gap (NOT a code bug, but blocks manual multi-store demo): Island Health Pharmacy (vendor b12146bb-4e6c-4eac-86fe-e7732ca616c9) has zero products and zero menu_items — /api/merchants/{id}/storefront returns 200 but with menu_items:[] and products:[]. As a result the /restaurant/{id} page renders no 'Add to Cart' buttons, so the split-cart UI can only be exercised with ONE store from the seeded set. Backend was still validated with 2 stores via direct POST /api/orders. Recommend seeding a few products on the pharmacy (and any other non-restaurant business storefronts) for repeatable UI demos.",
+    "GET /api/orders/confirm-cod-multi silently skips orders that don't belong to the caller and returns 200 with an empty order_ids list. This is safe (no data leaked) and is exactly how the code is written, but consider returning 403 (or at least surfacing the skipped count) for clearer client-side error handling."
+  ],
+  "critical_code_review_comments": [
+    "server.py::create_multi_order_checkout_session (line ~7757) authorises orders by filtering on {'customer_id': current_user.id}, so cross-user attacks are correctly rejected with 404. Good.",
+    "server.py::confirm_orders_cod_multi (line ~3175) uses `continue` for foreign orders instead of raising — safe but silent. If ALL supplied ids are foreign the response is still {success:true, order_ids:[]}. Consider raising 404 when confirmed list is empty to help client callers detect misuse.",
+    "server.py::get_merchant_weekly_payout (line ~7635) uses `created_at: {'$gte': week_start}` where week_start is an ISO string — this works because create_order stores created_at as ISO via prepare_for_mongo, but is fragile if any code path writes native BSON datetime. Consider normalising the query.",
+    "MultiCart.js line 67 uses isLoggedIn() (checks localStorage.token) BEFORE calling placeAll. On the web login path localStorage.token is set to the 'cookie' sentinel; if a user never went through the web login (e.g. deep-linked from mobile), placeAll bounces to /login even if the httpOnly cookie is valid. Minor UX concern.",
+    "MultiCart.js line 87 sends delivery_address as {location: addr, full_address: addr} but Order model expects Dict[str, Any] — accepted but lacks lat/lng, which will hurt driver routing for split-cart orders. Consider geocoding on the cart page.",
+    "RestaurantMenu.js still lazy-loads via STOREFRONT_API and only shows 'Add to Cart' for menu_items. For business storefronts (grocery/pharmacy) whose catalog lives under /merchants/{id}/products, the storefront falls back to empty when the merchant has not published a menu — see Island Health Pharmacy repro."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_split_cart_iter45.py"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of tested data-testids present"},
+  "test_credentials": "Ephemeral customers via POST /api/auth/register (Test1234!). Merchant created inline via POST /api/restaurants and re-login. Owner: tracyfortune@islandhoptt.com / IslandHopAdmin2026! (from /app/memory/test_credentials.md — not needed for this iter).",
+  "seed_data_creation": "Each test run registers 2-3 fresh customers (prefix split_cart_/ui_split_/ui_merch_) and, for the payout test, creates one fresh restaurant. conftest.py autouse fixture cleans up @test.com users after the session.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_split_cart_iter45.py is safe to re-run any time; it hits Stripe live-mode session creation (session URL returned, no charge). Do NOT modify without preserving the cross-user isolation assertions. Seeded vendor Island Health Pharmacy has no products → UI can't add-to-cart from that storefront until main agent seeds products.",
+  "rca of the issue": "N/A — feature working. Only environmental gap is missing product/menu seed data for non-restaurant seeded storefronts, which blocks a fully-UI multi-store demo but does not affect any code path."
+}

@@ -116,6 +116,7 @@ class Order(BaseModel):
     delivery_address: Dict[str, Any]
     customer_phone: str
     notes: Optional[str] = None
+    cart_group_id: Optional[str] = None  # links orders placed together in one multi-store checkout
     payment_status: str = "pending"
     payment_method: str
     payment_intent_id: Optional[str] = None
@@ -199,8 +200,10 @@ class User(BaseModel):
     phone: Optional[str] = None
     phone_verified: bool = False
     address: Optional[Dict[str, str]] = None
+    banking_info: Optional[Dict[str, Any]] = None
     referred_by: Optional[str] = None
     referral_code_used: Optional[str] = None
+    must_change_password: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

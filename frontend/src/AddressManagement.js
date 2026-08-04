@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { useLocationConsent } from './LocationConsentContext';
+import MapPinPicker from './MapPinPicker';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -49,7 +50,7 @@ const AddressManagement = () => {
   const fetchAddresses = async () => {
     try {
       const response = await axios.get(`${API}/addresses`, {
-        withCredentials: false
+        withCredentials: true
       });
       setAddresses(response.data);
       setLoading(false);
@@ -107,11 +108,11 @@ const AddressManagement = () => {
     try {
       if (editingAddress) {
         await axios.put(`${API}/addresses/${editingAddress.id}`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       } else {
         await axios.post(`${API}/addresses`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       }
 
@@ -129,7 +130,7 @@ const AddressManagement = () => {
 
     try {
       await axios.delete(`${API}/addresses/${addressId}`, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchAddresses();
     } catch (error) {
@@ -141,7 +142,7 @@ const AddressManagement = () => {
   const handleSetDefault = async (addressId) => {
     try {
       await axios.post(`${API}/addresses/${addressId}/set-default`, {}, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchAddresses();
     } catch (error) {
@@ -366,6 +367,17 @@ const AddressManagement = () => {
                         placeholder="12345"
                       />
                     </div>
+                  </div>
+
+                  {/* Exact drop-off pin */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Pin your exact drop-off spot</label>
+                    <MapPinPicker
+                      lat={formData.latitude}
+                      lng={formData.longitude}
+                      onChange={({ lat, lng }) => setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }))}
+                      testId="address-map-pin"
+                    />
                   </div>
 
                   {/* Delivery Instructions */}

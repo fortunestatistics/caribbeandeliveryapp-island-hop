@@ -1,0 +1,22 @@
+{
+  "summary": "Backend-only testing of dual payment-processor routing (Stripe for US, WiPay for Caribbean). Created /app/backend/tests/test_payment_options_routing.py with 11 tests — all PASS. Covered: 401/404 guards, TT merchant→wipay, US merchant→stripe (4 country-name variants), other Caribbean (Jamaica)→wipay, no-country fallback→wipay (reason='default'), plus regression of both WiPay and Stripe session-creation endpoints. Restaurants were seeded directly in Mongo with the required address.country and orders placed against them via POST /api/orders.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_payment_options_routing.py",
+    "/app/test_reports/pytest/payment_options_routing.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_vendor_country_for_order only reads restaurants/businesses/car_rental_companies — if future vendor collections are added (e.g. laundry, taxi), routing will silently default to WiPay. Consider centralising vendor lookup via _resolve_vendor_for_user.",
+    "payment-options endpoint returns processor='wipay' with reason='default' when merchant address has no country. This is intentional per spec, but frontend/CheckoutPage.js should surface a soft warning to ops when reason='default' so merchants missing country data can be fixed."
+  ],
+  "updated_files": ["/app/backend/tests/test_payment_options_routing.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Auto-registered ephemeral customers via /api/auth/register (fixture in /app/backend/tests/conftest.py).",
+  "seed_data_creation": "For each routing test the suite inserts a fresh restaurants doc with id prefix 'rest_qa_' and a chosen address.country, then places an order. Module-scoped autouse fixture purges all rest_qa_* docs at teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_payment_options_routing.py can be reused for regression. It seeds/deletes rest_qa_* restaurants and relies on conftest customer fixtures. Both WiPay (sandbox) and Stripe (test-mode) checkout session endpoints returned real hosted URLs.",
+  "rca of the issue": "N/A — new feature working as specified."
+}

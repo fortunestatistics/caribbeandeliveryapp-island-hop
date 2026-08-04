@@ -29,9 +29,11 @@ const Terms = lazy(() => import('./Terms'));
 const OrderScheduling = lazy(() => import('./OrderScheduling'));
 const CheckoutPage = lazy(() => import('./CheckoutPage').then(m => ({ default: m.CheckoutPage })));
 const PaymentSuccess = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentSuccess })));
+const WalletPage = lazy(() => import('./WalletPage'));
 const PaymentCancel = lazy(() => import('./CheckoutPage').then(m => ({ default: m.PaymentCancel })));
 const VendorStripeConnect = lazy(() => import('./VendorStripeConnect'));
 const OrderTrackingPage = lazy(() => import('./OrderTrackingPageWithMaps'));
+const MyOrdersPage = lazy(() => import('./MyOrdersPage'));
 const DriverEarningsDashboard = lazy(() => import('./DriverEarningsDashboard'));
 const BusinessEarningsDashboard = lazy(() => import('./BusinessEarningsDashboard'));
 const AuthPage = lazy(() => import('./AuthPage'));
@@ -58,6 +60,7 @@ const DriverSubscription = lazy(() => import('./DriverSubscription'));
 const MerchantSubscription = lazy(() => import('./MerchantSubscription'));
 const MerchantAds = lazy(() => import('./MerchantAds'));
 import { ModeProvider } from './ModeContext';import ModeSwitcher from './ModeSwitcher';
+import RoleSwitcher from './RoleSwitcher';
 import { CurrencyProvider, CurrencySwitcher, Price } from './CurrencyContext';
 import PromoterSocialProof from './PromoterSocialProof';
 const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'));
@@ -122,7 +125,8 @@ import {
   Smartphone,
   ArrowRight,
   Search,
-  Megaphone
+  Megaphone,
+  Wallet
 } from 'lucide-react';
 import axios from 'axios';
 import './App.css';
@@ -143,8 +147,17 @@ const ROLES_ADMIN_AGENT = ['admin', 'agent'];
 // Auth context, provider and hook now live in ./AuthContext.js
 import { AuthContext, useAuth, AuthProvider } from './AuthContext';
 import { LocationConsentProvider } from './LocationConsentContext';
-import BusinessSearch from './BusinessSearch';
-import PublicTrack from './PublicTrack';
+import BusinessSearch from './BusinessSearch';import PublicTrack from './PublicTrack';
+import { CartProvider } from './CartContext';
+import { CartButton } from './MultiCart';
+const MultiCartPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCartPage })));
+const MultiCheckoutPage = lazy(() => import('./MultiCart').then((m) => ({ default: m.MultiCheckoutPage })));
+const TechnologyPage = lazy(() => import('./TechnologyPage'));
+const AdminDispatch = lazy(() => import('./AdminDispatch'));
+import OfflineSyncManager from './OfflineSync';
+import OrderNotifier from './OrderNotifier';
+import ImpersonationBanner from './ImpersonationBanner';
+import ForcePasswordChange from './ForcePasswordChange';
 
 // Global Search Component
 const GlobalSearch = () => {
@@ -262,10 +275,9 @@ const GlobalSearch = () => {
     // Navigate based on result type. Route names must match App.js <Routes>:
     //   /restaurant/:restaurantId (singular) is the working vendor detail page.
     if (result.type === 'vendor') {
-      if (result.vendor_type === 'pharmacy') {
-        navigate('/pharmacy-order');
-      } else if (result.vendor_type === 'grocery') {
-        navigate('/grocery-order');
+      // Always open the merchant's own storefront/profile page (type-aware).
+      if (result.vendor_type === 'car_rental') {
+        navigate('/car-rentals');
       } else {
         navigate(`/restaurant/${result.id}`);
       }
@@ -545,8 +557,10 @@ const Header = () => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   <UnreadChatBell />
+                  <CartButton />
                   <CurrencySwitcher />
                   <ModeSwitcher />
+                  <RoleSwitcher />
                   <span className="text-sm text-foreground/90 hidden lg:inline">Welcome, {user.name}</span>
                   <Button onClick={() => window.location.href = '/dashboard'} variant="outline" size="sm">
                     Dashboard
@@ -557,6 +571,7 @@ const Header = () => {
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
+                  <CartButton />
                   <CurrencySwitcher />
                   <Button onClick={() => window.location.href = '/login'} variant="outline">
                     Sign In
@@ -1466,7 +1481,7 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API}/business/onboarding`, {
-        withCredentials: false,
+        withCredentials: true,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       setApplications(response.data);
@@ -1548,9 +1563,20 @@ const Dashboard = () => {
                   variant="outline"
                   className="h-24 flex flex-col items-center justify-center space-y-2"
                   onClick={() => navigate('/track')}
+                  data-testid="quick-action-track"
                 >
                   <MapPin className="h-6 w-6" />
                   <span className="text-sm">Track Order</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col items-center justify-center space-y-2"
+                  onClick={() => navigate('/wallet')}
+                  data-testid="quick-action-wallet"
+                >
+                  <Wallet className="h-6 w-6" />
+                  <span className="text-sm">Wallet</span>
                 </Button>
                 
                 <Button
@@ -1804,7 +1830,7 @@ const DriverRegistration = () => {
     e.preventDefault();
     try {
       await axios.post(`${API}/driver/register`, formData, {
-        withCredentials: false
+        withCredentials: true
       });
 
       toast({
@@ -2031,6 +2057,7 @@ function App() {
     <AuthProvider>
       <ModeProvider>
         <CurrencyProvider>
+        <CartProvider>
         <LocationConsentProvider>
         <Router>
           <div className="min-h-screen bg-background">
@@ -2068,17 +2095,23 @@ function App() {
             <Route path="/leaderboard" element={<DriverLeaderboard />} />
             <Route path="/join/:code" element={<JoinLanding />} />
             <Route path="/order/:orderId" element={<OrderTrackingPage />} />
+            <Route path="/track" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
+            <Route path="/orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
 
             {/* Logged-in users (any role) */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-            <Route path="/wallet" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
             <Route path="/referrals" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
             <Route path="/promote" element={<ProtectedRoute><PromoteEarn /></ProtectedRoute>} />
             <Route path="/claims" element={<ProtectedRoute><ClaimsPage /></ProtectedRoute>} />
             <Route path="/addresses" element={<ProtectedRoute><AddressManagement /></ProtectedRoute>} />
             <Route path="/scheduled-orders" element={<ProtectedRoute><OrderScheduling /></ProtectedRoute>} />
             <Route path="/checkout/:orderId" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+            <Route path="/cart" element={<MultiCartPage />} />
+            <Route path="/checkout-group" element={<ProtectedRoute><MultiCheckoutPage /></ProtectedRoute>} />
+            <Route path="/technology" element={<TechnologyPage />} />
+            <Route path="/admin/dispatch" element={<ProtectedRoute allowedRoles={ROLES_ADMIN_AGENT}><AdminDispatch /></ProtectedRoute>} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
 
@@ -2117,12 +2150,17 @@ function App() {
 
           <Footer />
           <Toaster />
+          <OfflineSyncManager />
+          <OrderNotifier />
+          <ImpersonationBanner />
+          <ForcePasswordChange />
           <Suspense fallback={null}>
             <AssistantWidget />
           </Suspense>
         </div>
       </Router>
       </LocationConsentProvider>
+      </CartProvider>
       </CurrencyProvider>
       </ModeProvider>
     </AuthProvider>

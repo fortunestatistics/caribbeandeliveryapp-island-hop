@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 import httpx
@@ -136,6 +137,41 @@ async def get_order(order_id: str) -> Dict[str, Any]:
             return {"success": False, "error": data.get("message") or resp.text[:300], "raw": data}
         return {"success": True, "id": data.get("id"), "status": data.get("status"), "raw": data}
     except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+
+
+async def refund_capture(capture_id: str, amount: Optional[float] = None,
+                         currency: str = "USD", note: str = "") -> Dict[str, Any]:
+    """Refund a captured PayPal payment (full when amount is None, else partial).
+
+    Uses Payments v2 POST /v2/payments/captures/{capture_id}/refund. Never raises —
+    returns {success, refund_id, status, amount, error, raw}."""
+    body: Dict[str, Any] = {}
+    if amount is not None:
+        body["amount"] = {"value": f"{float(amount):.2f}", "currency_code": currency.upper()}
+    if note:
+        body["note_to_payer"] = note[:255]
+    headers = await _auth_headers()
+    headers["PayPal-Request-Id"] = str(uuid.uuid4())
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{_base_url()}/v2/payments/captures/{capture_id}/refund",
+                json=body, headers=headers)
+        data = resp.json() if resp.content else {}
+        if resp.status_code in (200, 201):
+            return {"success": True, "refund_id": data.get("id"),
+                    "status": data.get("status"), "amount": data.get("amount") or body.get("amount"),
+                    "raw": data}
+        issue = None
+        details = data.get("details") if isinstance(data, dict) else None
+        if details and isinstance(details, list):
+            issue = details[0].get("issue")
+        err = issue or (data.get("message") if isinstance(data, dict) else None) or f"HTTP {resp.status_code}"
+        logger.warning(f"PayPal refund_capture failed capture={capture_id} status={resp.status_code} err={err}")
+        return {"success": False, "error": err, "raw": data}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"PayPal refund_capture error capture={capture_id}: {exc}")
         return {"success": False, "error": str(exc)}
 
 

@@ -1,0 +1,33 @@
+{
+  "summary": "Verified TT$->USD conversion feature end-to-end. All core requirements pass: storefront shows raw TT$ (8/45/10, delivery TT$15), currency toggle to US$ shows correct converted values (1.18/6.64/1.47), cart shows raw TT$45 (no inflation, cart-grand-subtotal and cart-store-subtotal both TT$45.00), backend converts food orders correctly (subtotal 6.64, delivery 2.21, item 6.64, total 11.85 = 6.64+2.21+3.00 service fee), taxi orders exempt (delivery_fee=6.38 USD, not divided), checkout dual currency renders correctly (currency-primary=TTD 80.34, currency-secondary=USD 11.85, TT$ line items sum). Search sort mostly works but featured search has a minor ordering bug caused by restaurant/business interleaving after per-list sort.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/search/featured?limit=15", "issue": "Test-named restaurant 'Notify Test Diner' appears at index 13, before real business 'CarePoint Drugs' at index 14. Restaurants and businesses are each sorted with test-names last individually, but the round-robin interleaving in search_featured (server.py ~line 1281-1290) then intermixes them, causing a test-named restaurant to appear before a real business. Fix: after interleaving, apply a final stable sort pushing _is_test_name items to the end of the combined results."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "RestaurantMenu (Roti Palace)", "issues": ["Duplicate React key warning: 'Encountered two children with the same key, Popular' - two categories both labelled 'Popular' emit the same key. Non-blocking but should be fixed by keying on category id/index."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_currency_ttd.py", "/app/test_reports/pytest/pytest_currency.xml"],
+  "action_items": [
+    "Fix /api/search/featured interleave to preserve test-last ordering across the merged result list.",
+    "Fix duplicate 'Popular' React key warning in RestaurantMenu category chips."
+  ],
+  "critical_code_review_comments": [
+    "search_featured interleave logic overrides the per-list _is_test_name sort - either sort the final combined array again or add a post-interleave stable pass to push test-named items last.",
+    "server.py is 13,696 lines - should be split into modules for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_currency_ttd.py"],
+  "success_rate": {"backend": "80% (4/5 tests)", "frontend": "100% (menu raw TT$, toggle, cart, checkout dual-currency all verified)"},
+  "test_credentials": "Freshly registered px_<timestamp>@gmail.com / Test1234! via /api/auth/register",
+  "seed_data_creation": "None; used seeded vendor Roti Palace (b0ca2f1d-d696-4e77-a606-f82b44c5d817).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Currency conversion fix works. Only remaining item is featured-search interleave sort. Backend pytest at /app/backend/tests/test_currency_ttd.py; run with REACT_APP_BACKEND_URL env var set.",
+  "rca of the issue": "search_featured builds two lists (restaurants, businesses), sorts each independently with test-named items last, then interleaves 2 restaurants : 1 business until the cap. Because interleaving occurs after per-list sorting, a test-named restaurant at the tail of the restaurant list can still land before real businesses that appear later in the business list. Mitigation: apply results.sort(key=lambda x: 1 if _is_test_name(x.get('name')) else 0) after the interleave loop."
+}

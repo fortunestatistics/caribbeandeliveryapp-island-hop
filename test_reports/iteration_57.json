@@ -1,0 +1,29 @@
+{
+  "summary": "Verified new Bulk Provision admin button + Dual-Role switcher in navbar. All 6 backend pytest cases and all 3 UI flows PASS. Backend endpoints /api/admin/merchants/provision-all, /api/users/available-roles, /api/users/switch-role behave per spec (admin-only 403, invalid-role 403, staff get empty roles, idempotent). UI: dual-role account (qatest) sees switcher labeled 'Driver' with menu items Customer/Driver/Merchant; switching to Merchant hits POST /api/users/switch-role (200), navigates to /vendor-dashboard, label updates to 'Merchant'; switching back to Driver navigates to /driver-dashboard, label 'Driver'. Solo customer account has NO role-switcher-trigger. Admin Approvals shows both bulk buttons (account-repair-all-drivers-btn + account-provision-all-merchants-btn); clicking 'Provision all approved merchants' POSTs and returns 200 (provisioned_count=0 — already provisioned, idempotent path).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Panel → Approvals (AdminPayPalPayouts paypal-payouts-count badge)", "issues": ["React hydration warning: a <div data-testid='paypal-payouts-count'> (shadcn Badge) is nested inside a <p>. Pre-existing; non-blocking but should be fixed by rendering the Badge under a <span> parent."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_roles_and_bulk_provision.py",
+    "/app/test_reports/pytest/roles_bulk.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: fix pre-existing <div> inside <p> hydration warning around paypal-payouts-count badge."
+  ],
+  "critical_code_review_comments": [
+    "AdminAccountRepair.js uses manual Bearer header from localStorage.token — after cookie-migration this is the sentinel 'cookie' which the backend intentionally ignores, falling back to the session_token cookie (works only because axios.defaults.withCredentials=true). Consider dropping the manual authHeaders() for consistency.",
+    "RoleSwitcher only re-fetches available-roles when user.id/user_type change; that's fine because switchTo() calls refreshUser which updates user_type. Good."
+  ],
+  "updated_files": ["/app/backend/tests/test_roles_and_bulk_provision.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (3/3 flows)"},
+  "test_credentials": "Admin: tracyfortune@islandhoptt.com / IslandHopAdmin2026!; Dual-role: qatest_1784993477@gmail.com / Test1234! (left active_role=driver after test).",
+  "seed_data_creation": "Registered one throwaway solo customer solo_<ts>@gmail.com / Test1234! via /signup to verify hidden switcher for single-role users.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login submit button testid is [data-testid=auth-form-submit-btn] (there are two 'Sign In' buttons on /login — navbar link and form submit). Role switcher label maps: customer->'Customer', driver->'Driver', business/restaurant->'Merchant'. Provision-all endpoint is idempotent — after first run subsequent runs return {success:true, provisioned_count:0}."
+}

@@ -1,0 +1,36 @@
+{
+  "summary": "Verified merchant<->driver dispatch fix (islandhop). Ran pytest suite covering the 7 requested scenarios plus edge cases. 5/6 new tests pass; 1 confirmed real bug: a driver who previously DECLINED an order gets re-offered the same order when they toggle online again, because _redispatch_order -> find_and_assign_driver does NOT filter by drivers_declined (only _reoffer_next_batch does). All the primary bug-fix goals (no-GPS drivers offered, lat/lng coord tolerance, go-online re-offer, merchant mark-ready re-dispatch, atomic accept race, already-assigned 400) are working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/drivers/status (online) -> _offer_open_orders_to_driver -> _redispatch_order -> find_and_assign_driver",
+        "issue": "drivers_declined list is not honored on re-dispatch. A driver who declined an order previously is re-notified about the same order when they go online (or when merchant marks ready). Only _reoffer_next_batch filters `drivers_declined | drivers_offered_all`; find_and_assign_driver's _find_nearby_drivers/_score_drivers_with_priority pipeline needs to exclude order.drivers_declined for the specific order being (re)dispatched. Repro: seed order with drivers_declined=[driverX], set driverX online -> drivers_notified contains driverX. Confirmed by test_declined_driver_not_reoffered_on_go_online in test_dispatch_edge_cases_iter60.py."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_edge_cases_iter60.py",
+    "/app/backend/tests/test_dispatch_flow.py",
+    "/app/test_reports/pytest/iter60_dispatch.xml"
+  ],
+  "action_items": [
+    "In backend/server.py find_and_assign_driver (or in _notify_drivers_about_order / _find_nearby_drivers path), exclude drivers in `order.drivers_declined` before scoring/notifying — mirror the filter used in _reoffer_next_batch (line ~7034). Otherwise the 'decline' UX is effectively a no-op: the driver keeps getting the same offer every time they refresh their availability, and the previously-declined order will also spam them again on go-online."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~13k lines — well past the 700-line threshold. Dispatch (find_and_assign_driver, _reoffer_next_batch, _redispatch_order, _offer_open_orders_to_driver, _priority_second_wave, _score_driver_for_pickup, _addr_coords) should live in a dispatch.py module for clarity and to prevent regressions like the drivers_declined skip.",
+    "Two dispatch entry points (_reoffer_next_batch vs find_and_assign_driver) apply different exclusion rules for drivers_declined/drivers_offered_all. Consolidate into a single _select_offer_candidates(order) helper so the filter can't drift between paths.",
+    "PUT /api/orders/{order_id}/status uses a query-string `status` param instead of a JSON body — surprising for a JSON API and easy to trip clients up. Prefer Pydantic body model."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_edge_cases_iter60.py (new)"
+  ],
+  "success_rate": {"backend": "83% (5/6 new + all prior dispatch flow tests pass)", "frontend": "n/a - skipped per request"},
+  "test_credentials": "Used disposable drivers/merchants seeded via /api/auth/register + direct Mongo writes; cleaned up in fixture teardown. Persisted admin & merch_1784954600 accounts left untouched as instructed.",
+  "seed_data_creation": "Test creates temporary drivers/orders/business docs (drivers_*, disp_merch_*, disp_drv_*) — all deleted in the pytest fixture teardown.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run `pytest /app/backend/tests/test_dispatch_edge_cases_iter60.py` after fix. Expect all 6 to pass. Also `python /app/backend/tests/test_dispatch_flow.py` is the smoke script for the primary bug fix and already passes.",
+  "rca of the issue": "PRIMARY BUG (merchant sees 'Finding a driver…' forever) is RESOLVED. RCA of original: (1) online drivers with no current_location were silently dropped by _score_driver_for_pickup, (2) pickup coords stored as {lat,lng} instead of {latitude,longitude} were rejected by _addr_coords, (3) get_driver_order_requests only surfaced 'pending' orders so 'ready' orders never appeared, (4) toggling online did not re-offer existing open orders, (5) merchant advancing status did not re-dispatch. All five gaps are now covered by the changes E1 made. REMAINING BUG: drivers_declined not respected by find_and_assign_driver — see minor issue above. Mitigation: add `drivers_declined` (per-order) to the exclusion set inside find_and_assign_driver before calling _score_drivers_with_priority."
+}

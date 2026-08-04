@@ -76,6 +76,7 @@ const Footer = () => {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           {/* Brand + socials */}
           <div className="flex items-center gap-3">
+            <img src={require('./assets/islandhop-mark.png')} alt="IslandHop" className="w-10 h-10 object-contain" />
             <div>
               <h2 className="text-lg font-bold text-foreground leading-none">IslandHop</h2>
               <p className="text-xs text-gold-500 mt-0.5">Caribbean Delivery</p>
@@ -138,6 +139,7 @@ const Footer = () => {
               www.islandhoptt.com <ExternalLink className="h-3 w-3" />
             </a>
             <a href="/about" data-testid="footer-about" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">About</a>
+            <a href="/technology" data-testid="footer-technology" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Technology</a>
             <a href="/promote" data-testid="footer-promote" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Promote &amp; Earn</a>
             <a href="/privacy-policy" data-testid="footer-privacy" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Privacy Policy</a>
             <a href="/terms-and-conditions" data-testid="footer-terms" className="text-xs text-muted-foreground hover:text-gold-500 transition-colors">Terms &amp; Conditions</a>

@@ -1,0 +1,34 @@
+{
+  "summary": "Iter59 — Admin Merge / Deactivate / Delete-Business flows (backend + full UI). Backend pytest 2/2 PASS against REACT_APP_BACKEND_URL: (a) full merge→deactivate→repair→delete-business→owner-protect flow, (b) owner-cannot-be-merged (403). Frontend UI (admin logged in via /login form, cookie session): (1) old 'Repair a merchant storefront' panel is GONE, only 'Repair an account' panel remains; (2) searching merchant row shows all five action buttons — account-manage-btn-0, account-repair-viewas-0, account-merge-btn-0, account-delete-business-0, account-deactivate-0 — plus account-repair-open-0 & account-repair-btn-0; (3) MERGE dialog (admin-merge-dialog) opens, search (merge-search-input/merge-search-btn) returns results (merge-result-0), primary-selection radios (merge-primary-row/merge-primary-other) work, confirm (merge-confirm-btn) → POST /api/admin/accounts/merge returned 200 with available_roles=['customer','business'], actions='moved 1 businesses.user_id', 'removed the duplicate account …'; (4) DEACTIVATE the survivor via account-deactivate-0 → 200 {status:'disabled'}; direct API login for that account then returned 403; (5) After deactivate the row shows badge 'Needs repair' + message 'Account is disabled — the user is blocked from logging in.' and exposes account-repair-btn-0; clicking it → /admin/accounts/repair 200 (actions=['re-activated the blocked account','promoted account role to business']); login for the survivor then returned 200; (6) DELETE BUSINESS via account-delete-business-0 → 200 {success:true, demoted_owner:true}; row re-rendered as Customer, business_id=None, Delete-business button correctly disappeared; (7) OWNER PROTECTION: POST /api/admin/users/{owner_id}/deactivate → 403 'This account is protected and cannot be deactivated'; POST /api/admin/accounts/merge with owner on either side → 403 'Cannot merge an owner/admin/agent account'; (8) Regression: bulk buttons 'Repair all approved drivers' + 'Provision all approved merchants' render, Edit-profile button still opens admin-manage-dialog (verified in iter58), 'Show repair history (25)' audit toggle present. All disposable TEST_* users and biz_ui_* businesses cleaned up from Mongo.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Panel → Approvals", "issues": ["Pre-existing hydration warning still present: <div> nested inside <p> around badge/count spans (carry-over from iter57/58, not regressed by this change)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter59_merge_deact_delete_pytest.py",
+    "/app/test_reports/pytest/iter59.xml"
+  ],
+  "action_items": [
+    "OPTIONAL cleanup carry-over: fix <div>-in-<p> hydration warning around paypal-payouts-count Badge in the Approvals header (existed before this iter)."
+  ],
+  "critical_code_review_comments": [
+    "AdminMergeDialog.js and AdminAccountRepair.js still use authHeaders() (Bearer <localStorage.token> where the token is the sentinel string 'cookie'). Works because the backend ignores placeholder bearer values and falls back to the httpOnly session_token cookie — but the manual header is dead code and confusing. Consider dropping authHeaders() everywhere for clarity.",
+    "POST /api/admin/accounts/merge correctly rejects owner/admin/agent accounts on either side (verified 403 primary AND secondary). Good defense-in-depth.",
+    "DELETE /api/admin/merchants/{vendor_id} returns demoted_owner:true and demotes user_type to 'customer' — verified in Mongo after the UI action. Storefront disappears from lookup (business_id=None).",
+    "POST /api/admin/users/{user_id}/deactivate sets account_status='disabled'; core._account_block_detail correctly returns 403 on subsequent login (verified end-to-end). POST /api/admin/accounts/repair reactivates a 'disabled' account and re-promotes the role in one step (verified: actions=['re-activated the blocked account','promoted account role to business']).",
+    "AdminApprovals.js no longer imports/renders AdminStorefrontRepair — confirmed via grep and by 'Repair a merchant storefront' text being absent from the DOM after render."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter59_merge_deact_delete_pytest.py"
+  ],
+  "success_rate": {"backend": "100% (2/2 pytest + full end-to-end script)", "frontend": "100% (all UI checkpoints verified)"},
+  "test_credentials": "Admin/owner: tracyfortune@islandhoptt.com / IslandHopAdmin2026! (unchanged).",
+  "seed_data_creation": "Only disposable TEST_* accounts and biz_* businesses were created and deleted from Mongo at end of run. Persisted seeds (merch_1784954600, qatest_1784993477, brokendriver_1784996815, repair_test_driver) were NOT touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All new admin actions map to stable data-testids: account-merge-btn-N, account-delete-business-N, account-deactivate-N, admin-merge-dialog, merge-search-input, merge-search-btn, merge-result-N, merge-primary-row, merge-primary-other, merge-confirm-btn. The confirm dialog for deactivate + delete-business uses window.confirm — set `page.on('dialog', lambda d: d.accept())` before clicking. Admin auth for UI uses the httpOnly session_token cookie; log in through /login (do NOT inject a JWT). For API tests, remember httpx.AsyncClient(shared) sends cookies from an earlier /auth/register call which will override the Authorization header on admin routes → use a SEPARATE anonymous client for register/login-of-victim and keep the admin client isolated (this bit iter59 tests until fixed). The delete-business button only appears when the account has a business record — after successful delete-business the row re-renders as Customer and only Edit/Merge/Deactivate remain (delete-business correctly disappears)."
+}
