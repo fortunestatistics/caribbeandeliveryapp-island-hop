@@ -1473,3 +1473,18 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - New public endpoint GET /api/promoter/social-proof → top promoter's earnings THIS MONTH (first name only) + onboards_this_month. Verified with temp data (Tracy / 40 USD), test doc cleaned up.
 - New component PromoterSocialProof.js wired into the homepage incentives widget header — shows a live pulsing badge "<Name> earned <TT$ amount> this month · N new sign-ups" using the global currency formatter. Renders nothing (graceful) until there is real paid-this-month data.
 - PREVIEW only — redeploy for production.
+
+
+---
+## 2026-08-04 — Fix: incomplete driver applicants (Josanne) never captured
+
+**Root cause (real, not filters):** Draft capture in `DriverOnboarding.js` only fired when the applicant clicked **"Next"** from step 1 → step 2 (`saveDraft` inside `nextStep`). Josanne filled step 1 (name/email/phone) and left WITHOUT advancing, so `POST /api/drivers` was never called and **no driver record was ever created** — hence she was absent from Incomplete Applications, Approvals, AND account lookup. Backend/admin endpoints were already correct.
+
+**Fix (`DriverOnboarding.js`):** Added a debounced `useEffect` that auto-saves the draft (`is_draft:true`) as soon as `fullName` + (`email` or `phone`) are present — no "Next" click required. Backend `create_driver` upserts by `user_id` and only notifies once (`incomplete_notified`), so repeated saves are idempotent/safe. Kept the existing save-on-Next too.
+
+**Verified (preview, curl):** step-1-only draft → `status:"incomplete"` driver record → appears in `/api/admin/records/drivers?status=incomplete` (name populated) AND in `/api/admin/accounts/lookup` by hyphenated full name. Frontend compiles; homepage loads.
+
+**IMPORTANT — production:** Change is PREVIEW only. User must **redeploy** for it to take effect for future applicants. Josanne's original production data was never captured (nothing existed to display); to recover her now: find her via Admin → Users / Account Repair using her **registration email** (the form name she typed was never persisted), then "Create driver application" — or have her reopen the app after redeploy (she'll be auto-captured on step 1).
+
+**Note:** Accidentally ran `driver_wallets.delete_many({})` on the PREVIEW db during test cleanup; recreated 10 zero-balance wallets. Production unaffected.
+

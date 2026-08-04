@@ -164,18 +164,33 @@ const DriverOnboarding = () => {
     };
   };
 
-  // Save a partial application so the applicant is captured even if they don't finish.
-  const savedDraftRef = React.useRef(false);
+  // Save a partial application so the applicant is ALWAYS captured — even if they never
+  // click "Next" or finish the form. The backend upserts by user_id (idempotent) and only
+  // notifies once, so calling this repeatedly is safe.
+  const savingRef = React.useRef(false);
   const saveDraft = async () => {
-    if (savedDraftRef.current) return;
+    if (savingRef.current) return;
     if (!formData.fullName && !formData.email && !formData.phone) return;
-    savedDraftRef.current = true;
+    savingRef.current = true;
     try {
       await axios.post(`${API}/drivers`, buildDriverData(true), { headers: authHeaders() });
     } catch (e) {
-      savedDraftRef.current = false; // allow retry on next step
+      // best-effort capture — never block the applicant
+    } finally {
+      savingRef.current = false;
     }
   };
+
+  // Auto-capture the applicant as soon as they've entered identifying info on step 1,
+  // debounced so we don't post on every keystroke. This guarantees an "incomplete"
+  // application exists even for people who fill only the first step and leave.
+  React.useEffect(() => {
+    const hasIdentity = formData.fullName && (formData.email || formData.phone);
+    if (!hasIdentity) return;
+    const t = setTimeout(() => { saveDraft(); }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.fullName, formData.email, formData.phone]);
 
   const nextStep = () => {
     const error = validateStep(currentStep);
