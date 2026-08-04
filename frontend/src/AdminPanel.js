@@ -54,6 +54,7 @@ import AdminTeam from './AdminTeam';
 import AdminDriverIncentives from './AdminDriverIncentives';
 import AdminPromoters from './AdminPromoters';
 import AdminApprovals from './AdminApprovals';
+import IncompleteApplications from './IncompleteApplications';
 import AdminPayouts from './AdminPayouts';
 import AdminPaymentMode from './AdminPaymentMode';
 import AdminDataCleanup from './AdminDataCleanup';
@@ -652,6 +653,8 @@ const AdminPanel = () => {
         )}
 
         {selectedTab === 'users' && (
+          <>
+          <IncompleteApplications />
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-3">
@@ -789,6 +792,7 @@ const AdminPanel = () => {
               </div>
             </CardContent>
           </Card>
+          </>
         )}
 
         {selectedTab === 'orders' && (

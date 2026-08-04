@@ -2207,7 +2207,7 @@ async def admin_lookup_accounts(q: str, request: Request):
     rx = {"$regex": re.escape(q), "$options": "i"}
     # Also match each word separately so "Ketura William" still finds "Ketura D. Williams",
     # and match by phone. This makes the lookup forgiving of partial / variant names.
-    tokens = [t for t in re.split(r"\s+", q) if len(t) >= 2]
+    tokens = [t for t in re.split(r"[^A-Za-z0-9@.+]+", q) if len(t) >= 2]
     all_rx = [rx] + [{"$regex": re.escape(t), "$options": "i"} for t in tokens]
     user_or = []
     for r in all_rx:
@@ -13115,6 +13115,34 @@ async def admin_search_applicants(request: Request, q: str = ""):
 
     return {"drivers": drivers, "merchants": merchants, "query": q,
             "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
+
+
+@api_router.post("/admin/applicants/{driver_id}/remind")
+async def admin_remind_applicant(driver_id: str, request: Request):
+    """Admin-only: re-send the 'finish your driver application' reminder to an incomplete
+    applicant (and ping the ops inbox). Used by the Incomplete Applications panel."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    d = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    pi = d.get("personal_info") or {}
+    # Enrich contact info from the linked user account when the driver doc is sparse.
+    user = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}) if d.get("user_id") else None
+    user = user or {}
+    info = {
+        "id": driver_id,
+        "name": d.get("name") or pi.get("name") or pi.get("full_name") or user.get("name"),
+        "email": d.get("email") or pi.get("email") or user.get("email"),
+        "phone": d.get("phone") or pi.get("phone") or user.get("phone"),
+        "city": d.get("city") or pi.get("city"),
+    }
+    if not info["email"]:
+        raise HTTPException(status_code=400, detail="This applicant has no email on file to remind.")
+    await _notify_incomplete_application(info)
+    return {"success": True, "reminded": info["email"]}
+
 
 
 

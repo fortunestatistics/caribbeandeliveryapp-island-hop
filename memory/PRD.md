@@ -1,5 +1,14 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — "Incomplete Applications" panel under admin Users + reminder button + hyphen-name lookup
+- **Requested:** show every applicant (even unfinished/unsubmitted) under BOTH Users and Approvals; add an "incomplete" section under Users in the admin panel. Also: "josanne clement-ferguson" still not populating (hyphenated name).
+- **New `IncompleteApplications.js`** mounted at the TOP of the admin **Users** tab (above Users Management): lists all driver applicants with `status=incomplete` (from `GET /admin/records/drivers?status=incomplete`) with name/email/phone/city, a per-row **"Send reminder"** button and a Refresh. (They already appear in Approvals → Driver Applications "Incomplete" tab too.)
+- **New backend `POST /admin/applicants/{driver_id}/remind`:** re-sends the "finish your application" email to the applicant + pings ops inbox (reuses `_notify_incomplete_application`), enriching contact info from the linked user account.
+- **Hyphen/punctuation-friendly lookup:** `/admin/accounts/lookup` tokenizer now splits on any non-alphanumeric (`[^A-Za-z0-9@.+]+`), so **"clement-ferguson" finds "Josanne Clement Ferguson"** and vice-versa.
+- **Verified (preview curl + screenshot):** hyphenated search finds the customer; remind endpoint returns success + sends email; the "Incomplete Applications" card renders at top of the Users tab ("No incomplete applications right now 🎉" when empty). Clean compile.
+- **⚠️ REQUIRES REDEPLOY.** For josanne clement-ferguson (predates the capture fix → no record yet): after deploy, search her name/phone in **Repair an account → "Add to driver queue"**, or she taps "Become a Driver" once (a partial entry now creates a record + shows under Users → Incomplete and Approvals).
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Capture ALL driver applicants (even incomplete) + reminder emails + admin create-from-account
 - **Requested:** all applicants must populate even if they didn't finish the form; email reminder to admin AND applicant to finish; allow submitting even when the form isn't complete.
 - **Root cause of prior "not populating":** the onboarding **blocked submission until every document uploaded** (button disabled + `handleSubmit` early-return) and sent `personal_info.full_name`. So anyone who didn't finish docs → NO driver record ever created → admin never saw them.
