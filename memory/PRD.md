@@ -1,5 +1,18 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — Capture ALL driver applicants (even incomplete) + reminder emails + admin create-from-account
+- **Requested:** all applicants must populate even if they didn't finish the form; email reminder to admin AND applicant to finish; allow submitting even when the form isn't complete.
+- **Root cause of prior "not populating":** the onboarding **blocked submission until every document uploaded** (button disabled + `handleSubmit` early-return) and sent `personal_info.full_name`. So anyone who didn't finish docs → NO driver record ever created → admin never saw them.
+- **Fixes:**
+  - **`DriverOnboarding.js`:** removed the hard doc gate — applicants can submit anytime; `buildDriverData(isDraft)` + `saveDraft()` auto-creates a record when they advance past step 1 (captured even if abandoned); submit sends `is_draft=!complete`; complete → identity check, incomplete → saved for review with a friendly "finish anytime" toast. Submit button now enabled (label "Submit (finish docs later)" when docs missing).
+  - **`create_driver` (POST /drivers):** fields now optional; infers completeness (core vehicle/licence + ≥1 doc) → status `pending`, else `incomplete`. Upserts existing records without wiping data; never downgrades a real `pending` to `incomplete`.
+  - **Reminder emails — `_notify_incomplete_application()`:** emails the ops inbox (drivers@) AND the applicant ("Finish your IslandHop driver application") once when an incomplete app is first captured (guarded by `incomplete_notified`), + optional WhatsApp to ADMIN_NOTIFY_PHONE.
+  - **Admin "Add to driver queue"** (`AdminAccountRepair.js` + repair action `create_driver_application`): one-click creates a pending application from a customer account (stays pending for review, not auto-activated) — for pre-existing customers who never got a record.
+  - **Forgiving account lookup (`/admin/accounts/lookup`):** now multi-token (so "Ketura William" finds "Ketura D Williams"), matches phone + `personal_info.full_name` + driver top-level fields.
+- **Verified (preview curl + screenshots):** partial draft → `incomplete`, shows in admin "Incomplete" AND "New"; completing → `pending`; repair create-from-account → pending in queue; lookup finds variant name + phone; onboarding page renders with enabled submit; no crashes. Test data cleaned. Clean compile.
+- **⚠️ REQUIRES REDEPLOY.** For the existing Ketura & Johanna (predate this fix, no record): after deploy either (a) admin searches their name/phone in Repair → "Add to driver queue", or (b) they tap "Become a Driver" once — even a partial entry now creates a record + emails them a reminder.
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Applicant search + status-filter tabs (and the REAL "not populating" fix)
 - **Key discovery:** `AdminApplicants.js` + `GET /api/admin/applicants` are **orphaned** (not mounted anywhere). The admin actually reviews applications in **`AdminApprovals.js`** → **`GET /api/admin/records/{category}`** (in `backend/routers/admin_records.py`). So last turn's fix to `/admin/applicants` did NOT affect the live admin view — the true bug was in `admin_records`.
 - **REAL root-cause fix (`admin_records.py`):** the `status=pending` filter matched only `{pending, pending_approval}`, hiding applicants left in `identity_pending`, `incomplete`, `under_review`, `unverified`, etc. Broadened `pending` to a full non-terminal set, and added two new filter values `id_check` and `incomplete`. Also: a search query (`q`) now searches across **ALL** statuses (status filter is skipped when searching) and matches nested `personal_info.*` / `business_owner.*` fields — so no applicant is ever hidden.

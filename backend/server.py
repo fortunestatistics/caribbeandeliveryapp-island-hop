@@ -2205,17 +2205,27 @@ async def admin_lookup_accounts(q: str, request: Request):
     if len(q) < 2:
         raise HTTPException(status_code=400, detail="Enter at least 2 characters to search")
     rx = {"$regex": re.escape(q), "$options": "i"}
+    # Also match each word separately so "Ketura William" still finds "Ketura D. Williams",
+    # and match by phone. This makes the lookup forgiving of partial / variant names.
+    tokens = [t for t in re.split(r"\s+", q) if len(t) >= 2]
+    all_rx = [rx] + [{"$regex": re.escape(t), "$options": "i"} for t in tokens]
+    user_or = []
+    for r in all_rx:
+        user_or += [{"name": r}, {"email": r}, {"phone": r}]
     out = []
     seen = set()
-    async for u in db.users.find({"$or": [{"name": rx}, {"email": rx}]}, {"_id": 0}).limit(25):
+    async for u in db.users.find({"$or": user_or}, {"_id": 0}).limit(40):
         if u.get("id") in seen:
             continue
         seen.add(u.get("id"))
         out.append(await _account_health_entry(u))
-    # Also surface drivers whose record matches by name but whose user link may be broken.
-    async for d in db.drivers.find(
-        {"$or": [{"personal_info.name": rx}, {"personal_info.email": rx}]}, {"_id": 0}
-    ).limit(15):
+    # Also surface drivers whose record matches by name/phone but whose user link may be broken.
+    drv_or = []
+    for r in all_rx:
+        drv_or += [{"personal_info.name": r}, {"personal_info.full_name": r},
+                   {"personal_info.email": r}, {"personal_info.phone": r},
+                   {"name": r}, {"email": r}, {"phone": r}]
+    async for d in db.drivers.find({"$or": drv_or}, {"_id": 0}).limit(25):
         uid = d.get("user_id")
         if uid and uid in seen:
             continue
@@ -2282,6 +2292,7 @@ class AccountRepairRequest(BaseModel):
     application_id: Optional[str] = None  # provision an approved merchant application
     email: Optional[str] = None           # link an unlinked application to this signup email
     link_user_id: Optional[str] = None    # link an unlinked application to this existing account
+    create_driver_application: Optional[bool] = False  # push a customer into the driver review queue
 
 
 @api_router.post("/admin/accounts/repair")
@@ -2377,7 +2388,26 @@ async def admin_repair_account(payload: AccountRepairRequest, request: Request):
         if healed:
             driver = healed
             actions.append("recreated the missing driver profile")
-    if driver:
+    if not driver and payload.create_driver_application:
+        # Customer who tried to apply but no application landed → create a pending
+        # application from their profile so it shows in the Approvals review queue.
+        new_driver = Driver(
+            user_id=uid,
+            license_number="PENDING",
+            vehicle_type="PENDING",
+            vehicle_plate="PENDING",
+            personal_info={
+                "name": user.get("name"), "full_name": user.get("name"),
+                "email": user.get("email"), "phone": user.get("phone"),
+            },
+            status="pending",
+        )
+        await db.drivers.insert_one(prepare_for_mongo(new_driver.dict()))
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=new_driver.id).dict())
+        driver = await db.drivers.find_one({"id": new_driver.id}, {"_id": 0})
+        just_created_application = True
+        actions.append("created a pending driver application (now visible in Approvals → Driver Applications)")
+    if driver and not just_created_application:
         d_status = (driver.get("status") or "").lower()
         if d_status == "rejected":
             actions.append("driver was previously REJECTED — not auto-activating (re-review in Approvals)")
@@ -5706,20 +5736,36 @@ async def confirm_payment(
 
 
 class DriverApplicationCreate(BaseModel):
-    license_number: str
-    vehicle_type: str
-    vehicle_plate: str
+    license_number: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    vehicle_plate: Optional[str] = None
     documents: Optional[Dict[str, str]] = None
     personal_info: Optional[Dict[str, Any]] = None
     vehicle_info: Optional[Dict[str, Any]] = None
     banking_info: Optional[Dict[str, Any]] = None
+    is_draft: Optional[bool] = False  # partial save while the applicant is still filling the form
+
+
+def _driver_app_is_complete(app: "DriverApplicationCreate") -> bool:
+    """An application is 'complete' (ready for review) when the core vehicle/licence fields
+    and at least one document are present. Otherwise it's captured as 'incomplete'."""
+    has_core = bool(app.license_number and app.vehicle_type and app.vehicle_plate)
+    has_docs = bool(app.documents)
+    return has_core and has_docs and not app.is_draft
 
 
 @api_router.post("/drivers", response_model=Driver)
 async def create_driver(application: DriverApplicationCreate, request: Request):
-    """Create a driver application. New applicants are 'pending' until an admin
-    approves them — they cannot go online or operate until then."""
+    """Create / update a driver application. Applicants are captured even when the form
+    isn't finished ('incomplete') so admins ALWAYS see them; a fully-filled app is 'pending'
+    review. Applicants can never go online until an admin approves them."""
     current_user = await get_current_user_from_request(request)
+
+    complete = _driver_app_is_complete(application)
+    pi = application.personal_info or {}
+    applicant_name = pi.get("name") or pi.get("full_name") or current_user.name
+    applicant_email = pi.get("email") or current_user.email
+    applicant_phone = pi.get("phone") or current_user.phone
 
     # If a record already exists, decide based on its state instead of always blocking.
     existing = await db.drivers.find_one({"user_id": current_user.id})
@@ -5729,65 +5775,62 @@ async def create_driver(application: DriverApplicationCreate, request: Request):
             raise HTTPException(status_code=400, detail="You're already an approved driver.")
         if est == "rejected":
             raise HTTPException(status_code=400, detail="Your driver application was rejected. Please contact support.")
-        # Otherwise it's a stuck/incomplete/pending application — refresh it with the new
-        # details and (re)set it to 'pending' so it reappears in the admin review queue.
-        await db.drivers.update_one(
-            {"id": existing["id"]},
-            {"$set": {
-                "license_number": application.license_number,
-                "vehicle_type": application.vehicle_type,
-                "vehicle_plate": application.vehicle_plate,
-                "documents": application.documents,
-                "personal_info": application.personal_info,
-                "vehicle_info": application.vehicle_info,
-                "banking_info": application.banking_info,
-                "status": "pending",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }},
-        )
+        # Complete → 'pending' (ready to review). Incomplete → 'incomplete' (unless it was
+        # already fully submitted before — never downgrade a real 'pending' to 'incomplete').
+        new_status = "pending" if complete else ("pending" if est in ("pending", "pending_approval") else "incomplete")
+        set_fields = {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}
+        # Only overwrite fields the applicant actually provided (partial saves don't wipe data).
+        for k, v in {
+            "license_number": application.license_number, "vehicle_type": application.vehicle_type,
+            "vehicle_plate": application.vehicle_plate, "documents": application.documents,
+            "personal_info": application.personal_info, "vehicle_info": application.vehicle_info,
+            "banking_info": application.banking_info,
+        }.items():
+            if v:
+                set_fields[k] = v
+        await db.drivers.update_one({"id": existing["id"]}, {"$set": set_fields})
         refreshed = await db.drivers.find_one({"id": existing["id"]}, {"_id": 0})
-        pi = application.personal_info or {}
-        asyncio.create_task(_notify_new_application("driver", {
-            "id": existing["id"],
-            "name": pi.get("name") or current_user.name,
-            "email": pi.get("email") or current_user.email,
-            "phone": pi.get("phone") or current_user.phone,
-            "vehicle_type": application.vehicle_type,
-            "city": pi.get("city"),
-            "source": "the app (resubmitted)",
-        }))
+        info = {"id": existing["id"], "name": applicant_name, "email": applicant_email,
+                "phone": applicant_phone, "vehicle_type": application.vehicle_type, "city": pi.get("city")}
+        if complete:
+            info["source"] = "the app (resubmitted)"
+            asyncio.create_task(_notify_new_application("driver", info))
+        elif not existing.get("incomplete_notified"):
+            await db.drivers.update_one({"id": existing["id"]}, {"$set": {"incomplete_notified": True}})
+            asyncio.create_task(_notify_incomplete_application(info))
         return refreshed
 
     driver = Driver(
         user_id=current_user.id,
-        license_number=application.license_number,
-        vehicle_type=application.vehicle_type,
-        vehicle_plate=application.vehicle_plate,
+        license_number=application.license_number or "PENDING",
+        vehicle_type=application.vehicle_type or "PENDING",
+        vehicle_plate=application.vehicle_plate or "PENDING",
         documents=application.documents,
         personal_info=application.personal_info,
         vehicle_info=application.vehicle_info,
         banking_info=application.banking_info,
-        status="pending",  # awaiting admin identity review
+        status="pending" if complete else "incomplete",
     )
 
     driver_dict = prepare_for_mongo(driver.dict())
+    if not complete:
+        driver_dict["incomplete_notified"] = True
     await db.drivers.insert_one(driver_dict)
 
     # Create driver wallet
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
 
-    # Notify the team (email + WhatsApp) and acknowledge the applicant by email.
-    pi = application.personal_info or {}
-    asyncio.create_task(_notify_new_application("driver", {
-        "id": driver.id,
-        "name": pi.get("name") or current_user.name,
-        "email": pi.get("email") or current_user.email,
-        "phone": pi.get("phone") or current_user.phone,
-        "vehicle_type": application.vehicle_type,
-        "city": pi.get("city"),
+    # Notify the team (email + WhatsApp) and acknowledge/remind the applicant by email.
+    info = {
+        "id": driver.id, "name": applicant_name, "email": applicant_email,
+        "phone": applicant_phone, "vehicle_type": application.vehicle_type, "city": pi.get("city"),
         "source": "the app",
-    }))
+    }
+    if complete:
+        asyncio.create_task(_notify_new_application("driver", info))
+    else:
+        asyncio.create_task(_notify_incomplete_application(info))
 
     # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
     # account restricted (still a customer) while the application is reviewed.
@@ -13235,6 +13278,57 @@ async def _notify_new_application(kind: str, doc: dict):
             f"📧 Email routed to {inbox}. Review it in Admin → Approvals.",
             event=f"new_{label}_application",
         )
+
+
+async def _notify_incomplete_application(doc: dict):
+    """An applicant started a driver application but hasn't finished it. Nudge BOTH the
+    admin/ops team (so they can follow up) and the applicant (to finish). Best-effort."""
+    inbox = graph_mail.notify_mailbox("driver")  # drivers@islandhoptt.com
+    name = doc.get("name") or "there"
+    admin_html = (
+        f"<h2>Incomplete driver application ⏳</h2>"
+        f"<p>An applicant started a driver application but hasn't finished it. "
+        f"You can follow up, or approve them once they complete it — they already show in "
+        f"<b>Admin → Approvals → Driver Applications → “Incomplete”</b>.</p>"
+        f"<ul>"
+        f"<li><b>Name:</b> {doc.get('name','')}</li>"
+        f"<li><b>Email:</b> {doc.get('email','')}</li>"
+        f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+        f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        f"</ul>"
+        f"<p style='color:#888'>Applicant ID: {doc.get('id')}</p>"
+    )
+    applicant_html = (
+        f"<h2>Almost there, {name}! Finish your IslandHop driver application 🚗</h2>"
+        f"<p>Thanks for starting your driver application with IslandHop. You're just a few "
+        f"steps away — please log back into the app and complete your details and document "
+        f"uploads so our team can review and approve you.</p>"
+        f"<p>Open the IslandHop app → <b>Become a Driver</b> to pick up where you left off.</p>"
+        f"<p>— The IslandHop Team</p>"
+    )
+    try:
+        await graph_mail.send_mail(
+            inbox, f"Incomplete driver application — {doc.get('name','')}",
+            admin_html, mailbox=inbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Incomplete-application admin alert failed: {exc}")
+    try:
+        if doc.get("email"):
+            await graph_mail.send_mail(
+                doc["email"], "Finish your IslandHop driver application",
+                applicant_html, mailbox=inbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Incomplete-application applicant reminder failed: {exc}")
+
+    admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
+    if admin_phone:
+        await _wa_notify(
+            admin_phone,
+            f"⏳ Incomplete driver application: {doc.get('name','')} ({doc.get('phone','')}). "
+            f"Shows under Admin → Approvals → Incomplete.",
+            event="incomplete_driver_application",
+        )
+
 
 
 @api_router.post("/public/applications/driver")

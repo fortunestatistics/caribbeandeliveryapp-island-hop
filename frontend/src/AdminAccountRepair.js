@@ -113,6 +113,20 @@ const AdminAccountRepair = () => {
     }
   };
 
+  const createDriverApp = async (row) => {
+    if (!row.user_id) return;
+    if (!window.confirm(`Create a driver application for ${row.name || row.email || 'this customer'}? It will appear in Approvals → Driver Applications for review.`)) return;
+    setBusyKey(row.user_id + ':mkdrv');
+    try {
+      const r = await axios.post(`${API}/admin/accounts/repair`, { user_id: row.user_id, create_driver_application: true }, { headers: authHeaders() });
+      toast.success(`${(r.data.actions || ['Created driver application']).join('; ')}`);
+      await search();
+      loadAudit();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not create driver application');
+    } finally { setBusyKey(null); }
+  };
+
   const repairAllDrivers = async () => {
     setBulkBusy(true);
     try {
@@ -348,6 +362,17 @@ const AdminAccountRepair = () => {
                       </Button>
                     )}
                     {row.user_id && <AdminManageProfile row={row} index={i} />}
+                    {row.user_id && !row.driver && row.kind !== 'merchant_application' && row.kind !== 'unlinked_driver' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => createDriverApp(row)}
+                        disabled={busyKey === (row.user_id + ':mkdrv')}
+                        data-testid={`account-create-driver-app-${i}`}
+                      >
+                        {busyKey === (row.user_id + ':mkdrv') ? <Loader2 className="h-4 w-4 animate-spin" /> : <LifeBuoy className="h-4 w-4 mr-1" />}Add to driver queue
+                      </Button>
+                    )}
                     {row.user_id && (
                       <Button
                         size="sm"

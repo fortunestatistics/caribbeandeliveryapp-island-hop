@@ -128,93 +128,94 @@ const DriverOnboarding = () => {
   const isUploading = () => Object.values(uploadingDocs).some(Boolean);
 
   const validateStep = (step) => {
-    if (step === 3) {
-      if (isUploading()) {
-        return 'Please wait for all documents to finish uploading.';
-      }
-      const missing = getMissingDocuments();
-      if (missing.length > 0) {
-        return `Please upload the following required document(s): ${missing.join(', ')}.`;
-      }
+    // Never block progress on missing documents — applicants can be captured incomplete.
+    if (step === 3 && isUploading()) {
+      return 'Please wait for all documents to finish uploading.';
     }
     return null;
+  };
+
+  // Build the application payload from the current form state.
+  const buildDriverData = (isDraft) => {
+    const documents = Object.fromEntries(
+      Object.entries(uploadedDocs).map(([key, val]) => [key, val.document_id])
+    );
+    return {
+      is_draft: !!isDraft,
+      license_number: uploadedDocs.driversLicense?.filename || (formData.licensePlate ? 'DL-' + Date.now() : null),
+      vehicle_type: formData.vehicleType || null,
+      vehicle_plate: formData.licensePlate || null,
+      documents: Object.keys(documents).length ? documents : null,
+      personal_info: {
+        name: formData.fullName, full_name: formData.fullName, email: formData.email,
+        phone: formData.phone, address: formData.address,
+        caribbean_island: formData.caribbeanIsland, city: formData.caribbeanIsland,
+        date_of_birth: formData.dateOfBirth, emergency_contact: formData.emergencyContact,
+      },
+      vehicle_info: {
+        make: formData.vehicleMake, model: formData.vehicleModel, year: formData.vehicleYear,
+        color: formData.vehicleColor, has_commercial_insurance: formData.hasCommercialInsurance,
+      },
+      banking_info: {
+        account_holder_name: formData.accountHolderName, bank_name: formData.bankName,
+        account_number: formData.accountNumber, routing_number: formData.routingNumber,
+        account_type: formData.accountType,
+      },
+    };
+  };
+
+  // Save a partial application so the applicant is captured even if they don't finish.
+  const savedDraftRef = React.useRef(false);
+  const saveDraft = async () => {
+    if (savedDraftRef.current) return;
+    if (!formData.fullName && !formData.email && !formData.phone) return;
+    savedDraftRef.current = true;
+    try {
+      await axios.post(`${API}/drivers`, buildDriverData(true), { headers: authHeaders() });
+    } catch (e) {
+      savedDraftRef.current = false; // allow retry on next step
+    }
   };
 
   const nextStep = () => {
     const error = validateStep(currentStep);
     if (error) {
-      toast({ title: 'Missing Required Documents', description: error, variant: 'destructive' });
+      toast({ title: 'Please wait', description: error, variant: 'destructive' });
       return;
     }
+    if (currentStep === 1) saveDraft(); // capture the applicant early (fire-and-forget)
     setCurrentStep(prev => Math.min(prev + 1, 5));
   };
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
   const handleSubmit = async () => {
     const missing = getMissingDocuments();
-    if (missing.length > 0) {
-      toast({
-        title: 'Cannot Submit — Documents Missing',
-        description: `The following required document(s) must be uploaded: ${missing.join(', ')}.`,
-        variant: 'destructive',
-      });
-      setCurrentStep(3);
-      return;
-    }
+    const isComplete = missing.length === 0;
     setSubmitting(true);
     try {
-      const documents = Object.fromEntries(
-        Object.entries(uploadedDocs).map(([key, val]) => [key, val.document_id])
-      );
-      const driverData = {
-        license_number: uploadedDocs.driversLicense?.filename || 'DL-' + Date.now(),
-        vehicle_type: formData.vehicleType,
-        vehicle_plate: formData.licensePlate,
-        documents,
-        personal_info: {
-          full_name: formData.fullName,
-          email: formData.email,
-          phone: formData.phone,
-          address: formData.address,
-          caribbean_island: formData.caribbeanIsland,
-          date_of_birth: formData.dateOfBirth,
-          emergency_contact: formData.emergencyContact
-        },
-        vehicle_info: {
-          make: formData.vehicleMake,
-          model: formData.vehicleModel,
-          year: formData.vehicleYear,
-          color: formData.vehicleColor,
-          has_commercial_insurance: formData.hasCommercialInsurance
-        },
-        banking_info: {
-          account_holder_name: formData.accountHolderName,
-          bank_name: formData.bankName,
-          account_number: formData.accountNumber,
-          routing_number: formData.routingNumber,
-          account_type: formData.accountType
+      await axios.post(`${API}/drivers`, buildDriverData(!isComplete), { headers: authHeaders() });
+
+      // Fully complete → run automated identity verification. Incomplete → still submitted for review.
+      if (isComplete) {
+        try {
+          const idRes = await axios.post(`${API}/drivers/identity/start`, {}, { headers: authHeaders() });
+          toast({
+            title: "Application Submitted — Verify Your Identity",
+            description: "You'll now complete a quick ID + selfie check to get approved automatically.",
+          });
+          window.location.href = idRes.data.url;
+          return;
+        } catch (idErr) {
+          console.error('Identity start failed:', idErr);
         }
-      };
-
-      await axios.post(`${API}/drivers`, driverData, { headers: authHeaders() });
-
-      // Kick off automated identity verification (Stripe Identity).
-      try {
-        const idRes = await axios.post(`${API}/drivers/identity/start`, {}, { headers: authHeaders() });
-        toast({
-          title: "Application Submitted — Verify Your Identity",
-          description: "You'll now complete a quick ID + selfie check to get approved automatically.",
-        });
-        window.location.href = idRes.data.url;
-        return;
-      } catch (idErr) {
-        console.error('Identity start failed:', idErr);
-        toast({
-          title: "Driver Application Submitted!",
-          description: "Your documents are with our team for review. We'll get back to you within 24-48 hours.",
-        });
-        navigate('/dashboard');
       }
+      toast({
+        title: isComplete ? "Driver Application Submitted!" : "Application Saved — Finish Anytime",
+        description: isComplete
+          ? "Your documents are with our team for review. We'll get back to you within 24-48 hours."
+          : `Saved! You can add the remaining document(s) anytime: ${missing.join(', ')}. Our team can already see your application.`,
+      });
+      navigate('/dashboard');
     } catch (error) {
       console.error('Error submitting driver application:', error);
       toast({
@@ -786,11 +787,11 @@ const DriverOnboarding = () => {
               ) : (
                 <Button 
                   onClick={handleSubmit}
-                  disabled={getMissingDocuments().length > 0 || submitting}
+                  disabled={submitting || isUploading()}
                   className="bg-gradient-to-r from-green-500 to-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="submit-application-btn"
                 >
-                  {submitting ? 'Submitting…' : 'Submit Application'}
+                  {submitting ? 'Submitting…' : (getMissingDocuments().length > 0 ? 'Submit (finish docs later)' : 'Submit Application')}
                 </Button>
               )}
             </div>
