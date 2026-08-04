@@ -1,5 +1,17 @@
 # IslandHop — Product Requirements Document
 
+## Session Log — Jun 2026 (fork, cont.) — FIX: driver applications not populating in admin (Ketura William, Johanna Clement)
+- **Reported (production):** 2 customers applied as drivers but don't show in the admin applicants list.
+- **Root cause:** `GET /api/admin/applicants` matched **only** `db.drivers.find({"status": "pending"})`. But the apply→Stripe-Identity flow can leave an applicant in `pending_approval`, `identity_pending`, `under_review`, `incomplete`, etc. — all invisible to admins. Any applicant who didn't land on the exact string `"pending"` was hidden.
+- **Fixes (backend `server.py`):**
+  1. Admin applicants query now shows every driver **awaiting a decision** — excludes only operational/terminal statuses (`active/approved/online/offline/busy/on_delivery/en_route/delivering/available/rejected/suspended/deactivated/banned/disabled/deleted`) instead of matching one string. Also returns each applicant's `status`.
+  2. `POST /api/drivers` (create_driver) is now **forgiving**: if a stuck/incomplete/pending record already exists it UPDATES it back to `pending` (and re-notifies) instead of hard-400 "already have an application" — so re-applications succeed and reappear in the queue. Still blocks genuinely approved (400 "already a driver") and rejected applicants.
+- **Frontend (`AdminApplicants.js`):** shows a status badge (e.g. "identity pending") on driver cards so admins see why someone is waiting.
+- **Verified (preview curl):** customer applies → shows in admin list (Ketura William, Port of Spain, pending); re-apply → 200 (not 400); applicant forced to `identity_pending` → STILL appears (was hidden before). Backend + frontend compile clean. Test data cleaned up.
+- **⚠️ Production data caveat:** this is a CODE fix — needs redeploy. After deploy, if Ketura/Johanna completed onboarding they'll appear. If they abandoned before submitting (no driver record was ever created), they must re-apply (now unblocked). I cannot read/edit production data from preview.
+- **⚠️ REQUIRES REDEPLOY.**
+
+
 ## Session Log — Jun 2026 (fork, cont.) — Currency → TT$ on order mgmt + earnings dashboards; review submit verified
 - **Reported (production):** (1) "Submit review" button erroring/not working; (2) admin Order Management, Driver Earnings dashboard, and Merchant Earnings dashboard still showing US$ — make all money TT$ (unless requested at checkout).
 - **Review submit:** verified end-to-end on preview (curl + browser) — `POST /api/ratings` returns 200, 5-star bonus path is safe (`_credit_wallet_with_txn` → `_get_or_create_wallet`, no 500 on missing wallet), global `axios.defaults.withCredentials=true` so cookie auth works. Could NOT reproduce the error on preview; likely a production cascade from the just-fixed order-access/"Order not found" bugs (needs redeploy). Also tightened `ReviewForm.submit` validation to `hasRating = (showDriver && driverRating>0) || (showVendor && vendorRating>0)` (prevents empty submissions). If it still fails post-deploy, need the exact on-screen error text.

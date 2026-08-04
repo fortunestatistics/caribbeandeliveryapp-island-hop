@@ -5721,10 +5721,42 @@ async def create_driver(application: DriverApplicationCreate, request: Request):
     approves them — they cannot go online or operate until then."""
     current_user = await get_current_user_from_request(request)
 
-    # Prevent duplicate applications
+    # If a record already exists, decide based on its state instead of always blocking.
     existing = await db.drivers.find_one({"user_id": current_user.id})
     if existing:
-        raise HTTPException(status_code=400, detail="You already have a driver application on file.")
+        est = (existing.get("status") or "").lower()
+        if est in ("active", "approved", "online", "offline", "busy"):
+            raise HTTPException(status_code=400, detail="You're already an approved driver.")
+        if est == "rejected":
+            raise HTTPException(status_code=400, detail="Your driver application was rejected. Please contact support.")
+        # Otherwise it's a stuck/incomplete/pending application — refresh it with the new
+        # details and (re)set it to 'pending' so it reappears in the admin review queue.
+        await db.drivers.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "license_number": application.license_number,
+                "vehicle_type": application.vehicle_type,
+                "vehicle_plate": application.vehicle_plate,
+                "documents": application.documents,
+                "personal_info": application.personal_info,
+                "vehicle_info": application.vehicle_info,
+                "banking_info": application.banking_info,
+                "status": "pending",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        refreshed = await db.drivers.find_one({"id": existing["id"]}, {"_id": 0})
+        pi = application.personal_info or {}
+        asyncio.create_task(_notify_new_application("driver", {
+            "id": existing["id"],
+            "name": pi.get("name") or current_user.name,
+            "email": pi.get("email") or current_user.email,
+            "phone": pi.get("phone") or current_user.phone,
+            "vehicle_type": application.vehicle_type,
+            "city": pi.get("city"),
+            "source": "the app (resubmitted)",
+        }))
+        return refreshed
 
     driver = Driver(
         user_id=current_user.id,
@@ -12926,8 +12958,19 @@ async def admin_list_applicants(request: Request):
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
+    # Show every driver awaiting an admin decision. We EXCLUDE only operational/terminal
+    # statuses (approved & working, or already rejected) rather than matching one exact
+    # "pending" string — applicants can be left in "pending_approval", "identity_pending",
+    # "under_review", "incomplete" etc. by the Stripe-Identity flow, and those must NOT be hidden.
+    _TERMINAL_DRIVER_STATUSES = [
+        "active", "approved", "online", "offline", "busy", "on_delivery", "en_route",
+        "delivering", "available", "rejected", "suspended", "deactivated", "banned",
+        "disabled", "deleted",
+    ]
     drivers = []
-    async for d in db.drivers.find({"status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
+    async for d in db.drivers.find(
+        {"status": {"$nin": _TERMINAL_DRIVER_STATUSES}}, {"_id": 0}
+    ).sort("created_at", -1).limit(500):
         pi = d.get("personal_info") or {}
         docs = []
         if d.get("user_id"):
@@ -12942,6 +12985,7 @@ async def admin_list_applicants(request: Request):
             "email": d.get("email") or pi.get("email"),
             "phone": d.get("phone") or pi.get("phone"),
             "city": d.get("city") or pi.get("city"),
+            "status": d.get("status") or "pending",
             "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
             "license_number": d.get("license_number"),
             "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),

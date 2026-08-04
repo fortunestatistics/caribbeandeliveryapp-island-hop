@@ -93,6 +93,11 @@ const AdminApplicants = () => {
                   ? <Badge variant="secondary">Website lead</Badge>
                   : <Badge variant="outline">In-app</Badge>}
               </div>
+              {tab === 'drivers' && a.status && a.status !== 'pending' && (
+                <Badge variant="secondary" className="mt-1 w-fit capitalize" data-testid={`applicant-status-${a.id}`}>
+                  {String(a.status).replace(/_/g, ' ')}
+                </Badge>
+              )}
             </CardHeader>
             <CardContent className="space-y-2">
               {tab === 'merchants' && a.owner_name && <InfoRow icon={Store}>Owner: {a.owner_name}</InfoRow>}
