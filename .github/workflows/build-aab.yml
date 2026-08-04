@@ -1,0 +1,174 @@
+name: Build AAB Bundle for Play Store
+
+# Builds a signed Android App Bundle (.aab) ready for Google Play Store upload.
+# Triggered manually from the Actions tab, or automatically on pushes to main/master.
+# Download the AAB from the run's "Artifacts" section, or find it attached to the
+# GitHub release that is created automatically.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/build-aab.yml'
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode (integer, e.g. 4). Leave blank to auto-increment from current value.'
+        required: false
+        default: ''
+      version_name:
+        description: 'Android versionName (string, e.g. 1.3). Leave blank to keep the current value.'
+        required: false
+        default: ''
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    permissions:
+      contents: write   # needed to create GitHub releases
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Signing setup ──────────────────────────────────────────────────────
+      - name: Prepare Android signing files
+        shell: bash
+        env:
+          KEYSTORE_FILE_BASE64: ${{ secrets.KEYSTORE_FILE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_FILE_NAME: ${{ secrets.KEYSTORE_FILE_NAME }}
+          # Legacy secret names (kept for backwards compatibility)
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          keystore_b64="${KEYSTORE_FILE_BASE64:-${ANDROID_KEYSTORE_BASE64:-}}"
+          keystore_password="${KEYSTORE_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-}}"
+          key_alias="${KEY_ALIAS:-${ANDROID_KEY_ALIAS:-islandhop}}"
+          key_password="${KEY_PASSWORD:-${ANDROID_KEY_PASSWORD:-}}"
+          keystore_file="${KEYSTORE_FILE_NAME:-islandhop-upload.jks}"
+
+          if [ -n "$keystore_b64" ]; then
+            test -n "$keystore_password" || { echo "::error::Missing KEYSTORE_PASSWORD secret"; exit 1; }
+            test -n "$key_password"      || { echo "::error::Missing KEY_PASSWORD secret"; exit 1; }
+            mkdir -p android/keystore
+            echo "$keystore_b64" | base64 --decode > "android/keystore/${keystore_file}"
+            printf 'storeFile=../keystore/%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$keystore_file" "$keystore_password" "$key_alias" "$key_password" \
+              > android/keystore.properties
+            echo "GRADLE_TASK=bundleRelease" >> "$GITHUB_ENV"
+          elif [ -f "android/keystore/islandhop-upload.jks" ]; then
+            echo "::warning::No KEYSTORE_FILE_BASE64 secret found — using bundled dev keystore."
+            printf 'storeFile=../keystore/islandhop-upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "${keystore_password:-islandhop2026}" "${key_alias:-islandhop}" "${key_password:-islandhop2026}" \
+              > android/keystore.properties
+            echo "GRADLE_TASK=bundleRelease" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No keystore found. Building debug AAB — cannot be uploaded to Play Store."
+            echo "GRADLE_TASK=bundleDebug" >> "$GITHUB_ENV"
+          fi
+
+      # ── Version management ─────────────────────────────────────────────────
+      - name: Set version code and name
+        shell: bash
+        run: |
+          BUILD_GRADLE="android/app/build.gradle"
+
+          # Read current values
+          CURRENT_CODE=$(grep -oP 'versionCode\s+\K\d+' "$BUILD_GRADLE" | head -1)
+          CURRENT_NAME=$(grep -oP 'versionName\s+"\K[^"]+' "$BUILD_GRADLE" | head -1)
+
+          # Apply inputs or auto-increment
+          NEW_CODE="${{ github.event.inputs.version_code }}"
+          NEW_NAME="${{ github.event.inputs.version_name }}"
+
+          if [ -z "$NEW_CODE" ]; then
+            NEW_CODE=$(( CURRENT_CODE + 1 ))
+            echo "Auto-incremented versionCode: ${CURRENT_CODE} → ${NEW_CODE}"
+          fi
+          if [ -z "$NEW_NAME" ]; then
+            NEW_NAME="$CURRENT_NAME"
+            echo "Keeping versionName: ${NEW_NAME}"
+          fi
+
+          sed -i "s/versionCode\s\+[0-9]\+/versionCode ${NEW_CODE}/" "$BUILD_GRADLE"
+          sed -i "s/versionName\s\+\"[^\"]*\"/versionName \"${NEW_NAME}\"/" "$BUILD_GRADLE"
+
+          echo "VERSION_CODE=${NEW_CODE}" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=${NEW_NAME}" >> "$GITHUB_ENV"
+          echo "Set versionCode=${NEW_CODE}, versionName=${NEW_NAME}"
+
+      # ── Node / web build ───────────────────────────────────────────────────
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web dependencies
+        run: corepack enable && yarn install --frozen-lockfile
+
+      - name: Build web assets
+        env:
+          CI: false
+          REACT_APP_BACKEND_URL: ${{ vars.REACT_APP_BACKEND_URL || 'https://islandhopapp.com' }}
+        run: yarn build
+
+      # ── Android build ──────────────────────────────────────────────────────
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Remove stale aapt2 override
+        run: |
+          if [ -f "$HOME/.gradle/gradle.properties" ]; then
+            sed -i '/android\.aapt2FromMavenOverride/d' "$HOME/.gradle/gradle.properties"
+          fi
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Build AAB
+        working-directory: frontend/android
+        run: ./gradlew ${{ env.GRADLE_TASK }}
+
+      # ── Artifacts & release ────────────────────────────────────────────────
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab-v${{ env.VERSION_CODE }}
+          path: frontend/android/app/build/outputs/bundle/**/*.aab
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        if: env.GRADLE_TASK == 'bundleRelease'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}-${{ env.VERSION_CODE }}
+          name: "Island Hop v${{ env.VERSION_NAME }} (build ${{ env.VERSION_CODE }})"
+          body: |
+            ## Island Hop v${{ env.VERSION_NAME }} — Play Store AAB
+
+            **versionCode**: ${{ env.VERSION_CODE }}
+            **versionName**: ${{ env.VERSION_NAME }}
+            **Package**: com.islandhop.app
+
+            Upload the attached `.aab` file to Google Play Console → Production → Create new release.
+          files: frontend/android/app/build/outputs/bundle/**/*.aab
+          fail_on_unmatched_files: true
