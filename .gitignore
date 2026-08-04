@@ -93,6 +93,9 @@ frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/6.pack
 frontend/node_modules/.cache/default-development/0.pack
 frontend/node_modules/.cache/default-development/2.pack
+.env
+.env.*
+*.env
 memory/test_credentials.md
 frontend/node_modules/.cache/default-development/8.pack
 frontend/node_modules/.cache/default-development/1.pack
@@ -113,3 +116,5 @@ frontend/android/keystore.properties
 .env
 .env.*
 *.env
+# Allow the bundled dev/CI keystore (credentials are known; production builds use secrets)
+!frontend/android/keystore/islandhop-upload.jks

@@ -22,13 +22,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Android signing files
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          keystore_b64="${ANDROID_KEYSTORE_BASE64:-${KEYSTORE_BASE64:-${ANDROID_UPLOAD_KEYSTORE_BASE64:-}}}"
+          keystore_password="${ANDROID_KEYSTORE_PASSWORD:-${KEYSTORE_PASSWORD:-${ANDROID_UPLOAD_KEYSTORE_PASSWORD:-}}}"
+          key_alias="${ANDROID_KEY_ALIAS:-${KEY_ALIAS:-${ANDROID_UPLOAD_KEY_ALIAS:-}}}"
+          key_password="${ANDROID_KEY_PASSWORD:-${KEY_PASSWORD:-${ANDROID_UPLOAD_KEY_PASSWORD:-}}}"
+
+          if [ -n "$keystore_b64" ]; then
+            test -n "$keystore_password" || { echo "::error::Missing keystore password secret. Expected one of: ANDROID_KEYSTORE_PASSWORD, KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEYSTORE_PASSWORD"; exit 1; }
+            test -n "$key_alias" || { echo "::error::Missing key alias secret. Expected one of: ANDROID_KEY_ALIAS, KEY_ALIAS, ANDROID_UPLOAD_KEY_ALIAS"; exit 1; }
+            test -n "$key_password" || { echo "::error::Missing key password secret. Expected one of: ANDROID_KEY_PASSWORD, KEY_PASSWORD, ANDROID_UPLOAD_KEY_PASSWORD"; exit 1; }
+            mkdir -p android/keystore
+            echo "$keystore_b64" | base64 --decode > android/keystore/islandhop-upload.jks
+            gradle_task=bundleRelease
+          elif [ -f android/keystore/islandhop-upload.jks ]; then
+            echo "::warning::No keystore secrets found — using the bundled dev keystore."
+            keystore_password="${keystore_password:-islandhop2026}"
+            key_alias="${key_alias:-islandhop}"
+            key_password="${key_password:-islandhop2026}"
+            gradle_task=bundleRelease
+          else
+            echo "::warning::No keystore secrets found (ANDROID_KEYSTORE_BASE64 / KEYSTORE_BASE64 / ANDROID_UPLOAD_KEYSTORE_BASE64). Building a debug AAB — cannot be uploaded to the Play Store."
+            gradle_task=bundleDebug
+          fi
+
+          echo "GRADLE_TASK=$gradle_task" >> "$GITHUB_ENV"
+
+          if [ "$gradle_task" != "bundleDebug" ]; then
+            printf 'storeFile=../keystore/islandhop-upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$keystore_password" "$key_alias" "$key_password" > android/keystore.properties
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install web dependencies
-        run: yarn install --frozen-lockfile
+        run: corepack enable && yarn install --frozen-lockfile
 
       - name: Build web app
         env:
@@ -38,27 +84,33 @@ jobs:
           REACT_APP_BACKEND_URL: ${{ vars.REACT_APP_BACKEND_URL || 'https://islandhopapp.com' }}
         run: yarn build
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Remove stale aapt2 override
+        run: |
+          if [ -f "$HOME/.gradle/gradle.properties" ]; then
+            sed -i '/android\.aapt2FromMavenOverride/d' "$HOME/.gradle/gradle.properties"
+          fi
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
-      - name: Build signed release bundle
+      - name: Build AAB
         working-directory: frontend/android
-        run: |
-          chmod +x ./gradlew
-          ./gradlew bundleRelease --no-daemon
+        run: ./gradlew ${{ env.GRADLE_TASK }}
 
-      - name: Upload .aab artifact
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: islandhop-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
+          name: app-release-aab
+          path: frontend/android/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error

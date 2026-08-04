@@ -15,10 +15,8 @@ android {
         applicationId "com.islandhop.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // versionCode: CI passes VERSION_CODE (auto-incrementing). Local builds
-        // fall back to baseVersionCode below — bump it only if building by hand.
-        versionCode (System.getenv('VERSION_CODE') ? System.getenv('VERSION_CODE').toInteger() : 2)
-        versionName (System.getenv('VERSION_NAME') ?: "1.1")
+        versionCode 3
+        versionName "1.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -40,8 +38,10 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Falls back to debug signing if keystore.properties is absent (e.g. CI without secrets).
-            signingConfig hasSigningConfig ? signingConfigs.release : signingConfigs.debug
+            if (!hasSigningConfig) {
+                throw new GradleException("Release builds require keystore.properties in the Android project directory and the original Play upload key.")
+            }
+            signingConfig signingConfigs.release
         }
     }
 }
