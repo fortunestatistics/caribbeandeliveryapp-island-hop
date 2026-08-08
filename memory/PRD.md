@@ -1488,3 +1488,23 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 
 **Note:** Accidentally ran `driver_wallets.delete_many({})` on the PREVIEW db during test cleanup; recreated 10 zero-balance wallets. Production unaffected.
 
+
+
+---
+## 2026-08-08 — Applicant reminders + Users search + remove Certificate of Character
+
+**1. Remove Certificate of Character** — Deleted the field from the driver application everywhere: `DriverOnboarding.js` (formData, requiredDocuments list, Documents-step upload grid, Review summary), `AdminPanel.js` `DOC_LABELS`, and backend `routers/documents.py` `ALLOWED_DOC_TYPES`. Docs now: Driver's License, Vehicle Registration, Insurance, Profile Photo. Verified: no refs remain; onboarding step 3 no longer shows it (testing agent iter 68 PASS).
+
+**2. Automatic applicant reminders** (`server.py`):
+- `_notify_incomplete_application(doc, notify_admin=True)` — added `notify_admin` flag so the batch job emails ONLY the applicant (ops inbox/WhatsApp not spammed).
+- New `_remind_incomplete_applicants(max_reminders=2, min_age_hours=24, cooldown_hours=48)` — finds `incomplete/draft/started` drivers older than 24h, capped at 2 reminders, ≥48h apart; emails a real-email applicant, sets `last_reminder_at` + increments `reminder_count`. Never raises.
+- Scheduled daily at 10:00 UTC via existing APScheduler (`daily_applicant_reminders`).
+- New admin "run now" endpoint `POST /api/admin/applicants/remind-incomplete` (params override caps).
+- Verified via curl: run1 nudged 1 + set count/last_reminder_at; run2 respected cooldown (0); at count=max → 0.
+
+**3. Admin Users search** (`AdminPanel.js`) — Search box already existed and hits `GET /api/admin/users?q=` (server searches name/email/phone → finds anyone signed up, even without a driver record). Fixed a bug: client-side `filteredUsers` re-filtered on name/email only, hiding phone-number matches → now `filteredUsers = users` (trust server). Added placeholder "Search by name, email or phone…" + `data-testid=admin-{tab}-search-input`. Verified (testing agent iter 68): name, email, and phone searches all return correct rows.
+
+**Testing:** testing agent iteration 68 — frontend 100% (auto-capture on step 1 without Next, Cert of Character removed, Users search by name/email/phone). Reminder logic verified via curl. All test records cleaned up.
+
+**Still requires user to REDEPLOY production** for any of this to go live.
+
