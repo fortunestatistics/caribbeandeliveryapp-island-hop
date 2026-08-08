@@ -13144,6 +13144,17 @@ async def admin_remind_applicant(driver_id: str, request: Request):
     return {"success": True, "reminded": info["email"]}
 
 
+@api_router.post("/admin/applicants/remind-incomplete")
+async def admin_remind_incomplete_batch(request: Request, max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48):
+    """Admin-only: run the gentle 'finish your application' nudge across ALL incomplete
+    applicants right now (same job the daily scheduler runs). Throttled/capped inside."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    n = await _remind_incomplete_applicants(max_reminders=max_reminders, min_age_hours=min_age_hours, cooldown_hours=cooldown_hours)
+    return {"success": True, "reminded_count": n}
+
+
 
 
 
@@ -13308,9 +13319,10 @@ async def _notify_new_application(kind: str, doc: dict):
         )
 
 
-async def _notify_incomplete_application(doc: dict):
-    """An applicant started a driver application but hasn't finished it. Nudge BOTH the
-    admin/ops team (so they can follow up) and the applicant (to finish). Best-effort."""
+async def _notify_incomplete_application(doc: dict, notify_admin: bool = True):
+    """An applicant started a driver application but hasn't finished it. Nudge the applicant
+    (to finish) and — when `notify_admin` — the admin/ops team too. Best-effort.
+    The automated daily reminder passes notify_admin=False so ops isn't spammed."""
     inbox = graph_mail.notify_mailbox("driver")  # drivers@islandhoptt.com
     name = doc.get("name") or "there"
     admin_html = (
@@ -13334,12 +13346,13 @@ async def _notify_incomplete_application(doc: dict):
         f"<p>Open the IslandHop app → <b>Become a Driver</b> to pick up where you left off.</p>"
         f"<p>— The IslandHop Team</p>"
     )
-    try:
-        await graph_mail.send_mail(
-            inbox, f"Incomplete driver application — {doc.get('name','')}",
-            admin_html, mailbox=inbox)
-    except Exception as exc:  # noqa: BLE001
-        logging.warning(f"Incomplete-application admin alert failed: {exc}")
+    if notify_admin:
+        try:
+            await graph_mail.send_mail(
+                inbox, f"Incomplete driver application — {doc.get('name','')}",
+                admin_html, mailbox=inbox)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Incomplete-application admin alert failed: {exc}")
     try:
         if doc.get("email"):
             await graph_mail.send_mail(
@@ -13349,13 +13362,64 @@ async def _notify_incomplete_application(doc: dict):
         logging.warning(f"Incomplete-application applicant reminder failed: {exc}")
 
     admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
-    if admin_phone:
+    if notify_admin and admin_phone:
         await _wa_notify(
             admin_phone,
             f"⏳ Incomplete driver application: {doc.get('name','')} ({doc.get('phone','')}). "
             f"Shows under Admin → Approvals → Incomplete.",
             event="incomplete_driver_application",
         )
+
+
+_INCOMPLETE_REMINDER_STATUSES = ["incomplete", "draft", "started"]
+
+
+async def _remind_incomplete_applicants(max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48) -> int:
+    """Scheduled gentle nudge: email driver applicants who started but never finished.
+    Capped & throttled — only once the application is at least `min_age_hours` old, at most
+    `max_reminders` times total, and never more than once per `cooldown_hours`. Returns the
+    number of applicants nudged. Never raises."""
+    now = datetime.now(timezone.utc)
+    age_cutoff = (now - timedelta(hours=min_age_hours)).isoformat()
+    cooldown_cutoff = (now - timedelta(hours=cooldown_hours)).isoformat()
+    query = {
+        "status": {"$in": _INCOMPLETE_REMINDER_STATUSES},
+        "created_at": {"$lte": age_cutoff},
+        "$and": [
+            {"$or": [{"reminder_count": {"$exists": False}}, {"reminder_count": {"$lt": max_reminders}}]},
+            {"$or": [{"last_reminder_at": {"$in": [None]}}, {"last_reminder_at": {"$exists": False}},
+                     {"last_reminder_at": {"$lte": cooldown_cutoff}}]},
+        ],
+    }
+    nudged = 0
+    async for d in db.drivers.find(query, {"_id": 0}).limit(500):
+        pi = d.get("personal_info") or {}
+        user = await db.users.find_one(
+            {"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}
+        ) if d.get("user_id") else None
+        user = user or {}
+        email = d.get("email") or pi.get("email") or user.get("email")
+        if not email or not graph_mail.is_real_email(email):
+            continue
+        info = {
+            "id": d.get("id"),
+            "name": d.get("name") or pi.get("name") or pi.get("full_name") or user.get("name"),
+            "email": email,
+            "phone": d.get("phone") or pi.get("phone") or user.get("phone"),
+            "city": d.get("city") or pi.get("city"),
+        }
+        try:
+            await _notify_incomplete_application(info, notify_admin=False)
+            await db.drivers.update_one(
+                {"id": d.get("id")},
+                {"$set": {"last_reminder_at": now.isoformat()}, "$inc": {"reminder_count": 1}},
+            )
+            nudged += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Auto-reminder failed for applicant {d.get('id')}: {exc}")
+    if nudged:
+        logger.info(f"📨 Auto-reminded {nudged} incomplete driver applicant(s)")
+    return nudged
 
 
 
@@ -13588,6 +13652,18 @@ async def initialize_data():
                     logger.error(f"❌ Weekly top-driver bonus failed: {e}")
 
             scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
+
+            async def _daily_applicant_reminders():
+                try:
+                    n = await _remind_incomplete_applicants()
+                    if n:
+                        logger.info(f"✅ Daily applicant reminders sent to {n} incomplete applicant(s)")
+                except Exception as e:
+                    logger.error(f"❌ Daily applicant reminder job failed: {e}")
+
+            # Gentle daily nudge (10:00 UTC ≈ 06:00 AST) to applicants who started a driver
+            # application but never finished. Capped & throttled inside the helper.
+            scheduler.add_job(_daily_applicant_reminders, CronTrigger(hour=10, minute=0), id="daily_applicant_reminders", replace_existing=True)
 
             from apscheduler.triggers.interval import IntervalTrigger
 

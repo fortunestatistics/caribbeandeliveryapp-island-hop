@@ -1,0 +1,58 @@
+{
+  "summary": "Frontend-only verification of (1) auto-capture of incomplete driver applicant on step 1 without clicking Next, (2) removal of Certificate of Character from onboarding, (3) Admin Users search by name/email/phone including for users without a driver record. All three critical behaviours are working end-to-end against the deployed preview URL.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_scenarios_executed": [
+    {
+      "name": "Auto-capture incomplete driver applicant (no Next click)",
+      "steps": [
+        "Registered new customer via POST /api/auth/register (qa_incomplete_1786232741@gmail.com / Test1234!, phone +186855503176)",
+        "Logged in through /login form (httpOnly cookie)",
+        "Navigated to /driver-onboarding, personal-info-step rendered",
+        "Filled data-testid full-name-input, email-input, phone-input",
+        "Waited 4.5s WITHOUT clicking Next",
+        "Confirmed via GET /api/drivers/me -> 200 with status='incomplete', license_number='PENDING', personal_info populated",
+        "Logged in as admin.qa@islandhop-demo.com, went to /admin -> Users; incomplete-applications-card visible showing 'QA Incomplete 1786232741', email and phone with 'Send reminder' button"
+      ],
+      "result": "PASS"
+    },
+    {
+      "name": "Certificate of Character removed",
+      "steps": [
+        "Advanced onboarding to step 3 (documents-step)",
+        "Inspected inner text of [data-testid=documents-step]"
+      ],
+      "result": "PASS - Only Driver's License, Vehicle Registration, Insurance Certificate, Profile Photo present; 'Certificate of Character' NOT present."
+    },
+    {
+      "name": "Admin Users search (name/email/phone)",
+      "steps": [
+        "Typed 'admin' in admin-users-search-input -> 1 admin-user-row-* rendered, admin.qa@islandhop-demo.com present",
+        "Typed phone '+186855503176' -> 1 row rendered showing new applicant (email+name present)",
+        "Typed partial email 'qa_incomplete_1786232741' -> 1 row rendered showing applicant"
+      ],
+      "result": "PASS - server-side search returns matches by name/email/phone; results NOT hidden by client-side filtering."
+    }
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "Optional cleanup: remove test user qa_incomplete_1786232741@gmail.com (user id 5b294f6b-dc80-4e4d-9bff-d2db1f58bfc7) and its driver draft (driver id d82e127b-a8a2-4b0f-a71f-7fea6cc234a5) from Mongo when convenient."
+  ],
+  "critical_code_review_comments": [
+    "DriverOnboarding.js debounced auto-save useEffect (~line 185) correctly triggers saveDraft() 1.5s after fullName + (email|phone) are entered — this is the fix that makes incomplete capture reliable. Backend POST /api/drivers with is_draft:true upserts by user_id (idempotent) so repeated auto-saves are safe.",
+    "AdminPanel.js Users tab now sets filteredUsers = users (trusts server ?q= filter). Search input data-testid=admin-users-search-input is wired to setSearchQuery and backend GET /api/admin/users?q= returns matches by name/email/phone — verified working.",
+    "IncompleteApplications.js card renders enriched name/email/phone from linked user account — verified populated (not blank)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only)", "frontend": "100%" },
+  "test_credentials": "Admin admin.qa@islandhop-demo.com / AdminQA1234!  ;  new customer qa_incomplete_1786232741@gmail.com / Test1234! (phone +186855503176)",
+  "seed_data_creation": "Created 1 customer + 1 incomplete driver draft via UI flow (see action_items for cleanup ids).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The debounced auto-save on step 1 of /driver-onboarding is the critical behavior. Verify by filling full-name-input, email-input, phone-input and waiting >2s WITHOUT clicking Next, then GET /api/drivers/me (as that customer) should return a driver record with status='incomplete'. Admin -> Users tab search hits GET /api/admin/users?q= and trusts server results.",
+  "rca of the issue": "Prior bug root cause was that draft was only persisted on 'Next' click. Current implementation adds a debounced useEffect ([formData.fullName, formData.email, formData.phone] deps, 1500ms) that calls saveDraft() -> POST /api/drivers {is_draft:true}. Backend upserts by user_id so repeated calls are idempotent. Verified end-to-end: applicant now appears in admin Incomplete Applications card AND in Users Management table even though 'Next' was never clicked."
+}

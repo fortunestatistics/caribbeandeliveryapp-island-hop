@@ -65,7 +65,6 @@ const DriverOnboarding = () => {
     vehicleRegistration: null,
     insurance: null,
     profilePhoto: null,
-    certificateOfCharacter: null,
     
     // Banking Information
     accountHolderName: '',
@@ -118,7 +117,6 @@ const DriverOnboarding = () => {
     { key: 'driversLicense', label: "Driver's License" },
     { key: 'vehicleRegistration', label: 'Vehicle Registration' },
     { key: 'insurance', label: 'Insurance Certificate' },
-    { key: 'certificateOfCharacter', label: 'Certificate of Character' },
     { key: 'profilePhoto', label: 'Profile Photo' }
   ];
 
@@ -569,7 +567,6 @@ const DriverOnboarding = () => {
                     { key: 'driversLicense', label: "Driver's License *", testId: 'drivers-license-upload' },
                     { key: 'vehicleRegistration', label: 'Vehicle Registration *', testId: 'vehicle-registration-upload' },
                     { key: 'insurance', label: 'Insurance Certificate *', testId: 'insurance-upload' },
-                    { key: 'certificateOfCharacter', label: 'Certificate of Character *', testId: 'certificate-of-character-upload', hint: 'Official police Certificate of Character / Good Conduct — required for all Caribbean drivers' },
                     { key: 'profilePhoto', label: 'Profile Photo *', testId: 'profile-photo-upload' }
                   ].map((doc) => (
                     <div key={doc.key}>
@@ -757,7 +754,6 @@ const DriverOnboarding = () => {
                       <div>Driver&apos;s License: {uploadedDocs.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Vehicle Registration: {uploadedDocs.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Insurance: {uploadedDocs.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Certificate of Character: {uploadedDocs.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Profile Photo: {uploadedDocs.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
                     </CardContent>
                   </Card>
