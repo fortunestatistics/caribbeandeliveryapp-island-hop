@@ -1544,3 +1544,18 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 
 **Still requires user to REDEPLOY production** to go live. User should paste their real FAQ into Admin → Mail → "AI reply knowledge".
 
+
+
+---
+## 2026-08-11 — AI reply assistant enhancements (inbound badge, variations, auto-suggest)
+
+**1. WhatsApp inbound badge + sorting** (`AdminWhatsApp.js`) — conversations where the customer messaged last (`last_direction === 'inbound'`) show a green "Reply needed" badge (`wa-waiting-<phone>`) and float to the top of the list, so admins don't click through outbound-only chats. Uses the existing `/whatsapp/conversations` `last_direction` field.
+
+**2. Reply variations** — `POST /api/admin/ai-reply/draft` now accepts optional `avoid_draft`; when present the prompt asks for a fresh, differently-structured reply. Both UIs pass the current reply-box text as `avoid_draft` so tapping the AI button again regenerates a different wording. Mail button label switches to "Regenerate" when the box is non-empty; WhatsApp button is icon-only with a tooltip that switches to "Regenerate a different reply".
+
+**3. Auto-suggest toggle** — new `auto_suggest` boolean in `ai-reply/settings` (checkbox `ai-autosuggest-checkbox` in Admin → Mail → "AI reply knowledge"). When ON, opening a mail message or a WhatsApp conversation with a waiting customer message auto-drafts a reply into the box (draft-only; admin still reviews & sends). Default OFF.
+
+**Verified:** curl — `avoid_draft` produces a clearly different draft; `auto_suggest` persists. Testing agent iter 71 — frontend 100%: auto-suggest fires on open (mail + WA), Regenerate returns different wording, 72 WA convos show "Reply needed" badges sorted to top. No real sends triggered. Minor cosmetic note: WA regenerate cue is a tooltip (icon-only button) vs Mail's text label — by design.
+
+**Still requires user to REDEPLOY production.**
+

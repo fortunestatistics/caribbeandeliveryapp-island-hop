@@ -6493,6 +6493,7 @@ async def _get_ai_reply_settings() -> dict:
         "business_info": doc.get("business_info") or DEFAULT_AI_REPLY_BUSINESS_INFO,
         "tone": doc.get("tone") or "Warm, friendly and Caribbean-branded",
         "enabled": doc.get("enabled", True),
+        "auto_suggest": doc.get("auto_suggest", False),
     }
 
 
@@ -6500,6 +6501,7 @@ class AiReplySettings(BaseModel):
     business_info: Optional[str] = None
     tone: Optional[str] = None
     enabled: Optional[bool] = None
+    auto_suggest: Optional[bool] = None
 
 
 @api_router.get("/admin/ai-reply/settings")
@@ -6522,6 +6524,7 @@ class AiReplyDraftRequest(BaseModel):
     customer_message: str
     customer_name: Optional[str] = None
     context: Optional[str] = None     # recent thread text, optional
+    avoid_draft: Optional[str] = None  # a previous draft to reword differently (variations)
 
 
 @api_router.post("/admin/ai-reply/draft")
@@ -6554,6 +6557,12 @@ async def admin_ai_reply_draft(payload: AiReplyDraftRequest, request: Request):
     if payload.context:
         parts.append(f"Recent conversation (oldest first):\n{payload.context}")
     parts.append(f"Customer's latest message:\n{payload.customer_message}")
+    if (payload.avoid_draft or "").strip():
+        parts.append(
+            "The admin wasn't happy with this earlier draft — write a DIFFERENT reply with fresh "
+            "wording and a different structure (don't just tweak a word). Earlier draft to avoid "
+            f"repeating:\n{payload.avoid_draft.strip()}"
+        )
     parts.append("Write the suggested reply now.")
     try:
         chat = LlmChat(

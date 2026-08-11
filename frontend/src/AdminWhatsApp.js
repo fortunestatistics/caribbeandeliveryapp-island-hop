@@ -3,7 +3,8 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
-import { MessageSquare, Send, Sparkles, Loader2 } from 'lucide-react';
+import { Badge } from './components/ui/badge';
+import { MessageSquare, Send, Sparkles, Loader2, CornerUpLeft } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -19,23 +20,41 @@ const AdminWhatsApp = () => {
   const [whComposeSending, setWhComposeSending] = useState(false);
   const [whComposeFeedback, setWhComposeFeedback] = useState(null);
   const [whDrafting, setWhDrafting] = useState(false);
+  const [autoSuggest, setAutoSuggest] = useState(false);
 
   const fetchWhConvos = async () => {
     try {
       const res = await axios.get(`${API}/whatsapp/conversations`, { headers: authHeaders() });
-      setWhConvos(res.data);
+      // Conversations where the customer messaged last (unanswered) float to the top.
+      const sorted = [...(res.data || [])].sort((a, b) => {
+        const aWaiting = a.last_direction === 'inbound' ? 1 : 0;
+        const bWaiting = b.last_direction === 'inbound' ? 1 : 0;
+        if (aWaiting !== bWaiting) return bWaiting - aWaiting;
+        return new Date(b.last_at) - new Date(a.last_at);
+      });
+      setWhConvos(sorted);
     } catch (e) { console.error(e); }
   };
 
   useEffect(() => {
     fetchWhConvos();
+    axios.get(`${API}/admin/ai-reply/settings`, { headers: authHeaders() })
+      .then((r) => setAutoSuggest(!!r.data.auto_suggest))
+      .catch(() => {});
   }, []);
 
   const openWhConvo = async (phone) => {
     setWhSelectedPhone(phone);
+    setWhReplyBody('');
     try {
       const res = await axios.get(`${API}/whatsapp/messages?phone=${encodeURIComponent(phone)}`, { headers: authHeaders() });
-      setWhMessages(res.data.reverse());
+      const msgs = res.data.reverse();
+      setWhMessages(msgs);
+      // Auto-suggest: pre-draft a reply the moment a conversation with a waiting
+      // customer message is opened (admin still reviews & sends).
+      if (autoSuggest && msgs.some((m) => m.direction === 'inbound')) {
+        draftWhWithAi(msgs, { silent: true });
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -49,12 +68,13 @@ const AdminWhatsApp = () => {
     } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
   };
 
-  const draftWhWithAi = async () => {
-    if (!whSelectedPhone || !whMessages.length) return;
+  const draftWhWithAi = async (msgsArg, opts = {}) => {
+    const msgs = Array.isArray(msgsArg) ? msgsArg : whMessages;
+    if (!whSelectedPhone && !msgs.length) return;
     // Newest inbound customer message drives the reply; include recent thread as context.
-    const lastInbound = [...whMessages].reverse().find((m) => m.direction === 'inbound');
-    if (!lastInbound) { alert('No customer message to reply to yet.'); return; }
-    const context = whMessages.slice(-8)
+    const lastInbound = [...msgs].reverse().find((m) => m.direction === 'inbound');
+    if (!lastInbound) { if (!opts.silent) alert('No customer message to reply to yet.'); return; }
+    const context = msgs.slice(-8)
       .map((m) => `${m.direction === 'inbound' ? 'Customer' : 'Us'}: ${m.body}`).join('\n');
     setWhDrafting(true);
     try {
@@ -62,10 +82,11 @@ const AdminWhatsApp = () => {
         channel: 'whatsapp',
         customer_message: lastInbound.body,
         context,
+        avoid_draft: whReplyBody.trim() || undefined,  // tapping again → fresh wording
       }, { headers: authHeaders() });
       setWhReplyBody(res.data.draft || '');
     } catch (e) {
-      alert(e.response?.data?.detail || 'Could not draft a reply');
+      if (!opts.silent) alert(e.response?.data?.detail || 'Could not draft a reply');
     } finally {
       setWhDrafting(false);
     }
@@ -141,7 +162,14 @@ const AdminWhatsApp = () => {
             ) : (
               whConvos.map((c) => (
                 <div key={c.phone} onClick={() => openWhConvo(c.phone)} className={`p-3 rounded-lg cursor-pointer ${whSelectedPhone === c.phone ? 'bg-gold-500/10 border border-gold-500/30' : 'bg-matte-900/40 hover:bg-matte-900/60'}`} data-testid={`wa-convo-${c.phone}`}>
-                  <p className="font-medium font-mono text-sm">{c.phone}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium font-mono text-sm truncate">{c.phone}</p>
+                    {c.last_direction === 'inbound' && (
+                      <Badge className="bg-green-500/15 text-green-600 border border-green-500/30 text-[10px] shrink-0 gap-1" data-testid={`wa-waiting-${c.phone}`}>
+                        <CornerUpLeft className="h-3 w-3" />Reply needed
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground truncate">{c.last_message}</p>
                   <p className="text-xs text-muted-foreground/70 mt-1">{c.count} msg • {new Date(c.last_at).toLocaleString()}</p>
                 </div>
@@ -189,8 +217,8 @@ const AdminWhatsApp = () => {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Button data-testid="wa-ai-draft-btn" variant="outline" onClick={draftWhWithAi} disabled={whDrafting}
-                    className="border-accent/40 text-accent hover:bg-accent/10 shrink-0" title="Draft a reply with AI">
+                  <Button data-testid="wa-ai-draft-btn" variant="outline" onClick={() => draftWhWithAi()} disabled={whDrafting}
+                    className="border-accent/40 text-accent hover:bg-accent/10 shrink-0" title={whReplyBody.trim() ? 'Regenerate a different reply' : 'Draft a reply with AI'}>
                     {whDrafting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   </Button>
                   <Input data-testid="wa-reply-input" value={whReplyBody} onChange={(e) => setWhReplyBody(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendWhReply()} />

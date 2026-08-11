@@ -40,6 +40,7 @@ const AdminMailInbox = () => {
   const [showAiKnowledge, setShowAiKnowledge] = useState(false);
   const [aiBusinessInfo, setAiBusinessInfo] = useState('');
   const [aiTone, setAiTone] = useState('');
+  const [aiAutoSuggest, setAiAutoSuggest] = useState(false);
   const [savingAi, setSavingAi] = useState(false);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ const AdminMailInbox = () => {
       .then((r) => { setSettings(r.data); setTplSubject(r.data.subject || ''); setTplBody(r.data.body_html || ''); })
       .catch(() => {});
     axios.get(`${API}/admin/ai-reply/settings`, { headers: authHeaders() })
-      .then((r) => { setAiBusinessInfo(r.data.business_info || ''); setAiTone(r.data.tone || ''); })
+      .then((r) => { setAiBusinessInfo(r.data.business_info || ''); setAiTone(r.data.tone || ''); setAiAutoSuggest(!!r.data.auto_suggest); })
       .catch(() => {});
   }, []);
 
@@ -81,8 +82,11 @@ const AdminMailInbox = () => {
   const openMessage = async (msg) => {
     try {
       const r = await axios.get(`${API}/admin/mail/mailboxes/${encodeURIComponent(activeMailbox)}/messages/${msg.id}`, { headers: authHeaders() });
-      setSelected({ ...r.data, ticket: msg.ticket });
+      const full = { ...r.data, ticket: msg.ticket };
+      setSelected(full);
       setReply('');
+      // Auto-suggest: pre-draft a reply the moment the message is opened.
+      if (aiAutoSuggest) draftWithAi(full, { silent: true });
     } catch {
       toast.error('Failed to open message');
     }
@@ -114,20 +118,22 @@ const AdminMailInbox = () => {
     return (el.textContent || el.innerText || '').replace(/\s+\n/g, '\n').trim();
   };
 
-  const draftWithAi = async () => {
-    if (!selected) return;
+  const draftWithAi = async (msgObj, opts = {}) => {
+    const m = msgObj && msgObj.from ? msgObj : selected;
+    if (!m) return;
     setDrafting(true);
     try {
-      const customerMessage = htmlToText(selected.body?.content || selected.bodyPreview || '');
+      const customerMessage = htmlToText(m.body?.content || m.bodyPreview || '');
       const res = await axios.post(`${API}/admin/ai-reply/draft`, {
         channel: 'email',
-        customer_name: selected.from?.emailAddress?.name || '',
+        customer_name: m.from?.emailAddress?.name || '',
         customer_message: customerMessage,
+        avoid_draft: reply.trim() || undefined,  // tapping again → fresh wording
       }, { headers: authHeaders() });
       setReply(res.data.draft || '');
-      toast.success('AI drafted a reply — review & edit before sending');
+      if (!opts.silent) toast.success('AI drafted a reply — review & edit before sending');
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Could not draft a reply');
+      if (!opts.silent) toast.error(err.response?.data?.detail || 'Could not draft a reply');
     } finally {
       setDrafting(false);
     }
@@ -136,9 +142,10 @@ const AdminMailInbox = () => {
   const saveAiKnowledge = async () => {
     setSavingAi(true);
     try {
-      const r = await axios.put(`${API}/admin/ai-reply/settings`, { business_info: aiBusinessInfo, tone: aiTone }, { headers: authHeaders() });
+      const r = await axios.put(`${API}/admin/ai-reply/settings`, { business_info: aiBusinessInfo, tone: aiTone, auto_suggest: aiAutoSuggest }, { headers: authHeaders() });
       setAiBusinessInfo(r.data.business_info || '');
       setAiTone(r.data.tone || '');
+      setAiAutoSuggest(!!r.data.auto_suggest);
       toast.success('AI reply knowledge saved');
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to save');
@@ -285,6 +292,11 @@ const AdminMailInbox = () => {
                 <Textarea value={aiBusinessInfo} onChange={(e) => setAiBusinessInfo(e.target.value)}
                   className="min-h-[160px] text-xs" placeholder="Delivery areas, hours, fees, how orders & refunds work…"
                   data-testid="ai-knowledge-input" />
+                <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none" data-testid="ai-autosuggest-label">
+                  <input type="checkbox" checked={aiAutoSuggest} onChange={(e) => setAiAutoSuggest(e.target.checked)}
+                    className="h-4 w-4 accent-accent" data-testid="ai-autosuggest-checkbox" />
+                  Auto-suggest: pre-draft a reply the moment a message or chat is opened (you still review &amp; send)
+                </label>
                 <div className="flex justify-end">
                   <Button size="sm" onClick={saveAiKnowledge} disabled={savingAi} data-testid="ai-knowledge-save-btn">
                     {savingAi ? 'Saving…' : 'Save knowledge'}
@@ -422,10 +434,10 @@ const AdminMailInbox = () => {
                   <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type your reply…"
                     className="mt-2 min-h-[120px]" data-testid="mail-reply-input" />
                   <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
-                    <Button variant="outline" onClick={draftWithAi} disabled={drafting} data-testid="mail-ai-draft-btn"
+                    <Button variant="outline" onClick={() => draftWithAi()} disabled={drafting} data-testid="mail-ai-draft-btn"
                       className="border-accent/40 text-accent hover:bg-accent/10">
                       {drafting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                      {drafting ? 'Drafting…' : 'Draft with AI'}
+                      {drafting ? 'Drafting…' : (reply.trim() ? 'Regenerate' : 'Draft with AI')}
                     </Button>
                     <Button onClick={sendReply} disabled={sending} data-testid="mail-send-reply-btn">
                       <Send className="h-4 w-4 mr-2" /> {sending ? 'Sending…' : 'Send reply'}
