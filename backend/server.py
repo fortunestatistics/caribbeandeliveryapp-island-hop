@@ -6548,6 +6548,9 @@ async def admin_ai_reply_draft(payload: AiReplyDraftRequest, request: Request):
         f"Tone: {tone}. {length_hint}\n\n"
         f"BUSINESS INFO / FAQ (use ONLY this for facts):\n{business_info}\n\n"
         f"{AI_REPLY_HARD_RULES}\n"
+        f"LANGUAGE: Always write your reply in the SAME language the customer used in their latest "
+        f"message (e.g. Spanish → Spanish, French → French, Haitian Creole → Haitian Creole, "
+        f"English → English). Match their language and a natural, friendly local register.\n"
         f"Write ONLY the reply text itself — no subject line, no 'Draft:' prefix, no meta commentary. "
         f"Address the customer by their first name if provided, and sign off as 'The IslandHop Team'."
     )

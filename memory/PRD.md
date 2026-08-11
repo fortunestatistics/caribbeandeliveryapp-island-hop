@@ -1559,3 +1559,10 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 
 **Still requires user to REDEPLOY production.**
 
+
+
+
+---
+## 2026-08-11 — AI reply: match the customer's language
+
+Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prompt: always reply in the same language the customer used (Spanish→Spanish, French→French, Haitian Creole→Creole, English→English), in a natural local register. Backend-only. Verified via curl: a Spanish WhatsApp message drafted a Spanish reply and a French email drafted a French reply, both on-brand and still honoring the hard rules (no refunds, no prices). Requires production redeploy.
