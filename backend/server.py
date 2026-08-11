@@ -6463,6 +6463,112 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
 
 
 # ---------------------------------------------------------------------------
+# AI-assisted reply drafting (DRAFT-ONLY) for Mail + WhatsApp support.
+# Admins get a suggested reply they review/edit before sending. Powered by the
+# Emergent LLM key (Claude Sonnet). Business FAQ + tone are admin-editable.
+# ---------------------------------------------------------------------------
+DEFAULT_AI_REPLY_BUSINESS_INFO = (
+    "IslandHop is a Caribbean delivery & taxi platform (food, groceries, pharmacy, courier, taxi) "
+    "serving Trinidad & Tobago and the wider Caribbean.\n"
+    "- Customers place orders in the IslandHop app; approved drivers deliver them.\n"
+    "- Support hours: 8am-10pm daily.\n"
+    "- For refunds/billing disputes: tell the customer a team member will review and follow up.\n"
+    "(ADMIN: replace this with your real FAQ — delivery areas, hours, fees, order & refund policy — "
+    "in Admin -> Mail -> 'AI reply knowledge'.)"
+)
+AI_REPLY_HARD_RULES = (
+    "HARD RULES (never break these):\n"
+    "- NEVER promise, approve, or confirm a refund. If asked, say the team will review and follow up.\n"
+    "- NEVER quote specific prices, fees, or dollar amounts. Point them to the app for exact pricing.\n"
+    "- Never invent order details, delivery times, or policies you were not given.\n"
+    "- If you don't know something, say a team member will follow up shortly.\n"
+)
+
+
+async def _get_ai_reply_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "ai_reply"}, {"_id": 0})
+    if not doc:
+        doc = {}
+    return {
+        "business_info": doc.get("business_info") or DEFAULT_AI_REPLY_BUSINESS_INFO,
+        "tone": doc.get("tone") or "Warm, friendly and Caribbean-branded",
+        "enabled": doc.get("enabled", True),
+    }
+
+
+class AiReplySettings(BaseModel):
+    business_info: Optional[str] = None
+    tone: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@api_router.get("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_get(request: Request):
+    await _require_admin_or_agent(request)
+    return await _get_ai_reply_settings()
+
+
+@api_router.put("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_put(payload: AiReplySettings, request: Request):
+    await _require_admin_or_agent(request)
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        await db.app_settings.update_one({"id": "ai_reply"}, {"$set": update}, upsert=True)
+    return await _get_ai_reply_settings()
+
+
+class AiReplyDraftRequest(BaseModel):
+    channel: str = "email"            # 'email' | 'whatsapp'
+    customer_message: str
+    customer_name: Optional[str] = None
+    context: Optional[str] = None     # recent thread text, optional
+
+
+@api_router.post("/admin/ai-reply/draft")
+async def admin_ai_reply_draft(payload: AiReplyDraftRequest, request: Request):
+    """Generate a suggested support reply for an admin to review & edit (draft-only)."""
+    await _require_admin_or_agent(request)
+    if not (payload.customer_message or "").strip():
+        raise HTTPException(status_code=400, detail="No customer message to draft a reply for.")
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    tone = s["tone"]
+    business_info = s["business_info"]
+    channel = "WhatsApp" if (payload.channel or "").lower() == "whatsapp" else "email"
+    length_hint = ("Keep it short — 1 to 3 sentences, suitable for a WhatsApp chat."
+                   if channel == "WhatsApp"
+                   else "Keep it concise and well structured, 1 to 2 short paragraphs.")
+    system_message = (
+        f"You are a customer-support agent for IslandHop, a Caribbean delivery & taxi platform. "
+        f"You draft a reply to a customer's {channel} message on behalf of the support team. "
+        f"Tone: {tone}. {length_hint}\n\n"
+        f"BUSINESS INFO / FAQ (use ONLY this for facts):\n{business_info}\n\n"
+        f"{AI_REPLY_HARD_RULES}\n"
+        f"Write ONLY the reply text itself — no subject line, no 'Draft:' prefix, no meta commentary. "
+        f"Address the customer by their first name if provided, and sign off as 'The IslandHop Team'."
+    )
+    parts = []
+    if payload.customer_name:
+        parts.append(f"Customer name: {payload.customer_name}")
+    if payload.context:
+        parts.append(f"Recent conversation (oldest first):\n{payload.context}")
+    parts.append(f"Customer's latest message:\n{payload.customer_message}")
+    parts.append("Write the suggested reply now.")
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"ai-reply-{uuid.uuid4()}",
+            system_message=system_message,
+        ).with_model("anthropic", "claude-sonnet-4-6")
+        draft = await chat.send_message(UserMessage(text="\n\n".join(parts)))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI reply draft failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate a draft right now. Please try again.")
+    return {"draft": (draft or "").strip()}
+
+
+# ---------------------------------------------------------------------------
 # Support inbox workflow: instant auto-reply + assign-to-agent
 # ---------------------------------------------------------------------------
 DEFAULT_AUTOREPLY_SUBJECT = "Thanks for contacting IslandHop — we've received your message"

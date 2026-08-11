@@ -1,0 +1,47 @@
+{
+  "summary": "Frontend-only test of DRAFT-ONLY AI-assisted reply drafting for Admin Mail + Admin WhatsApp. All primary flows PASS end-to-end via public URL. Login flow: admin.qa is a customer+admin, so real login lands on /dashboard; must switch to Admin panel via the 'Choose a panel' selector → 'Admin' (direct navigation to /admin can race with cookie hydration and 401-redirect, but UI-driven switch works reliably).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "AI knowledge Save toast",
+        "issue": "After clicking ai-knowledge-save-btn the PUT succeeds (subsequent editor state persists) but the expected toast copy 'AI reply knowledge saved' was not detected in the DOM within 4s. Either the toast auto-dismisses very fast, or the copy is different. Non-blocking — save appears to work.",
+        "affected_selectors": ["[data-testid='ai-knowledge-save-btn']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_evidence": {
+    "mail_draft_preview": "Pleasant morning, Israel! 😊  We're so glad to hear that — we look forward to having you on board! If you have any questions along the way as you complete your application, don't hesitate to reach out to us during support hours (8am–8pm) and we'll be happy to assist. Welcome to the IslandHop family!  The IslandHop Team",
+    "mail_draft_latency_s": 6,
+    "mail_signature_present": true,
+    "mail_contains_refund": false,
+    "mail_contains_dollar_price": false,
+    "wa_draft_preview": "Hey there! 👋 It looks like this thread may have caught some test messages — no worries at all! If you need any help with your IslandHop order or have any questions, we're here for you from 8am–8pm. 🌴 The IslandHop Team",
+    "wa_draft_latency_s": 2,
+    "wa_contains_refund": false,
+    "wa_contains_dollar_price": false,
+    "wa_convs_iterated_before_finding_inbound": 14,
+    "wa_conv_that_worked": "wa-convo-+15166057352 (TEST_iter21 no-500 check — has inbound 'Hi IslandHop' / 'test')",
+    "no_send_button_clicked": true,
+    "verified_testids_present": ["ai-knowledge-toggle-btn","ai-knowledge-editor","ai-tone-input","ai-knowledge-input","ai-knowledge-save-btn","mailbox-tab-support@islandhoptt.com","mail-ai-draft-btn","mail-reply-input","admin-tab-mail","admin-tab-whatsapp","wa-ai-draft-btn","wa-reply-input","wa-convo-*"]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: verify AI knowledge Save success toast text/duration — the PUT works but 'AI reply knowledge saved' string was not found in the DOM within 4s. If toast copy changed, update the E2E expectation; if toast is missing, add a user-visible success confirmation."
+  ],
+  "critical_code_review_comments": [
+    "Login redirect: admin.qa lands on /customer /dashboard after /login (since account also has customer profile) rather than /admin. Direct page.goto('/admin') can race the just-set httpOnly cookie and 401→/login on some browsers; using the 'Choose a panel' UI switcher works. Consider redirecting admins straight to /admin after login when is_admin=true, or making the /admin route wait for cookie hydration before firing auth check.",
+    "AI reply hard-rules are respected in the two drafts observed (no refund promise, no $ price). LLM latency: ~6s mail / ~2s WhatsApp — acceptable.",
+    "WA 'No customer message to reply to yet' alert works as documented; most of the 95 seeded conversations are outbound-only, so admins may hit the alert repeatedly. Consider surfacing a visual badge in the list showing which conversations have an inbound message so admins don't have to click through."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only per request)", "frontend": "100% for the requested flows"},
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Edited AI reply knowledge via UI to: 'IslandHop TT — logistics + food delivery. Support hours 8am-8pm. Never promise refunds or quote prices.' with tone 'warm, friendly, Caribbean'. Per request this is fine to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "To reach the admin panel with admin.qa: after /login, click the 'Choose a panel' link in the top-left brand and pick 'Admin' from the menu — direct navigation to /admin can 401-race. Mail AI knowledge editor lives inside the auto-reply control bar (toggled by data-testid=ai-knowledge-toggle-btn). WhatsApp conversations use testid pattern 'wa-convo-<E164>'; most seeded threads are outbound-only so use 'wa-convo-+15166057352' which has inbound messages. NEVER click mail-send-reply-btn or wa-send-btn — those trigger real M365 / Twilio sends.",
+  "rca of the issue": "N/A — feature works as designed. Only nit: save toast text not observed (see integration_issues)."
+}

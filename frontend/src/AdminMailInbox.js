@@ -5,7 +5,7 @@ import { Button } from './components/ui/button';
 import { Textarea } from './components/ui/textarea';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
-import { Mail, RefreshCw, Send, AlertTriangle, Inbox, ChevronLeft, Zap, UserCheck, CheckCircle2, Settings2 } from 'lucide-react';
+import { Mail, RefreshCw, Send, AlertTriangle, Inbox, ChevronLeft, Zap, UserCheck, CheckCircle2, Settings2, Sparkles, Loader2, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -35,6 +35,12 @@ const AdminMailInbox = () => {
   const [tplBody, setTplBody] = useState('');
   const [savingTpl, setSavingTpl] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  // AI reply assistant
+  const [drafting, setDrafting] = useState(false);
+  const [showAiKnowledge, setShowAiKnowledge] = useState(false);
+  const [aiBusinessInfo, setAiBusinessInfo] = useState('');
+  const [aiTone, setAiTone] = useState('');
+  const [savingAi, setSavingAi] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/admin/mail/status`, { headers: authHeaders() })
@@ -49,6 +55,9 @@ const AdminMailInbox = () => {
       .then((r) => setTeam(r.data.members || [])).catch(() => {});
     axios.get(`${API}/admin/mail/auto-reply/settings`, { headers: authHeaders() })
       .then((r) => { setSettings(r.data); setTplSubject(r.data.subject || ''); setTplBody(r.data.body_html || ''); })
+      .catch(() => {});
+    axios.get(`${API}/admin/ai-reply/settings`, { headers: authHeaders() })
+      .then((r) => { setAiBusinessInfo(r.data.business_info || ''); setAiTone(r.data.tone || ''); })
       .catch(() => {});
   }, []);
 
@@ -94,6 +103,47 @@ const AdminMailInbox = () => {
       toast.error(err.response?.data?.detail || 'Failed to send reply');
     } finally {
       setSending(false);
+    }
+  };
+
+  // Strip HTML to plain text for the AI so it reads the customer's actual words.
+  const htmlToText = (html) => {
+    if (!html) return '';
+    const el = document.createElement('div');
+    el.innerHTML = html;
+    return (el.textContent || el.innerText || '').replace(/\s+\n/g, '\n').trim();
+  };
+
+  const draftWithAi = async () => {
+    if (!selected) return;
+    setDrafting(true);
+    try {
+      const customerMessage = htmlToText(selected.body?.content || selected.bodyPreview || '');
+      const res = await axios.post(`${API}/admin/ai-reply/draft`, {
+        channel: 'email',
+        customer_name: selected.from?.emailAddress?.name || '',
+        customer_message: customerMessage,
+      }, { headers: authHeaders() });
+      setReply(res.data.draft || '');
+      toast.success('AI drafted a reply — review & edit before sending');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Could not draft a reply');
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const saveAiKnowledge = async () => {
+    setSavingAi(true);
+    try {
+      const r = await axios.put(`${API}/admin/ai-reply/settings`, { business_info: aiBusinessInfo, tone: aiTone }, { headers: authHeaders() });
+      setAiBusinessInfo(r.data.business_info || '');
+      setAiTone(r.data.tone || '');
+      toast.success('AI reply knowledge saved');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to save');
+    } finally {
+      setSavingAi(false);
     }
   };
 
@@ -215,10 +265,33 @@ const AdminMailInbox = () => {
               <Button size="sm" variant="outline" onClick={() => setShowTemplate((v) => !v)} data-testid="auto-reply-edit-btn">
                 <Settings2 className="h-4 w-4 mr-1" /> Template
               </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowAiKnowledge((v) => !v)} data-testid="ai-knowledge-toggle-btn"
+                className="border-accent/40 text-accent hover:bg-accent/10">
+                <BookOpen className="h-4 w-4 mr-1" /> AI reply knowledge
+              </Button>
               <Button size="sm" onClick={runAutoReply} disabled={running} data-testid="auto-reply-run-btn">
                 <RefreshCw className={`h-4 w-4 mr-1 ${running ? 'animate-spin' : ''}`} /> Run now
               </Button>
             </div>
+            {showAiKnowledge && (
+              <div className="w-full mt-2 border-t border-border pt-3 space-y-2" data-testid="ai-knowledge-editor">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                  What the AI knows when it drafts replies (email &amp; WhatsApp). It will never promise refunds or quote prices.
+                </p>
+                <label className="text-xs font-semibold text-muted-foreground uppercase">Reply tone</label>
+                <Input value={aiTone} onChange={(e) => setAiTone(e.target.value)} placeholder="e.g. Warm, friendly and Caribbean-branded" data-testid="ai-tone-input" />
+                <label className="text-xs font-semibold text-muted-foreground uppercase">Business info / FAQ</label>
+                <Textarea value={aiBusinessInfo} onChange={(e) => setAiBusinessInfo(e.target.value)}
+                  className="min-h-[160px] text-xs" placeholder="Delivery areas, hours, fees, how orders & refunds work…"
+                  data-testid="ai-knowledge-input" />
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={saveAiKnowledge} disabled={savingAi} data-testid="ai-knowledge-save-btn">
+                    {savingAi ? 'Saving…' : 'Save knowledge'}
+                  </Button>
+                </div>
+              </div>
+            )}
             {showTemplate && (
               <div className="w-full mt-2 border-t border-border pt-3 space-y-2">
                 <label className="text-xs font-semibold text-muted-foreground uppercase">Subject</label>
@@ -348,7 +421,12 @@ const AdminMailInbox = () => {
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reply as {activeMailbox}</label>
                   <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type your reply…"
                     className="mt-2 min-h-[120px]" data-testid="mail-reply-input" />
-                  <div className="flex justify-end mt-2">
+                  <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
+                    <Button variant="outline" onClick={draftWithAi} disabled={drafting} data-testid="mail-ai-draft-btn"
+                      className="border-accent/40 text-accent hover:bg-accent/10">
+                      {drafting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                      {drafting ? 'Drafting…' : 'Draft with AI'}
+                    </Button>
                     <Button onClick={sendReply} disabled={sending} data-testid="mail-send-reply-btn">
                       <Send className="h-4 w-4 mr-2" /> {sending ? 'Sending…' : 'Send reply'}
                     </Button>

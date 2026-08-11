@@ -1523,3 +1523,24 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 
 **Still requires user to REDEPLOY production** to go live.
 
+
+
+---
+## 2026-08-11 — AI-assisted reply drafting (Mail + WhatsApp), draft-only
+
+**Feature:** Admins get a "Draft with AI" button in Admin → Mail and Admin → WhatsApp that writes a suggested reply to the customer's message. DRAFT-ONLY — it only fills the reply box; the admin reviews/edits and sends manually. Powered by Claude (`claude-sonnet-4-6`) via the Emergent LLM key (`EMERGENT_LLM_KEY`, already in backend/.env; `emergentintegrations` already installed).
+
+**Backend (`server.py`, before the Support-inbox section):**
+- `GET/PUT /api/admin/ai-reply/settings` — admin-editable `business_info` (FAQ), `tone`, `enabled`; stored in `db.app_settings` id=`ai_reply`; sensible default placeholder.
+- `POST /api/admin/ai-reply/draft` {channel, customer_message, customer_name?, context?} → {draft}. System prompt bakes in tone (warm/Caribbean) + BUSINESS INFO/FAQ + HARD RULES: never promise/confirm refunds, never quote prices/amounts, don't invent facts. Uses `send_message` (single-shot). Admin/agent only.
+
+**Frontend:**
+- `AdminMailInbox.js` — `mail-ai-draft-btn` (fills `mail-reply-input`); "AI reply knowledge" editor in the auto-reply bar (`ai-knowledge-toggle-btn`, `ai-tone-input`, `ai-knowledge-input`, `ai-knowledge-save-btn`) to edit the FAQ/tone. Strips HTML of the incoming email before sending to AI.
+- `AdminWhatsApp.js` — `wa-ai-draft-btn` (fills `wa-reply-input`); uses the last inbound message + last 8 messages as context; channel=whatsapp → short replies.
+
+**Config chosen by user:** draft-only; Claude Sonnet (latest available = 4.6, no `sonnet-5` in library); warm Caribbean tone; admin-pastes FAQ; hard rules: never refunds, never prices.
+
+**Verified:** curl — drafts respect hard rules (refund question → "team will review", price question → "check the app"); settings GET/PUT work. Testing agent iter 70 — frontend 100%: Mail + WhatsApp draft buttons populate the reply box (no real send triggered), knowledge editor saves. Minor non-blocking nit: save success toast auto-dismisses fast.
+
+**Still requires user to REDEPLOY production** to go live. User should paste their real FAQ into Admin → Mail → "AI reply knowledge".
+

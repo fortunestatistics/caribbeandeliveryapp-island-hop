@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
-import { MessageSquare, Send } from 'lucide-react';
+import { MessageSquare, Send, Sparkles, Loader2 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,6 +18,7 @@ const AdminWhatsApp = () => {
   const [whComposeBody, setWhComposeBody] = useState('');
   const [whComposeSending, setWhComposeSending] = useState(false);
   const [whComposeFeedback, setWhComposeFeedback] = useState(null);
+  const [whDrafting, setWhDrafting] = useState(false);
 
   const fetchWhConvos = async () => {
     try {
@@ -46,6 +47,28 @@ const AdminWhatsApp = () => {
       openWhConvo(whSelectedPhone);
       fetchWhConvos();
     } catch (e) { alert(e.response?.data?.detail || 'Failed to send'); }
+  };
+
+  const draftWhWithAi = async () => {
+    if (!whSelectedPhone || !whMessages.length) return;
+    // Newest inbound customer message drives the reply; include recent thread as context.
+    const lastInbound = [...whMessages].reverse().find((m) => m.direction === 'inbound');
+    if (!lastInbound) { alert('No customer message to reply to yet.'); return; }
+    const context = whMessages.slice(-8)
+      .map((m) => `${m.direction === 'inbound' ? 'Customer' : 'Us'}: ${m.body}`).join('\n');
+    setWhDrafting(true);
+    try {
+      const res = await axios.post(`${API}/admin/ai-reply/draft`, {
+        channel: 'whatsapp',
+        customer_message: lastInbound.body,
+        context,
+      }, { headers: authHeaders() });
+      setWhReplyBody(res.data.draft || '');
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Could not draft a reply');
+    } finally {
+      setWhDrafting(false);
+    }
   };
 
   const sendWhCompose = async () => {
@@ -166,6 +189,10 @@ const AdminWhatsApp = () => {
                   ))}
                 </div>
                 <div className="flex gap-2">
+                  <Button data-testid="wa-ai-draft-btn" variant="outline" onClick={draftWhWithAi} disabled={whDrafting}
+                    className="border-accent/40 text-accent hover:bg-accent/10 shrink-0" title="Draft a reply with AI">
+                    {whDrafting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  </Button>
                   <Input data-testid="wa-reply-input" value={whReplyBody} onChange={(e) => setWhReplyBody(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendWhReply()} />
                   <Button data-testid="wa-send-btn" onClick={sendWhReply} className="bg-gold-gradient text-white">
                     <Send className="h-4 w-4" />
