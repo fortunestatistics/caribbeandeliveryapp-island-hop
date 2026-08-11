@@ -1508,3 +1508,18 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 
 **Still requires user to REDEPLOY production** for any of this to go live.
 
+
+
+---
+## 2026-08-11 — Fix: missing Approve button for drivers who finished ID check
+
+**Bug:** In Admin → Approvals → Driver Applications, `AdminApprovals.js` only rendered the Approve/Reject buttons when `record.status` was exactly `pending`/`pending_approval` (`PENDING_STATUSES`). A driver who completed their ID + application but landed in a manual-review state (`identity_pending`, `verifying`, `submitted`, `incomplete`) appeared in the queue with NO approve control.
+
+**Fix (`AdminApprovals.js`):** Replaced the `isPending` gate on the approve/reject buttons with `canDecide = !decided`, where `decided` = status ∈ {active, approved, verified, online, offline, busy, rejected, suspended, banned}. So admins can approve/reject any driver/partner that isn't already approved or rejected. Added `title` tooltips to the icon buttons. (`isPending` retained only for the businesses Link&Provision button.)
+
+**Approval message:** Already sent — `admin_approve_driver` → `_notify_driver_status(user_id, "approved")` emails (M365) AND WhatsApp/SMS the driver ("You're approved to drive with IslandHop! 🎉"). No change needed.
+
+**Verified (testing agent iter 69, 100%):** seeded a driver with status `identity_pending` → it appeared under the default 'New' filter WITH green Approve + red Reject buttons → clicking Approve returned 200, status → `active`, user promoted to `driver`, row left the pending list. Also verified end-to-end via curl. Test record cleaned up.
+
+**Still requires user to REDEPLOY production** to go live.
+

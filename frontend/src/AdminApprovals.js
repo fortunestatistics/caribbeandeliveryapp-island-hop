@@ -467,6 +467,12 @@ const AdminApprovals = () => {
             <div className="divide-y divide-border">
               {displayRecords.map((rec) => {
                 const isPending = PENDING_STATUSES.includes((rec.status || '').toLowerCase());
+                // Admins can approve/reject ANY record that isn't already approved or rejected —
+                // e.g. a driver who finished ID check but landed in 'identity_pending' / 'verifying'
+                // / 'submitted' / 'incomplete' must still be manually approvable.
+                const decided = ['active', 'approved', 'verified', 'online', 'offline', 'busy',
+                  'rejected', 'suspended', 'banned'].includes((rec.status || '').toLowerCase());
+                const canDecide = !decided;
                 const isOpen = expanded === rec.id;
                 return (
                   <div key={rec.id} data-testid={`record-${active}-${rec.id}`}>
@@ -530,12 +536,12 @@ const AdminApprovals = () => {
                             {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Store className="h-4 w-4 mr-1" />Link & provision</>}
                           </Button>
                         )}
-                        {isPending && activeCat?.approveKind && (
+                        {canDecide && activeCat?.approveKind && (
                           <>
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'approve')} data-testid={`record-approve-${rec.id}`}>
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'approve')} data-testid={`record-approve-${rec.id}`} title="Approve">
                               <CheckCircle className="h-4 w-4" />
                             </Button>
-                            <Button size="sm" variant="destructive" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'reject')} data-testid={`record-reject-${rec.id}`}>
+                            <Button size="sm" variant="destructive" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'reject')} data-testid={`record-reject-${rec.id}`} title="Reject">
                               <X className="h-4 w-4" />
                             </Button>
                           </>
