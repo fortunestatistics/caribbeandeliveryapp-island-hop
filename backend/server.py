@@ -9,7 +9,7 @@ import logging
 import asyncio
 import httpx
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -13317,24 +13317,56 @@ PUBLIC_APP_RATE_LIMIT = 5
 PUBLIC_APP_RATE_WINDOW_MIN = 60
 
 
+def _pick_field(data: dict, *keys):
+    """Return the first present, non-empty value among the given alias keys (case-insensitive)."""
+    if not isinstance(data, dict):
+        return None
+    lowered = {str(k).strip().lower().replace(" ", "").replace("-", "").replace("_", ""): v for k, v in data.items()}
+    for k in keys:
+        norm = k.lower().replace(" ", "").replace("-", "").replace("_", "")
+        v = lowered.get(norm)
+        if v not in (None, ""):
+            return v
+    return None
+
+
 class PublicDriverApplication(BaseModel):
     full_name: str
-    email: str
-    phone: str
-    vehicle_type: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    vehicle_type: Optional[str] = ""
     license_number: Optional[str] = None
     vehicle_plate: Optional[str] = None
     city: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        """Accept common field-name variants from external marketing forms
+        (islandhopapp.com / islandhoptt.com) so leads always map correctly."""
+        if not isinstance(data, dict):
+            return data
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "driver_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "vehicle_type": _pick_field(data, "vehicle_type", "vehicleType", "vehicle", "car_type") or "",
+            "license_number": _pick_field(data, "license_number", "licenseNumber", "license", "dl_number", "drivers_license"),
+            "vehicle_plate": _pick_field(data, "vehicle_plate", "vehiclePlate", "plate", "license_plate", "number_plate"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
 
 class PublicMerchantApplication(BaseModel):
     business_name: str
-    owner_name: str
-    email: str
-    phone: str
-    business_type: str
+    owner_name: Optional[str] = ""
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    business_type: Optional[str] = ""
     category: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
@@ -13342,6 +13374,28 @@ class PublicMerchantApplication(BaseModel):
     description: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        business_name = _pick_field(data, "business_name", "businessName", "company", "companyName", "restaurant_name", "restaurantName", "store_name", "storeName", "name")
+        owner_name = _pick_field(data, "owner_name", "ownerName", "contact_name", "contactName", "owner", "full_name", "fullName", "contact")
+        return {
+            "business_name": business_name or owner_name,
+            "owner_name": owner_name or business_name or "",
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "business_type": _pick_field(data, "business_type", "businessType", "type", "category_type") or "",
+            "category": _pick_field(data, "category", "category_id", "categoryId", "cuisine"),
+            "address": _pick_field(data, "address", "street", "line1", "address_line1"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "website": _pick_field(data, "website", "url", "site", "web"),
+            "description": _pick_field(data, "description", "about", "bio"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
 
 
 def _client_ip(request: Request) -> str:

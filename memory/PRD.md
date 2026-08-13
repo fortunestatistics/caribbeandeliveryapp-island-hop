@@ -1566,3 +1566,23 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 ## 2026-08-11 — AI reply: match the customer's language
 
 Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prompt: always reply in the same language the customer used (Spanish→Spanish, French→French, Haitian Creole→Creole, English→English), in a natural local register. Backend-only. Verified via curl: a Spanish WhatsApp message drafted a Spanish reply and a French email drafted a French reply, both on-brand and still honoring the hard rules (no refunds, no prices). Requires production redeploy.
+
+
+---
+## 2026-08-13 — External applications (islandhopapp.com / islandhoptt.com) not reaching live admin
+
+**Reported:** Josanne Clement-Ferguson & Ethan Grant applied via the online sites, admin phone got the "new application" text, but they don't show in the live admin (islandhop-mvp.emergent.host), even under Approvals → All / search.
+
+**Diagnosis (evidence):**
+- Preview code correctly surfaces online applications (POST /api/public/applications/driver → shows in Admin → Approvals → Driver Applications, status pending, "Website lead"). Verified via curl.
+- Neither applicant is in the PREVIEW database, and there are NO external leads in preview → the forms are not misrouting to preview.
+- Production is redeployed with current code; GET /api/ = 200, POST /api/public/applications/driver = 422 on empty body (endpoint live). CORS is wide open (allow_origin_regex=".*") so any site can post.
+- Seeded admin.qa does NOT exist on production, so agent cannot read production DB directly.
+- Submitted a labeled diagnostic lead directly to production: id 3ca76c87-1e91-4bb1-91ef-adcce7dbf60b, name "ZZ DIAGNOSTIC TEST - please reject" — awaiting user confirmation whether it appears in live admin.
+
+**Conclusion:** The forms on the external marketing sites (islandhopapp.com / islandhoptt.com) are posting to a DIFFERENT backend/database than the live app reads (that other backend still has the admin phone configured → the text fires, but the record never lands in the live DB). Those sites are NOT in this repo, so their form target URL can't be changed from here.
+
+**In-repo hardening done (server.py):** Added model_validator(mode="before") + _pick_field() to PublicDriverApplication and PublicMerchantApplication so intake endpoints accept common field-name variants (fullName/name, emailAddress, phoneNumber/mobile/whatsapp, businessName/companyName, ownerName/contact, etc.) and no longer 422 on missing vehicle_type/business_type. Verified: camelCase driver + merchant payloads accepted and populate correctly in admin.
+
+**REQUIRED external fix (user side):** point driver/merchant forms on islandhopapp.com & islandhoptt.com to POST https://islandhop-mvp.emergent.host/api/public/applications/driver and /merchant. Backend already accepts them (no live-app redeploy needed for the intake change).
+
