@@ -1586,3 +1586,26 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 
 **REQUIRED external fix (user side):** point driver/merchant forms on islandhopapp.com & islandhoptt.com to POST https://islandhop-mvp.emergent.host/api/public/applications/driver and /merchant. Backend already accepts them (no live-app redeploy needed for the intake change).
 
+
+
+---
+## 2026-08-13 — Applicant recovery: auto email-sync + manual import tools
+
+**Goal:** Make applications from the other IslandHop apps (islandhopapp.com / islandhoptt.com, separate Emergent projects w/ separate DBs) show in THIS app's admin, without editing those external sites.
+
+**Key mechanism:** All apps email their "New driver/merchant application" alerts to the shared mailboxes drivers@ / partners@islandhoptt.com, and this app has Graph read access. So we ingest applications from those notification emails.
+
+**Backend (`server.py`, after public application endpoints):**
+- `_ingest_application_emails()` — scans drivers@/partners@ inboxes for "New driver/merchant application" emails, parses Name/Email/Phone/Vehicle/City/Business/Owner/Type + "Application ID" + source, creates pending leads (drivers→db.drivers status pending; merchants→db.business_applications verification_status pending; is_external_lead=True, imported_via="email_sync"). Idempotent: dedup by source Application ID, then by email/phone; processed message ids tracked in `db.ingested_app_emails`. Never raises.
+- Scheduler: `auto_ingest_applications` runs every 15 min (IntervalTrigger).
+- `POST /api/admin/applicants/sync-email` — admin "run now".
+- `POST /api/admin/applicants/import` — bulk manual import; items are free-form dicts normalized via `_pick_field` (fullName/name, phoneNumber/mobile, businessName/ownerName, etc.); dedup by email/phone; per-item or default `category` (driver|merchant).
+
+**Frontend:** new `ApplicantImportTools.js` mounted in AdminApprovals toolbar — "Sync from email" button + "Import" dialog (JSON array OR CSV paste, Drivers/Merchants radio). parsePasted() handles both formats client-side. Refreshes the list on success.
+
+**Verified:** curl — manual import (mixed field names) created drivers+merchant, dedup skipped re-runs; email-sync imported notification emails from the shared inbox and skipped already-ingested on re-run. Testing agent iter 72 — frontend 100% (4/4): JSON import, CSV import, dedup, sync button all pass; imported leads show as pending "Website lead" with Approve button. All preview test records cleaned up.
+
+**Note:** Auto-sync only catches applications from apps that email the shared drivers@/partners@ inbox. Historical recovery of old real leads (Josanne/Ethan) depends on their notification emails still being in that inbox (scan window = top 40 per run) OR getting a data export from the other apps via Emergent Support. Consolidation guidance (from support_agent) relayed to user: each Emergent app has its own DB; recommend consolidating to one app + repoint domains + Support-assisted data export.
+
+**Still requires user to REDEPLOY production** for these tools + the 15-min auto-sync to run live.
+

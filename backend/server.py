@@ -13670,6 +13670,211 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
     return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
 
 
+# ---------------------------------------------------------------------------
+# Automatic application ingestion from the shared notification mailboxes.
+# ALL IslandHop apps (this one + islandhopapp.com + islandhoptt.com) email their
+# "New driver/merchant application" alerts to drivers@/partners@islandhoptt.com.
+# This app can read those mailboxes, so we auto-import any application that isn't
+# already in our DB — giving one admin a single source of truth without touching
+# the external sites. Also exposed as a manual "Import" + "Sync now" for admins.
+# ---------------------------------------------------------------------------
+def _html_to_plain(html: str) -> str:
+    if not html:
+        return ""
+    txt = re.sub(r"<\s*/?(li|p|ul|div|br|h[1-6])[^>]*>", "\n", html, flags=re.I)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = txt.replace("&nbsp;", " ").replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
+    return re.sub(r"[ \t]+", " ", txt)
+
+
+def _extract_labeled(text: str, label: str) -> str:
+    m = re.search(rf"{re.escape(label)}\s*:\s*(.+)", text, flags=re.I)
+    if not m:
+        return ""
+    return m.group(1).split("\n")[0].strip()
+
+
+def _extract_source(text: str, kind: str) -> str:
+    m = re.search(rf"New {kind} application from\s+([^\n<]+)", text, flags=re.I)
+    return (m.group(1).strip().rstrip(".") if m else "islandhoptt.com")
+
+
+async def _ingest_application_emails(limit_per_box: int = 40) -> dict:
+    """Scan the shared driver/merchant notification inboxes and create any application
+    that isn't already in our DB. Idempotent (dedup by source Application ID, then by
+    email/phone). Never raises."""
+    results = {"drivers_created": 0, "merchants_created": 0, "scanned": 0, "skipped": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    plan = [
+        ("driver", graph_mail.notify_mailbox("driver"), "new driver application"),
+        ("merchant", graph_mail.notify_mailbox("merchant"), "new merchant application"),
+    ]
+    for kind, mbox, subject_key in plan:
+        try:
+            listing = await graph_mail.list_messages(mbox, top=limit_per_box)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"App-ingest: cannot read {mbox}: {exc}")
+            continue
+        for m in listing.get("value", []):
+            subj = (m.get("subject") or "").lower()
+            if subject_key not in subj:
+                continue
+            results["scanned"] += 1
+            msgid = m.get("id")
+            if not msgid or await db.ingested_app_emails.find_one({"message_id": msgid}):
+                results["skipped"] += 1
+                continue
+            try:
+                full = await graph_mail.get_message(mbox, msgid)
+            except Exception:
+                continue
+            body = (full.get("body") or {}).get("content") or full.get("bodyPreview") or ""
+            text = _html_to_plain(body)
+            app_id = _extract_labeled(text, "Application ID") or None
+            source = _extract_source(text, kind)
+            created = False
+            if kind == "driver":
+                name = _extract_labeled(text, "Name")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.drivers.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    await db.drivers.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "name": name, "email": email, "phone": phone,
+                        "vehicle_type": _extract_labeled(text, "Vehicle"),
+                        "city": _extract_labeled(text, "City") or None,
+                        "created_at": now,
+                    })
+                    results["drivers_created"] += 1
+                    created = True
+            else:
+                business_name = _extract_labeled(text, "Business")
+                owner = _extract_labeled(text, "Owner")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (business_name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.business_applications.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    btype = _extract_labeled(text, "Type")
+                    addr = {"line1": "", "city": ""}
+                    await db.business_applications.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "business_name": business_name, "name": business_name, "email": email, "phone": phone,
+                        "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                        "business_details": {"business_name": business_name, "business_type": btype,
+                                             "address": addr, "phone": phone, "email": email},
+                        "application_date": now, "created_at": now,
+                    })
+                    results["merchants_created"] += 1
+                    created = True
+            await db.ingested_app_emails.insert_one({"message_id": msgid, "app_id": app_id, "kind": kind,
+                                                     "created": created, "at": now})
+    total = results["drivers_created"] + results["merchants_created"]
+    if total:
+        logger.info(f"📥 Auto-imported {total} application(s) from notification mailboxes: {results}")
+    return results
+
+
+@api_router.post("/admin/applicants/sync-email")
+async def admin_sync_applications_from_email(request: Request):
+    """Admin: pull any applications sitting in the shared notification inboxes into this
+    app right now (same job the scheduler runs every 15 min)."""
+    await _require_admin_or_agent(request)
+    return {"success": True, **(await _ingest_application_emails())}
+
+
+class ApplicantImportItem(BaseModel):
+    category: str = "driver"  # 'driver' | 'merchant'
+    class Config:
+        extra = "allow"
+
+
+class ApplicantImportRequest(BaseModel):
+    category: str = "driver"          # default category for all items
+    items: List[Dict[str, Any]]
+
+
+@api_router.post("/admin/applicants/import")
+async def admin_import_applicants(payload: ApplicantImportRequest, request: Request):
+    """Admin: bulk-import applicants pasted/exported from another system. Each item is a
+    free-form dict; field names are normalized (fullName/name, phoneNumber/mobile, etc.).
+    Creates pending leads, de-duplicating by email/phone. Category can be per-item ('category')."""
+    await _require_admin_or_agent(request)
+    now = datetime.now(timezone.utc).isoformat()
+    created = {"drivers": 0, "merchants": 0}
+    skipped = 0
+    for raw in payload.items:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        cat = str(raw.get("category") or payload.category or "driver").lower()
+        email = _pick_field(raw, "email", "emailAddress", "email_address") or ""
+        phone = _pick_field(raw, "phone", "phoneNumber", "phone_number", "mobile", "tel", "whatsapp") or ""
+        if "merchant" in cat or "business" in cat or "restaurant" in cat:
+            business_name = _pick_field(raw, "business_name", "businessName", "company", "restaurant_name", "store_name", "name") or ""
+            owner = _pick_field(raw, "owner_name", "ownerName", "contact_name", "owner", "full_name", "name") or ""
+            if not (business_name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            addr = {"line1": _pick_field(raw, "address", "street", "line1") or "", "city": _pick_field(raw, "city", "town") or ""}
+            await db.business_applications.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "business_name": business_name or owner, "name": business_name or owner, "email": email, "phone": phone,
+                "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                "business_details": {"business_name": business_name or owner,
+                                     "business_type": _pick_field(raw, "business_type", "businessType", "type") or "",
+                                     "address": addr, "phone": phone, "email": email},
+                "application_date": now, "created_at": now,
+            })
+            created["merchants"] += 1
+        else:
+            name = _pick_field(raw, "full_name", "fullName", "name", "driver_name") or ""
+            if not (name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            await db.drivers.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "name": name, "email": email, "phone": phone,
+                "vehicle_type": _pick_field(raw, "vehicle_type", "vehicleType", "vehicle") or "",
+                "city": _pick_field(raw, "city", "town", "location") or None,
+                "created_at": now,
+            })
+            created["drivers"] += 1
+    return {"success": True, "created": created, "skipped": skipped,
+            "total_created": created["drivers"] + created["merchants"]}
+
+
+
 
 
 # Initialize data on startup
@@ -13836,6 +14041,18 @@ async def initialize_data():
             # Gentle daily nudge (10:00 UTC ≈ 06:00 AST) to applicants who started a driver
             # application but never finished. Capped & throttled inside the helper.
             scheduler.add_job(_daily_applicant_reminders, CronTrigger(hour=10, minute=0), id="daily_applicant_reminders", replace_existing=True)
+
+            async def _auto_ingest_applications():
+                try:
+                    r = await _ingest_application_emails()
+                    if r.get("drivers_created") or r.get("merchants_created"):
+                        logger.info(f"✅ Auto-ingest imported applications: {r}")
+                except Exception as e:
+                    logger.error(f"❌ Auto-ingest applications job failed: {e}")
+
+            from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+            # Pull applications from the shared notification inboxes into this app every 15 min.
+            scheduler.add_job(_auto_ingest_applications, _IntervalTrigger(minutes=15), id="auto_ingest_applications", replace_existing=True)
 
             from apscheduler.triggers.interval import IntervalTrigger
 

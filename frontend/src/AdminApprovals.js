@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
+import ApplicantImportTools from './ApplicantImportTools';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -448,6 +449,7 @@ const AdminApprovals = () => {
         <Button variant="outline" onClick={() => load(active, query, statusFilter)} disabled={loading} data-testid="approvals-refresh">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
+        <ApplicantImportTools onDone={() => load(active, query, statusFilter)} />
       </div>
 
       {/* Records */}
