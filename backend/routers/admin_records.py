@@ -58,6 +58,7 @@ _RECORD_CATEGORIES = {
     "car_rentals": {"collection": "car_rental_companies", "status_field": "status"},
     "businesses": {"collection": "business_applications", "status_field": "verification_status"},
     "shops": {"collection": "businesses", "status_field": "status"},
+    "service_pros": {"collection": "service_pro_applications", "status_field": "status"},
     "users": {"collection": "users", "status_field": "status"},
 }
 _USER_SENSITIVE_FIELDS = ("hashed_password", "password", "session_token")
@@ -98,6 +99,9 @@ def _record_summary(doc: dict, category: str) -> dict:
         base.update({"name": doc.get("business_name"),
                      "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("business_type")})
+    elif category == "service_pros":
+        base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": " · ".join([x for x in [doc.get("service_type"), doc.get("city")] if x]) or None})
     elif category == "users":
         base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("user_type"), "user_type": doc.get("user_type")})
@@ -148,6 +152,7 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
             "car_rentals": ["company_name", "contact_info.email", "contact_info.phone"],
             "businesses": ["business_name", "email", "phone", "business_owner.name", "business_owner.email"],
             "shops": ["business_name", "email", "phone"],
+            "service_pros": ["name", "email", "phone", "service_type", "city"],
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
@@ -156,13 +161,19 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
     if st and st != "all" and category != "users" and not q:
         sf = _RECORD_CATEGORIES[category]["status_field"]
         if st == "pending":
-            query[sf] = {"$in": _PENDING_APP_STATUSES}
+            status_cond = {sf: {"$in": _PENDING_APP_STATUSES}}
         elif st == "id_check":
-            query[sf] = {"$in": _IDCHECK_STATUSES}
+            status_cond = {sf: {"$in": _IDCHECK_STATUSES}}
         elif st == "incomplete":
-            query[sf] = {"$in": _INCOMPLETE_STATUSES}
+            status_cond = {sf: {"$in": _INCOMPLETE_STATUSES}}
         else:
-            query[sf] = st
+            status_cond = {sf: st}
+        # External website leads must ALWAYS surface in the review queue (until an admin
+        # acts on them), regardless of their stored status — so new leads are never hidden.
+        if st == "pending":
+            query["$or"] = [status_cond, {"is_external_lead": True}]
+        else:
+            query.update(status_cond)
     cap = min(limit, 2000)
     records = []
     async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):

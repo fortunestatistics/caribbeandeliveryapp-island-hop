@@ -13434,6 +13434,16 @@ async def _notify_new_application(kind: str, doc: dict):
             f"<li><b>Vehicle:</b> {doc.get('vehicle_type','')}</li>"
             f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
         )
+    elif kind == "service_pro":
+        inbox = graph_mail.notify_mailbox("support")   # support@islandhoptt.com
+        label = "service professional"
+        summary = (
+            f"<li><b>Name:</b> {doc.get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Service:</b> {doc.get('service_type','')}</li>"
+            f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        )
     else:
         inbox = graph_mail.notify_mailbox("merchant")  # partners@islandhoptt.com
         label = "merchant"
@@ -13663,6 +13673,62 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
     await _log_public_app(ip, "merchant")
     asyncio.create_task(_notify_new_application("merchant", doc))
     return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
+
+
+class PublicServiceProApplication(BaseModel):
+    full_name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    service_type: Optional[str] = ""
+    city: Optional[str] = None
+    experience: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "provider_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "service_type": _pick_field(data, "service_type", "serviceType", "service", "profession", "trade", "category", "skill", "specialty", "job_type") or "",
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "experience": _pick_field(data, "experience", "years_experience", "yearsExperience", "years"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details", "bio", "about"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
+
+@api_router.post("/public/applications/service-pro")
+async def public_service_pro_application(payload: PublicServiceProApplication, request: Request):
+    """Receive a service professional application from the external site (islandhoptt.com),
+    accepted the same way as driver & merchant applications."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # honeypot — pretend success, store nothing
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        "name": payload.full_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "service_type": payload.service_type,
+        "city": payload.city,
+        "experience": payload.experience,
+        "lead_notes": payload.notes,
+        "created_at": now,
+    }
+    await db.service_pro_applications.insert_one({**doc})
+    await _log_public_app(ip, "service_pro")
+    asyncio.create_task(_notify_new_application("service_pro", doc))
+    return {"success": True, "id": doc["id"], "message": "Service professional application received — our team will review it shortly."}
 
 
 # ---------------------------------------------------------------------------

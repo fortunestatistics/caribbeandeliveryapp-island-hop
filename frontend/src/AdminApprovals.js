@@ -24,6 +24,7 @@ const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 const CATEGORIES = [
   { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
   { key: 'businesses', label: 'Merchant/Vendor Applications', icon: Store, approveKind: 'business' },
+  { key: 'service_pros', label: 'Service Pro Applications', icon: Wrench, approveKind: null },
   { key: 'restaurants', label: 'Live Restaurants', icon: Building2, approveKind: 'restaurant' },
   { key: 'shops', label: 'Live Shops', icon: ShoppingBag, approveKind: null },
   { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
@@ -36,7 +37,7 @@ const PENDING_STATUSES = ['pending', 'pending_approval'];
 // Application-style categories flow through a "pending" review queue; the others
 // (live restaurants, car-rental companies, user accounts) are created active, so
 // their sensible default view is "All Records" — otherwise their tab looks empty.
-const APPLICATION_CATEGORIES = new Set(['drivers', 'businesses']);
+const APPLICATION_CATEGORIES = new Set(['drivers', 'businesses', 'service_pros']);
 const defaultStatusFor = (cat) => (APPLICATION_CATEGORIES.has(cat) ? 'pending' : 'all');
 
 const statusBadge = (status) => {
