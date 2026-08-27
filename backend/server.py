@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
-from fastapi.responses import JSONResponse, Response, RedirectResponse, FileResponse
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -569,7 +569,7 @@ async def process_daily_vendor_payouts():
 async def get_vendor_payouts(vendor_id: str, limit: int = 30):
     """Get vendor's payout history"""
     payouts = await db.vendor_payouts.find(
-        {"vendor_id": vendor_id}
+        {"vendor_id": vendor_id}, {"_id": 0}
     ).sort("payout_date", -1).limit(limit).to_list(length=None)
     return payouts
 
@@ -1355,6 +1355,16 @@ async def get_restaurants():
     valid.sort(key=lambda x: (0 if x.featured else 1, -(x.rating or 0)))
     return valid
 
+@api_router.get("/restaurants/my-menu")
+async def get_my_menu(request: Request):
+    """Get menu items for current restaurant"""
+    current_user = await get_current_user_from_request(request)
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found for user")
+    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}, {"_id": 0}).limit(500).to_list(length=None)
+    return menu_items
+
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
 async def get_restaurant(restaurant_id: str):
     """Get restaurant by ID"""
@@ -1379,19 +1389,6 @@ async def create_menu_item(item: MenuItem, request: Request):
     await db.menu_items.insert_one(item_dict)
     
     return item
-
-@api_router.get("/restaurants/my-menu")
-async def get_my_menu(request: Request):
-    """Get menu items for current restaurant"""
-    current_user = await get_current_user_from_request(request)
-    
-    # Get restaurant for current user
-    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restaurant not found for user")
-    
-    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).limit(500).to_list(length=None)
-    return menu_items
 
 @api_router.get("/restaurants/{restaurant_id}/menu")
 async def get_restaurant_menu(restaurant_id: str):
@@ -7089,7 +7086,7 @@ async def request_driver_withdrawal(driver_id: str, amount: float, method: str, 
 @api_router.get("/drivers/{driver_id}/withdrawals")
 async def get_driver_withdrawals(driver_id: str):
     """Get driver's withdrawal history"""
-    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
+    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}, {"_id": 0}).to_list(length=None)
     return withdrawals
 
 # Driver Dashboard Routes
@@ -8382,7 +8379,7 @@ async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
     ratings = await db.ratings.find({
         "vendor_id": vendor_id,
         "vendor_rating": {"$ne": None}
-    }).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
 
     # Batch-fetch all customer names in a single query
     customer_ids = list({r["customer_id"] for r in ratings if r.get("customer_id")})
@@ -8530,7 +8527,7 @@ async def get_driver_ratings(driver_id: str, limit: int = 20):
     ratings = await db.ratings.find({
         "driver_id": driver_id,
         "driver_rating": {"$ne": None}
-    }).sort("created_at", -1).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
     
     return ratings
 
@@ -8575,7 +8572,7 @@ async def get_user_notifications(request: Request, unread_only: bool = False):
     if unread_only:
         query["read"] = False
     
-    notifications = await db.notifications.find(query).sort("created_at", -1).limit(50).to_list(length=None)
+    notifications = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=None)
     return notifications
 
 @api_router.put("/notifications/{notification_id}/read")
@@ -8610,6 +8607,22 @@ async def get_rental_companies():
     """Get all active car rental companies"""
     companies = await db.car_rental_companies.find({"status": "active"}).to_list(length=None)
     return [CarRentalCompany(**company) for company in companies]
+
+@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
+async def get_rental_bookings(request: Request):
+    """Get rental bookings for current user"""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type == "customer":
+        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
+    elif current_user.user_type == "car_rental":
+        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
+        if company:
+            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
+        else:
+            bookings = []
+    else:
+        bookings = []
+    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.get("/car-rentals/{company_id}", response_model=CarRentalCompany)
 async def get_rental_company(company_id: str):
@@ -8682,24 +8695,6 @@ async def create_rental_booking(booking: RentalBooking, request: Request):
     )
     
     return booking
-
-@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
-async def get_rental_bookings(request: Request):
-    """Get rental bookings for current user"""
-    current_user = await get_current_user_from_request(request)
-    
-    if current_user.user_type == "customer":
-        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
-    elif current_user.user_type == "car_rental":
-        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
-        if company:
-            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
-        else:
-            bookings = []
-    else:
-        bookings = []
-    
-    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.put("/car-rentals/bookings/{booking_id}/status")
 async def update_booking_status(booking_id: str, status: str, request: Request):

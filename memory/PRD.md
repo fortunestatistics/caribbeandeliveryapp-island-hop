@@ -1609,3 +1609,9 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 
 **Still requires user to REDEPLOY production** for these tools + the 15-min auto-sync to run live.
 
+
+---
+## 2026-08-27 — Diagnosis: applicants missing on islandhopapp.com + code-health fixes
+- CONFIRMED: islandhopapp.com runs THIS app's codebase (identical API/admin endpoints); islandhoptt.com is a SEPARATE backend ({"service":"IslandHop API"}) with its own DB. Applicants apply via islandhoptt.com → land in its DB → never reach islandhopapp.com admin. Shared drivers@/partners@ inbox contains ONLY test artifacts (no real applicants) → islandhoptt.com does NOT email the shared inbox, so email auto-sync can't recover them. Fix requires repointing islandhoptt.com's form to POST https://islandhopapp.com/api/public/applications/driver (change on the separate islandhoptt.com Emergent project — not editable from here) OR Support data export.
+- Posted diagnostic lead to islandhopapp.com (id aad73888-7e88-4c44-95cc-263983993fe1, "ZZ CHECK islandhopapp - please reject") to confirm its admin displays correctly.
+- Fixed 9 blocking lint errors in server.py: removed duplicate Response import (F811); added {"_id":0} projections to vendor payouts, my-menu, driver withdrawals, vendor/driver ratings, notifications endpoints (ObjectId serialization); moved literal routes /restaurants/my-menu and /car-rentals/bookings ABOVE their parameterized routes (was a real shadowing bug). Backend verified healthy; routes resolve correctly.
