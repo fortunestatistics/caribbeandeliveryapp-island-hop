@@ -492,7 +492,52 @@ async def admin_approve_service_pro(app_id: str, payload: ApprovalAction, reques
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
-    return await _set_partner_status("service_pro_applications", app_id, "approved", current_user.id, payload.notes)
+    app = await db.service_pro_applications.find_one({"id": app_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Service pro application not found")
+    result = await _set_partner_status("service_pro_applications", app_id, "approved", current_user.id, payload.notes)
+
+    # Provision an active service-pro profile so they can start taking jobs.
+    now = datetime.now(timezone.utc).isoformat()
+    email = app.get("email")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1}) if email else None
+    existing = await db.service_pros.find_one(
+        {"$or": [{"application_id": app_id}] + ([{"email": email}] if email else [])}, {"_id": 0, "id": 1, "created_at": 1}
+    )
+    profile = {
+        "id": existing["id"] if existing else str(uuid.uuid4()),
+        "application_id": app_id,
+        "user_id": user["id"] if user else None,
+        "name": app.get("name"), "email": email, "phone": app.get("phone"),
+        "service": app.get("service") or app.get("service_type"),
+        "specialty": app.get("specialty"),
+        "location": app.get("location") or app.get("city"),
+        "years_experience": app.get("years_experience"),
+        "has_insurance": app.get("has_insurance"),
+        "portfolio_url": app.get("portfolio_url"),
+        "status": "active", "available": True,
+        "approved_at": now,
+        "created_at": (existing or {}).get("created_at") or now,
+    }
+    await db.service_pros.update_one({"id": profile["id"]}, {"$set": profile}, upsert=True)
+    if user:
+        await promote_user_role(user["id"], "service_pro")
+
+    # Let the applicant know they're approved.
+    if email and graph_mail.is_real_email(email):
+        try:
+            html = (
+                f"<p>Hi {app.get('name') or 'there'},</p>"
+                f"<p>Great news — your IslandHop service professional application has been "
+                f"<b>approved</b>! You're all set to start receiving job requests.</p>"
+                f"<p>Warm regards,<br/>The IslandHop Team 🌴</p>"
+            )
+            await graph_mail.send_mail(email, "You're approved on IslandHop! 🎉",
+                                       html, mailbox=graph_mail.notify_mailbox("support"))
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"service-pro approval email failed: {exc}")
+
+    return {**result, "service_pro_id": profile["id"], "provisioned": True}
 
 
 @router.post("/admin/service-pros/{app_id}/reject")

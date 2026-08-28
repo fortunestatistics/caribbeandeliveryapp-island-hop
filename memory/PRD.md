@@ -1637,3 +1637,8 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 - Reply capture (email): the thread endpoint also pulls INBOUND emails from the shared drivers@/support@ mailboxes where sender == applicant email, merged + sorted. (SMS inbound replies would need a Twilio webhook — not yet.)
 - Frontend ApplicantMessageDialog now loads & shows the thread (data-testid=applicant-message-thread) and passes category+record_id on send. Verified thread GET via curl; all frontend compiles.
 - NOT done here: repoint islandhoptt.com forms (separate Emergent project — user must edit there). Snippet provided.
+
+---
+## 2026-08-28 — Service-pro provisioning on approval
+- admin_records.py admin_approve_service_pro: on approve, upserts an ACTIVE, available db.service_pros profile from the application (name/email/phone/service/specialty/location/years_experience/has_insurance/portfolio_url, status active, available true, approved_at); links + promote_user_role('service_pro') if a user with that email exists; sends approval email via support@ mailbox. Verified via curl: approve returns provisioned:true + service_pro_id; profile created active/available. Reject unchanged (status rejected).
+- Repoint islandhoptt.com forms = still user action (separate Emergent project). X-API-Key is OPTIONAL (only enforced if PUBLIC_APPLICATIONS_API_KEY env set). Per-IP rate limit 5/60min. Snippet delivered to user (driver/merchant/service-pro; service-pro body per spec).
