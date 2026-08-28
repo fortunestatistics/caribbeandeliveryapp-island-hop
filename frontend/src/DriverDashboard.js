@@ -19,6 +19,7 @@ import axios from 'axios';
 import DriverEarningsCards from './DriverEarningsCards';
 import OrderRequestCard from './OrderRequestCard';
 import ActiveOrderCard from './ActiveOrderCard';
+import LiveDeliveryMap from './LiveDeliveryMap';
 import DriverRouteCard from './DriverRouteCard';
 import { useLocationConsent } from './LocationConsentContext';
 import { useCurrency } from './CurrencyContext';
@@ -597,6 +598,7 @@ const DriverDashboard = () => {
               </div>
             ) : (
               <div className="space-y-4">
+                <LiveDeliveryMap orderId={activeOrders[0]?.id} heightClass="h-48 sm:h-64 lg:h-80" />
                 {activeOrders.map((order) => (
                   <ActiveOrderCard
                     key={order.id}

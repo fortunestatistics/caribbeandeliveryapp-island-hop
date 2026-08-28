@@ -42,7 +42,6 @@ export const ApplicantMessageDialog = ({ rec, category, onClose }) => {
       setThread([]);
       loadThread();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec]);
 
   const send = async () => {

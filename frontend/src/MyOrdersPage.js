@@ -6,6 +6,7 @@ import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { ArrowLeft, MapPin, Package, ShoppingBag } from 'lucide-react';
+import LiveDeliveryMap from './LiveDeliveryMap';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const cfg = () => {
@@ -115,6 +116,9 @@ export default function MyOrdersPage() {
         {!loading && !error && active.length > 0 && (
           <div className="mb-8" data-testid="my-orders-active">
             <h2 className="text-lg font-semibold text-foreground mb-3">Active</h2>
+            <div className="mb-4">
+              <LiveDeliveryMap orderId={active[0]?.id} heightClass="h-48 sm:h-64 lg:h-80" />
+            </div>
             {active.map(renderOrder)}
           </div>
         )}

@@ -187,7 +187,6 @@ const DriverOnboarding = () => {
     if (!hasIdentity) return;
     const t = setTimeout(() => { saveDraft(); }, 1500);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.fullName, formData.email, formData.phone]);
 
   const nextStep = () => {

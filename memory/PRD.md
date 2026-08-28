@@ -1642,3 +1642,11 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 ## 2026-08-28 — Service-pro provisioning on approval
 - admin_records.py admin_approve_service_pro: on approve, upserts an ACTIVE, available db.service_pros profile from the application (name/email/phone/service/specialty/location/years_experience/has_insurance/portfolio_url, status active, available true, approved_at); links + promote_user_role('service_pro') if a user with that email exists; sends approval email via support@ mailbox. Verified via curl: approve returns provisioned:true + service_pro_id; profile created active/available. Reject unchanged (status rejected).
 - Repoint islandhoptt.com forms = still user action (separate Emergent project). X-API-Key is OPTIONAL (only enforced if PUBLIC_APPLICATIONS_API_KEY env set). Per-IP rate limit 5/60min. Snippet delivered to user (driver/merchant/service-pro; service-pro body per spec).
+
+---
+## 2026-08-28 — Live delivery map on dashboards
+- New reusable LiveDeliveryMap.jsx (@react-google-maps/api): polls GET /orders/{id}/driver-location every 8s, plots driver marker (blue dot) + destination marker, auto-fits bounds, "Live" badge, responsive heights, and a "No active delivery" placeholder when no orderId/location. Fetches destination from GET /orders/{id} (delivery_address lat/lng). Errors are swallowed (graceful).
+- Embedded: DriverDashboard.js (Active Deliveries section, first active order) + MyOrdersPage.js (customer Active section, first active order). AdminDispatch.js already has its own live driver map (unchanged).
+- Data shapes confirmed: current_location {lat,lng}; delivery_address {latitude,longitude}. Reuses same key/endpoint as working OrderTrackingPageWithMaps.
+- Also fixed a blocking eslint issue: removed `eslint-disable react-hooks/exhaustive-deps` comments (rule not registered) in ApplicantMessageDialog.js + DriverOnboarding.js. Frontend compiles successfully; app loads.
+- NOT yet visually verified with a live in-progress delivery (needs a customer order with an assigned driver + location); component is additive with safe placeholder.
