@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
-  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench,
+  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -357,6 +357,20 @@ const AdminApprovals = () => {
     }
   };
 
+  const deleteRecord = async (rec) => {
+    if (!window.confirm(`Delete "${rec.name || rec.id}" permanently? This removes the record so only real applicants remain. This cannot be undone.`)) return;
+    setBusyId(rec.id);
+    try {
+      await axios.delete(`${API}/admin/records/${active}/${rec.id}`, { headers: authHeaders() });
+      toast.success('Record deleted');
+      load(active, query, statusFilter);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to delete record');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const repairDriver = async (rec) => {
     setBusyId(rec.id);
     try {
@@ -583,6 +597,19 @@ const AdminApprovals = () => {
                               </Button>
                             )}
                           </>
+                        )}
+                        {active !== 'users' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            title="Delete this record (remove a test / junk applicant)"
+                            disabled={busyId === rec.id}
+                            onClick={() => deleteRecord(rec)}
+                            data-testid={`record-delete-${rec.id}`}
+                          >
+                            {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
                         )}
                       </div>
                     </div>

@@ -424,6 +424,26 @@ async def admin_user_documents(user_id: str, request: Request):
     return {"documents": docs, "count": len(docs), "applicant": applicant}
 
 
+@router.delete("/admin/records/{category}/{record_id}")
+async def admin_delete_record(category: str, record_id: str, request: Request):
+    """Admin: permanently delete ONE record (e.g. a test/junk applicant) so only real
+    applicants remain. Scoped to a single id in a single collection — never a bulk wipe."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    if category == "users":
+        # User accounts must never be hard-deleted from here — use pause/restrict in
+        # User Management instead. This endpoint is for removing test/junk applicants.
+        raise HTTPException(status_code=400, detail="User accounts can't be deleted here. Use pause/restrict in User Management.")
+    coll = db[_RECORD_CATEGORIES[category]["collection"]]
+    res = await coll.delete_one({"id": record_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"success": True, "deleted": record_id}
+
+
 @router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):
     """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""

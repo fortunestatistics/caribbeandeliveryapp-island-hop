@@ -1655,3 +1655,13 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 ## 2026-08-28 — AI reply suggestions (3 options) on approval platform
 - Backend POST /admin/applicants/ai-suggestions {channel, context, applicant_name, applicant_type} → returns 3 distinct professional reply options via Claude (claude-sonnet-4-6, Emergent key), honoring tone + hard rules (never promise approval/refund/prices). Returns JSON array, parsed with fallback. Verified via curl: 3 on-brand document-request options.
 - Frontend ApplicantMessageDialog.js: "Suggest 3 replies" button (data-testid=ai-suggestions-btn) → shows 3 clickable option cards (ai-suggestion-0/1/2); clicking one fills the message box. Uses last inbound reply as context, applicant_type from category. Compiles clean.
+
+---
+## 2026-06 (fork) — Tone chips, auto-suggest-on-open, saved favourites + delete test applicants
+- ApplicantMessageDialog.js:
+  - Tone chips Friendly/Firm/Brief (data-testid ai-tone-friendly|firm|brief) — clicking regenerates the 3 AI options in that style via getSuggestions(tone). tone_style sent as a string (fixed prior bug where the click event was passed as tone).
+  - Auto-Suggest On Open toggle (ai-autosuggest-checkbox) persisted to localStorage 'applicantAutoSuggest'; when on, opening a message dialog auto-generates the 3 options.
+  - Saved favourites: "Save current" (favourite-save-btn) + a star on each AI option (ai-suggestion-save-<i>) save to db.reply_favourites; favourites-list renders saved replies, favourite-insert-<id> inserts into editor, favourite-delete-<id> removes.
+- Backend server.py: POST /admin/applicants/ai-suggestions gained tone_style (friendly|firm|brief); reply-favourites CRUD GET/POST/DELETE /admin/reply-favourites (global, shared across admins).
+- Delete test applicants: admin_records.py DELETE /admin/records/{category}/{record_id} (single-record, admin only). Guarded: category 'users' blocked (400 — use pause/restrict); unknown category/id → 404. Frontend AdminApprovals.js: red Trash2 delete button (record-delete-<id>) on every non-users row with a confirm prompt.
+- Testing agent iter 74: backend 100% (12/12), frontend 100%. All test data cleaned. Safety guard for 'users' delete added after review and self-verified via curl (400/404/404).

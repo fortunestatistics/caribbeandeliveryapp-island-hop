@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 74 — tested tone-per-reply chips, auto-suggest-on-open, reply favourites CRUD, and the new applicant record Delete endpoint/button. Backend: 12/12 pytest cases passed (tone_style friendly/firm/brief each return exactly 3 suggestions, 'brief' avg length shorter than 'friendly'; favourites POST/GET/DELETE with persistence verification; record DELETE 200 for a seeded throwaway service_pro, 404 unknown id, 404 unknown category, 401/403 unauthenticated). Frontend (admin login via real /login form -> /admin -> Approvals): tone chips render and regenerate, request payload confirmed tone_style is a valid string ('brief'), not an object; clicking ai-suggestion-0 inserts exact text into message-body-input; favourite-save-btn saves and lists, favourite-insert-<id> inserts, favourite-delete-<id> removes, ai-suggestion-save-0 star adds a favourite (1 -> 2); auto-suggest checkbox persists to localStorage applicantAutoSuggest=1 and auto-populated 3 options on dialog reopen; record-delete-<id> shows the expected confirm prompt and the row disappears after confirm. No Send button was clicked (no live email/SMS sent). All test data cleaned up (0 reply_favourites remaining, throwaway record deleted, autoSuggest reset).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/admin/reply-favourites/{id}", "issue": "Returns 200 {'success': true} even when the id does not exist (delete_one deleted_count not checked) — no 404 for unknown favourite."},
+      {"endpoint": "GET/POST /api/admin/reply-favourites", "issue": "Favourites are global (no admin/user scoping) — every admin/agent sees and can delete every other admin's saved replies. Intentional? worth confirming."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Applicant message dialog", "issues": ["AI replies sometimes include emoji (e.g. '🌴') even for the 'Brief'/'Firm' tone, which may not suit a firm/formal reply — cosmetic only", "Dialog is tall; on 1080p the footer Send row sits close to the viewport edge (content scrolls, no blocking issue)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter74_tone_favourites_delete.py",
+    "/app/test_reports/pytest/iter74.xml",
+    "/app/test_reports/seed_iter74.py"
+  ],
+  "action_items": [
+    "Optional: return 404 from DELETE /api/admin/reply-favourites/{id} when deleted_count == 0",
+    "Optional: scope reply favourites per admin user (created_by) if they should not be shared platform-wide"
+  ],
+  "critical_code_review_comments": [
+    "ApplicantMessageDialog useEffect depends only on [rec] while calling loadThread/loadFavourites/getSuggestions defined in-render — works today but is an eslint exhaustive-deps hazard; consider useCallback.",
+    "admin_delete_record allows category 'users', so the Approvals delete button on the User Accounts tab hard-deletes a real user document with no soft-delete/audit trail. Consider logging an audit entry or blocking 'users' from hard delete.",
+    "Tone chips + 'Suggest 3 replies' correctly pass a string tone (verified in the network payload); the previously reported 'click event passed as tone' regression is fixed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter74_tone_favourites_delete.py",
+    "/app/test_reports/seed_iter74.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporarily inserted service_pro_applications doc id TEST_qa74_ui_applicant (deleted via the UI delete button) and a throwaway record for the pytest delete case; created 2 reply_favourites via UI + 1 via API, all deleted. Mongo verified clean (reply_favourites count 0).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (login via /login form; API tests use Bearer from POST /api/auth/login)",
+  "context_for_next_testing_agent": "Reusable regression file: /app/backend/tests/test_iter74_tone_favourites_delete.py (uses a Mongo-seeded throwaway service_pro record for the delete path). For UI runs, log in in the SAME playwright script (fresh context each run, httpOnly cookie). window.confirm handling requires an async dialog handler (asyncio.ensure_future(d.accept())) or the click will hang. Do NOT click message-send-btn (live Twilio/M365).",
+  "rca_of_the_issue": "N/A — no functional defects found this iteration."
+}

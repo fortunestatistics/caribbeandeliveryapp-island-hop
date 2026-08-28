@@ -13849,6 +13849,7 @@ class AiSuggestRequest(BaseModel):
     context: Optional[str] = ""            # applicant's last message / situation
     applicant_name: Optional[str] = None
     applicant_type: Optional[str] = None   # driver | merchant | service_pro
+    tone_style: Optional[str] = None       # friendly | firm | brief
 
 
 @api_router.post("/admin/applicants/ai-suggestions")
@@ -13872,10 +13873,16 @@ async def admin_applicant_ai_suggestions(payload: AiSuggestRequest, request: Req
         f"Return ONLY a JSON array of exactly 3 strings, no other text."
     )
     ptype = payload.applicant_type or "applicant"
+    tone_map = {
+        "friendly": "Make them warm, upbeat and encouraging.",
+        "firm": "Make them polite but firm and direct about what's required.",
+        "brief": "Make them very short and to the point (one or two sentences max).",
+    }
+    tone_extra = tone_map.get((payload.tone_style or "").lower(), "")
     user_text = (
         f"Applicant name: {payload.applicant_name or 'the applicant'} (type: {ptype}). "
         f"Situation / their latest message: {payload.context or 'New applicant — likely needs to submit documents (ID, licence, registration/insurance) to proceed.'} "
-        f"Write 3 distinct {channel} reply options now as a JSON array of 3 strings."
+        f"Write 3 distinct {channel} reply options now as a JSON array of 3 strings. {tone_extra}"
     )
     try:
         chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ai-suggest-{uuid.uuid4()}",
@@ -13895,6 +13902,38 @@ async def admin_applicant_ai_suggestions(payload: AiSuggestRequest, request: Req
         parts = [re.sub(r"^\s*\d+[\.\)]\s*", "", b).strip() for b in re.split(r"\n\s*\n", raw or "") if b.strip()]
         suggestions = [p for p in parts if p][:3]
     return {"suggestions": suggestions[:3]}
+
+
+class ReplyFavourite(BaseModel):
+    body: str
+    title: Optional[str] = None
+
+
+@api_router.get("/admin/reply-favourites")
+async def list_reply_favourites(request: Request):
+    await _require_admin_or_agent(request)
+    items = await db.reply_favourites.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
+    return {"favourites": items}
+
+
+@api_router.post("/admin/reply-favourites")
+async def add_reply_favourite(payload: ReplyFavourite, request: Request):
+    await _require_admin_or_agent(request)
+    body = (payload.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Cannot save an empty reply.")
+    doc = {"id": str(uuid.uuid4()), "body": body,
+           "title": (payload.title or body[:40]).strip(),
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.reply_favourites.insert_one({**doc})
+    return {"success": True, "favourite": doc}
+
+
+@api_router.delete("/admin/reply-favourites/{fav_id}")
+async def delete_reply_favourite(fav_id: str, request: Request):
+    await _require_admin_or_agent(request)
+    await db.reply_favourites.delete_one({"id": fav_id})
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------
