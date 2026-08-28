@@ -4,7 +4,7 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Textarea } from './components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './components/ui/dialog';
-import { Mail, MessageSquare, Send, Loader2 } from 'lucide-react';
+import { Mail, MessageSquare, Send, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -23,6 +23,29 @@ export const ApplicantMessageDialog = ({ rec, category, onClose }) => {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [thread, setThread] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggesting, setSuggesting] = useState(false);
+
+  const APPLICANT_TYPE = { drivers: 'driver', businesses: 'merchant', service_pros: 'service_pro' };
+
+  const getSuggestions = async () => {
+    setSuggesting(true);
+    try {
+      const lastInbound = [...thread].reverse().find((m) => m.direction === 'inbound');
+      const r = await axios.post(`${API}/admin/applicants/ai-suggestions`, {
+        channel,
+        applicant_name: rec.name || null,
+        applicant_type: APPLICANT_TYPE[category] || 'applicant',
+        context: lastInbound?.body || '',
+      }, { headers: authHeaders() });
+      setSuggestions(r.data.suggestions || []);
+      if (!(r.data.suggestions || []).length) toast.error('No suggestions returned, try again');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not get AI suggestions');
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const loadThread = async () => {
     if (!rec) return;
@@ -40,6 +63,7 @@ export const ApplicantMessageDialog = ({ rec, category, onClose }) => {
       setSubject('Your IslandHop application');
       setMessage('');
       setThread([]);
+      setSuggestions([]);
       loadThread();
     }
   }, [rec]);
@@ -120,6 +144,31 @@ export const ApplicantMessageDialog = ({ rec, category, onClose }) => {
 
         {channel === 'email' && (
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" data-testid="message-subject-input" />
+        )}
+
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase">Your message</span>
+          <Button type="button" size="sm" variant="outline" onClick={getSuggestions} disabled={suggesting}
+            className="border-accent/40 text-accent hover:bg-accent/10" data-testid="ai-suggestions-btn">
+            {suggesting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+            {suggesting ? 'Thinking…' : 'Suggest 3 replies'}
+          </Button>
+        </div>
+
+        {suggestions.length > 0 && (
+          <div className="space-y-2" data-testid="ai-suggestions-list">
+            {suggestions.map((sug, i) => (
+              <button
+                type="button" key={i}
+                onClick={() => { setMessage(sug); setSuggestions([]); }}
+                data-testid={`ai-suggestion-${i}`}
+                className="w-full text-left text-xs rounded-md border border-accent/30 bg-accent/5 hover:bg-accent/10 p-2 transition-colors"
+              >
+                <span className="font-semibold text-accent">Option {i + 1}</span>
+                <span className="block whitespace-pre-wrap mt-0.5">{sug}</span>
+              </button>
+            ))}
+          </div>
         )}
 
         <Textarea

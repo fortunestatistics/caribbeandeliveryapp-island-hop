@@ -1650,3 +1650,8 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 - Data shapes confirmed: current_location {lat,lng}; delivery_address {latitude,longitude}. Reuses same key/endpoint as working OrderTrackingPageWithMaps.
 - Also fixed a blocking eslint issue: removed `eslint-disable react-hooks/exhaustive-deps` comments (rule not registered) in ApplicantMessageDialog.js + DriverOnboarding.js. Frontend compiles successfully; app loads.
 - NOT yet visually verified with a live in-progress delivery (needs a customer order with an assigned driver + location); component is additive with safe placeholder.
+
+---
+## 2026-08-28 — AI reply suggestions (3 options) on approval platform
+- Backend POST /admin/applicants/ai-suggestions {channel, context, applicant_name, applicant_type} → returns 3 distinct professional reply options via Claude (claude-sonnet-4-6, Emergent key), honoring tone + hard rules (never promise approval/refund/prices). Returns JSON array, parsed with fallback. Verified via curl: 3 on-brand document-request options.
+- Frontend ApplicantMessageDialog.js: "Suggest 3 replies" button (data-testid=ai-suggestions-btn) → shows 3 clickable option cards (ai-suggestion-0/1/2); clicking one fills the message box. Uses last inbound reply as context, applicant_type from category. Compiles clean.

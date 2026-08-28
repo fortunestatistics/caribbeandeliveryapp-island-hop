@@ -13844,6 +13844,59 @@ async def admin_applicant_messages(category: str, record_id: str, request: Reque
     return {"messages": thread, "count": len(thread)}
 
 
+class AiSuggestRequest(BaseModel):
+    channel: str = "email"                 # 'email' | 'sms'
+    context: Optional[str] = ""            # applicant's last message / situation
+    applicant_name: Optional[str] = None
+    applicant_type: Optional[str] = None   # driver | merchant | service_pro
+
+
+@api_router.post("/admin/applicants/ai-suggestions")
+async def admin_applicant_ai_suggestions(payload: AiSuggestRequest, request: Request):
+    """Generate 3 distinct, professional reply options an admin can pick from when
+    responding to an applicant on the approval platform (email or text)."""
+    await _require_admin_or_agent(request)
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    channel = "SMS/WhatsApp text" if (payload.channel or "").lower() == "sms" else "email"
+    length_hint = "1-2 short sentences" if channel.startswith("SMS") else "2-4 short sentences"
+    system_message = (
+        f"You are a support agent for IslandHop (Caribbean delivery/taxi platform) helping an "
+        f"admin reply to a partner APPLICANT (driver/merchant/service pro) on the approval platform. "
+        f"Tone: {s['tone']}. Each option is a {channel} reply, {length_hint}.\n"
+        f"BUSINESS INFO:\n{s['business_info']}\n\n{AI_REPLY_HARD_RULES}\n"
+        f"Also NEVER promise or confirm that their application is approved.\n"
+        f"Write THREE DISTINCT, professional reply options that help move the application forward "
+        f"(e.g. requesting missing documents, acknowledging, asking a clarifying question). "
+        f"Return ONLY a JSON array of exactly 3 strings, no other text."
+    )
+    ptype = payload.applicant_type or "applicant"
+    user_text = (
+        f"Applicant name: {payload.applicant_name or 'the applicant'} (type: {ptype}). "
+        f"Situation / their latest message: {payload.context or 'New applicant — likely needs to submit documents (ID, licence, registration/insurance) to proceed.'} "
+        f"Write 3 distinct {channel} reply options now as a JSON array of 3 strings."
+    )
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ai-suggest-{uuid.uuid4()}",
+                       system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
+        raw = await chat.send_message(UserMessage(text=user_text))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI suggestions failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate suggestions right now.")
+    suggestions = []
+    try:
+        m = re.search(r"\[.*\]", raw or "", re.S)
+        if m:
+            suggestions = [str(x).strip() for x in json.loads(m.group(0)) if str(x).strip()]
+    except Exception:
+        suggestions = []
+    if len(suggestions) < 2:  # fallback: split on blank lines / numbering
+        parts = [re.sub(r"^\s*\d+[\.\)]\s*", "", b).strip() for b in re.split(r"\n\s*\n", raw or "") if b.strip()]
+        suggestions = [p for p in parts if p][:3]
+    return {"suggestions": suggestions[:3]}
+
+
 # ---------------------------------------------------------------------------
 # Automatic application ingestion from the shared notification mailboxes.
 # ALL IslandHop apps (this one + islandhopapp.com + islandhoptt.com) email their
