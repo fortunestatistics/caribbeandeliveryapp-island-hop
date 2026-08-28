@@ -16,6 +16,7 @@ import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
 import ApplicantImportTools from './ApplicantImportTools';
+import ApplicantMessageDialog from './ApplicantMessageDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -262,6 +263,7 @@ const AdminApprovals = () => {
   const [expanded, setExpanded] = useState(null);
   const [historyRec, setHistoryRec] = useState(null);
   const [docsRec, setDocsRec] = useState(null);
+  const [contactRec, setContactRec] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [readyOnly, setReadyOnly] = useState(false);
 
@@ -492,7 +494,11 @@ const AdminApprovals = () => {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium truncate">{rec.name || rec.id}</span>
                           <Badge className={statusBadge(rec.status)} data-testid={`record-status-${rec.id}`}>{rec.status || '—'}</Badge>
-                          {rec.is_external_lead && <Badge variant="secondary">Website lead</Badge>}
+                          {rec.is_external_lead && (
+                            <Badge variant="secondary" className="gap-1" title={`Applied via ${rec.source || 'website'}`} data-testid={`record-source-${rec.id}`}>
+                              <ExternalLink className="h-3 w-3" />{rec.source || 'Website lead'}
+                            </Badge>
+                          )}
                           {rec.featured && <Badge className="bg-gold-500/15 text-gold-700 border-gold-500/30">Featured</Badge>}
                           {active !== 'users' && rec.doc_summary && (
                             rec.doc_summary.total === 0 ? (
@@ -524,6 +530,11 @@ const AdminApprovals = () => {
                         <Button size="sm" variant="outline" onClick={() => setHistoryRec(rec)} data-testid={`record-orders-${rec.id}`}>
                           <Receipt className="h-4 w-4 mr-1" />Orders
                         </Button>
+                        {(rec.email || rec.phone) && (
+                          <Button size="sm" variant="outline" className="text-blue-700 border-blue-300 hover:bg-blue-50" onClick={() => setContactRec(rec)} data-testid={`record-message-${rec.id}`} title="Message this applicant by email or text">
+                            <Mail className="h-4 w-4 mr-1" />Message
+                          </Button>
+                        )}
                         {(active === 'drivers' || active === 'businesses') && (
                           <Button size="sm" variant="outline" onClick={() => setDocsRec(rec)} data-testid={`record-docs-${rec.id}`}>
                             <FolderOpen className="h-4 w-4 mr-1" />Docs
@@ -601,6 +612,8 @@ const AdminApprovals = () => {
         record={docsRec}
         category={active}
       />
+
+      <ApplicantMessageDialog rec={contactRec} onClose={() => setContactRec(null)} />
     </div>
   );
 };

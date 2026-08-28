@@ -13731,6 +13731,51 @@ async def public_service_pro_application(payload: PublicServiceProApplication, r
     return {"success": True, "id": doc["id"], "message": "Service professional application received — our team will review it shortly."}
 
 
+class ApplicantContactRequest(BaseModel):
+    channel: str                       # 'email' | 'sms'
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+
+
+@api_router.post("/admin/applicants/contact")
+async def admin_contact_applicant(payload: ApplicantContactRequest, request: Request):
+    """Admin: message an applicant by email or SMS (e.g. to request documents needed to
+    move their application forward)."""
+    await _require_admin_or_agent(request)
+    body = (payload.message or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    ch = (payload.channel or "").lower().strip()
+    if ch == "email":
+        if not payload.email or not graph_mail.is_real_email(payload.email):
+            raise HTTPException(status_code=400, detail="A valid applicant email is required.")
+        greeting = f"Hi {payload.name}," if payload.name else "Hello,"
+        html = (
+            f"<p>{greeting}</p>"
+            f"<div style='white-space:pre-wrap'>{body}</div>"
+            f"<p style='margin-top:16px'>Warm regards,<br/>The IslandHop Team 🌴</p>"
+        )
+        try:
+            await graph_mail.send_mail(
+                payload.email, payload.subject or "Your IslandHop application",
+                html, mailbox=graph_mail.notify_mailbox("driver"))
+        except Exception as exc:  # noqa: BLE001
+            logging.error(f"Applicant email failed: {exc}")
+            raise HTTPException(status_code=502, detail="Could not send the email right now. Please try again.")
+        return {"success": True, "channel": "email", "to": payload.email}
+    if ch == "sms":
+        if not payload.phone:
+            raise HTTPException(status_code=400, detail="An applicant phone number is required.")
+        res = twilio_client.send_sms(payload.phone, body)
+        if not res.get("success"):
+            raise HTTPException(status_code=502, detail=res.get("error") or "Could not send the text message.")
+        return {"success": True, "channel": "sms", "to": payload.phone, "sid": res.get("sid")}
+    raise HTTPException(status_code=400, detail="channel must be 'email' or 'sms'.")
+
+
 # ---------------------------------------------------------------------------
 # Automatic application ingestion from the shared notification mailboxes.
 # ALL IslandHop apps (this one + islandhopapp.com + islandhoptt.com) email their
