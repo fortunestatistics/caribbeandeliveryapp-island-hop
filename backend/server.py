@@ -13679,9 +13679,12 @@ class PublicServiceProApplication(BaseModel):
     full_name: str
     email: Optional[str] = ""
     phone: Optional[str] = ""
-    service_type: Optional[str] = ""
-    city: Optional[str] = None
-    experience: Optional[str] = None
+    service: Optional[str] = ""            # handyman|cleaning|tech_support|events
+    specialty: Optional[str] = None
+    location: Optional[str] = None
+    years_experience: Optional[int] = None
+    has_insurance: Optional[bool] = None
+    portfolio_url: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
 
@@ -13690,13 +13693,26 @@ class PublicServiceProApplication(BaseModel):
     def _normalize(cls, data):
         if not isinstance(data, dict):
             return data
+        yrs = _pick_field(data, "years_experience", "yearsExperience", "experience", "years")
+        try:
+            yrs = int(yrs) if yrs not in (None, "") else None
+        except (TypeError, ValueError):
+            yrs = None
+        ins = data.get("has_insurance")
+        if ins is None:
+            ins = data.get("hasInsurance")
+        if isinstance(ins, str):
+            ins = ins.strip().lower() in ("true", "yes", "1", "y")
         return {
             "full_name": _pick_field(data, "full_name", "fullName", "name", "provider_name", "applicant_name", "applicantName"),
             "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
             "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
-            "service_type": _pick_field(data, "service_type", "serviceType", "service", "profession", "trade", "category", "skill", "specialty", "job_type") or "",
-            "city": _pick_field(data, "city", "town", "location", "area", "region"),
-            "experience": _pick_field(data, "experience", "years_experience", "yearsExperience", "years"),
+            "service": _pick_field(data, "service", "service_type", "serviceType", "profession", "trade", "category", "skill", "job_type") or "",
+            "specialty": _pick_field(data, "specialty", "speciality", "expertise"),
+            "location": _pick_field(data, "location", "city", "town", "area", "region"),
+            "years_experience": yrs,
+            "has_insurance": bool(ins) if ins is not None else None,
+            "portfolio_url": _pick_field(data, "portfolio_url", "portfolioUrl", "portfolio", "website", "url"),
             "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details", "bio", "about"),
             "hp": data.get("hp") or data.get("honeypot") or "",
         }
@@ -13705,7 +13721,7 @@ class PublicServiceProApplication(BaseModel):
 @api_router.post("/public/applications/service-pro")
 async def public_service_pro_application(payload: PublicServiceProApplication, request: Request):
     """Receive a service professional application from the external site (islandhoptt.com),
-    accepted the same way as driver & merchant applications."""
+    accepted the same way (X-API-Key + rate limit) as driver & merchant applications."""
     ip = await _check_public_app_guard(request)
     if payload.hp:  # honeypot — pretend success, store nothing
         return {"success": True, "message": "Application received."}
@@ -13719,9 +13735,14 @@ async def public_service_pro_application(payload: PublicServiceProApplication, r
         "name": payload.full_name,
         "email": payload.email,
         "phone": payload.phone,
-        "service_type": payload.service_type,
-        "city": payload.city,
-        "experience": payload.experience,
+        "service": payload.service,
+        "service_type": payload.service,   # admin list display reads service_type
+        "specialty": payload.specialty,
+        "location": payload.location,
+        "city": payload.location,
+        "years_experience": payload.years_experience,
+        "has_insurance": payload.has_insurance,
+        "portfolio_url": payload.portfolio_url,
         "lead_notes": payload.notes,
         "created_at": now,
     }
@@ -13738,17 +13759,34 @@ class ApplicantContactRequest(BaseModel):
     name: Optional[str] = None
     subject: Optional[str] = None
     message: str
+    category: Optional[str] = None     # to tie the message to an applicant record
+    record_id: Optional[str] = None
 
 
 @api_router.post("/admin/applicants/contact")
 async def admin_contact_applicant(payload: ApplicantContactRequest, request: Request):
     """Admin: message an applicant by email or SMS (e.g. to request documents needed to
-    move their application forward)."""
-    await _require_admin_or_agent(request)
+    move their application forward). Every message is logged to the applicant's thread."""
+    current_user = await _require_admin_or_agent(request)
     body = (payload.message or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
     ch = (payload.channel or "").lower().strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    async def _log_outbound(to_val: str):
+        try:
+            await db.applicant_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "category": payload.category, "record_id": payload.record_id,
+                "direction": "outbound", "channel": ch, "to": to_val,
+                "name": payload.name, "subject": payload.subject if ch == "email" else None,
+                "body": body, "sent_by": getattr(current_user, "id", None),
+                "created_at": now,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"applicant message log failed: {exc}")
+
     if ch == "email":
         if not payload.email or not graph_mail.is_real_email(payload.email):
             raise HTTPException(status_code=400, detail="A valid applicant email is required.")
@@ -13765,6 +13803,7 @@ async def admin_contact_applicant(payload: ApplicantContactRequest, request: Req
         except Exception as exc:  # noqa: BLE001
             logging.error(f"Applicant email failed: {exc}")
             raise HTTPException(status_code=502, detail="Could not send the email right now. Please try again.")
+        await _log_outbound(payload.email)
         return {"success": True, "channel": "email", "to": payload.email}
     if ch == "sms":
         if not payload.phone:
@@ -13772,8 +13811,37 @@ async def admin_contact_applicant(payload: ApplicantContactRequest, request: Req
         res = twilio_client.send_sms(payload.phone, body)
         if not res.get("success"):
             raise HTTPException(status_code=502, detail=res.get("error") or "Could not send the text message.")
+        await _log_outbound(payload.phone)
         return {"success": True, "channel": "sms", "to": payload.phone, "sid": res.get("sid")}
     raise HTTPException(status_code=400, detail="channel must be 'email' or 'sms'.")
+
+
+@api_router.get("/admin/applicants/{category}/{record_id}/messages")
+async def admin_applicant_messages(category: str, record_id: str, request: Request,
+                                   email: Optional[str] = None):
+    """Full message thread for an applicant: outbound (email/SMS we sent) + inbound EMAIL
+    replies (matched from the shared mailboxes by the applicant's email address)."""
+    await _require_admin_or_agent(request)
+    thread = []
+    async for m in db.applicant_messages.find({"category": category, "record_id": record_id}, {"_id": 0}):
+        thread.append(m)
+    # Reply capture (email): pull messages FROM the applicant's address in our mailboxes.
+    if email and graph_mail.is_real_email(email):
+        for box in [graph_mail.notify_mailbox("driver"), graph_mail.notify_mailbox("support")]:
+            try:
+                listing = await graph_mail.list_messages(box, top=40)
+            except Exception:
+                continue
+            for msg in listing.get("value", []):
+                frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
+                if frm and frm == email.lower():
+                    thread.append({
+                        "direction": "inbound", "channel": "email", "from": frm,
+                        "subject": msg.get("subject"), "body": msg.get("bodyPreview") or "",
+                        "created_at": msg.get("receivedDateTime"),
+                    })
+    thread.sort(key=lambda x: x.get("created_at") or "")
+    return {"messages": thread, "count": len(thread)}
 
 
 # ---------------------------------------------------------------------------

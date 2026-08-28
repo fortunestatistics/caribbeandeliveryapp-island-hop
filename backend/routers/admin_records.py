@@ -487,6 +487,22 @@ async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: 
     return result
 
 
+@router.post("/admin/service-pros/{app_id}/approve")
+async def admin_approve_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("service_pro_applications", app_id, "approved", current_user.id, payload.notes)
+
+
+@router.post("/admin/service-pros/{app_id}/reject")
+async def admin_reject_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("service_pro_applications", app_id, "rejected", current_user.id, payload.notes)
+
+
 @router.post("/admin/restaurants/{restaurant_id}/approve")
 async def admin_approve_restaurant(restaurant_id: str, payload: ApprovalAction, request: Request):
     current_user = await get_current_user_from_request(request)

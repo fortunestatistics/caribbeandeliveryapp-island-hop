@@ -1628,3 +1628,12 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 - New "Message" button on each applicant row (data-testid=record-message-<id>, shows when email or phone present) opens ApplicantMessageDialog.js: choose Email or Text channel, subject (email only), body, one-tap "request documents" template (separate shorter SMS variant), Send.
 - Backend: POST /api/admin/applicants/contact {channel:email|sms, email, phone, name, subject, message} — email via graph_mail.send_mail (from drivers@ mailbox), SMS via twilio_client.send_sms. Admin/agent only. Guard paths verified (empty msg/bad channel/missing recipient/no-auth all 400/401). Live send NOT triggered in tests (Twilio + M365 live).
 - Testing agent iter 73: frontend 100% (2/2) — source badge shows 'islandhoptt.com'; message dialog channel toggle, subject show/hide, template insert, To: line all work. Seeded test lead cleaned up.
+
+---
+## 2026-08-28 — Service-pro spec, approve/reject, message history + reply capture
+- Service-pro intake updated to exact spec: POST /api/public/applications/service-pro accepts {full_name,email,phone,service(handyman|cleaning|tech_support|events),specialty,location,years_experience(int),has_insurance(bool),portfolio_url,notes} (+ tolerant aliases), X-API-Key guard, returns {id,success,message}, stores is_external_lead:true status:pending. service_type mirrors service for admin display. Verified via curl.
+- Service-pro approve/reject: admin_records.py POST /admin/service-pros/{id}/approve|reject (status approved/rejected). Frontend: service_pros approveKind='service_pro', APPROVE_EP.service_pro='service-pros' → Approve/Reject buttons now show on service-pro rows. Verified approve→status approved.
+- Message history: /admin/applicants/contact now logs every send to db.applicant_messages (direction outbound, channel, to, subject, body, sent_by, category, record_id). New GET /admin/applicants/{category}/{record_id}/messages returns the thread.
+- Reply capture (email): the thread endpoint also pulls INBOUND emails from the shared drivers@/support@ mailboxes where sender == applicant email, merged + sorted. (SMS inbound replies would need a Twilio webhook — not yet.)
+- Frontend ApplicantMessageDialog now loads & shows the thread (data-testid=applicant-message-thread) and passes category+record_id on send. Verified thread GET via curl; all frontend compiles.
+- NOT done here: repoint islandhoptt.com forms (separate Emergent project — user must edit there). Snippet provided.

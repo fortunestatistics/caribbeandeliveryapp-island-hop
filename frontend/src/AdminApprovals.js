@@ -25,14 +25,14 @@ const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 const CATEGORIES = [
   { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
   { key: 'businesses', label: 'Merchant/Vendor Applications', icon: Store, approveKind: 'business' },
-  { key: 'service_pros', label: 'Service Pro Applications', icon: Wrench, approveKind: null },
+  { key: 'service_pros', label: 'Service Pro Applications', icon: Wrench, approveKind: 'service_pro' },
   { key: 'restaurants', label: 'Live Restaurants', icon: Building2, approveKind: 'restaurant' },
   { key: 'shops', label: 'Live Shops', icon: ShoppingBag, approveKind: null },
   { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
   { key: 'users', label: 'User Accounts', icon: Users, approveKind: null },
 ];
 
-const APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', car_rental: 'car-rentals', business: 'businesses' };
+const APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', car_rental: 'car-rentals', business: 'businesses', service_pro: 'service-pros' };
 const PENDING_STATUSES = ['pending', 'pending_approval'];
 
 // Application-style categories flow through a "pending" review queue; the others
@@ -613,7 +613,7 @@ const AdminApprovals = () => {
         category={active}
       />
 
-      <ApplicantMessageDialog rec={contactRec} onClose={() => setContactRec(null)} />
+      <ApplicantMessageDialog rec={contactRec} category={active} onClose={() => setContactRec(null)} />
     </div>
   );
 };
