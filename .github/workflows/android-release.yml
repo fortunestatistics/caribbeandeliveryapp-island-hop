@@ -2,12 +2,22 @@ name: Android Release (AAB)
 
 # Builds and signs the IslandHop Android App Bundle (.aab) from the Capacitor
 # project in ./frontend. Trigger it manually (Actions tab → Run workflow) or by
-# pushing a version tag like v1.1.0.
+# pushing a version tag like v1.1.0. It also runs on pushes to the
+# conflict_040826_0039 branch and on pull requests, so branch/PR builds produce
+# a downloadable .aab artifact.
+#
+# Optional repository secrets override the default signing key:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# PRs from forks do not receive secrets, so they use the default key.
 on:
   workflow_dispatch:
   push:
+    branches:
+      - conflict_040826_0039
     tags:
       - 'v*'
+  pull_request:
 
 jobs:
   build-aab:
