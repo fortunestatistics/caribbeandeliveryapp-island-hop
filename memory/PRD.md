@@ -1677,3 +1677,7 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 - User flow: Save to GitHub → Actions → "Android Release (AAB)" → Run workflow → download artifact islandhop-release-aab (app-release.aab) → upload in Play Console. First upload of a brand-new listing must be manual; optional auto-publish to internal track via ENABLE_PLAY_PUBLISH=true + PLAY_SERVICE_ACCOUNT_JSON.
 - Guide: frontend/android/BUILD_AAB.md updated with a "FASTEST PATH (no computer, no setup)" section at the top.
 - NOT buildable/verifiable in preview (no Android toolchain); YAML validated, keystore format + git-tracking verified.
+
+---
+## 2026-06 (fork) — Play minSdk fix (24)
+- Play Automatic Protection requires minSdk >= 24; AAB was 23. Bumped frontend/android/variables.gradle minSdkVersion 23 -> 24 (app/build.gradle reads rootProject.ext.minSdkVersion). Final AAB minSdk = app module = 24 (cordova-plugins lib may fall back to 23 but library<app is allowed; merged bundle reports 24). Rebuild via GitHub Actions "Android Release (AAB)" and re-upload. Not buildable in preview (no Android toolchain).
