@@ -52,3 +52,8 @@ and runs the Android release bundle task.
 4. Select **Build > Generate Signed Bundle / APK**, choose **Android App
    Bundle**, and select the `release` variant.
 5. Upload `app-release.aab` from the output path above to Play Console.
+
+## Notes
+
+- `bundleRelease` requires `frontend/android/keystore.properties` (copy `keystore.properties.example`; never commit it) and fails with a clear message otherwise.
+- `bundleDebug` works without signing credentials, but its AAB cannot be uploaded to Google Play.
