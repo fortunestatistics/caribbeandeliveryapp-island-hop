@@ -131,8 +131,10 @@ Windows (PowerShell): use `gradlew.bat clean bundleRelease`.
 ## Troubleshooting
 - **`SDK location not found`** → open the project once in Android Studio, or create
   `frontend/android/local.properties` with `sdk.dir=/absolute/path/to/Android/sdk`.
-- **`keystore.properties missing`** → do step 2. Without it, the release build falls
-  back to debug signing and Play will reject it.
+- **`keystore.properties missing`** → do step 2. Without signing values
+  (`keystore.properties`, or env vars `ISLANDHOP_STORE_FILE`, `ISLANDHOP_STORE_PASSWORD`,
+  `ISLANDHOP_KEY_ALIAS`, `ISLANDHOP_KEY_PASSWORD`, or the same as Gradle properties),
+  `bundleRelease` fails with an explicit error rather than producing a bundle Play rejects.
 - **`versionCode X has already been used`** → increment `versionCode` (step 3).
 - **`Gradle/JDK` errors** → confirm JDK 17 (`java -version`) and let Android Studio
   install the matching Gradle when prompted.

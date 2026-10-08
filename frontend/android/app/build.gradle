@@ -1,12 +1,20 @@
 apply plugin: 'com.android.application'
 
-// Load signing secrets from a git-ignored keystore.properties (never commit passwords).
+// Release signing: env vars > Gradle properties (-P / ~/.gradle/gradle.properties) > git-ignored keystore.properties.
+// Never commit passwords.
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
-def hasSigningConfig = keystorePropertiesFile.exists()
-if (hasSigningConfig) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
+def signingValue = { String envName, String propName, String fileKey ->
+    System.getenv(envName) ?: (project.findProperty(propName) ?: keystoreProperties[fileKey])
+}
+def releaseStoreFile = signingValue('ISLANDHOP_STORE_FILE', 'ISLANDHOP_STORE_FILE', 'storeFile')
+def releaseStorePassword = signingValue('ISLANDHOP_STORE_PASSWORD', 'ISLANDHOP_STORE_PASSWORD', 'storePassword')
+def releaseKeyAlias = signingValue('ISLANDHOP_KEY_ALIAS', 'ISLANDHOP_KEY_ALIAS', 'keyAlias')
+def releaseKeyPassword = signingValue('ISLANDHOP_KEY_PASSWORD', 'ISLANDHOP_KEY_PASSWORD', 'keyPassword')
+def hasSigningConfig = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
     namespace "com.islandhop.app"
@@ -29,10 +37,11 @@ android {
     signingConfigs {
         release {
             if (hasSigningConfig) {
-                storeFile file(keystoreProperties['storeFile'] ?: "../keystore/islandhop-upload.jks")
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+                // Relative paths resolve against the app/ module directory.
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             }
         }
     }
@@ -40,9 +49,23 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Falls back to debug signing if keystore.properties is absent (e.g. CI without secrets).
-            signingConfig hasSigningConfig ? signingConfigs.release : signingConfigs.debug
+            // Never fall back to the debug key; release tasks fail below if signing is missing.
+            if (hasSigningConfig) {
+                signingConfig signingConfigs.release
+            }
         }
+    }
+}
+
+// Fail fast instead of producing a debug-signed or unsigned bundle Play would reject.
+gradle.taskGraph.whenReady { graph ->
+    def releaseTask = graph.allTasks.find {
+        it.project == project && it.name in ['bundleRelease', 'assembleRelease', 'packageReleaseBundle']
+    }
+    if (releaseTask && !hasSigningConfig) {
+        throw new GradleException("Release signing is not configured. Set ISLANDHOP_STORE_FILE, " +
+            "ISLANDHOP_STORE_PASSWORD, ISLANDHOP_KEY_ALIAS and ISLANDHOP_KEY_PASSWORD (env vars or Gradle " +
+            "properties), or create android/keystore.properties from keystore.properties.example.")
     }
 }
 
