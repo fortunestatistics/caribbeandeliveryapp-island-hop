@@ -58,6 +58,28 @@ base64 -i islandhop-upload.jks | tr -d '\n' > keystore_base64.txt
 
 Copy the entire content of `keystore_base64.txt` as the value for `KEYSTORE_FILE_BASE64`.
 
+## Quick Start: Release AAB via GitHub Actions
+
+1. **Convert the keystore to Base64** (run where your original `islandhop-upload.jks` lives):
+   ```bash
+   base64 -w 0 islandhop-upload.jks     # Linux
+   base64 -i islandhop-upload.jks       # macOS
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("islandhop-upload.jks"))   # PowerShell
+   ```
+2. **Add repository secrets** (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+   `KEYSTORE_FILE_NAME` (`islandhop-upload.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS` (`islandhop`),
+   `KEY_PASSWORD`, and `KEYSTORE_FILE_BASE64` (the Base64 output from step 1).
+   Never commit passwords to the repository.
+3. **Check the version**: `frontend/android/app/build.gradle` is currently `versionCode 3` / `versionName "1.2"`.
+   The workflow auto-increments `versionCode` (to 4 on the next run) unless you provide `version_code`.
+   Make sure it is higher than the latest release in Play Console.
+4. **Run the workflow**: Actions → *Build AAB Bundle for Play Store* → *Run workflow*
+   (optionally set `version_code` / `version_name`).
+5. **Download** the `app-release-aab-v<versionCode>` artifact (or the GitHub release asset) and unzip it.
+6. **Upload** the `.aab` in Google Play Console → your app → Production (or Internal testing) →
+   Create new release → upload the AAB → add release notes → Review → Start rollout.
+   The build must be signed with your registered upload key.
+
 ## Using GitHub Actions Workflow (Recommended)
 
 The workflow file is located at `.github/workflows/build-aab.yml`.
