@@ -7,6 +7,37 @@ new signed release is required for the new features to reach users.
 
 ---
 
+## ⭐ FASTEST PATH — build the `.aab` in the cloud (no computer, no setup)
+
+You do **not** need Android Studio or any installs. The signed `.aab` is built
+for you by GitHub Actions and ready to download:
+
+1. In Emergent, click **“Save to GitHub”** (push your latest code).
+2. On GitHub, open the **Actions** tab → pick **“Android Release (AAB)”** in the
+   left sidebar → click **Run workflow** → **Run workflow**.
+3. Wait ~5–8 minutes for the green check.
+4. Open the finished run → scroll to **Artifacts** → download
+   **`islandhop-release-aab`**. Unzip it to get **`app-release.aab`**.
+5. Go to **Google Play Console → your app → Testing → Internal testing**
+   (or **Production**) → **Create new release** → upload `app-release.aab` →
+   add release notes → **Review → Roll out**.
+
+That's it. Signing is already configured (the upload key is committed and its
+passwords are built into the workflow), the version code auto-increments every
+run, and the production backend (`https://islandhopapp.com`) is baked in.
+**No GitHub secrets are required.**
+
+> Want the very first upload to happen automatically too? Google requires the
+> **first** AAB of a brand-new listing to be uploaded manually (step 5). After
+> that you can optionally enable auto-publish — see the bottom of this file.
+
+> Changing the backend URL? Set a repo **Variable** named `REACT_APP_BACKEND_URL`
+> (Settings → Secrets and variables → Actions → Variables).
+
+---
+
+## Alternative: build on your own computer
+
 ## 0. One-time prerequisites (on your computer)
 Install these on the machine that will build the app (macOS / Windows / Linux):
 

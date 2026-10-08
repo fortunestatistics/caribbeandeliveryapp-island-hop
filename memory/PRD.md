@@ -1665,3 +1665,15 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 - Backend server.py: POST /admin/applicants/ai-suggestions gained tone_style (friendly|firm|brief); reply-favourites CRUD GET/POST/DELETE /admin/reply-favourites (global, shared across admins).
 - Delete test applicants: admin_records.py DELETE /admin/records/{category}/{record_id} (single-record, admin only). Guarded: category 'users' blocked (400 — use pause/restrict); unknown category/id → 404. Frontend AdminApprovals.js: red Trash2 delete button (record-delete-<id>) on every non-users row with a confirm prompt.
 - Testing agent iter 74: backend 100% (12/12), frontend 100%. All test data cleaned. Safety guard for 'users' delete added after review and self-verified via curl (400/404/404).
+
+---
+## 2026-06 (fork) — Zero-setup Play Store .aab build
+- There is no single "file" to upload; Google Play needs a signed .aab produced by a build. No Android SDK/JDK in the preview container, so the build runs via GitHub Actions and the .aab is delivered as a downloadable artifact.
+- Reworked .github/workflows/android-release.yml to be ZERO-SETUP (no GitHub secrets required):
+  - Signing keystore is already committed at frontend/android/keystore/islandhop-upload.jks (PKCS12, loads under JDK17 default type). Passwords default in-workflow (islandhop2026 / alias islandhop). Optional override via repo secrets ANDROID_KEYSTORE_BASE64/PASSWORD/KEY_ALIAS/KEY_PASSWORD (take precedence).
+  - Fixed a latent bug: old "Decode keystore" step always ran and would overwrite the committed keystore with an empty file when no secret was set. Now guarded (runs only if ANDROID_KEYSTORE_BASE64 secret present) + added a "verify keystore present" step.
+  - keystore.properties now written with secret-or-default fallbacks.
+  - versionCode auto = run_number+100 (always > live), versionName 1.1; backend baked in via REACT_APP_BACKEND_URL (default https://islandhopapp.com, overridable by repo Variable).
+- User flow: Save to GitHub → Actions → "Android Release (AAB)" → Run workflow → download artifact islandhop-release-aab (app-release.aab) → upload in Play Console. First upload of a brand-new listing must be manual; optional auto-publish to internal track via ENABLE_PLAY_PUBLISH=true + PLAY_SERVICE_ACCOUNT_JSON.
+- Guide: frontend/android/BUILD_AAB.md updated with a "FASTEST PATH (no computer, no setup)" section at the top.
+- NOT buildable/verifiable in preview (no Android toolchain); YAML validated, keystore format + git-tracking verified.
