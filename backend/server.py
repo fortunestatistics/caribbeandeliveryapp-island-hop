@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
-from fastapi.responses import JSONResponse, Response, RedirectResponse, FileResponse
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -9,7 +9,7 @@ import logging
 import asyncio
 import httpx
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -569,7 +569,7 @@ async def process_daily_vendor_payouts():
 async def get_vendor_payouts(vendor_id: str, limit: int = 30):
     """Get vendor's payout history"""
     payouts = await db.vendor_payouts.find(
-        {"vendor_id": vendor_id}
+        {"vendor_id": vendor_id}, {"_id": 0}
     ).sort("payout_date", -1).limit(limit).to_list(length=None)
     return payouts
 
@@ -1355,6 +1355,16 @@ async def get_restaurants():
     valid.sort(key=lambda x: (0 if x.featured else 1, -(x.rating or 0)))
     return valid
 
+@api_router.get("/restaurants/my-menu")
+async def get_my_menu(request: Request):
+    """Get menu items for current restaurant"""
+    current_user = await get_current_user_from_request(request)
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found for user")
+    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}, {"_id": 0}).limit(500).to_list(length=None)
+    return menu_items
+
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
 async def get_restaurant(restaurant_id: str):
     """Get restaurant by ID"""
@@ -1379,19 +1389,6 @@ async def create_menu_item(item: MenuItem, request: Request):
     await db.menu_items.insert_one(item_dict)
     
     return item
-
-@api_router.get("/restaurants/my-menu")
-async def get_my_menu(request: Request):
-    """Get menu items for current restaurant"""
-    current_user = await get_current_user_from_request(request)
-    
-    # Get restaurant for current user
-    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restaurant not found for user")
-    
-    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).limit(500).to_list(length=None)
-    return menu_items
 
 @api_router.get("/restaurants/{restaurant_id}/menu")
 async def get_restaurant_menu(restaurant_id: str):
@@ -6463,6 +6460,124 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
 
 
 # ---------------------------------------------------------------------------
+# AI-assisted reply drafting (DRAFT-ONLY) for Mail + WhatsApp support.
+# Admins get a suggested reply they review/edit before sending. Powered by the
+# Emergent LLM key (Claude Sonnet). Business FAQ + tone are admin-editable.
+# ---------------------------------------------------------------------------
+DEFAULT_AI_REPLY_BUSINESS_INFO = (
+    "IslandHop is a Caribbean delivery & taxi platform (food, groceries, pharmacy, courier, taxi) "
+    "serving Trinidad & Tobago and the wider Caribbean.\n"
+    "- Customers place orders in the IslandHop app; approved drivers deliver them.\n"
+    "- Support hours: 8am-10pm daily.\n"
+    "- For refunds/billing disputes: tell the customer a team member will review and follow up.\n"
+    "(ADMIN: replace this with your real FAQ — delivery areas, hours, fees, order & refund policy — "
+    "in Admin -> Mail -> 'AI reply knowledge'.)"
+)
+AI_REPLY_HARD_RULES = (
+    "HARD RULES (never break these):\n"
+    "- NEVER promise, approve, or confirm a refund. If asked, say the team will review and follow up.\n"
+    "- NEVER quote specific prices, fees, or dollar amounts. Point them to the app for exact pricing.\n"
+    "- Never invent order details, delivery times, or policies you were not given.\n"
+    "- If you don't know something, say a team member will follow up shortly.\n"
+)
+
+
+async def _get_ai_reply_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "ai_reply"}, {"_id": 0})
+    if not doc:
+        doc = {}
+    return {
+        "business_info": doc.get("business_info") or DEFAULT_AI_REPLY_BUSINESS_INFO,
+        "tone": doc.get("tone") or "Warm, friendly and Caribbean-branded",
+        "enabled": doc.get("enabled", True),
+        "auto_suggest": doc.get("auto_suggest", False),
+    }
+
+
+class AiReplySettings(BaseModel):
+    business_info: Optional[str] = None
+    tone: Optional[str] = None
+    enabled: Optional[bool] = None
+    auto_suggest: Optional[bool] = None
+
+
+@api_router.get("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_get(request: Request):
+    await _require_admin_or_agent(request)
+    return await _get_ai_reply_settings()
+
+
+@api_router.put("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_put(payload: AiReplySettings, request: Request):
+    await _require_admin_or_agent(request)
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        await db.app_settings.update_one({"id": "ai_reply"}, {"$set": update}, upsert=True)
+    return await _get_ai_reply_settings()
+
+
+class AiReplyDraftRequest(BaseModel):
+    channel: str = "email"            # 'email' | 'whatsapp'
+    customer_message: str
+    customer_name: Optional[str] = None
+    context: Optional[str] = None     # recent thread text, optional
+    avoid_draft: Optional[str] = None  # a previous draft to reword differently (variations)
+
+
+@api_router.post("/admin/ai-reply/draft")
+async def admin_ai_reply_draft(payload: AiReplyDraftRequest, request: Request):
+    """Generate a suggested support reply for an admin to review & edit (draft-only)."""
+    await _require_admin_or_agent(request)
+    if not (payload.customer_message or "").strip():
+        raise HTTPException(status_code=400, detail="No customer message to draft a reply for.")
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    tone = s["tone"]
+    business_info = s["business_info"]
+    channel = "WhatsApp" if (payload.channel or "").lower() == "whatsapp" else "email"
+    length_hint = ("Keep it short — 1 to 3 sentences, suitable for a WhatsApp chat."
+                   if channel == "WhatsApp"
+                   else "Keep it concise and well structured, 1 to 2 short paragraphs.")
+    system_message = (
+        f"You are a customer-support agent for IslandHop, a Caribbean delivery & taxi platform. "
+        f"You draft a reply to a customer's {channel} message on behalf of the support team. "
+        f"Tone: {tone}. {length_hint}\n\n"
+        f"BUSINESS INFO / FAQ (use ONLY this for facts):\n{business_info}\n\n"
+        f"{AI_REPLY_HARD_RULES}\n"
+        f"LANGUAGE: Always write your reply in the SAME language the customer used in their latest "
+        f"message (e.g. Spanish → Spanish, French → French, Haitian Creole → Haitian Creole, "
+        f"English → English). Match their language and a natural, friendly local register.\n"
+        f"Write ONLY the reply text itself — no subject line, no 'Draft:' prefix, no meta commentary. "
+        f"Address the customer by their first name if provided, and sign off as 'The IslandHop Team'."
+    )
+    parts = []
+    if payload.customer_name:
+        parts.append(f"Customer name: {payload.customer_name}")
+    if payload.context:
+        parts.append(f"Recent conversation (oldest first):\n{payload.context}")
+    parts.append(f"Customer's latest message:\n{payload.customer_message}")
+    if (payload.avoid_draft or "").strip():
+        parts.append(
+            "The admin wasn't happy with this earlier draft — write a DIFFERENT reply with fresh "
+            "wording and a different structure (don't just tweak a word). Earlier draft to avoid "
+            f"repeating:\n{payload.avoid_draft.strip()}"
+        )
+    parts.append("Write the suggested reply now.")
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"ai-reply-{uuid.uuid4()}",
+            system_message=system_message,
+        ).with_model("anthropic", "claude-sonnet-4-6")
+        draft = await chat.send_message(UserMessage(text="\n\n".join(parts)))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI reply draft failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate a draft right now. Please try again.")
+    return {"draft": (draft or "").strip()}
+
+
+# ---------------------------------------------------------------------------
 # Support inbox workflow: instant auto-reply + assign-to-agent
 # ---------------------------------------------------------------------------
 DEFAULT_AUTOREPLY_SUBJECT = "Thanks for contacting IslandHop — we've received your message"
@@ -6971,7 +7086,7 @@ async def request_driver_withdrawal(driver_id: str, amount: float, method: str, 
 @api_router.get("/drivers/{driver_id}/withdrawals")
 async def get_driver_withdrawals(driver_id: str):
     """Get driver's withdrawal history"""
-    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
+    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}, {"_id": 0}).to_list(length=None)
     return withdrawals
 
 # Driver Dashboard Routes
@@ -8264,7 +8379,7 @@ async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
     ratings = await db.ratings.find({
         "vendor_id": vendor_id,
         "vendor_rating": {"$ne": None}
-    }).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
 
     # Batch-fetch all customer names in a single query
     customer_ids = list({r["customer_id"] for r in ratings if r.get("customer_id")})
@@ -8412,7 +8527,7 @@ async def get_driver_ratings(driver_id: str, limit: int = 20):
     ratings = await db.ratings.find({
         "driver_id": driver_id,
         "driver_rating": {"$ne": None}
-    }).sort("created_at", -1).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
     
     return ratings
 
@@ -8457,7 +8572,7 @@ async def get_user_notifications(request: Request, unread_only: bool = False):
     if unread_only:
         query["read"] = False
     
-    notifications = await db.notifications.find(query).sort("created_at", -1).limit(50).to_list(length=None)
+    notifications = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=None)
     return notifications
 
 @api_router.put("/notifications/{notification_id}/read")
@@ -8492,6 +8607,22 @@ async def get_rental_companies():
     """Get all active car rental companies"""
     companies = await db.car_rental_companies.find({"status": "active"}).to_list(length=None)
     return [CarRentalCompany(**company) for company in companies]
+
+@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
+async def get_rental_bookings(request: Request):
+    """Get rental bookings for current user"""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type == "customer":
+        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
+    elif current_user.user_type == "car_rental":
+        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
+        if company:
+            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
+        else:
+            bookings = []
+    else:
+        bookings = []
+    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.get("/car-rentals/{company_id}", response_model=CarRentalCompany)
 async def get_rental_company(company_id: str):
@@ -8564,24 +8695,6 @@ async def create_rental_booking(booking: RentalBooking, request: Request):
     )
     
     return booking
-
-@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
-async def get_rental_bookings(request: Request):
-    """Get rental bookings for current user"""
-    current_user = await get_current_user_from_request(request)
-    
-    if current_user.user_type == "customer":
-        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
-    elif current_user.user_type == "car_rental":
-        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
-        if company:
-            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
-        else:
-            bookings = []
-    else:
-        bookings = []
-    
-    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.put("/car-rentals/bookings/{booking_id}/status")
 async def update_booking_status(booking_id: str, status: str, request: Request):
@@ -13144,6 +13257,17 @@ async def admin_remind_applicant(driver_id: str, request: Request):
     return {"success": True, "reminded": info["email"]}
 
 
+@api_router.post("/admin/applicants/remind-incomplete")
+async def admin_remind_incomplete_batch(request: Request, max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48):
+    """Admin-only: run the gentle 'finish your application' nudge across ALL incomplete
+    applicants right now (same job the daily scheduler runs). Throttled/capped inside."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    n = await _remind_incomplete_applicants(max_reminders=max_reminders, min_age_hours=min_age_hours, cooldown_hours=cooldown_hours)
+    return {"success": True, "reminded_count": n}
+
+
 
 
 
@@ -13188,24 +13312,56 @@ PUBLIC_APP_RATE_LIMIT = 5
 PUBLIC_APP_RATE_WINDOW_MIN = 60
 
 
+def _pick_field(data: dict, *keys):
+    """Return the first present, non-empty value among the given alias keys (case-insensitive)."""
+    if not isinstance(data, dict):
+        return None
+    lowered = {str(k).strip().lower().replace(" ", "").replace("-", "").replace("_", ""): v for k, v in data.items()}
+    for k in keys:
+        norm = k.lower().replace(" ", "").replace("-", "").replace("_", "")
+        v = lowered.get(norm)
+        if v not in (None, ""):
+            return v
+    return None
+
+
 class PublicDriverApplication(BaseModel):
     full_name: str
-    email: str
-    phone: str
-    vehicle_type: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    vehicle_type: Optional[str] = ""
     license_number: Optional[str] = None
     vehicle_plate: Optional[str] = None
     city: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        """Accept common field-name variants from external marketing forms
+        (islandhopapp.com / islandhoptt.com) so leads always map correctly."""
+        if not isinstance(data, dict):
+            return data
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "driver_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "vehicle_type": _pick_field(data, "vehicle_type", "vehicleType", "vehicle", "car_type") or "",
+            "license_number": _pick_field(data, "license_number", "licenseNumber", "license", "dl_number", "drivers_license"),
+            "vehicle_plate": _pick_field(data, "vehicle_plate", "vehiclePlate", "plate", "license_plate", "number_plate"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
 
 class PublicMerchantApplication(BaseModel):
     business_name: str
-    owner_name: str
-    email: str
-    phone: str
-    business_type: str
+    owner_name: Optional[str] = ""
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    business_type: Optional[str] = ""
     category: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
@@ -13213,6 +13369,28 @@ class PublicMerchantApplication(BaseModel):
     description: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        business_name = _pick_field(data, "business_name", "businessName", "company", "companyName", "restaurant_name", "restaurantName", "store_name", "storeName", "name")
+        owner_name = _pick_field(data, "owner_name", "ownerName", "contact_name", "contactName", "owner", "full_name", "fullName", "contact")
+        return {
+            "business_name": business_name or owner_name,
+            "owner_name": owner_name or business_name or "",
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "business_type": _pick_field(data, "business_type", "businessType", "type", "category_type") or "",
+            "category": _pick_field(data, "category", "category_id", "categoryId", "cuisine"),
+            "address": _pick_field(data, "address", "street", "line1", "address_line1"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "website": _pick_field(data, "website", "url", "site", "web"),
+            "description": _pick_field(data, "description", "about", "bio"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
 
 
 def _client_ip(request: Request) -> str:
@@ -13254,6 +13432,16 @@ async def _notify_new_application(kind: str, doc: dict):
             f"<li><b>Email:</b> {doc.get('email','')}</li>"
             f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
             f"<li><b>Vehicle:</b> {doc.get('vehicle_type','')}</li>"
+            f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        )
+    elif kind == "service_pro":
+        inbox = graph_mail.notify_mailbox("support")   # support@islandhoptt.com
+        label = "service professional"
+        summary = (
+            f"<li><b>Name:</b> {doc.get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Service:</b> {doc.get('service_type','')}</li>"
             f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
         )
     else:
@@ -13308,9 +13496,10 @@ async def _notify_new_application(kind: str, doc: dict):
         )
 
 
-async def _notify_incomplete_application(doc: dict):
-    """An applicant started a driver application but hasn't finished it. Nudge BOTH the
-    admin/ops team (so they can follow up) and the applicant (to finish). Best-effort."""
+async def _notify_incomplete_application(doc: dict, notify_admin: bool = True):
+    """An applicant started a driver application but hasn't finished it. Nudge the applicant
+    (to finish) and — when `notify_admin` — the admin/ops team too. Best-effort.
+    The automated daily reminder passes notify_admin=False so ops isn't spammed."""
     inbox = graph_mail.notify_mailbox("driver")  # drivers@islandhoptt.com
     name = doc.get("name") or "there"
     admin_html = (
@@ -13334,12 +13523,13 @@ async def _notify_incomplete_application(doc: dict):
         f"<p>Open the IslandHop app → <b>Become a Driver</b> to pick up where you left off.</p>"
         f"<p>— The IslandHop Team</p>"
     )
-    try:
-        await graph_mail.send_mail(
-            inbox, f"Incomplete driver application — {doc.get('name','')}",
-            admin_html, mailbox=inbox)
-    except Exception as exc:  # noqa: BLE001
-        logging.warning(f"Incomplete-application admin alert failed: {exc}")
+    if notify_admin:
+        try:
+            await graph_mail.send_mail(
+                inbox, f"Incomplete driver application — {doc.get('name','')}",
+                admin_html, mailbox=inbox)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Incomplete-application admin alert failed: {exc}")
     try:
         if doc.get("email"):
             await graph_mail.send_mail(
@@ -13349,13 +13539,64 @@ async def _notify_incomplete_application(doc: dict):
         logging.warning(f"Incomplete-application applicant reminder failed: {exc}")
 
     admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
-    if admin_phone:
+    if notify_admin and admin_phone:
         await _wa_notify(
             admin_phone,
             f"⏳ Incomplete driver application: {doc.get('name','')} ({doc.get('phone','')}). "
             f"Shows under Admin → Approvals → Incomplete.",
             event="incomplete_driver_application",
         )
+
+
+_INCOMPLETE_REMINDER_STATUSES = ["incomplete", "draft", "started"]
+
+
+async def _remind_incomplete_applicants(max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48) -> int:
+    """Scheduled gentle nudge: email driver applicants who started but never finished.
+    Capped & throttled — only once the application is at least `min_age_hours` old, at most
+    `max_reminders` times total, and never more than once per `cooldown_hours`. Returns the
+    number of applicants nudged. Never raises."""
+    now = datetime.now(timezone.utc)
+    age_cutoff = (now - timedelta(hours=min_age_hours)).isoformat()
+    cooldown_cutoff = (now - timedelta(hours=cooldown_hours)).isoformat()
+    query = {
+        "status": {"$in": _INCOMPLETE_REMINDER_STATUSES},
+        "created_at": {"$lte": age_cutoff},
+        "$and": [
+            {"$or": [{"reminder_count": {"$exists": False}}, {"reminder_count": {"$lt": max_reminders}}]},
+            {"$or": [{"last_reminder_at": {"$in": [None]}}, {"last_reminder_at": {"$exists": False}},
+                     {"last_reminder_at": {"$lte": cooldown_cutoff}}]},
+        ],
+    }
+    nudged = 0
+    async for d in db.drivers.find(query, {"_id": 0}).limit(500):
+        pi = d.get("personal_info") or {}
+        user = await db.users.find_one(
+            {"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}
+        ) if d.get("user_id") else None
+        user = user or {}
+        email = d.get("email") or pi.get("email") or user.get("email")
+        if not email or not graph_mail.is_real_email(email):
+            continue
+        info = {
+            "id": d.get("id"),
+            "name": d.get("name") or pi.get("name") or pi.get("full_name") or user.get("name"),
+            "email": email,
+            "phone": d.get("phone") or pi.get("phone") or user.get("phone"),
+            "city": d.get("city") or pi.get("city"),
+        }
+        try:
+            await _notify_incomplete_application(info, notify_admin=False)
+            await db.drivers.update_one(
+                {"id": d.get("id")},
+                {"$set": {"last_reminder_at": now.isoformat()}, "$inc": {"reminder_count": 1}},
+            )
+            nudged += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Auto-reminder failed for applicant {d.get('id')}: {exc}")
+    if nudged:
+        logger.info(f"📨 Auto-reminded {nudged} incomplete driver applicant(s)")
+    return nudged
 
 
 
@@ -13432,6 +13673,472 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
     await _log_public_app(ip, "merchant")
     asyncio.create_task(_notify_new_application("merchant", doc))
     return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
+
+
+class PublicServiceProApplication(BaseModel):
+    full_name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    service: Optional[str] = ""            # handyman|cleaning|tech_support|events
+    specialty: Optional[str] = None
+    location: Optional[str] = None
+    years_experience: Optional[int] = None
+    has_insurance: Optional[bool] = None
+    portfolio_url: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        yrs = _pick_field(data, "years_experience", "yearsExperience", "experience", "years")
+        try:
+            yrs = int(yrs) if yrs not in (None, "") else None
+        except (TypeError, ValueError):
+            yrs = None
+        ins = data.get("has_insurance")
+        if ins is None:
+            ins = data.get("hasInsurance")
+        if isinstance(ins, str):
+            ins = ins.strip().lower() in ("true", "yes", "1", "y")
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "provider_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "service": _pick_field(data, "service", "service_type", "serviceType", "profession", "trade", "category", "skill", "job_type") or "",
+            "specialty": _pick_field(data, "specialty", "speciality", "expertise"),
+            "location": _pick_field(data, "location", "city", "town", "area", "region"),
+            "years_experience": yrs,
+            "has_insurance": bool(ins) if ins is not None else None,
+            "portfolio_url": _pick_field(data, "portfolio_url", "portfolioUrl", "portfolio", "website", "url"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details", "bio", "about"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
+
+@api_router.post("/public/applications/service-pro")
+async def public_service_pro_application(payload: PublicServiceProApplication, request: Request):
+    """Receive a service professional application from the external site (islandhoptt.com),
+    accepted the same way (X-API-Key + rate limit) as driver & merchant applications."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # honeypot — pretend success, store nothing
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        "name": payload.full_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "service": payload.service,
+        "service_type": payload.service,   # admin list display reads service_type
+        "specialty": payload.specialty,
+        "location": payload.location,
+        "city": payload.location,
+        "years_experience": payload.years_experience,
+        "has_insurance": payload.has_insurance,
+        "portfolio_url": payload.portfolio_url,
+        "lead_notes": payload.notes,
+        "created_at": now,
+    }
+    await db.service_pro_applications.insert_one({**doc})
+    await _log_public_app(ip, "service_pro")
+    asyncio.create_task(_notify_new_application("service_pro", doc))
+    return {"success": True, "id": doc["id"], "message": "Service professional application received — our team will review it shortly."}
+
+
+class ApplicantContactRequest(BaseModel):
+    channel: str                       # 'email' | 'sms'
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+    category: Optional[str] = None     # to tie the message to an applicant record
+    record_id: Optional[str] = None
+
+
+@api_router.post("/admin/applicants/contact")
+async def admin_contact_applicant(payload: ApplicantContactRequest, request: Request):
+    """Admin: message an applicant by email or SMS (e.g. to request documents needed to
+    move their application forward). Every message is logged to the applicant's thread."""
+    current_user = await _require_admin_or_agent(request)
+    body = (payload.message or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    ch = (payload.channel or "").lower().strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    async def _log_outbound(to_val: str):
+        try:
+            await db.applicant_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "category": payload.category, "record_id": payload.record_id,
+                "direction": "outbound", "channel": ch, "to": to_val,
+                "name": payload.name, "subject": payload.subject if ch == "email" else None,
+                "body": body, "sent_by": getattr(current_user, "id", None),
+                "created_at": now,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"applicant message log failed: {exc}")
+
+    if ch == "email":
+        if not payload.email or not graph_mail.is_real_email(payload.email):
+            raise HTTPException(status_code=400, detail="A valid applicant email is required.")
+        greeting = f"Hi {payload.name}," if payload.name else "Hello,"
+        html = (
+            f"<p>{greeting}</p>"
+            f"<div style='white-space:pre-wrap'>{body}</div>"
+            f"<p style='margin-top:16px'>Warm regards,<br/>The IslandHop Team 🌴</p>"
+        )
+        try:
+            await graph_mail.send_mail(
+                payload.email, payload.subject or "Your IslandHop application",
+                html, mailbox=graph_mail.notify_mailbox("driver"))
+        except Exception as exc:  # noqa: BLE001
+            logging.error(f"Applicant email failed: {exc}")
+            raise HTTPException(status_code=502, detail="Could not send the email right now. Please try again.")
+        await _log_outbound(payload.email)
+        return {"success": True, "channel": "email", "to": payload.email}
+    if ch == "sms":
+        if not payload.phone:
+            raise HTTPException(status_code=400, detail="An applicant phone number is required.")
+        res = twilio_client.send_sms(payload.phone, body)
+        if not res.get("success"):
+            raise HTTPException(status_code=502, detail=res.get("error") or "Could not send the text message.")
+        await _log_outbound(payload.phone)
+        return {"success": True, "channel": "sms", "to": payload.phone, "sid": res.get("sid")}
+    raise HTTPException(status_code=400, detail="channel must be 'email' or 'sms'.")
+
+
+@api_router.get("/admin/applicants/{category}/{record_id}/messages")
+async def admin_applicant_messages(category: str, record_id: str, request: Request,
+                                   email: Optional[str] = None):
+    """Full message thread for an applicant: outbound (email/SMS we sent) + inbound EMAIL
+    replies (matched from the shared mailboxes by the applicant's email address)."""
+    await _require_admin_or_agent(request)
+    thread = []
+    async for m in db.applicant_messages.find({"category": category, "record_id": record_id}, {"_id": 0}):
+        thread.append(m)
+    # Reply capture (email): pull messages FROM the applicant's address in our mailboxes.
+    if email and graph_mail.is_real_email(email):
+        for box in [graph_mail.notify_mailbox("driver"), graph_mail.notify_mailbox("support")]:
+            try:
+                listing = await graph_mail.list_messages(box, top=40)
+            except Exception:
+                continue
+            for msg in listing.get("value", []):
+                frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
+                if frm and frm == email.lower():
+                    thread.append({
+                        "direction": "inbound", "channel": "email", "from": frm,
+                        "subject": msg.get("subject"), "body": msg.get("bodyPreview") or "",
+                        "created_at": msg.get("receivedDateTime"),
+                    })
+    thread.sort(key=lambda x: x.get("created_at") or "")
+    return {"messages": thread, "count": len(thread)}
+
+
+class AiSuggestRequest(BaseModel):
+    channel: str = "email"                 # 'email' | 'sms'
+    context: Optional[str] = ""            # applicant's last message / situation
+    applicant_name: Optional[str] = None
+    applicant_type: Optional[str] = None   # driver | merchant | service_pro
+    tone_style: Optional[str] = None       # friendly | firm | brief
+
+
+@api_router.post("/admin/applicants/ai-suggestions")
+async def admin_applicant_ai_suggestions(payload: AiSuggestRequest, request: Request):
+    """Generate 3 distinct, professional reply options an admin can pick from when
+    responding to an applicant on the approval platform (email or text)."""
+    await _require_admin_or_agent(request)
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    channel = "SMS/WhatsApp text" if (payload.channel or "").lower() == "sms" else "email"
+    length_hint = "1-2 short sentences" if channel.startswith("SMS") else "2-4 short sentences"
+    system_message = (
+        f"You are a support agent for IslandHop (Caribbean delivery/taxi platform) helping an "
+        f"admin reply to a partner APPLICANT (driver/merchant/service pro) on the approval platform. "
+        f"Tone: {s['tone']}. Each option is a {channel} reply, {length_hint}.\n"
+        f"BUSINESS INFO:\n{s['business_info']}\n\n{AI_REPLY_HARD_RULES}\n"
+        f"Also NEVER promise or confirm that their application is approved.\n"
+        f"Write THREE DISTINCT, professional reply options that help move the application forward "
+        f"(e.g. requesting missing documents, acknowledging, asking a clarifying question). "
+        f"Return ONLY a JSON array of exactly 3 strings, no other text."
+    )
+    ptype = payload.applicant_type or "applicant"
+    tone_map = {
+        "friendly": "Make them warm, upbeat and encouraging.",
+        "firm": "Make them polite but firm and direct about what's required.",
+        "brief": "Make them very short and to the point (one or two sentences max).",
+    }
+    tone_extra = tone_map.get((payload.tone_style or "").lower(), "")
+    user_text = (
+        f"Applicant name: {payload.applicant_name or 'the applicant'} (type: {ptype}). "
+        f"Situation / their latest message: {payload.context or 'New applicant — likely needs to submit documents (ID, licence, registration/insurance) to proceed.'} "
+        f"Write 3 distinct {channel} reply options now as a JSON array of 3 strings. {tone_extra}"
+    )
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ai-suggest-{uuid.uuid4()}",
+                       system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
+        raw = await chat.send_message(UserMessage(text=user_text))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI suggestions failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate suggestions right now.")
+    suggestions = []
+    try:
+        m = re.search(r"\[.*\]", raw or "", re.S)
+        if m:
+            suggestions = [str(x).strip() for x in json.loads(m.group(0)) if str(x).strip()]
+    except Exception:
+        suggestions = []
+    if len(suggestions) < 2:  # fallback: split on blank lines / numbering
+        parts = [re.sub(r"^\s*\d+[\.\)]\s*", "", b).strip() for b in re.split(r"\n\s*\n", raw or "") if b.strip()]
+        suggestions = [p for p in parts if p][:3]
+    return {"suggestions": suggestions[:3]}
+
+
+class ReplyFavourite(BaseModel):
+    body: str
+    title: Optional[str] = None
+
+
+@api_router.get("/admin/reply-favourites")
+async def list_reply_favourites(request: Request):
+    await _require_admin_or_agent(request)
+    items = await db.reply_favourites.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
+    return {"favourites": items}
+
+
+@api_router.post("/admin/reply-favourites")
+async def add_reply_favourite(payload: ReplyFavourite, request: Request):
+    await _require_admin_or_agent(request)
+    body = (payload.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Cannot save an empty reply.")
+    doc = {"id": str(uuid.uuid4()), "body": body,
+           "title": (payload.title or body[:40]).strip(),
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.reply_favourites.insert_one({**doc})
+    return {"success": True, "favourite": doc}
+
+
+@api_router.delete("/admin/reply-favourites/{fav_id}")
+async def delete_reply_favourite(fav_id: str, request: Request):
+    await _require_admin_or_agent(request)
+    await db.reply_favourites.delete_one({"id": fav_id})
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Automatic application ingestion from the shared notification mailboxes.
+# ALL IslandHop apps (this one + islandhopapp.com + islandhoptt.com) email their
+# "New driver/merchant application" alerts to drivers@/partners@islandhoptt.com.
+# This app can read those mailboxes, so we auto-import any application that isn't
+# already in our DB — giving one admin a single source of truth without touching
+# the external sites. Also exposed as a manual "Import" + "Sync now" for admins.
+# ---------------------------------------------------------------------------
+def _html_to_plain(html: str) -> str:
+    if not html:
+        return ""
+    txt = re.sub(r"<\s*/?(li|p|ul|div|br|h[1-6])[^>]*>", "\n", html, flags=re.I)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = txt.replace("&nbsp;", " ").replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
+    return re.sub(r"[ \t]+", " ", txt)
+
+
+def _extract_labeled(text: str, label: str) -> str:
+    m = re.search(rf"{re.escape(label)}\s*:\s*(.+)", text, flags=re.I)
+    if not m:
+        return ""
+    return m.group(1).split("\n")[0].strip()
+
+
+def _extract_source(text: str, kind: str) -> str:
+    m = re.search(rf"New {kind} application from\s+([^\n<]+)", text, flags=re.I)
+    return (m.group(1).strip().rstrip(".") if m else "islandhoptt.com")
+
+
+async def _ingest_application_emails(limit_per_box: int = 40) -> dict:
+    """Scan the shared driver/merchant notification inboxes and create any application
+    that isn't already in our DB. Idempotent (dedup by source Application ID, then by
+    email/phone). Never raises."""
+    results = {"drivers_created": 0, "merchants_created": 0, "scanned": 0, "skipped": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    plan = [
+        ("driver", graph_mail.notify_mailbox("driver"), "new driver application"),
+        ("merchant", graph_mail.notify_mailbox("merchant"), "new merchant application"),
+    ]
+    for kind, mbox, subject_key in plan:
+        try:
+            listing = await graph_mail.list_messages(mbox, top=limit_per_box)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"App-ingest: cannot read {mbox}: {exc}")
+            continue
+        for m in listing.get("value", []):
+            subj = (m.get("subject") or "").lower()
+            if subject_key not in subj:
+                continue
+            results["scanned"] += 1
+            msgid = m.get("id")
+            if not msgid or await db.ingested_app_emails.find_one({"message_id": msgid}):
+                results["skipped"] += 1
+                continue
+            try:
+                full = await graph_mail.get_message(mbox, msgid)
+            except Exception:
+                continue
+            body = (full.get("body") or {}).get("content") or full.get("bodyPreview") or ""
+            text = _html_to_plain(body)
+            app_id = _extract_labeled(text, "Application ID") or None
+            source = _extract_source(text, kind)
+            created = False
+            if kind == "driver":
+                name = _extract_labeled(text, "Name")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.drivers.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    await db.drivers.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "name": name, "email": email, "phone": phone,
+                        "vehicle_type": _extract_labeled(text, "Vehicle"),
+                        "city": _extract_labeled(text, "City") or None,
+                        "created_at": now,
+                    })
+                    results["drivers_created"] += 1
+                    created = True
+            else:
+                business_name = _extract_labeled(text, "Business")
+                owner = _extract_labeled(text, "Owner")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (business_name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.business_applications.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    btype = _extract_labeled(text, "Type")
+                    addr = {"line1": "", "city": ""}
+                    await db.business_applications.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "business_name": business_name, "name": business_name, "email": email, "phone": phone,
+                        "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                        "business_details": {"business_name": business_name, "business_type": btype,
+                                             "address": addr, "phone": phone, "email": email},
+                        "application_date": now, "created_at": now,
+                    })
+                    results["merchants_created"] += 1
+                    created = True
+            await db.ingested_app_emails.insert_one({"message_id": msgid, "app_id": app_id, "kind": kind,
+                                                     "created": created, "at": now})
+    total = results["drivers_created"] + results["merchants_created"]
+    if total:
+        logger.info(f"📥 Auto-imported {total} application(s) from notification mailboxes: {results}")
+    return results
+
+
+@api_router.post("/admin/applicants/sync-email")
+async def admin_sync_applications_from_email(request: Request):
+    """Admin: pull any applications sitting in the shared notification inboxes into this
+    app right now (same job the scheduler runs every 15 min)."""
+    await _require_admin_or_agent(request)
+    return {"success": True, **(await _ingest_application_emails())}
+
+
+class ApplicantImportItem(BaseModel):
+    category: str = "driver"  # 'driver' | 'merchant'
+    class Config:
+        extra = "allow"
+
+
+class ApplicantImportRequest(BaseModel):
+    category: str = "driver"          # default category for all items
+    items: List[Dict[str, Any]]
+
+
+@api_router.post("/admin/applicants/import")
+async def admin_import_applicants(payload: ApplicantImportRequest, request: Request):
+    """Admin: bulk-import applicants pasted/exported from another system. Each item is a
+    free-form dict; field names are normalized (fullName/name, phoneNumber/mobile, etc.).
+    Creates pending leads, de-duplicating by email/phone. Category can be per-item ('category')."""
+    await _require_admin_or_agent(request)
+    now = datetime.now(timezone.utc).isoformat()
+    created = {"drivers": 0, "merchants": 0}
+    skipped = 0
+    for raw in payload.items:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        cat = str(raw.get("category") or payload.category or "driver").lower()
+        email = _pick_field(raw, "email", "emailAddress", "email_address") or ""
+        phone = _pick_field(raw, "phone", "phoneNumber", "phone_number", "mobile", "tel", "whatsapp") or ""
+        if "merchant" in cat or "business" in cat or "restaurant" in cat:
+            business_name = _pick_field(raw, "business_name", "businessName", "company", "restaurant_name", "store_name", "name") or ""
+            owner = _pick_field(raw, "owner_name", "ownerName", "contact_name", "owner", "full_name", "name") or ""
+            if not (business_name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            addr = {"line1": _pick_field(raw, "address", "street", "line1") or "", "city": _pick_field(raw, "city", "town") or ""}
+            await db.business_applications.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "business_name": business_name or owner, "name": business_name or owner, "email": email, "phone": phone,
+                "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                "business_details": {"business_name": business_name or owner,
+                                     "business_type": _pick_field(raw, "business_type", "businessType", "type") or "",
+                                     "address": addr, "phone": phone, "email": email},
+                "application_date": now, "created_at": now,
+            })
+            created["merchants"] += 1
+        else:
+            name = _pick_field(raw, "full_name", "fullName", "name", "driver_name") or ""
+            if not (name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            await db.drivers.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "name": name, "email": email, "phone": phone,
+                "vehicle_type": _pick_field(raw, "vehicle_type", "vehicleType", "vehicle") or "",
+                "city": _pick_field(raw, "city", "town", "location") or None,
+                "created_at": now,
+            })
+            created["drivers"] += 1
+    return {"success": True, "created": created, "skipped": skipped,
+            "total_created": created["drivers"] + created["merchants"]}
+
 
 
 
@@ -13588,6 +14295,30 @@ async def initialize_data():
                     logger.error(f"❌ Weekly top-driver bonus failed: {e}")
 
             scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
+
+            async def _daily_applicant_reminders():
+                try:
+                    n = await _remind_incomplete_applicants()
+                    if n:
+                        logger.info(f"✅ Daily applicant reminders sent to {n} incomplete applicant(s)")
+                except Exception as e:
+                    logger.error(f"❌ Daily applicant reminder job failed: {e}")
+
+            # Gentle daily nudge (10:00 UTC ≈ 06:00 AST) to applicants who started a driver
+            # application but never finished. Capped & throttled inside the helper.
+            scheduler.add_job(_daily_applicant_reminders, CronTrigger(hour=10, minute=0), id="daily_applicant_reminders", replace_existing=True)
+
+            async def _auto_ingest_applications():
+                try:
+                    r = await _ingest_application_emails()
+                    if r.get("drivers_created") or r.get("merchants_created"):
+                        logger.info(f"✅ Auto-ingest imported applications: {r}")
+                except Exception as e:
+                    logger.error(f"❌ Auto-ingest applications job failed: {e}")
+
+            from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+            # Pull applications from the shared notification inboxes into this app every 15 min.
+            scheduler.add_job(_auto_ingest_applications, _IntervalTrigger(minutes=15), id="auto_ingest_applications", replace_existing=True)
 
             from apscheduler.triggers.interval import IntervalTrigger
 

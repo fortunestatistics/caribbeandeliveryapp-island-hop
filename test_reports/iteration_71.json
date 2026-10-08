@@ -1,0 +1,73 @@
+{
+  "summary": "Frontend-only E2E test of the three AI-assistant enhancements (auto-suggest toggle, reply variations/Regenerate, WhatsApp inbound badge + sorting). ALL primary flows PASSED end-to-end against the public preview URL. Draft-only — no send buttons clicked (M365/Twilio LIVE).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "WhatsApp AI draft button label",
+        "issue": "After auto-suggest populates wa-reply-input, wa-ai-draft-btn.innerText was captured as empty string (mail-ai-draft-btn correctly shows 'Regenerate'). Regenerate action still works and produces a different draft. Likely icon-only button or label not synced with reply-non-empty state for WA. Minor/inconsistency vs Mail.",
+        "affected_selectors": ["[data-testid='wa-ai-draft-btn']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_evidence": {
+    "auto_suggest_toggle": {
+      "checkbox_present": true,
+      "checkbox_testid": "ai-autosuggest-checkbox",
+      "saved_ON_successfully": true,
+      "restored_OFF_in_cleanup": true
+    },
+    "mail_auto_suggest": {
+      "fired_on_msg_index": 0,
+      "draft_len": 406,
+      "draft_preview": "Pleasant morning, Israel! 😊 That's wonderful to hear — we're thrilled you're taking the next step to join the IslandHop family as a driver! ..."
+    },
+    "mail_regenerate": {
+      "button_label_when_reply_nonempty": "Regenerate",
+      "new_draft_len": 370,
+      "differs_from_first": true,
+      "new_preview": "Great news, Israel — sounds like you're all set to get started! 🌴 We're excited to welcome you to the IslandHop driver family ..."
+    },
+    "whatsapp_inbound_sort_and_badge": {
+      "wa_waiting_badges_visible": 72,
+      "top_5_convos_all_badged": true,
+      "first_10_convos_all_badged": true,
+      "sort_confirmed_inbound_first": true
+    },
+    "wa_auto_suggest": {
+      "convo": "wa-convo-+15166057352",
+      "fired": true,
+      "first_draft_preview": "Hey there! 👋 Welcome to IslandHop — your favourite Caribbean delivery & taxi platform! 🌴 It looks like this might be a test message ..."
+    },
+    "wa_regenerate": {
+      "differs_from_first": true,
+      "new_preview": "Hey! 🌴 Thanks for reaching out to IslandHop — looks like this may be a system test, but if you ever need real support ..."
+    },
+    "no_send_button_clicked": true,
+    "verified_testids": [
+      "ai-knowledge-toggle-btn","ai-knowledge-editor","ai-autosuggest-checkbox","ai-knowledge-save-btn",
+      "mailbox-tab-support@islandhoptt.com","mail-ai-draft-btn","mail-reply-input",
+      "admin-tab-mail","admin-tab-whatsapp",
+      "wa-waiting-<phone>","wa-convo-<phone>","wa-ai-draft-btn","wa-reply-input"
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Minor: WhatsApp AI draft button (wa-ai-draft-btn) does not appear to update its label to 'Regenerate' when wa-reply-input is non-empty (innerText read as ''). Align WA button UX with Mail so admins get the same 'Draft with AI' → 'Regenerate' cue."
+  ],
+  "critical_code_review_comments": [
+    "Auto-suggest works reliably (~2-8s latency) and Regenerate consistently returns semantically different wording — good use of avoid_draft on the backend.",
+    "72 conversations show 'Reply needed' badges and they float to the top of the WA list as designed. Ordering looks correct on the first 10 items.",
+    "Small consistency gap: Mail button toggles label to 'Regenerate' but the WA button doesn't (or is icon-only). Consider matching them for admin UX parity."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only per request)", "frontend": "100% for the three requested flows"},
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Autosuggest was toggled ON, tested, and toggled OFF again (cleanup verified).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "To reach the admin panel with admin.qa: login via /login (#email/#password + [data-testid=auth-form-submit-btn]) then click 'Choose a panel' in the top-left brand → 'Admin'. AI reply knowledge editor: admin-tab-mail → ai-knowledge-toggle-btn → ai-knowledge-editor exposes ai-autosuggest-checkbox and ai-knowledge-save-btn. Use wa-convo-+15166057352 as a known-inbound WhatsApp conversation. NEVER click mail-send-reply-btn or wa-send-btn — M365 & Twilio are live.",
+  "rca of the issue": "N/A — features work as designed."
+}

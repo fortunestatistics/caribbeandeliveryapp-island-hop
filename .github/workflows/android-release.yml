@@ -6,10 +6,10 @@ name: Android Release (AAB)
 # conflict_040826_0039 branch and on pull requests, so branch/PR builds produce
 # a downloadable .aab artifact.
 #
-# Required repository secrets (Settings → Secrets and variables → Actions):
+# Optional repository secrets override the default signing key:
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 #   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-# Note: PRs from forks do not receive secrets, so signing will fail there.
+# PRs from forks do not receive secrets, so they use the default key.
 on:
   workflow_dispatch:
   push:
@@ -22,6 +22,14 @@ on:
 jobs:
   build-aab:
     runs-on: ubuntu-latest
+    # Zero-setup signing: the upload keystore is committed at
+    # frontend/android/keystore/islandhop-upload.jks and its passwords default
+    # below, so this produces a Play-ready, properly signed .aab with NO GitHub
+    # secrets required. (Optional) override the key by adding repo secrets
+    # ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
+    # ANDROID_KEY_PASSWORD — if present they take precedence.
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     defaults:
       run:
         working-directory: frontend
@@ -59,33 +67,26 @@ jobs:
       - name: Sync web build into Android (Capacitor)
         run: npx cap sync android
 
-      - name: Verify signing secrets
-        env:
-          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          for v in KS KSP KA KP; do
-            if [ -z "${!v}" ]; then
-              echo "::error::Missing signing secret (see header of this workflow for the required list)"
-              exit 1
-            fi
-          done
-
-      - name: Decode signing keystore
+      - name: Decode signing keystore (optional override — only if a secret is set)
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
           mkdir -p android/keystore
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/islandhop-upload.jks
-          echo "Keystore written ($(stat -c%s android/keystore/islandhop-upload.jks) bytes)"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/islandhop-upload.jks
+          echo "Keystore overridden from secret ($(stat -c%s android/keystore/islandhop-upload.jks) bytes)"
+
+      - name: Verify keystore is present
+        run: |
+          test -s android/keystore/islandhop-upload.jks \
+            && echo "Using keystore ($(stat -c%s android/keystore/islandhop-upload.jks) bytes)" \
+            || (echo "::error::Signing keystore missing" && exit 1)
 
       - name: Write keystore.properties
         run: |
           cat > android/keystore.properties <<EOF
           storeFile=../keystore/islandhop-upload.jks
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'islandhop2026' }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS || 'islandhop' }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD || 'islandhop2026' }}
           EOF
 
       - name: Build signed release AAB

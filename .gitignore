@@ -113,3 +113,4 @@ frontend/android/keystore.properties
 .env
 .env.*
 *.env
+frontend/node_modules/.cache/default-development/124.pack

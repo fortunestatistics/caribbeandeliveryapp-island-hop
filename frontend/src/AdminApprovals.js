@@ -8,13 +8,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import {
   Store, Car, Truck, Building2, Users, Search, RefreshCw, ChevronDown, ChevronRight,
   CheckCircle, X, Receipt, Loader2, Mail, Phone, LogIn, PauseCircle, ShieldOff, UserCheck, ClipboardList,
-  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench,
+  FileText, FolderOpen, ExternalLink, AlertTriangle, ShoppingBag, Wrench, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { portalPathForRole } from './authToken';
 import AdminAccountRepair from './AdminAccountRepair';
+import ApplicantImportTools from './ApplicantImportTools';
+import ApplicantMessageDialog from './ApplicantMessageDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const token = () => localStorage.getItem('token');
@@ -23,19 +25,20 @@ const authHeaders = () => ({ Authorization: `Bearer ${token()}` });
 const CATEGORIES = [
   { key: 'drivers', label: 'Driver Applications', icon: Truck, approveKind: 'driver' },
   { key: 'businesses', label: 'Merchant/Vendor Applications', icon: Store, approveKind: 'business' },
+  { key: 'service_pros', label: 'Service Pro Applications', icon: Wrench, approveKind: 'service_pro' },
   { key: 'restaurants', label: 'Live Restaurants', icon: Building2, approveKind: 'restaurant' },
   { key: 'shops', label: 'Live Shops', icon: ShoppingBag, approveKind: null },
   { key: 'car_rentals', label: 'Car Rental Companies', icon: Car, approveKind: 'car_rental' },
   { key: 'users', label: 'User Accounts', icon: Users, approveKind: null },
 ];
 
-const APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', car_rental: 'car-rentals', business: 'businesses' };
+const APPROVE_EP = { driver: 'drivers', restaurant: 'restaurants', car_rental: 'car-rentals', business: 'businesses', service_pro: 'service-pros' };
 const PENDING_STATUSES = ['pending', 'pending_approval'];
 
 // Application-style categories flow through a "pending" review queue; the others
 // (live restaurants, car-rental companies, user accounts) are created active, so
 // their sensible default view is "All Records" — otherwise their tab looks empty.
-const APPLICATION_CATEGORIES = new Set(['drivers', 'businesses']);
+const APPLICATION_CATEGORIES = new Set(['drivers', 'businesses', 'service_pros']);
 const defaultStatusFor = (cat) => (APPLICATION_CATEGORIES.has(cat) ? 'pending' : 'all');
 
 const statusBadge = (status) => {
@@ -260,6 +263,7 @@ const AdminApprovals = () => {
   const [expanded, setExpanded] = useState(null);
   const [historyRec, setHistoryRec] = useState(null);
   const [docsRec, setDocsRec] = useState(null);
+  const [contactRec, setContactRec] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [readyOnly, setReadyOnly] = useState(false);
 
@@ -349,6 +353,20 @@ const AdminApprovals = () => {
       navigate(portalPathForRole(target?.user_type));
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not open portal');
+      setBusyId(null);
+    }
+  };
+
+  const deleteRecord = async (rec) => {
+    if (!window.confirm(`Delete "${rec.name || rec.id}" permanently? This removes the record so only real applicants remain. This cannot be undone.`)) return;
+    setBusyId(rec.id);
+    try {
+      await axios.delete(`${API}/admin/records/${active}/${rec.id}`, { headers: authHeaders() });
+      toast.success('Record deleted');
+      load(active, query, statusFilter);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to delete record');
+    } finally {
       setBusyId(null);
     }
   };
@@ -448,6 +466,7 @@ const AdminApprovals = () => {
         <Button variant="outline" onClick={() => load(active, query, statusFilter)} disabled={loading} data-testid="approvals-refresh">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
+        <ApplicantImportTools onDone={() => load(active, query, statusFilter)} />
       </div>
 
       {/* Records */}
@@ -467,6 +486,12 @@ const AdminApprovals = () => {
             <div className="divide-y divide-border">
               {displayRecords.map((rec) => {
                 const isPending = PENDING_STATUSES.includes((rec.status || '').toLowerCase());
+                // Admins can approve/reject ANY record that isn't already approved or rejected —
+                // e.g. a driver who finished ID check but landed in 'identity_pending' / 'verifying'
+                // / 'submitted' / 'incomplete' must still be manually approvable.
+                const decided = ['active', 'approved', 'verified', 'online', 'offline', 'busy',
+                  'rejected', 'suspended', 'banned'].includes((rec.status || '').toLowerCase());
+                const canDecide = !decided;
                 const isOpen = expanded === rec.id;
                 return (
                   <div key={rec.id} data-testid={`record-${active}-${rec.id}`}>
@@ -483,7 +508,11 @@ const AdminApprovals = () => {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium truncate">{rec.name || rec.id}</span>
                           <Badge className={statusBadge(rec.status)} data-testid={`record-status-${rec.id}`}>{rec.status || '—'}</Badge>
-                          {rec.is_external_lead && <Badge variant="secondary">Website lead</Badge>}
+                          {rec.is_external_lead && (
+                            <Badge variant="secondary" className="gap-1" title={`Applied via ${rec.source || 'website'}`} data-testid={`record-source-${rec.id}`}>
+                              <ExternalLink className="h-3 w-3" />{rec.source || 'Website lead'}
+                            </Badge>
+                          )}
                           {rec.featured && <Badge className="bg-gold-500/15 text-gold-700 border-gold-500/30">Featured</Badge>}
                           {active !== 'users' && rec.doc_summary && (
                             rec.doc_summary.total === 0 ? (
@@ -515,6 +544,11 @@ const AdminApprovals = () => {
                         <Button size="sm" variant="outline" onClick={() => setHistoryRec(rec)} data-testid={`record-orders-${rec.id}`}>
                           <Receipt className="h-4 w-4 mr-1" />Orders
                         </Button>
+                        {(rec.email || rec.phone) && (
+                          <Button size="sm" variant="outline" className="text-blue-700 border-blue-300 hover:bg-blue-50" onClick={() => setContactRec(rec)} data-testid={`record-message-${rec.id}`} title="Message this applicant by email or text">
+                            <Mail className="h-4 w-4 mr-1" />Message
+                          </Button>
+                        )}
                         {(active === 'drivers' || active === 'businesses') && (
                           <Button size="sm" variant="outline" onClick={() => setDocsRec(rec)} data-testid={`record-docs-${rec.id}`}>
                             <FolderOpen className="h-4 w-4 mr-1" />Docs
@@ -530,12 +564,12 @@ const AdminApprovals = () => {
                             {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Store className="h-4 w-4 mr-1" />Link & provision</>}
                           </Button>
                         )}
-                        {isPending && activeCat?.approveKind && (
+                        {canDecide && activeCat?.approveKind && (
                           <>
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'approve')} data-testid={`record-approve-${rec.id}`}>
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'approve')} data-testid={`record-approve-${rec.id}`} title="Approve">
                               <CheckCircle className="h-4 w-4" />
                             </Button>
-                            <Button size="sm" variant="destructive" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'reject')} data-testid={`record-reject-${rec.id}`}>
+                            <Button size="sm" variant="destructive" disabled={busyId === rec.id} onClick={() => doApproval(activeCat.approveKind, rec.id, 'reject')} data-testid={`record-reject-${rec.id}`} title="Reject">
                               <X className="h-4 w-4" />
                             </Button>
                           </>
@@ -563,6 +597,19 @@ const AdminApprovals = () => {
                               </Button>
                             )}
                           </>
+                        )}
+                        {active !== 'users' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            title="Delete this record (remove a test / junk applicant)"
+                            disabled={busyId === rec.id}
+                            onClick={() => deleteRecord(rec)}
+                            data-testid={`record-delete-${rec.id}`}
+                          >
+                            {busyId === rec.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -592,6 +639,8 @@ const AdminApprovals = () => {
         record={docsRec}
         category={active}
       />
+
+      <ApplicantMessageDialog rec={contactRec} category={active} onClose={() => setContactRec(null)} />
     </div>
   );
 };

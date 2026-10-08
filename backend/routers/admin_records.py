@@ -58,6 +58,7 @@ _RECORD_CATEGORIES = {
     "car_rentals": {"collection": "car_rental_companies", "status_field": "status"},
     "businesses": {"collection": "business_applications", "status_field": "verification_status"},
     "shops": {"collection": "businesses", "status_field": "status"},
+    "service_pros": {"collection": "service_pro_applications", "status_field": "status"},
     "users": {"collection": "users", "status_field": "status"},
 }
 _USER_SENSITIVE_FIELDS = ("hashed_password", "password", "session_token")
@@ -98,6 +99,9 @@ def _record_summary(doc: dict, category: str) -> dict:
         base.update({"name": doc.get("business_name"),
                      "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("business_type")})
+    elif category == "service_pros":
+        base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": " · ".join([x for x in [doc.get("service_type"), doc.get("city")] if x]) or None})
     elif category == "users":
         base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("user_type"), "user_type": doc.get("user_type")})
@@ -148,6 +152,7 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
             "car_rentals": ["company_name", "contact_info.email", "contact_info.phone"],
             "businesses": ["business_name", "email", "phone", "business_owner.name", "business_owner.email"],
             "shops": ["business_name", "email", "phone"],
+            "service_pros": ["name", "email", "phone", "service_type", "city"],
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
@@ -156,13 +161,19 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
     if st and st != "all" and category != "users" and not q:
         sf = _RECORD_CATEGORIES[category]["status_field"]
         if st == "pending":
-            query[sf] = {"$in": _PENDING_APP_STATUSES}
+            status_cond = {sf: {"$in": _PENDING_APP_STATUSES}}
         elif st == "id_check":
-            query[sf] = {"$in": _IDCHECK_STATUSES}
+            status_cond = {sf: {"$in": _IDCHECK_STATUSES}}
         elif st == "incomplete":
-            query[sf] = {"$in": _INCOMPLETE_STATUSES}
+            status_cond = {sf: {"$in": _INCOMPLETE_STATUSES}}
         else:
-            query[sf] = st
+            status_cond = {sf: st}
+        # External website leads must ALWAYS surface in the review queue (until an admin
+        # acts on them), regardless of their stored status — so new leads are never hidden.
+        if st == "pending":
+            query["$or"] = [status_cond, {"is_external_lead": True}]
+        else:
+            query.update(status_cond)
     cap = min(limit, 2000)
     records = []
     async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):
@@ -413,6 +424,26 @@ async def admin_user_documents(user_id: str, request: Request):
     return {"documents": docs, "count": len(docs), "applicant": applicant}
 
 
+@router.delete("/admin/records/{category}/{record_id}")
+async def admin_delete_record(category: str, record_id: str, request: Request):
+    """Admin: permanently delete ONE record (e.g. a test/junk applicant) so only real
+    applicants remain. Scoped to a single id in a single collection — never a bulk wipe."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    if category == "users":
+        # User accounts must never be hard-deleted from here — use pause/restrict in
+        # User Management instead. This endpoint is for removing test/junk applicants.
+        raise HTTPException(status_code=400, detail="User accounts can't be deleted here. Use pause/restrict in User Management.")
+    coll = db[_RECORD_CATEGORIES[category]["collection"]]
+    res = await coll.delete_one({"id": record_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"success": True, "deleted": record_id}
+
+
 @router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):
     """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""
@@ -474,6 +505,67 @@ async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: 
     if driver and driver.get("user_id"):
         await _notify_driver_status(driver["user_id"], "rejected", payload.notes)
     return result
+
+
+@router.post("/admin/service-pros/{app_id}/approve")
+async def admin_approve_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    app = await db.service_pro_applications.find_one({"id": app_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Service pro application not found")
+    result = await _set_partner_status("service_pro_applications", app_id, "approved", current_user.id, payload.notes)
+
+    # Provision an active service-pro profile so they can start taking jobs.
+    now = datetime.now(timezone.utc).isoformat()
+    email = app.get("email")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1}) if email else None
+    existing = await db.service_pros.find_one(
+        {"$or": [{"application_id": app_id}] + ([{"email": email}] if email else [])}, {"_id": 0, "id": 1, "created_at": 1}
+    )
+    profile = {
+        "id": existing["id"] if existing else str(uuid.uuid4()),
+        "application_id": app_id,
+        "user_id": user["id"] if user else None,
+        "name": app.get("name"), "email": email, "phone": app.get("phone"),
+        "service": app.get("service") or app.get("service_type"),
+        "specialty": app.get("specialty"),
+        "location": app.get("location") or app.get("city"),
+        "years_experience": app.get("years_experience"),
+        "has_insurance": app.get("has_insurance"),
+        "portfolio_url": app.get("portfolio_url"),
+        "status": "active", "available": True,
+        "approved_at": now,
+        "created_at": (existing or {}).get("created_at") or now,
+    }
+    await db.service_pros.update_one({"id": profile["id"]}, {"$set": profile}, upsert=True)
+    if user:
+        await promote_user_role(user["id"], "service_pro")
+
+    # Let the applicant know they're approved.
+    if email and graph_mail.is_real_email(email):
+        try:
+            html = (
+                f"<p>Hi {app.get('name') or 'there'},</p>"
+                f"<p>Great news — your IslandHop service professional application has been "
+                f"<b>approved</b>! You're all set to start receiving job requests.</p>"
+                f"<p>Warm regards,<br/>The IslandHop Team 🌴</p>"
+            )
+            await graph_mail.send_mail(email, "You're approved on IslandHop! 🎉",
+                                       html, mailbox=graph_mail.notify_mailbox("support"))
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"service-pro approval email failed: {exc}")
+
+    return {**result, "service_pro_id": profile["id"], "provisioned": True}
+
+
+@router.post("/admin/service-pros/{app_id}/reject")
+async def admin_reject_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("service_pro_applications", app_id, "rejected", current_user.id, payload.notes)
 
 
 @router.post("/admin/restaurants/{restaurant_id}/approve")

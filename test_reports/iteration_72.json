@@ -1,0 +1,79 @@
+{
+  "summary": "Frontend-only E2E test of the new Admin -> Approvals import/sync toolbar tools (ApplicantImportTools). All 4 requested flows PASSED against the public preview URL. Login via /login with admin.qa credentials, panel switcher -> Admin, admin-tab-approvals, Driver Applications sub-tab. JSON import created 2 pending Website-lead drivers, CSV import created 1, dedup did NOT re-create the duplicates (count stayed the same), and Sync-from-email completed without errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Toast message capture (informational only)",
+        "issue": "Sonner toast text could not be scraped via DOM ([class*='toast'], [role='status'], [data-sonner-toast]) — text returned empty for all 4 tests. The functional behavior of each toast (dialog closes, list refreshes, count updates) was verified end-to-end, so this is a test-harness limitation, not a product bug. If devs added a data-testid=applicants-import-toast / applicants-sync-toast wrapper it would be more robustly testable.",
+        "affected_selectors": ["sonner toasts"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_evidence": {
+    "buttons_present_in_toolbar": {
+      "applicants-sync-email-btn": true,
+      "applicants-import-btn": true,
+      "location": "Driver Applications toolbar, next to search + refresh"
+    },
+    "import_dialog": {
+      "opened_on_click": true,
+      "testid": "applicants-import-dialog",
+      "category_driver_radio": true,
+      "category_merchant_radio_not_tested": "kept default Drivers per instructions",
+      "textarea_testid": "import-textarea",
+      "submit_testid": "import-submit-btn"
+    },
+    "test1_json_import": {
+      "payload": "[{fullName:QA Import Alpha,email:qa_import_alpha@test.com,phone:+18685557001,city:Arima},{name:QA Import Beta,mobile:+18685557002}]",
+      "dialog_closed_after_submit": true,
+      "driver_applications_new_tab_count_after": 2,
+      "list_shows_qa_import_alpha": true,
+      "list_shows_qa_import_beta": true,
+      "records_status": "pending",
+      "records_badge": "Website lead",
+      "approve_button_visible_for_both": true
+    },
+    "test2_csv_import": {
+      "payload": "name,email,phone,city\\nQA Csv Driver,qa_csv_driver@test.com,+18685557003,Chaguanas",
+      "dialog_closed_after_submit": true,
+      "list_shows_qa_csv_driver": true,
+      "record_status": "pending",
+      "record_badge": "Website lead"
+    },
+    "test3_dedup": {
+      "payload": "Same JSON as test 1 (alpha+beta)",
+      "no_duplicates_created_in_list": true,
+      "list_still_shows_single_alpha_and_single_beta": true,
+      "driver_applications_All_count_delta": 0
+    },
+    "test4_sync_from_email": {
+      "button_clicked": true,
+      "loading_state_observed": true,
+      "no_error_toast": true,
+      "no_console_errors": true,
+      "driver_applications_All_count_incremented_by": 1,
+      "note": "Sync brought in 1 record from the shared inbox during this run (may vary between runs)."
+    }
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL/MINOR: Add data-testid attributes on the toast container (e.g. applicants-import-toast, applicants-sync-toast) so QA can assert the exact 'Imported N applicant(s)' / 'skipped M duplicate(s)' / 'No new applications in the inbox' copy. Currently the text is not accessible via the standard Sonner DOM selectors used by automation."
+  ],
+  "critical_code_review_comments": [
+    "Field normalization works well: fullName/name and phone/mobile aliases both accepted; the Beta record with only {name, mobile} was imported successfully.",
+    "Dedup by email/phone is effective — running the same JSON a second time added 0 new rows and produced no duplicate list items.",
+    "Import dialog closes automatically on success and the list reloads via onDone as designed in ApplicantImportTools.",
+    "Consider surfacing the exact created/skipped counts (created N, skipped M) more prominently — right now Sonner toasts dismiss quickly, and there is no audit log link visible in the toolbar."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only per request)", "frontend": "100% (4/4 flows PASS)"},
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234! (login via /login form, then panel switcher -> Admin)",
+  "seed_data_creation": "Created 3 preview driver applications (all pending, Website lead) plus possibly 1 sync-from-email record. Names to clean up: 'QA Import Alpha' (qa_import_alpha@test.com / +18685557001), 'QA Import Beta' (+18685557002), 'QA Csv Driver' (qa_csv_driver@test.com / +18685557003). Per main-agent guidance these should be cleaned up via 'QA Import%' / 'QA Csv%' filters. No Approve/Reject clicked on any imported lead.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Route to feature: /login -> admin.qa@islandhop-demo.com / AdminQA1234! -> Choose a panel -> Admin -> [data-testid=admin-tab-approvals] -> click 'Driver Applications' sub-tab. Import tools sit in that sub-toolbar as [data-testid=applicants-sync-email-btn] and [data-testid=applicants-import-btn]. Dialog testid=applicants-import-dialog with import-category-driver / import-category-merchant / import-textarea / import-submit-btn. Both JSON and CSV parse in parsePasted() client-side. Dedup is by email OR phone. Sonner toast copy is NOT reliably captured via DOM — verify success via dialog auto-close + count increment + list refresh instead.",
+  "rca of the issue": "N/A — all 4 requested flows pass. Only observation is a QA-ergonomics gap around Sonner toast text scraping (not a product bug)."
+}

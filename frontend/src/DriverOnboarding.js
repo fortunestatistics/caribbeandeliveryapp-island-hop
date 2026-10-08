@@ -65,7 +65,6 @@ const DriverOnboarding = () => {
     vehicleRegistration: null,
     insurance: null,
     profilePhoto: null,
-    certificateOfCharacter: null,
     
     // Banking Information
     accountHolderName: '',
@@ -118,7 +117,6 @@ const DriverOnboarding = () => {
     { key: 'driversLicense', label: "Driver's License" },
     { key: 'vehicleRegistration', label: 'Vehicle Registration' },
     { key: 'insurance', label: 'Insurance Certificate' },
-    { key: 'certificateOfCharacter', label: 'Certificate of Character' },
     { key: 'profilePhoto', label: 'Profile Photo' }
   ];
 
@@ -164,18 +162,32 @@ const DriverOnboarding = () => {
     };
   };
 
-  // Save a partial application so the applicant is captured even if they don't finish.
-  const savedDraftRef = React.useRef(false);
+  // Save a partial application so the applicant is ALWAYS captured — even if they never
+  // click "Next" or finish the form. The backend upserts by user_id (idempotent) and only
+  // notifies once, so calling this repeatedly is safe.
+  const savingRef = React.useRef(false);
   const saveDraft = async () => {
-    if (savedDraftRef.current) return;
+    if (savingRef.current) return;
     if (!formData.fullName && !formData.email && !formData.phone) return;
-    savedDraftRef.current = true;
+    savingRef.current = true;
     try {
       await axios.post(`${API}/drivers`, buildDriverData(true), { headers: authHeaders() });
     } catch (e) {
-      savedDraftRef.current = false; // allow retry on next step
+      // best-effort capture — never block the applicant
+    } finally {
+      savingRef.current = false;
     }
   };
+
+  // Auto-capture the applicant as soon as they've entered identifying info on step 1,
+  // debounced so we don't post on every keystroke. This guarantees an "incomplete"
+  // application exists even for people who fill only the first step and leave.
+  React.useEffect(() => {
+    const hasIdentity = formData.fullName && (formData.email || formData.phone);
+    if (!hasIdentity) return;
+    const t = setTimeout(() => { saveDraft(); }, 1500);
+    return () => clearTimeout(t);
+  }, [formData.fullName, formData.email, formData.phone]);
 
   const nextStep = () => {
     const error = validateStep(currentStep);
@@ -554,7 +566,6 @@ const DriverOnboarding = () => {
                     { key: 'driversLicense', label: "Driver's License *", testId: 'drivers-license-upload' },
                     { key: 'vehicleRegistration', label: 'Vehicle Registration *', testId: 'vehicle-registration-upload' },
                     { key: 'insurance', label: 'Insurance Certificate *', testId: 'insurance-upload' },
-                    { key: 'certificateOfCharacter', label: 'Certificate of Character *', testId: 'certificate-of-character-upload', hint: 'Official police Certificate of Character / Good Conduct — required for all Caribbean drivers' },
                     { key: 'profilePhoto', label: 'Profile Photo *', testId: 'profile-photo-upload' }
                   ].map((doc) => (
                     <div key={doc.key}>
@@ -742,7 +753,6 @@ const DriverOnboarding = () => {
                       <div>Driver&apos;s License: {uploadedDocs.driversLicense ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Vehicle Registration: {uploadedDocs.vehicleRegistration ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Insurance: {uploadedDocs.insurance ? '✓ Uploaded' : '✗ Missing'}</div>
-                      <div>Certificate of Character: {uploadedDocs.certificateOfCharacter ? '✓ Uploaded' : '✗ Missing'}</div>
                       <div>Profile Photo: {uploadedDocs.profilePhoto ? '✓ Uploaded' : '✗ Missing'}</div>
                     </CardContent>
                   </Card>

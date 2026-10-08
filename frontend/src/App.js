@@ -660,7 +660,7 @@ const Header = () => {
                   ) : (
                     <Button 
                       onClick={() => {
-                        login('/dashboard');
+                        window.location.href = '/login';
                         setMobileMenuOpen(false);
                       }}
                       className="w-full bg-gold-gradient text-white"

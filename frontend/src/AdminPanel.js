@@ -83,7 +83,6 @@ const DOC_LABELS = {
   driversLicense: "Driver's License",
   vehicleRegistration: 'Vehicle Registration',
   insurance: 'Insurance',
-  certificateOfCharacter: 'Certificate of Character',
   profilePhoto: 'Profile Photo',
 };
 
@@ -495,10 +494,10 @@ const AdminPanel = () => {
     alert(`Exporting ${type} data...`);
   };
 
-  const filteredUsers = users.filter(user => 
-    user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // The server already filters users by name/email/phone (see fetchUsers → /admin/users?q=),
+  // so trust its results directly — re-filtering client-side on name/email only would hide
+  // valid phone-number matches.
+  const filteredUsers = users;
 
   const filteredOrders = orders.filter(order =>
     order.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -573,10 +572,11 @@ const AdminPanel = () => {
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground/70" />
                   <Input
-                    placeholder={`Search ${selectedTab}...`}
+                    placeholder={selectedTab === 'users' ? 'Search by name, email or phone…' : `Search ${selectedTab}...`}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
+                    data-testid={`admin-${selectedTab}-search-input`}
                   />
                 </div>
                 <Button variant="outline">

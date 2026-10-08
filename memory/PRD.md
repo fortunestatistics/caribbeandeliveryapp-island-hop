@@ -1473,3 +1473,211 @@ See `/app/memory/test_credentials.md`. No seeded users — register fresh per ru
 - New public endpoint GET /api/promoter/social-proof → top promoter's earnings THIS MONTH (first name only) + onboards_this_month. Verified with temp data (Tracy / 40 USD), test doc cleaned up.
 - New component PromoterSocialProof.js wired into the homepage incentives widget header — shows a live pulsing badge "<Name> earned <TT$ amount> this month · N new sign-ups" using the global currency formatter. Renders nothing (graceful) until there is real paid-this-month data.
 - PREVIEW only — redeploy for production.
+
+
+---
+## 2026-08-04 — Fix: incomplete driver applicants (Josanne) never captured
+
+**Root cause (real, not filters):** Draft capture in `DriverOnboarding.js` only fired when the applicant clicked **"Next"** from step 1 → step 2 (`saveDraft` inside `nextStep`). Josanne filled step 1 (name/email/phone) and left WITHOUT advancing, so `POST /api/drivers` was never called and **no driver record was ever created** — hence she was absent from Incomplete Applications, Approvals, AND account lookup. Backend/admin endpoints were already correct.
+
+**Fix (`DriverOnboarding.js`):** Added a debounced `useEffect` that auto-saves the draft (`is_draft:true`) as soon as `fullName` + (`email` or `phone`) are present — no "Next" click required. Backend `create_driver` upserts by `user_id` and only notifies once (`incomplete_notified`), so repeated saves are idempotent/safe. Kept the existing save-on-Next too.
+
+**Verified (preview, curl):** step-1-only draft → `status:"incomplete"` driver record → appears in `/api/admin/records/drivers?status=incomplete` (name populated) AND in `/api/admin/accounts/lookup` by hyphenated full name. Frontend compiles; homepage loads.
+
+**IMPORTANT — production:** Change is PREVIEW only. User must **redeploy** for it to take effect for future applicants. Josanne's original production data was never captured (nothing existed to display); to recover her now: find her via Admin → Users / Account Repair using her **registration email** (the form name she typed was never persisted), then "Create driver application" — or have her reopen the app after redeploy (she'll be auto-captured on step 1).
+
+**Note:** Accidentally ran `driver_wallets.delete_many({})` on the PREVIEW db during test cleanup; recreated 10 zero-balance wallets. Production unaffected.
+
+
+
+---
+## 2026-08-08 — Applicant reminders + Users search + remove Certificate of Character
+
+**1. Remove Certificate of Character** — Deleted the field from the driver application everywhere: `DriverOnboarding.js` (formData, requiredDocuments list, Documents-step upload grid, Review summary), `AdminPanel.js` `DOC_LABELS`, and backend `routers/documents.py` `ALLOWED_DOC_TYPES`. Docs now: Driver's License, Vehicle Registration, Insurance, Profile Photo. Verified: no refs remain; onboarding step 3 no longer shows it (testing agent iter 68 PASS).
+
+**2. Automatic applicant reminders** (`server.py`):
+- `_notify_incomplete_application(doc, notify_admin=True)` — added `notify_admin` flag so the batch job emails ONLY the applicant (ops inbox/WhatsApp not spammed).
+- New `_remind_incomplete_applicants(max_reminders=2, min_age_hours=24, cooldown_hours=48)` — finds `incomplete/draft/started` drivers older than 24h, capped at 2 reminders, ≥48h apart; emails a real-email applicant, sets `last_reminder_at` + increments `reminder_count`. Never raises.
+- Scheduled daily at 10:00 UTC via existing APScheduler (`daily_applicant_reminders`).
+- New admin "run now" endpoint `POST /api/admin/applicants/remind-incomplete` (params override caps).
+- Verified via curl: run1 nudged 1 + set count/last_reminder_at; run2 respected cooldown (0); at count=max → 0.
+
+**3. Admin Users search** (`AdminPanel.js`) — Search box already existed and hits `GET /api/admin/users?q=` (server searches name/email/phone → finds anyone signed up, even without a driver record). Fixed a bug: client-side `filteredUsers` re-filtered on name/email only, hiding phone-number matches → now `filteredUsers = users` (trust server). Added placeholder "Search by name, email or phone…" + `data-testid=admin-{tab}-search-input`. Verified (testing agent iter 68): name, email, and phone searches all return correct rows.
+
+**Testing:** testing agent iteration 68 — frontend 100% (auto-capture on step 1 without Next, Cert of Character removed, Users search by name/email/phone). Reminder logic verified via curl. All test records cleaned up.
+
+**Still requires user to REDEPLOY production** for any of this to go live.
+
+
+
+---
+## 2026-08-11 — Fix: missing Approve button for drivers who finished ID check
+
+**Bug:** In Admin → Approvals → Driver Applications, `AdminApprovals.js` only rendered the Approve/Reject buttons when `record.status` was exactly `pending`/`pending_approval` (`PENDING_STATUSES`). A driver who completed their ID + application but landed in a manual-review state (`identity_pending`, `verifying`, `submitted`, `incomplete`) appeared in the queue with NO approve control.
+
+**Fix (`AdminApprovals.js`):** Replaced the `isPending` gate on the approve/reject buttons with `canDecide = !decided`, where `decided` = status ∈ {active, approved, verified, online, offline, busy, rejected, suspended, banned}. So admins can approve/reject any driver/partner that isn't already approved or rejected. Added `title` tooltips to the icon buttons. (`isPending` retained only for the businesses Link&Provision button.)
+
+**Approval message:** Already sent — `admin_approve_driver` → `_notify_driver_status(user_id, "approved")` emails (M365) AND WhatsApp/SMS the driver ("You're approved to drive with IslandHop! 🎉"). No change needed.
+
+**Verified (testing agent iter 69, 100%):** seeded a driver with status `identity_pending` → it appeared under the default 'New' filter WITH green Approve + red Reject buttons → clicking Approve returned 200, status → `active`, user promoted to `driver`, row left the pending list. Also verified end-to-end via curl. Test record cleaned up.
+
+**Still requires user to REDEPLOY production** to go live.
+
+
+
+---
+## 2026-08-11 — AI-assisted reply drafting (Mail + WhatsApp), draft-only
+
+**Feature:** Admins get a "Draft with AI" button in Admin → Mail and Admin → WhatsApp that writes a suggested reply to the customer's message. DRAFT-ONLY — it only fills the reply box; the admin reviews/edits and sends manually. Powered by Claude (`claude-sonnet-4-6`) via the Emergent LLM key (`EMERGENT_LLM_KEY`, already in backend/.env; `emergentintegrations` already installed).
+
+**Backend (`server.py`, before the Support-inbox section):**
+- `GET/PUT /api/admin/ai-reply/settings` — admin-editable `business_info` (FAQ), `tone`, `enabled`; stored in `db.app_settings` id=`ai_reply`; sensible default placeholder.
+- `POST /api/admin/ai-reply/draft` {channel, customer_message, customer_name?, context?} → {draft}. System prompt bakes in tone (warm/Caribbean) + BUSINESS INFO/FAQ + HARD RULES: never promise/confirm refunds, never quote prices/amounts, don't invent facts. Uses `send_message` (single-shot). Admin/agent only.
+
+**Frontend:**
+- `AdminMailInbox.js` — `mail-ai-draft-btn` (fills `mail-reply-input`); "AI reply knowledge" editor in the auto-reply bar (`ai-knowledge-toggle-btn`, `ai-tone-input`, `ai-knowledge-input`, `ai-knowledge-save-btn`) to edit the FAQ/tone. Strips HTML of the incoming email before sending to AI.
+- `AdminWhatsApp.js` — `wa-ai-draft-btn` (fills `wa-reply-input`); uses the last inbound message + last 8 messages as context; channel=whatsapp → short replies.
+
+**Config chosen by user:** draft-only; Claude Sonnet (latest available = 4.6, no `sonnet-5` in library); warm Caribbean tone; admin-pastes FAQ; hard rules: never refunds, never prices.
+
+**Verified:** curl — drafts respect hard rules (refund question → "team will review", price question → "check the app"); settings GET/PUT work. Testing agent iter 70 — frontend 100%: Mail + WhatsApp draft buttons populate the reply box (no real send triggered), knowledge editor saves. Minor non-blocking nit: save success toast auto-dismisses fast.
+
+**Still requires user to REDEPLOY production** to go live. User should paste their real FAQ into Admin → Mail → "AI reply knowledge".
+
+
+
+---
+## 2026-08-11 — AI reply assistant enhancements (inbound badge, variations, auto-suggest)
+
+**1. WhatsApp inbound badge + sorting** (`AdminWhatsApp.js`) — conversations where the customer messaged last (`last_direction === 'inbound'`) show a green "Reply needed" badge (`wa-waiting-<phone>`) and float to the top of the list, so admins don't click through outbound-only chats. Uses the existing `/whatsapp/conversations` `last_direction` field.
+
+**2. Reply variations** — `POST /api/admin/ai-reply/draft` now accepts optional `avoid_draft`; when present the prompt asks for a fresh, differently-structured reply. Both UIs pass the current reply-box text as `avoid_draft` so tapping the AI button again regenerates a different wording. Mail button label switches to "Regenerate" when the box is non-empty; WhatsApp button is icon-only with a tooltip that switches to "Regenerate a different reply".
+
+**3. Auto-suggest toggle** — new `auto_suggest` boolean in `ai-reply/settings` (checkbox `ai-autosuggest-checkbox` in Admin → Mail → "AI reply knowledge"). When ON, opening a mail message or a WhatsApp conversation with a waiting customer message auto-drafts a reply into the box (draft-only; admin still reviews & sends). Default OFF.
+
+**Verified:** curl — `avoid_draft` produces a clearly different draft; `auto_suggest` persists. Testing agent iter 71 — frontend 100%: auto-suggest fires on open (mail + WA), Regenerate returns different wording, 72 WA convos show "Reply needed" badges sorted to top. No real sends triggered. Minor cosmetic note: WA regenerate cue is a tooltip (icon-only button) vs Mail's text label — by design.
+
+**Still requires user to REDEPLOY production.**
+
+
+
+
+---
+## 2026-08-11 — AI reply: match the customer's language
+
+Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prompt: always reply in the same language the customer used (Spanish→Spanish, French→French, Haitian Creole→Creole, English→English), in a natural local register. Backend-only. Verified via curl: a Spanish WhatsApp message drafted a Spanish reply and a French email drafted a French reply, both on-brand and still honoring the hard rules (no refunds, no prices). Requires production redeploy.
+
+
+---
+## 2026-08-13 — External applications (islandhopapp.com / islandhoptt.com) not reaching live admin
+
+**Reported:** Josanne Clement-Ferguson & Ethan Grant applied via the online sites, admin phone got the "new application" text, but they don't show in the live admin (islandhop-mvp.emergent.host), even under Approvals → All / search.
+
+**Diagnosis (evidence):**
+- Preview code correctly surfaces online applications (POST /api/public/applications/driver → shows in Admin → Approvals → Driver Applications, status pending, "Website lead"). Verified via curl.
+- Neither applicant is in the PREVIEW database, and there are NO external leads in preview → the forms are not misrouting to preview.
+- Production is redeployed with current code; GET /api/ = 200, POST /api/public/applications/driver = 422 on empty body (endpoint live). CORS is wide open (allow_origin_regex=".*") so any site can post.
+- Seeded admin.qa does NOT exist on production, so agent cannot read production DB directly.
+- Submitted a labeled diagnostic lead directly to production: id 3ca76c87-1e91-4bb1-91ef-adcce7dbf60b, name "ZZ DIAGNOSTIC TEST - please reject" — awaiting user confirmation whether it appears in live admin.
+
+**Conclusion:** The forms on the external marketing sites (islandhopapp.com / islandhoptt.com) are posting to a DIFFERENT backend/database than the live app reads (that other backend still has the admin phone configured → the text fires, but the record never lands in the live DB). Those sites are NOT in this repo, so their form target URL can't be changed from here.
+
+**In-repo hardening done (server.py):** Added model_validator(mode="before") + _pick_field() to PublicDriverApplication and PublicMerchantApplication so intake endpoints accept common field-name variants (fullName/name, emailAddress, phoneNumber/mobile/whatsapp, businessName/companyName, ownerName/contact, etc.) and no longer 422 on missing vehicle_type/business_type. Verified: camelCase driver + merchant payloads accepted and populate correctly in admin.
+
+**REQUIRED external fix (user side):** point driver/merchant forms on islandhopapp.com & islandhoptt.com to POST https://islandhop-mvp.emergent.host/api/public/applications/driver and /merchant. Backend already accepts them (no live-app redeploy needed for the intake change).
+
+
+
+---
+## 2026-08-13 — Applicant recovery: auto email-sync + manual import tools
+
+**Goal:** Make applications from the other IslandHop apps (islandhopapp.com / islandhoptt.com, separate Emergent projects w/ separate DBs) show in THIS app's admin, without editing those external sites.
+
+**Key mechanism:** All apps email their "New driver/merchant application" alerts to the shared mailboxes drivers@ / partners@islandhoptt.com, and this app has Graph read access. So we ingest applications from those notification emails.
+
+**Backend (`server.py`, after public application endpoints):**
+- `_ingest_application_emails()` — scans drivers@/partners@ inboxes for "New driver/merchant application" emails, parses Name/Email/Phone/Vehicle/City/Business/Owner/Type + "Application ID" + source, creates pending leads (drivers→db.drivers status pending; merchants→db.business_applications verification_status pending; is_external_lead=True, imported_via="email_sync"). Idempotent: dedup by source Application ID, then by email/phone; processed message ids tracked in `db.ingested_app_emails`. Never raises.
+- Scheduler: `auto_ingest_applications` runs every 15 min (IntervalTrigger).
+- `POST /api/admin/applicants/sync-email` — admin "run now".
+- `POST /api/admin/applicants/import` — bulk manual import; items are free-form dicts normalized via `_pick_field` (fullName/name, phoneNumber/mobile, businessName/ownerName, etc.); dedup by email/phone; per-item or default `category` (driver|merchant).
+
+**Frontend:** new `ApplicantImportTools.js` mounted in AdminApprovals toolbar — "Sync from email" button + "Import" dialog (JSON array OR CSV paste, Drivers/Merchants radio). parsePasted() handles both formats client-side. Refreshes the list on success.
+
+**Verified:** curl — manual import (mixed field names) created drivers+merchant, dedup skipped re-runs; email-sync imported notification emails from the shared inbox and skipped already-ingested on re-run. Testing agent iter 72 — frontend 100% (4/4): JSON import, CSV import, dedup, sync button all pass; imported leads show as pending "Website lead" with Approve button. All preview test records cleaned up.
+
+**Note:** Auto-sync only catches applications from apps that email the shared drivers@/partners@ inbox. Historical recovery of old real leads (Josanne/Ethan) depends on their notification emails still being in that inbox (scan window = top 40 per run) OR getting a data export from the other apps via Emergent Support. Consolidation guidance (from support_agent) relayed to user: each Emergent app has its own DB; recommend consolidating to one app + repoint domains + Support-assisted data export.
+
+**Still requires user to REDEPLOY production** for these tools + the 15-min auto-sync to run live.
+
+
+---
+## 2026-08-27 — Diagnosis: applicants missing on islandhopapp.com + code-health fixes
+- CONFIRMED: islandhopapp.com runs THIS app's codebase (identical API/admin endpoints); islandhoptt.com is a SEPARATE backend ({"service":"IslandHop API"}) with its own DB. Applicants apply via islandhoptt.com → land in its DB → never reach islandhopapp.com admin. Shared drivers@/partners@ inbox contains ONLY test artifacts (no real applicants) → islandhoptt.com does NOT email the shared inbox, so email auto-sync can't recover them. Fix requires repointing islandhoptt.com's form to POST https://islandhopapp.com/api/public/applications/driver (change on the separate islandhoptt.com Emergent project — not editable from here) OR Support data export.
+- Posted diagnostic lead to islandhopapp.com (id aad73888-7e88-4c44-95cc-263983993fe1, "ZZ CHECK islandhopapp - please reject") to confirm its admin displays correctly.
+- Fixed 9 blocking lint errors in server.py: removed duplicate Response import (F811); added {"_id":0} projections to vendor payouts, my-menu, driver withdrawals, vendor/driver ratings, notifications endpoints (ObjectId serialization); moved literal routes /restaurants/my-menu and /car-rentals/bookings ABOVE their parameterized routes (was a real shadowing bug). Backend verified healthy; routes resolve correctly.
+
+---
+## 2026-08-27 — External-lead visibility + service-pro intake route
+- admin_records.py: in the 'pending' review queue, query now `$or`s the status condition with `{is_external_lead: True}` so every website lead surfaces regardless of stored status (until an admin acts). Verified: an external driver lead with status 'on_hold' now appears under status=pending.
+- New service-pro intake: `POST /api/public/applications/service-pro` (server.py) — tolerant PublicServiceProApplication model (fullName/name, phoneNumber/mobile, profession/trade/service→service_type, etc.), stores in db.service_pro_applications (status pending, is_external_lead True), notifies via support@ mailbox + _notify_new_application("service_pro"). Added 'service_pros' admin category (collection service_pro_applications, status_field status) + search fields + _record_summary. Frontend AdminApprovals: added 'Service Pro Applications' tab (Wrench icon, approveKind null) and marked it an application category (default 'pending'). Verified via curl: intake accepts variant fields and row shows in admin.
+- Bonus earlier this session: fixed 9 blocking lint issues (dup Response import; _id projections on 6 list endpoints; moved /restaurants/my-menu & /car-rentals/bookings above their param routes).
+
+---
+## 2026-08-27 — Approvals: lead source badge + message applicants (email/SMS)
+- AdminApprovals.js: the "Website lead" badge now shows the actual origin (rec.source, e.g. islandhoptt.com) with an ExternalLink icon + tooltip (data-testid=record-source-<id>). Source already returned by _record_summary.
+- New "Message" button on each applicant row (data-testid=record-message-<id>, shows when email or phone present) opens ApplicantMessageDialog.js: choose Email or Text channel, subject (email only), body, one-tap "request documents" template (separate shorter SMS variant), Send.
+- Backend: POST /api/admin/applicants/contact {channel:email|sms, email, phone, name, subject, message} — email via graph_mail.send_mail (from drivers@ mailbox), SMS via twilio_client.send_sms. Admin/agent only. Guard paths verified (empty msg/bad channel/missing recipient/no-auth all 400/401). Live send NOT triggered in tests (Twilio + M365 live).
+- Testing agent iter 73: frontend 100% (2/2) — source badge shows 'islandhoptt.com'; message dialog channel toggle, subject show/hide, template insert, To: line all work. Seeded test lead cleaned up.
+
+---
+## 2026-08-28 — Service-pro spec, approve/reject, message history + reply capture
+- Service-pro intake updated to exact spec: POST /api/public/applications/service-pro accepts {full_name,email,phone,service(handyman|cleaning|tech_support|events),specialty,location,years_experience(int),has_insurance(bool),portfolio_url,notes} (+ tolerant aliases), X-API-Key guard, returns {id,success,message}, stores is_external_lead:true status:pending. service_type mirrors service for admin display. Verified via curl.
+- Service-pro approve/reject: admin_records.py POST /admin/service-pros/{id}/approve|reject (status approved/rejected). Frontend: service_pros approveKind='service_pro', APPROVE_EP.service_pro='service-pros' → Approve/Reject buttons now show on service-pro rows. Verified approve→status approved.
+- Message history: /admin/applicants/contact now logs every send to db.applicant_messages (direction outbound, channel, to, subject, body, sent_by, category, record_id). New GET /admin/applicants/{category}/{record_id}/messages returns the thread.
+- Reply capture (email): the thread endpoint also pulls INBOUND emails from the shared drivers@/support@ mailboxes where sender == applicant email, merged + sorted. (SMS inbound replies would need a Twilio webhook — not yet.)
+- Frontend ApplicantMessageDialog now loads & shows the thread (data-testid=applicant-message-thread) and passes category+record_id on send. Verified thread GET via curl; all frontend compiles.
+- NOT done here: repoint islandhoptt.com forms (separate Emergent project — user must edit there). Snippet provided.
+
+---
+## 2026-08-28 — Service-pro provisioning on approval
+- admin_records.py admin_approve_service_pro: on approve, upserts an ACTIVE, available db.service_pros profile from the application (name/email/phone/service/specialty/location/years_experience/has_insurance/portfolio_url, status active, available true, approved_at); links + promote_user_role('service_pro') if a user with that email exists; sends approval email via support@ mailbox. Verified via curl: approve returns provisioned:true + service_pro_id; profile created active/available. Reject unchanged (status rejected).
+- Repoint islandhoptt.com forms = still user action (separate Emergent project). X-API-Key is OPTIONAL (only enforced if PUBLIC_APPLICATIONS_API_KEY env set). Per-IP rate limit 5/60min. Snippet delivered to user (driver/merchant/service-pro; service-pro body per spec).
+
+---
+## 2026-08-28 — Live delivery map on dashboards
+- New reusable LiveDeliveryMap.jsx (@react-google-maps/api): polls GET /orders/{id}/driver-location every 8s, plots driver marker (blue dot) + destination marker, auto-fits bounds, "Live" badge, responsive heights, and a "No active delivery" placeholder when no orderId/location. Fetches destination from GET /orders/{id} (delivery_address lat/lng). Errors are swallowed (graceful).
+- Embedded: DriverDashboard.js (Active Deliveries section, first active order) + MyOrdersPage.js (customer Active section, first active order). AdminDispatch.js already has its own live driver map (unchanged).
+- Data shapes confirmed: current_location {lat,lng}; delivery_address {latitude,longitude}. Reuses same key/endpoint as working OrderTrackingPageWithMaps.
+- Also fixed a blocking eslint issue: removed `eslint-disable react-hooks/exhaustive-deps` comments (rule not registered) in ApplicantMessageDialog.js + DriverOnboarding.js. Frontend compiles successfully; app loads.
+- NOT yet visually verified with a live in-progress delivery (needs a customer order with an assigned driver + location); component is additive with safe placeholder.
+
+---
+## 2026-08-28 — AI reply suggestions (3 options) on approval platform
+- Backend POST /admin/applicants/ai-suggestions {channel, context, applicant_name, applicant_type} → returns 3 distinct professional reply options via Claude (claude-sonnet-4-6, Emergent key), honoring tone + hard rules (never promise approval/refund/prices). Returns JSON array, parsed with fallback. Verified via curl: 3 on-brand document-request options.
+- Frontend ApplicantMessageDialog.js: "Suggest 3 replies" button (data-testid=ai-suggestions-btn) → shows 3 clickable option cards (ai-suggestion-0/1/2); clicking one fills the message box. Uses last inbound reply as context, applicant_type from category. Compiles clean.
+
+---
+## 2026-06 (fork) — Tone chips, auto-suggest-on-open, saved favourites + delete test applicants
+- ApplicantMessageDialog.js:
+  - Tone chips Friendly/Firm/Brief (data-testid ai-tone-friendly|firm|brief) — clicking regenerates the 3 AI options in that style via getSuggestions(tone). tone_style sent as a string (fixed prior bug where the click event was passed as tone).
+  - Auto-Suggest On Open toggle (ai-autosuggest-checkbox) persisted to localStorage 'applicantAutoSuggest'; when on, opening a message dialog auto-generates the 3 options.
+  - Saved favourites: "Save current" (favourite-save-btn) + a star on each AI option (ai-suggestion-save-<i>) save to db.reply_favourites; favourites-list renders saved replies, favourite-insert-<id> inserts into editor, favourite-delete-<id> removes.
+- Backend server.py: POST /admin/applicants/ai-suggestions gained tone_style (friendly|firm|brief); reply-favourites CRUD GET/POST/DELETE /admin/reply-favourites (global, shared across admins).
+- Delete test applicants: admin_records.py DELETE /admin/records/{category}/{record_id} (single-record, admin only). Guarded: category 'users' blocked (400 — use pause/restrict); unknown category/id → 404. Frontend AdminApprovals.js: red Trash2 delete button (record-delete-<id>) on every non-users row with a confirm prompt.
+- Testing agent iter 74: backend 100% (12/12), frontend 100%. All test data cleaned. Safety guard for 'users' delete added after review and self-verified via curl (400/404/404).
+
+---
+## 2026-06 (fork) — Zero-setup Play Store .aab build
+- There is no single "file" to upload; Google Play needs a signed .aab produced by a build. No Android SDK/JDK in the preview container, so the build runs via GitHub Actions and the .aab is delivered as a downloadable artifact.
+- Reworked .github/workflows/android-release.yml to be ZERO-SETUP (no GitHub secrets required):
+  - Signing keystore is already committed at frontend/android/keystore/islandhop-upload.jks (PKCS12, loads under JDK17 default type). Passwords default in-workflow (islandhop2026 / alias islandhop). Optional override via repo secrets ANDROID_KEYSTORE_BASE64/PASSWORD/KEY_ALIAS/KEY_PASSWORD (take precedence).
+  - Fixed a latent bug: old "Decode keystore" step always ran and would overwrite the committed keystore with an empty file when no secret was set. Now guarded (runs only if ANDROID_KEYSTORE_BASE64 secret present) + added a "verify keystore present" step.
+  - keystore.properties now written with secret-or-default fallbacks.
+  - versionCode auto = run_number+100 (always > live), versionName 1.1; backend baked in via REACT_APP_BACKEND_URL (default https://islandhopapp.com, overridable by repo Variable).
+- User flow: Save to GitHub → Actions → "Android Release (AAB)" → Run workflow → download artifact islandhop-release-aab (app-release.aab) → upload in Play Console. First upload of a brand-new listing must be manual; optional auto-publish to internal track via ENABLE_PLAY_PUBLISH=true + PLAY_SERVICE_ACCOUNT_JSON.
+- Guide: frontend/android/BUILD_AAB.md updated with a "FASTEST PATH (no computer, no setup)" section at the top.
+- NOT buildable/verifiable in preview (no Android toolchain); YAML validated, keystore format + git-tracking verified.
+
+---
+## 2026-06 (fork) — Play minSdk fix (24)
+- Play Automatic Protection requires minSdk >= 24; AAB was 23. Bumped frontend/android/variables.gradle minSdkVersion 23 -> 24 (app/build.gradle reads rootProject.ext.minSdkVersion). Final AAB minSdk = app module = 24 (cordova-plugins lib may fall back to 23 but library<app is allowed; merged bundle reports 24). Rebuild via GitHub Actions "Android Release (AAB)" and re-upload. Not buildable in preview (no Android toolchain).

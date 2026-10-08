@@ -1,0 +1,26 @@
+{
+  "summary": "Frontend-only UI verification of two Admin Approvals additions: (1) Lead Source badge and (2) Applicant Message dialog. Logged in via real /login form as admin.qa@islandhop-demo.com (httpOnly cookie), navigated /admin -> Approvals tab -> Driver Applications sub-tab -> status filter 'All'. Both features work as specified. Send button was intentionally NOT clicked (live email/SMS).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Approvals - Message dialog (Text channel)", "issues": ["No SMS character counter/length warning; the inserted 'request documents' template is a long multi-line email-style body (bullets, ~350+ chars) that will be split into several SMS segments when sent as Text. Consider a shorter SMS variant of the template."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: provide a shorter SMS-specific 'request documents' template / add character count in the Text channel (cost + multi-segment SMS)."
+  ],
+  "critical_code_review_comments": [
+    "AdminApprovals.js search input only filters on Enter/refresh click (no debounce). Typing a query leaves the list unchanged, which can look broken to admins - pre-existing behavior, not part of this change."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (2/2 features verified)"},
+  "seed_data_creation": "None created; used existing seeded lead msg_lead_f7351976 ('Message Test Lead').",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin.qa@islandhop-demo.com / AdminQA1234!",
+  "context_for_next_testing_agent": "Verified details: source badge data-testid=record-source-msg_lead_f7351976 renders text 'islandhoptt.com' with external-link icon and title 'Applied via islandhoptt.com'. Note the lead only appears under the 'Driver Applications' sub-tab with status filter 'All' (default filter for drivers hides it since status=pending shows under 'New'? it appeared only after clicking approvals-status-all). Message dialog (applicant-message-dialog): Email is the default channel -> shows To: msg_test_lead@example.com, message-subject-input visible, message-body-input textarea, Send button labeled 'Send email'. Clicking message-docs-template-btn fills subject 'Your IslandHop application' and a body listing required documents (ID, driver's licence, vehicle registration & insurance). Switching to message-channel-sms removes the subject input entirely (count=0), 'To:' becomes +18685551234, Send label becomes 'Send text', body text is preserved across channel switch. Escape closes the dialog. No console errors during the flow. message-send-btn was NEVER clicked (live email/SMS).",
+  "rca_of_the_issue": "N/A - no defects found in the tested features."
+}
