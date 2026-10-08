@@ -37,7 +37,11 @@ cd android && chmod +x gradlew
 
 ## Release signing (for the .aab upload)
 1. Create a keystore: `keytool -genkey -v -keystore islandhop.keystore -alias islandhop -keyalg RSA -keysize 2048 -validity 10000`
-2. Configure signing in `android/app/build.gradle` (or use Play App Signing).
+2. Provide credentials (never commit them) via env vars `ISLANDHOP_STORE_FILE`, `ISLANDHOP_STORE_PASSWORD`,
+   `ISLANDHOP_KEY_ALIAS`, `ISLANDHOP_KEY_PASSWORD`, or gradle properties `storeFile`, `storePassword`,
+   `keyAlias`, `keyPassword` (`-P` / `~/.gradle/gradle.properties`), or `android/keystore.properties`.
+   `storeFile` is relative to `android/app/`. If none are set, `bundleRelease` produces an **unsigned** .aab
+   (sign it externally with `jarsigner`, or rely on Play App Signing); the debug key is never used.
 3. Build `bundleRelease`, then upload the signed `.aab` in Google Play Console.
 
 ## Play Console required links
