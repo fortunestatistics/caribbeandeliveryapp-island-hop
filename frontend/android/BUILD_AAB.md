@@ -111,3 +111,22 @@ Because your signing passwords were previously committed to git, enroll in
 **Play App Signing** (Play Console → Setup → App integrity) and rotate to a fresh
 **upload key**. Google then holds the real signing key; you only keep an upload key,
 so a leak is far less damaging.
+
+## GitHub Actions build
+
+`.github/workflows/android-release.yml` builds a signed `.aab` and uploads it as the
+`islandhop-release-aab` artifact. It runs on pushes to `conflict_040826_0039`, on pull
+requests, on `v*` tags, and manually (Actions tab → Run workflow).
+
+Required repository secrets:
+
+| Secret | Description |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 islandhop-upload.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Key alias |
+| `ANDROID_KEY_PASSWORD` | Key password |
+
+Versioning defaults: `versionCode` comes from `VERSION_CODE` (CI uses `run_number + 100`; local default `2`),
+`versionName` from `VERSION_NAME` (default `1.1`). Play requires each upload to have a higher `versionCode`.
+Fork PRs don't receive secrets, so signing fails there by design.

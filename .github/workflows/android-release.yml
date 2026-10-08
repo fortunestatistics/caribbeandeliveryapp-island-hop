@@ -2,12 +2,22 @@ name: Android Release (AAB)
 
 # Builds and signs the IslandHop Android App Bundle (.aab) from the Capacitor
 # project in ./frontend. Trigger it manually (Actions tab → Run workflow) or by
-# pushing a version tag like v1.1.0.
+# pushing a version tag like v1.1.0. It also runs on pushes to the
+# conflict_040826_0039 branch and on pull requests, so branch/PR builds produce
+# a downloadable .aab artifact.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Note: PRs from forks do not receive secrets, so signing will fail there.
 on:
   workflow_dispatch:
   push:
+    branches:
+      - conflict_040826_0039
     tags:
       - 'v*'
+  pull_request:
 
 jobs:
   build-aab:
@@ -48,6 +58,20 @@ jobs:
 
       - name: Sync web build into Android (Capacitor)
         run: npx cap sync android
+
+      - name: Verify signing secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for v in KS KSP KA KP; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Missing signing secret (see header of this workflow for the required list)"
+              exit 1
+            fi
+          done
 
       - name: Decode signing keystore
         run: |
