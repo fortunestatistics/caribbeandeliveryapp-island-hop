@@ -38,11 +38,18 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (!hasSigningConfig) {
-                throw new GradleException("Release builds require keystore.properties in the Android project directory and the original Play upload key.")
+            if (hasSigningConfig) {
+                signingConfig signingConfigs.release
             }
-            signingConfig signingConfigs.release
         }
+    }
+}
+
+// Fail only when a release artifact is requested without signing credentials,
+// so debug builds (bundleDebug / assembleDebug) still work without secrets.
+gradle.taskGraph.whenReady { graph ->
+    if (!hasSigningConfig && graph.allTasks.any { it.name =~ /Release$/ && it.project == project && (it.name.startsWith("bundle") || it.name.startsWith("assemble") || it.name.startsWith("package")) }) {
+        throw new GradleException("Release builds require keystore.properties in the Android project directory (see keystore.properties.example) and the original Play upload key.")
     }
 }
 
