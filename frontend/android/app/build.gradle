@@ -1,12 +1,20 @@
 apply plugin: 'com.android.application'
 
-// Load signing secrets from a git-ignored keystore.properties (never commit passwords).
+// Signing secrets come from (in order): environment variables, gradle properties
+// (-P / ~/.gradle/gradle.properties), or a git-ignored keystore.properties. Never commit them.
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
-def hasSigningConfig = keystorePropertiesFile.exists()
-if (hasSigningConfig) {
+if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+def signingValue = { String envName, String key ->
+    System.getenv(envName) ?: (project.findProperty(key) ?: keystoreProperties[key])
+}
+def releaseStoreFile = signingValue('ISLANDHOP_STORE_FILE', 'storeFile')
+def releaseStorePassword = signingValue('ISLANDHOP_STORE_PASSWORD', 'storePassword')
+def releaseKeyAlias = signingValue('ISLANDHOP_KEY_ALIAS', 'keyAlias')
+def releaseKeyPassword = signingValue('ISLANDHOP_KEY_PASSWORD', 'keyPassword')
+def hasSigningConfig = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
     namespace "com.islandhop.app"
@@ -29,10 +37,10 @@ android {
     signingConfigs {
         release {
             if (hasSigningConfig) {
-                storeFile file(keystoreProperties['storeFile'] ?: "../keystore/islandhop-upload.jks")
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             }
         }
     }
@@ -40,8 +48,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Falls back to debug signing if keystore.properties is absent (e.g. CI without secrets).
-            signingConfig hasSigningConfig ? signingConfigs.release : signingConfigs.debug
+            // Without signing credentials the bundle is left unsigned (sign externally, e.g. with
+            // jarsigner, or use Play App Signing). Never fall back to the debug key: Play rejects it.
+            if (hasSigningConfig) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
