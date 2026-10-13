@@ -1681,3 +1681,9 @@ Added a LANGUAGE instruction to the `POST /api/admin/ai-reply/draft` system prom
 ---
 ## 2026-06 (fork) — Play minSdk fix (24)
 - Play Automatic Protection requires minSdk >= 24; AAB was 23. Bumped frontend/android/variables.gradle minSdkVersion 23 -> 24 (app/build.gradle reads rootProject.ext.minSdkVersion). Final AAB minSdk = app module = 24 (cordova-plugins lib may fall back to 23 but library<app is allowed; merged bundle reports 24). Rebuild via GitHub Actions "Android Release (AAB)" and re-upload. Not buildable in preview (no Android toolchain).
+
+---
+## 2026-06 (fork) — RCA: Play "wrong signing key" (debug key) fix
+- Play rejected AAB: expected cert SHA1 …C6:15:0F:3C but got …E7:61:9A:1B (Android debug key).
+- RCA: the committed keystore frontend/android/keystore/islandhop-upload.jks IS the correct expected key (verified via openssl: SHA1 25:6B:33:E7:BA:90:6B:C6:68:66:2B:D5:A4:0A:5C:F7:C6:15:0F:3C, store/key pass islandhop2026, alias islandhop). The problem: a SECOND workflow android-build.yml ("Build Signed Android AAB") auto-ran on every push and NEVER wrote keystore.properties → Gradle fell back to signingConfigs.debug → debug-signed AAB (…E9:88…). Both workflows emitted the same artifact name islandhop-release-aab, so the user grabbed the debug one.
+- Fix: DELETED .github/workflows/android-build.yml. Only android-release.yml remains — it keeps the committed keystore (decode step guarded behind an optional secret) and writes keystore.properties with the correct defaults, so bundleRelease signs with …C6:15:0F:3C. Re-run "Android Release (AAB)" → the new app-release.aab matches Play's expected upload cert. No upload-key reset needed; Play App Signing already enabled.
