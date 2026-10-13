@@ -12,14 +12,17 @@ on:
 jobs:
   build-aab:
     runs-on: ubuntu-latest
-    # Zero-setup signing: the upload keystore is committed at
-    # frontend/android/keystore/islandhop-upload.jks and its passwords default
-    # below, so this produces a Play-ready, properly signed .aab with NO GitHub
-    # secrets required. (Optional) override the key by adding repo secrets
-    # ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
-    # ANDROID_KEY_PASSWORD — if present they take precedence.
+    # Signing uses ONLY these repo secrets (no committed keystore, no defaults):
+    #   ANDROID_KEYSTORE_BASE64   base64 of the Play *upload* keystore (base64 -w0 upload.jks)
+    #   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+    # The upload cert SHA1 must be 25:6B:33:E7:BA:90:6B:C6:68:66:2B:D5:A4:0A:5C:F7:C6:15:0F:3C
+    # (verify with: keytool -list -v -keystore upload.jks).
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      EXPECTED_UPLOAD_SHA1: '25:6B:33:E7:BA:90:6B:C6:68:66:2B:D5:A4:0A:5C:F7:C6:15:0F:3C'
     defaults:
       run:
         working-directory: frontend
@@ -57,27 +60,36 @@ jobs:
       - name: Sync web build into Android (Capacitor)
         run: npx cap sync android
 
-      - name: Decode signing keystore (optional override — only if a secret is set)
-        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
+      - name: Verify signing secrets are set
+        run: |
+          missing=0
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Missing required repository secret $v. Provide the Play upload keystore via secrets."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Decode signing keystore and verify fingerprint
         run: |
           mkdir -p android/keystore
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/islandhop-upload.jks
-          echo "Keystore overridden from secret ($(stat -c%s android/keystore/islandhop-upload.jks) bytes)"
-
-      - name: Verify keystore is present
-        run: |
-          test -s android/keystore/islandhop-upload.jks \
-            && echo "Using keystore ($(stat -c%s android/keystore/islandhop-upload.jks) bytes)" \
-            || (echo "::error::Signing keystore missing" && exit 1)
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/upload.jks
+          test -s android/keystore/upload.jks || { echo "::error::ANDROID_KEYSTORE_BASE64 decoded to an empty file"; exit 1; }
+          actual=$(keytool -list -v -keystore android/keystore/upload.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | grep -m1 'SHA1:' | sed 's/.*SHA1: *//')
+          if [ "$actual" != "$EXPECTED_UPLOAD_SHA1" ]; then
+            echo "::error::Keystore SHA1 ($actual) does not match the Play upload key ($EXPECTED_UPLOAD_SHA1)"
+            exit 1
+          fi
 
       - name: Write keystore.properties
         run: |
-          cat > android/keystore.properties <<EOF
-          storeFile=../keystore/islandhop-upload.jks
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'islandhop2026' }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS || 'islandhop' }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD || 'islandhop2026' }}
-          EOF
+          {
+            echo "storeFile=../keystore/upload.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > android/keystore.properties
 
       - name: Build signed release AAB
         working-directory: frontend/android

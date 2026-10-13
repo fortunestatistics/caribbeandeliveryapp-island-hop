@@ -117,5 +117,3 @@ frontend/android/keystore.properties
 .env.*
 *.env
 frontend/node_modules/.cache/default-development/124.pack
-# Allow the bundled dev/CI keystore (credentials are known; production builds use secrets)
-!frontend/android/keystore/islandhop-upload.jks
