@@ -88,6 +88,7 @@ jobs:
         run: |
           chmod +x gradlew
           echo "Building versionCode=$VERSION_CODE"
+          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" app/build.gradle
           ./gradlew clean bundleRelease --no-daemon
 
       - name: Upload AAB artifact
