@@ -4,34 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
-import { Camera, MapPin, User as UserIcon, Loader2, CheckCircle2 } from 'lucide-react';
+import { Camera, MapPin, User as UserIcon, Loader2, CheckCircle2, Landmark } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from './services/api';
 import { useAuth } from './AuthContext';
-
-const MAX_DIM = 400; // resize avatar to keep base64 small
-
-// Resize + compress an image file into a base64 data URL.
-const fileToResizedDataURL = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      img.onerror = reject;
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+import { fileToConstrainedDataURL } from './imageUtils';
+import { MaskedField } from './BankAccountSection';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -41,6 +19,7 @@ const ProfilePage = () => {
   const [form, setForm] = useState({
     name: '', phone: '', picture: '',
     street: '', city: '', country: '',
+    bank_name: '', account_name: '', account_number: '', branch: '',
   });
 
   useEffect(() => {
@@ -53,6 +32,10 @@ const ProfilePage = () => {
       street: user.address?.street || '',
       city: user.address?.city || '',
       country: user.address?.country || '',
+      bank_name: user.banking_info?.bank_name || '',
+      account_name: user.banking_info?.account_name || '',
+      account_number: user.banking_info?.account_number || '',
+      branch: user.banking_info?.branch || '',
     });
   }, [user, authLoading, navigate]);
 
@@ -64,10 +47,10 @@ const ProfilePage = () => {
       return;
     }
     try {
-      const dataUrl = await fileToResizedDataURL(file);
+      const dataUrl = await fileToConstrainedDataURL(file, 400, 2_800_000);
       setForm((f) => ({ ...f, picture: dataUrl }));
     } catch (_e) {
-      toast.error('Could not read that image. Try another.');
+      toast.error('Could not process that image. Please try a smaller one.');
     }
   };
 
@@ -84,6 +67,10 @@ const ProfilePage = () => {
         phone: form.phone || undefined,
         picture: form.picture,
         address: { street: form.street, city: form.city, country: form.country },
+        banking_info: {
+          bank_name: form.bank_name, account_name: form.account_name,
+          account_number: form.account_number, branch: form.branch,
+        },
       });
       localStorage.setItem('user', JSON.stringify(res.data));
       toast.success('Profile updated!');
@@ -177,6 +164,32 @@ const ProfilePage = () => {
                   <div>
                     <Label>Country</Label>
                     <Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} placeholder="Trinidad & Tobago" data-testid="profile-country-input" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Banking (optional — for refunds & payouts) */}
+            <div className="pt-2 border-t">
+              <p className="font-medium text-foreground flex items-center gap-2 mb-1 mt-3">
+                <Landmark className="h-4 w-4 text-gold-500" /> Banking details
+                <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+              </p>
+              <p className="text-xs text-muted-foreground mb-3">Used for refunds and any payouts owed to you. You can change this any time.</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Bank name</Label>
+                    <Input value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} placeholder="Republic Bank" data-testid="profile-bank-name-input" />
+                  </div>
+                  <div>
+                    <Label>Account name</Label>
+                    <Input value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} data-testid="profile-account-name-input" />
+                  </div>
+                  <MaskedField label="Account number" value={form.account_number} onChange={(v) => setForm({ ...form, account_number: v })} testid="profile-account-number-input" mono />
+                  <div>
+                    <Label>Branch</Label>
+                    <Input value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} data-testid="profile-bank-branch-input" />
                   </div>
                 </div>
               </div>

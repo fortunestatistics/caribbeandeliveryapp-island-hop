@@ -58,6 +58,7 @@ _RECORD_CATEGORIES = {
     "car_rentals": {"collection": "car_rental_companies", "status_field": "status"},
     "businesses": {"collection": "business_applications", "status_field": "verification_status"},
     "shops": {"collection": "businesses", "status_field": "status"},
+    "service_pros": {"collection": "service_pro_applications", "status_field": "status"},
     "users": {"collection": "users", "status_field": "status"},
 }
 _USER_SENSITIVE_FIELDS = ("hashed_password", "password", "session_token")
@@ -98,6 +99,9 @@ def _record_summary(doc: dict, category: str) -> dict:
         base.update({"name": doc.get("business_name"),
                      "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("business_type")})
+    elif category == "service_pros":
+        base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
+                     "subtitle": " · ".join([x for x in [doc.get("service_type"), doc.get("city")] if x]) or None})
     elif category == "users":
         base.update({"name": doc.get("name"), "email": doc.get("email"), "phone": doc.get("phone"),
                      "subtitle": doc.get("user_type"), "user_type": doc.get("user_type")})
@@ -113,11 +117,25 @@ def _clean_full(doc: dict, category: str) -> dict:
     return full
 
 
+_PENDING_APP_STATUSES = [
+    "pending", "pending_approval", "pending_review", "under_review", "submitted",
+    "applied", "new", "incomplete", "draft", "started", "unverified",
+    "identity_pending", "verifying", "id_pending", "identity_review", "identity",
+]
+_IDCHECK_STATUSES = ["identity_pending", "verifying", "id_pending", "identity_review", "identity"]
+_INCOMPLETE_STATUSES = ["incomplete", "draft", "started", "unverified"]
+
+
 @router.get("/admin/records/{category}")
 async def admin_list_records(category: str, request: Request, q: Optional[str] = None, status: Optional[str] = None, limit: int = 500):
     """Admin: all records of a category (any status) with full submitted data.
     category ∈ restaurants | drivers | car_rentals | businesses | users.
-    Optional `status` filter: 'pending' (new applications) or a specific status; ignored for users."""
+    Optional `status` filter:
+      - 'pending'    → every application awaiting a decision (broad, non-terminal)
+      - 'id_check'   → stuck in identity verification
+      - 'incomplete' → started but not fully submitted
+      - a specific status string → exact match
+    A search query (`q`) always searches across ALL statuses so no applicant is ever hidden."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -129,17 +147,33 @@ async def admin_list_records(category: str, request: Request, q: Optional[str] =
         rx = {"$regex": re.escape(q), "$options": "i"}
         fields = {
             "restaurants": ["name", "email", "phone"],
-            "drivers": ["name", "email", "phone", "license_number", "vehicle_plate"],
-            "car_rentals": ["company_name"],
-            "businesses": ["business_name", "email", "phone"],
+            "drivers": ["name", "email", "phone", "license_number", "vehicle_plate",
+                        "personal_info.name", "personal_info.email", "personal_info.phone"],
+            "car_rentals": ["company_name", "contact_info.email", "contact_info.phone"],
+            "businesses": ["business_name", "email", "phone", "business_owner.name", "business_owner.email"],
             "shops": ["business_name", "email", "phone"],
+            "service_pros": ["name", "email", "phone", "service_type", "city"],
             "users": ["name", "email", "phone"],
         }[category]
         query = {"$or": [{f: rx} for f in fields]}
     st = (status or "").lower().strip()
-    if st and st != "all" and category != "users":
+    # A search must find applicants in ANY status, so only apply a status filter when NOT searching.
+    if st and st != "all" and category != "users" and not q:
         sf = _RECORD_CATEGORIES[category]["status_field"]
-        query[sf] = {"$in": ["pending", "pending_approval"]} if st == "pending" else st
+        if st == "pending":
+            status_cond = {sf: {"$in": _PENDING_APP_STATUSES}}
+        elif st == "id_check":
+            status_cond = {sf: {"$in": _IDCHECK_STATUSES}}
+        elif st == "incomplete":
+            status_cond = {sf: {"$in": _INCOMPLETE_STATUSES}}
+        else:
+            status_cond = {sf: st}
+        # External website leads must ALWAYS surface in the review queue (until an admin
+        # acts on them), regardless of their stored status — so new leads are never hidden.
+        if st == "pending":
+            query["$or"] = [status_cond, {"is_external_lead": True}]
+        else:
+            query.update(status_cond)
     cap = min(limit, 2000)
     records = []
     async for doc in coll.find(query, {"_id": 0}).sort("created_at", -1).limit(cap):
@@ -390,6 +424,26 @@ async def admin_user_documents(user_id: str, request: Request):
     return {"documents": docs, "count": len(docs), "applicant": applicant}
 
 
+@router.delete("/admin/records/{category}/{record_id}")
+async def admin_delete_record(category: str, record_id: str, request: Request):
+    """Admin: permanently delete ONE record (e.g. a test/junk applicant) so only real
+    applicants remain. Scoped to a single id in a single collection — never a bulk wipe."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if category not in _RECORD_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    if category == "users":
+        # User accounts must never be hard-deleted from here — use pause/restrict in
+        # User Management instead. This endpoint is for removing test/junk applicants.
+        raise HTTPException(status_code=400, detail="User accounts can't be deleted here. Use pause/restrict in User Management.")
+    coll = db[_RECORD_CATEGORIES[category]["collection"]]
+    res = await coll.delete_one({"id": record_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"success": True, "deleted": record_id}
+
+
 @router.get("/admin/pending-approvals")
 async def admin_pending_approvals(request: Request):
     """Aggregate pending drivers, restaurants, car rentals, and business onboarding applications."""
@@ -453,6 +507,67 @@ async def admin_reject_driver(driver_id: str, payload: ApprovalAction, request: 
     return result
 
 
+@router.post("/admin/service-pros/{app_id}/approve")
+async def admin_approve_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    app = await db.service_pro_applications.find_one({"id": app_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Service pro application not found")
+    result = await _set_partner_status("service_pro_applications", app_id, "approved", current_user.id, payload.notes)
+
+    # Provision an active service-pro profile so they can start taking jobs.
+    now = datetime.now(timezone.utc).isoformat()
+    email = app.get("email")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1}) if email else None
+    existing = await db.service_pros.find_one(
+        {"$or": [{"application_id": app_id}] + ([{"email": email}] if email else [])}, {"_id": 0, "id": 1, "created_at": 1}
+    )
+    profile = {
+        "id": existing["id"] if existing else str(uuid.uuid4()),
+        "application_id": app_id,
+        "user_id": user["id"] if user else None,
+        "name": app.get("name"), "email": email, "phone": app.get("phone"),
+        "service": app.get("service") or app.get("service_type"),
+        "specialty": app.get("specialty"),
+        "location": app.get("location") or app.get("city"),
+        "years_experience": app.get("years_experience"),
+        "has_insurance": app.get("has_insurance"),
+        "portfolio_url": app.get("portfolio_url"),
+        "status": "active", "available": True,
+        "approved_at": now,
+        "created_at": (existing or {}).get("created_at") or now,
+    }
+    await db.service_pros.update_one({"id": profile["id"]}, {"$set": profile}, upsert=True)
+    if user:
+        await promote_user_role(user["id"], "service_pro")
+
+    # Let the applicant know they're approved.
+    if email and graph_mail.is_real_email(email):
+        try:
+            html = (
+                f"<p>Hi {app.get('name') or 'there'},</p>"
+                f"<p>Great news — your IslandHop service professional application has been "
+                f"<b>approved</b>! You're all set to start receiving job requests.</p>"
+                f"<p>Warm regards,<br/>The IslandHop Team 🌴</p>"
+            )
+            await graph_mail.send_mail(email, "You're approved on IslandHop! 🎉",
+                                       html, mailbox=graph_mail.notify_mailbox("support"))
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"service-pro approval email failed: {exc}")
+
+    return {**result, "service_pro_id": profile["id"], "provisioned": True}
+
+
+@router.post("/admin/service-pros/{app_id}/reject")
+async def admin_reject_service_pro(app_id: str, payload: ApprovalAction, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _set_partner_status("service_pro_applications", app_id, "rejected", current_user.id, payload.notes)
+
+
 @router.post("/admin/restaurants/{restaurant_id}/approve")
 async def admin_approve_restaurant(restaurant_id: str, payload: ApprovalAction, request: Request):
     current_user = await get_current_user_from_request(request)
@@ -493,14 +608,30 @@ async def admin_approve_business(application_id: str, payload: ApprovalAction, r
         raise HTTPException(status_code=403, detail="Admin access required")
     result = await _set_partner_status("business_applications", application_id, "verified", current_user.id, payload.notes, status_field="verification_status")
     app_doc = await db.business_applications.find_one({"id": application_id}, {"_id": 0})
+    provisioned, storefront_url, provision_hint = False, None, None
     if app_doc:
         await _provision_merchant_vendor(app_doc)
+        refreshed = await db.business_applications.find_one({"id": application_id}, {"_id": 0, "user_id": 1})
+        uid = (refreshed or {}).get("user_id")
+        if uid:
+            r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            vid = (r or b or {}).get("id")
+            if vid:
+                provisioned, storefront_url = True, f"/restaurant/{vid}"
+        if not provisioned:
+            provision_hint = ("Approved, but no vendor record was created — this application isn't linked to a "
+                              "user account. Use Admin → Approvals → Repair account with the merchant's signup "
+                              "email to finish setup.")
     await _notify_merchant_status(application_id, "verified", payload.notes)
     if app_doc and app_doc.get("user_id"):
         btype = str((app_doc.get("business_details", {}) or {}).get("business_type", "") or app_doc.get("business_type", "")).lower()
         rtype = "supplier" if "supplier" in btype else "merchant"
         await _award_promo_reward(app_doc["user_id"], rtype, "business_approved", require_first_order=True)
         await _release_held_promo_rewards(app_doc["user_id"])
+    if isinstance(result, dict):
+        result.update({"provisioned": provisioned, "storefront_url": storefront_url,
+                       "provision_hint": provision_hint})
     return result
 
 

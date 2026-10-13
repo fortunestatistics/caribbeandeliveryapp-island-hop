@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api")
 
 ALLOWED_DOC_TYPES = {
     "driversLicense", "vehicleRegistration", "insurance",
-    "certificateOfCharacter", "profilePhoto",
+    "profilePhoto",
 }
 MAX_DOC_BYTES = 10 * 1024 * 1024  # 10 MB
 

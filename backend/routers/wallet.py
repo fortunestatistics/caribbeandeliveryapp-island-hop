@@ -28,6 +28,21 @@ async def _require_admin(request: Request):
     return current_user
 
 
+async def _notify_funding_client(user_id: str, subject: str, message: str):
+    """Best-effort email to the client when a funding request is actioned."""
+    try:
+        import graph_mail
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "name": 1})
+        if not user or not graph_mail.is_real_email(user.get("email")):
+            return
+        html = (f"<p>Hi {user.get('name') or 'there'},</p><p>{message}</p>"
+                "<p>— The IslandHop Team</p>")
+        await graph_mail.send_mail(user["email"], subject, html, mailbox=graph_mail.notify_mailbox("support"))
+    except Exception as exc:  # graph not configured / transient — never block the action
+        import logging
+        logging.warning(f"Funding client email skipped for {user_id}: {exc}")
+
+
 @router.get("/wallet")
 async def get_my_wallet(request: Request):
     current_user = await get_current_user_from_request(request)
@@ -70,6 +85,7 @@ class FundingRequestBody(BaseModel):
     reference: Optional[str] = None        # deposit: transfer ref / proof
     payment_method_id: Optional[str] = None  # withdraw: where to send
     destination: Optional[str] = None        # withdraw: free-text (e.g. paypal email)
+    proof_base64: Optional[str] = None       # deposit: photo of the bank transfer (data URL)
     note: Optional[str] = None
 
 
@@ -141,6 +157,7 @@ async def create_funding_request(payload: FundingRequestBody, request: Request):
         "reference": payload.reference,
         "payment_method_id": payload.payment_method_id,
         "destination": payload.destination,
+        "proof_base64": payload.proof_base64 if payload.direction == "deposit" else None,
         "note": payload.note,
         "created_at": now,
         "processed_at": None,
@@ -193,7 +210,41 @@ async def admin_approve_funding_request(request_id: str, request: Request):
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "approved", "processed_at": now, "processed_by": admin.email}})
     new_bal = (await db.wallets.find_one({"user_id": fr["user_id"]}, {"_id": 0}))["balances"]
-    return {"success": True, "status": "approved", "balance": new_bal}
+
+    if fr["direction"] == "deposit":
+        await _notify_funding_client(
+            fr["user_id"], "Your IslandHop wallet has been topped up",
+            f"We've credited <strong>{currency} {amount:,.2f}</strong> to your wallet. It's ready to use now.")
+        return {"success": True, "status": "approved", "balance": new_bal}
+
+    # Withdrawal: if it's a PayPal payout, send the money automatically via PayPal Payouts.
+    auto_sent = False
+    if fr.get("method") == "paypal":
+        email = fr.get("destination")
+        if not email and fr.get("payment_method_id"):
+            pm = await db.wallet_payment_methods.find_one({"id": fr["payment_method_id"]}, {"_id": 0})
+            email = (pm or {}).get("details", {}).get("email")
+        if email:
+            try:
+                import paypal_client
+                result = await paypal_client.create_payout(
+                    email, amount, currency, note="Your IslandHop withdrawal",
+                    sender_batch_id=f"wd_{request_id}")
+                auto_sent = bool(result.get("success"))
+                await db.wallet_funding_requests.update_one(
+                    {"id": request_id}, {"$set": {"payout_auto": auto_sent, "payout_batch_id": result.get("batch_id"), "payout_raw_status": result.get("status")}})
+            except Exception as exc:  # payout failed — money already debited; admin sends manually
+                import logging
+                logging.error(f"Auto PayPal payout failed for request {request_id}: {exc}")
+                await db.wallet_funding_requests.update_one(
+                    {"id": request_id}, {"$set": {"payout_auto": False, "payout_error": str(exc)[:300]}})
+
+    await _notify_funding_client(
+        fr["user_id"], "Your IslandHop withdrawal has been sent",
+        (f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been sent to your PayPal automatically."
+         if auto_sent else
+         f"Your withdrawal of <strong>{currency} {amount:,.2f}</strong> has been approved and is being sent to your {fr['method']} account."))
+    return {"success": True, "status": "approved", "balance": new_bal, "payout_auto": auto_sent}
 
 
 @router.post("/admin/wallet/funding-requests/{request_id}/reject")
@@ -207,6 +258,10 @@ async def admin_reject_funding_request(request_id: str, request: Request):
     now = datetime.now(timezone.utc).isoformat()
     await db.wallet_funding_requests.update_one(
         {"id": request_id}, {"$set": {"status": "rejected", "processed_at": now, "processed_by": admin.email}})
+    await _notify_funding_client(
+        fr["user_id"], "Update on your IslandHop wallet request",
+        f"Your {fr['direction']} request for <strong>{fr['currency']} {fr['amount']:,.2f}</strong> could not be completed. "
+        "Please check your transfer details or contact support, and feel free to try again.")
     return {"success": True, "status": "rejected"}
 
 
@@ -465,5 +520,12 @@ async def wallet_pay_order(payload: PayOrderWithWalletRequest, request: Request)
     txn = await _record_txn(user_id=current_user.id, wallet_id=wallet["id"], type="order_payment",
                             amount=amount, currency="USD", status="completed",
                             order_id=payload.order_id, note="Paid order from wallet")
+    # Offer the now-paid order to available drivers (best-effort).
+    try:
+        import asyncio
+        from server import _ensure_dispatch
+        asyncio.create_task(_ensure_dispatch(payload.order_id))
+    except Exception:  # noqa: BLE001
+        pass
     return {"success": True, "transaction": txn.dict(),
             "balance": (await db.wallets.find_one({"user_id": current_user.id}, {"_id": 0}))["balances"]}

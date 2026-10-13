@@ -31,10 +31,20 @@ export const CurrencyProvider = ({ children }) => {
     return `${SYMBOLS[currency]}${str}`;
   }, [convert, currency]);
 
+  // Display a value that is ALREADY authored in TT$ (e.g. merchant menu prices).
+  // In TT$ mode we show it raw; in US$ mode we divide by the rate. This is the
+  // inverse of `format` (which takes a USD base).
+  const formatTTD = useCallback((ttd, { decimals = 2 } = {}) => {
+    const n = Number(ttd) || 0;
+    const value = currency === 'USD' ? n / RATE_TTD_PER_USD : n;
+    const str = value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    return `${SYMBOLS[currency]}${str}`;
+  }, [currency]);
+
   const value = useMemo(() => ({
-    currency, setCurrency, convert, format,
+    currency, setCurrency, convert, format, formatTTD,
     symbol: SYMBOLS[currency], rate: RATE_TTD_PER_USD,
-  }), [currency, setCurrency, convert, format]);
+  }), [currency, setCurrency, convert, format, formatTTD]);
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
 };
@@ -46,6 +56,7 @@ export const useCurrency = () => {
     return {
       currency: 'USD', setCurrency: () => {}, convert: (u) => Number(u) || 0,
       format: (u, o = {}) => `US$${(Number(u) || 0).toFixed(o.decimals ?? 2)}`,
+      formatTTD: (t, o = {}) => `TT$${(Number(t) || 0).toFixed(o.decimals ?? 2)}`,
       symbol: 'US$', rate: RATE_TTD_PER_USD,
     };
   }

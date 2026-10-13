@@ -8,7 +8,7 @@ import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { useToast } from './hooks/use-toast';
-import { fileToResizedDataURL } from './imageUtils';
+import { fileToConstrainedDataURL } from './imageUtils';
 import { ArrowLeft, Megaphone, ImagePlus, Trash2, Loader2, Plus } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -48,7 +48,7 @@ const MerchantAds = () => {
   const pickImage = async (file) => {
     if (!file) return;
     try {
-      const data = await fileToResizedDataURL(file, 1000);
+      const data = await fileToConstrainedDataURL(file, 1000, 1_350_000);
       setForm((f) => ({ ...f, image: data }));
     } catch {
       toast({ title: 'Image error', description: 'Could not process that image.', variant: 'destructive' });

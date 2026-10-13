@@ -17,6 +17,7 @@ import {
   ChefHat
 } from 'lucide-react';
 import axios from 'axios';
+import { fileToConstrainedDataURL } from './imageUtils';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -55,7 +56,7 @@ const RestaurantMenuManagement = () => {
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const response = await axios.get(`${API}/restaurants/my-menu`, {
-        withCredentials: false
+        withCredentials: true
       });
       setMenuItems(response.data);
       setLoading(false);
@@ -110,7 +111,7 @@ const RestaurantMenuManagement = () => {
 
     try {
       await axios.delete(`${API}/menu-items/${itemId}`, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchMenuItems();
     } catch (error) {
@@ -125,7 +126,7 @@ const RestaurantMenuManagement = () => {
         ...item,
         available: !item.available
       }, {
-        withCredentials: false
+        withCredentials: true
       });
       fetchMenuItems();
     } catch (error) {
@@ -140,12 +141,12 @@ const RestaurantMenuManagement = () => {
       if (editingItem) {
         // Update existing item
         await axios.put(`${API}/menu-items/${editingItem.id}`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       } else {
         // Create new item
         await axios.post(`${API}/menu-items`, formData, {
-          withCredentials: false
+          withCredentials: true
         });
       }
 
@@ -160,14 +161,12 @@ const RestaurantMenuManagement = () => {
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    // In production, upload to Cloudinary/S3
-    // For now, use a placeholder
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormData(prev => ({ ...prev, image_url: reader.result }));
-    };
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await fileToConstrainedDataURL(file, 800, 1_350_000);
+      setFormData(prev => ({ ...prev, image_url: dataUrl }));
+    } catch (_e) {
+      alert('Could not process that image. Please try a smaller one.');
+    }
   };
 
   const filteredItems = selectedCategory === 'all' 

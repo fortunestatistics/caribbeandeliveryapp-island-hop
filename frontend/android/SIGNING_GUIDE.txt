@@ -1,0 +1,6 @@
+IMPORTANT: This project must be signed with the existing 'Upload Key' (keystore) used for the initial IslandHop Play Store upload. Google will reject any .aab signed with a new or different key.
+
+If you are unsure, find the expected SHA-1 fingerprint in the Google Play Console under:
+Setup > App Integrity > App Signing tab > 'Upload key certificate' section.
+
+Verify the fingerprint of your local keystore matches Google's record before building the final Release bundle.

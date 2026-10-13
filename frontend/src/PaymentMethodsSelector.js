@@ -12,13 +12,34 @@ import {
 } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import axios from 'axios';
 
-const STRIPE_API_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = STRIPE_API_KEY ? loadStripe(STRIPE_API_KEY) : Promise.resolve(null);
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+// Fetch the mode-aware publishable key from the backend at runtime (falls back to the
+// build-time env var) so live mode works without a frontend rebuild.
+const fallbackKey = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY;
+let _stripePromise = null;
+const getStripe = async () => {
+  if (_stripePromise) return _stripePromise;
+  let key = fallbackKey;
+  try {
+    const r = await axios.get(`${API}/stripe/config`);
+    if (r.data && r.data.publishable_key) key = r.data.publishable_key;
+  } catch (e) { /* use fallback */ }
+  _stripePromise = key ? loadStripe(key) : Promise.resolve(null);
+  return _stripePromise;
+};
 
 const PaymentMethodsSelector = ({ onPaymentMethodSelected, amount }) => {
   const [selectedMethod, setSelectedMethod] = useState('card');
   const [showStripeForm, setShowStripeForm] = useState(false);
+  const [stripePromise, setStripePromise] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    getStripe().then((p) => { if (mounted) setStripePromise(p); });
+    return () => { mounted = false; };
+  }, []);
   
   const paymentMethods = [
     {

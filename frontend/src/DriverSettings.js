@@ -6,12 +6,13 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { useToast } from './hooks/use-toast';
-import { ArrowLeft, User, Car, Landmark, Lock, Save, DollarSign } from 'lucide-react';
+import { ArrowLeft, User, Car, Lock, Save, DollarSign } from 'lucide-react';
+import { BankAccountSection } from './BankAccountSection';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authCfg = () => {
   const token = localStorage.getItem('token');
-  return { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+  return { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
 };
 
 export default function DriverSettings() {
@@ -40,12 +41,7 @@ export default function DriverSettings() {
             license_number: drv.data.license_number || '',
             vehicle_type: drv.data.vehicle_type || '',
             vehicle_plate: drv.data.vehicle_plate || '',
-            banking_info: {
-              bank_name: drv.data.banking_info?.bank_name || '',
-              account_name: drv.data.banking_info?.account_name || '',
-              account_number: drv.data.banking_info?.account_number || '',
-              branch: drv.data.banking_info?.branch || '',
-            },
+            banking_info: drv.data.banking_info || {},
           });
         }
       } catch (e) {
@@ -107,7 +103,7 @@ export default function DriverSettings() {
     } finally { setSavingPw(false); }
   };
 
-  const setBank = (k, v) => setDriver((d) => ({ ...d, banking_info: { ...d.banking_info, [k]: v } }));
+  const setBank = (patch) => setDriver((d) => ({ ...d, banking_info: patch }));
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading settings…</div>;
@@ -175,33 +171,14 @@ export default function DriverSettings() {
               </CardContent>
             </Card>
 
-            {/* Banking */}
-            <Card className="mb-6">
-              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Landmark className="h-5 w-5 text-gold-500" /> Banking (payouts)</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="bank-name">Bank name</Label>
-                    <Input id="bank-name" value={driver.banking_info.bank_name} onChange={(e) => setBank('bank_name', e.target.value)} data-testid="settings-bank-name" />
-                  </div>
-                  <div>
-                    <Label htmlFor="acct-name">Account name</Label>
-                    <Input id="acct-name" value={driver.banking_info.account_name} onChange={(e) => setBank('account_name', e.target.value)} data-testid="settings-account-holder" />
-                  </div>
-                  <div>
-                    <Label htmlFor="acct-num">Account number</Label>
-                    <Input id="acct-num" value={driver.banking_info.account_number} onChange={(e) => setBank('account_number', e.target.value)} data-testid="settings-account-number" />
-                  </div>
-                  <div>
-                    <Label htmlFor="branch">Branch</Label>
-                    <Input id="branch" value={driver.banking_info.branch} onChange={(e) => setBank('branch', e.target.value)} data-testid="settings-bank-branch" />
-                  </div>
-                </div>
-                <Button onClick={saveBank} disabled={savingBank} className="bg-gold-gradient text-white" data-testid="settings-save-bank-btn">
-                  <Save className="h-4 w-4 mr-2" /> {savingBank ? 'Saving…' : 'Save banking details'}
-                </Button>
-              </CardContent>
-            </Card>
+            {/* Banking & payouts */}
+            <BankAccountSection
+              banking={driver.banking_info}
+              onChange={setBank}
+              onSave={saveBank}
+              saving={savingBank}
+              showPayoutMethod
+            />
           </>
         ) : (
           <Card className="mb-6"><CardContent className="p-6 text-sm text-muted-foreground">No driver profile found for this account.</CardContent></Card>

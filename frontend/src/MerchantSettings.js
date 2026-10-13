@@ -8,11 +8,14 @@ import { Label } from './components/ui/label';
 import { Textarea } from './components/ui/textarea';
 import { useToast } from './hooks/use-toast';
 import { ArrowLeft, User, Store, Lock, Save, Image as ImageIcon, Ticket, DollarSign } from 'lucide-react';
+import StoreHoursCard from './StoreHoursCard';
+import StoreLocationCard from './StoreLocationCard';
+import { BankAccountSection } from './BankAccountSection';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const authCfg = () => {
   const token = localStorage.getItem('token');
-  return { withCredentials: false, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+  return { withCredentials: true, headers: token ? { Authorization: `Bearer ${token}` } : {} };
 };
 
 export default function MerchantSettings() {
@@ -21,6 +24,9 @@ export default function MerchantSettings() {
   const [loading, setLoading] = useState(true);
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+  const [savingHours, setSavingHours] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
 
   const [account, setAccount] = useState({ name: '', phone: '' });
@@ -43,6 +49,9 @@ export default function MerchantSettings() {
             address: prof.data.address || { street: '', city: '', country: '' },
             delivery_fee: prof.data.delivery_fee ?? '', minimum_order: prof.data.minimum_order ?? '',
             collection: prof.data.collection,
+            banking_info: prof.data.banking_info || {},
+            business_hours: prof.data.business_hours || null,
+            pickup_coords: prof.data.pickup_coords || null,
           });
         }
       } catch (e) {
@@ -72,9 +81,10 @@ export default function MerchantSettings() {
       };
       if (profile.collection === 'restaurants') {
         body.cuisine_type = profile.cuisine_type;
-        if (profile.delivery_fee !== '') body.delivery_fee = Number(profile.delivery_fee);
-        if (profile.minimum_order !== '') body.minimum_order = Number(profile.minimum_order);
       }
+      // Delivery fee / minimum order (in TT$) apply to every storefront type.
+      if (profile.delivery_fee !== '') body.delivery_fee = Number(profile.delivery_fee);
+      if (profile.minimum_order !== '') body.minimum_order = Number(profile.minimum_order);
       const { data } = await axios.put(`${API}/merchant/profile`, body, authCfg());
       toast({ title: 'Business profile updated', description: 'Your store details were saved.' });
       setProfile((p) => ({ ...p, ...data.profile }));
@@ -101,6 +111,40 @@ export default function MerchantSettings() {
   };
 
   const setAddr = (k, v) => setProfile((p) => ({ ...p, address: { ...p.address, [k]: v } }));
+  const setBank = (patch) => setProfile((p) => ({ ...p, banking_info: patch }));
+
+  const saveBank = async () => {
+    setSavingBank(true);
+    try {
+      const { data } = await axios.put(`${API}/merchant/profile`, { banking_info: profile.banking_info }, authCfg());
+      toast({ title: 'Banking details updated', description: 'Your payout details were saved.' });
+      if (data.profile?.banking_info) setProfile((p) => ({ ...p, banking_info: { ...p.banking_info, ...data.profile.banking_info } }));
+    } catch (e) {
+      toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
+    } finally { setSavingBank(false); }
+  };
+
+  const saveHours = async (hours) => {    setSavingHours(true);
+    try {
+      const { data } = await axios.put(`${API}/merchant/profile`, { business_hours: hours }, authCfg());
+      toast({ title: 'Store hours saved', description: hours.enabled ? 'Customers can only order during your open hours.' : 'Hours saved (enforcement is off).' });
+      setProfile((p) => ({ ...p, business_hours: data.profile?.business_hours || hours }));
+    } catch (e) {
+      toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
+    } finally { setSavingHours(false); }
+  };
+
+  const saveLocation = async (coords) => {
+    if (!coords) return;
+    setSavingLocation(true);
+    try {
+      const { data } = await axios.put(`${API}/merchant/profile`, { pickup_coords: { lat: coords.lat, lng: coords.lng } }, authCfg());
+      toast({ title: 'Store location saved', description: 'Drivers will now be routed to this exact spot for pickups.' });
+      setProfile((p) => ({ ...p, pickup_coords: data.profile?.pickup_coords || coords }));
+    } catch (e) {
+      toast({ title: 'Save failed', description: e?.response?.data?.detail || 'Please try again.', variant: 'destructive' });
+    } finally { setSavingLocation(false); }
+  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading settings…</div>;
@@ -187,20 +231,24 @@ export default function MerchantSettings() {
                 <div>
                   <Label htmlFor="addr-country">Country</Label>
                   <Input id="addr-country" value={profile.address?.country || ''} onChange={(e) => setAddr('country', e.target.value)} data-testid="settings-business-country" />
+                  {!(profile.address?.country || '').trim() && (
+                    <p className="text-xs text-amber-600 mt-1" data-testid="settings-country-warning">
+                      Add your country so customer payments are routed correctly at checkout.
+                    </p>
+                  )}
                 </div>
               </div>
-              {profile.collection === 'restaurants' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="biz-delivery">Delivery fee</Label>
-                    <Input id="biz-delivery" type="number" value={profile.delivery_fee} onChange={(e) => setProfile({ ...profile, delivery_fee: e.target.value })} data-testid="settings-business-delivery-fee" />
+                    <Label htmlFor="biz-delivery">Delivery fee (TT$)</Label>
+                    <Input id="biz-delivery" type="number" min="0" step="0.01" value={profile.delivery_fee} onChange={(e) => setProfile({ ...profile, delivery_fee: e.target.value })} data-testid="settings-business-delivery-fee" placeholder="e.g. 15.00" />
+                    <p className="text-xs text-muted-foreground mt-1">Shown on your storefront header. Charged in TT$ (converted to US$ at checkout).</p>
                   </div>
                   <div>
-                    <Label htmlFor="biz-min">Minimum order</Label>
-                    <Input id="biz-min" type="number" value={profile.minimum_order} onChange={(e) => setProfile({ ...profile, minimum_order: e.target.value })} data-testid="settings-business-minimum-order" />
+                    <Label htmlFor="biz-min">Minimum order (TT$)</Label>
+                    <Input id="biz-min" type="number" min="0" step="0.01" value={profile.minimum_order} onChange={(e) => setProfile({ ...profile, minimum_order: e.target.value })} data-testid="settings-business-minimum-order" placeholder="e.g. 20.00" />
                   </div>
                 </div>
-              )}
               <Button onClick={saveProfile} disabled={savingProfile} className="bg-gold-gradient text-white" data-testid="settings-save-profile-btn">
                 <Save className="h-4 w-4 mr-2" /> {savingProfile ? 'Saving…' : 'Save business profile'}
               </Button>
@@ -208,6 +256,28 @@ export default function MerchantSettings() {
           </Card>
         ) : (
           <Card className="mb-6"><CardContent className="p-6 text-sm text-muted-foreground">No merchant business profile found for this account.</CardContent></Card>
+        )}
+
+        {/* Store hours */}
+        {profile && (
+          <StoreHoursCard value={profile.business_hours} onSave={saveHours} saving={savingHours} />
+        )}
+
+        {/* Store location pin */}
+        {profile && (
+          <StoreLocationCard value={profile.pickup_coords} onSave={saveLocation} saving={savingLocation} />
+        )}
+
+        {/* Banking & payouts */}
+        {profile && (
+          <BankAccountSection
+            banking={profile.banking_info}
+            onChange={setBank}
+            onSave={saveBank}
+            saving={savingBank}
+            showPayoutMethod
+            onBack={() => navigate('/vendor-dashboard')}
+          />
         )}
 
         {/* Change password */}

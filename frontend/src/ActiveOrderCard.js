@@ -5,6 +5,8 @@ import { Badge } from './components/ui/badge';
 import { MapPin, CheckCircle, Navigation, Eye, Phone, MessageCircle, X } from 'lucide-react';
 import OrderChat from './OrderChat';
 import { useAuth } from './AuthContext';
+import { useCurrency } from './CurrencyContext';
+import { formatAddress } from './formatAddress';
 
 const STATUS_BADGE_MAP = {
   picked_up: 'bg-blue-500',
@@ -18,9 +20,16 @@ const STATUS_BADGE_MAP = {
 const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverCOD }) => {
   const badgeCls = STATUS_BADGE_MAP[order.status] || 'bg-green-500';
   const { user } = useAuth();
+  const { format } = useCurrency();
   const [chatOpen, setChatOpen] = useState(false);
   const isCOD = order.payment_method === 'cash' && order.payment_status !== 'cod_collected';
-  const cashDue = Number(order.total || 0).toFixed(2);
+  const cashDue = format(Number(order.total || 0));
+  // Driver's take-home for this job (delivery-fee share + tips). Fall back gracefully for older orders.
+  const driverPay = Number(
+    order.driver_earnings ?? order.driver_delivery_portion ?? order.delivery_fee ?? 0
+  );
+  const pickupText = formatAddress(order.pickup_address) || 'Address not provided';
+  const dropoffText = formatAddress(order.delivery_address) || 'Address not provided';
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`active-order-${order.id}`}>
@@ -36,7 +45,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
               </Badge>
               {isCOD && (
                 <Badge data-testid={`cod-badge-${order.id}`} className="bg-amber-100 text-amber-800 border border-amber-300">
-                  COD · collect ${cashDue}
+                  COD · collect {cashDue}
                 </Badge>
               )}
             </div>
@@ -45,8 +54,9 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
             </div>
           </div>
           <div className="text-right">
-            <p className="text-2xl font-bold text-gold-500">
-              ${order.driver_earnings?.toFixed(2)}
+            <p className="text-xs text-muted-foreground">You earn</p>
+            <p className="text-2xl font-bold text-gold-500" data-testid={`driver-earnings-${order.id}`}>
+              {format(driverPay)}
             </p>
           </div>
         </div>
@@ -58,7 +68,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
                 <MapPin className="h-4 w-4 text-red-500" />
                 Pickup from:
               </p>
-              <p className="text-sm text-muted-foreground ml-6">{order.pickup_address?.street_address}</p>
+              <p className="text-sm text-muted-foreground ml-6">{pickupText}</p>
             </div>
           )}
           <div>
@@ -66,7 +76,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
               <MapPin className="h-4 w-4 text-green-500" />
               Deliver to:
             </p>
-            <p className="text-sm text-muted-foreground ml-6">{order.delivery_address?.street_address}</p>
+            <p className="text-sm text-muted-foreground ml-6">{dropoffText}</p>
           </div>
         </div>
 
@@ -111,7 +121,7 @@ const ActiveOrderCard = ({ order, onNavigate, onUpdateStatus, onView, onDeliverC
                 data-testid={`deliver-cod-${order.id}`}
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Delivered — Collect ${cashDue} cash
+                Delivered — Collect {cashDue} cash
               </Button>
             ) : (
               <Button

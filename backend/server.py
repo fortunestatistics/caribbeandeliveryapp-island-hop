@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
-from fastapi.responses import JSONResponse, Response, RedirectResponse, FileResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Header, Query
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -9,10 +9,11 @@ import logging
 import asyncio
 import httpx
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 import json
@@ -38,16 +39,41 @@ load_dotenv(ROOT_DIR / '.env')
 from core import (
     client, db,
     EMERGENT_LLM_KEY, STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET, SECRET_KEY,
+    STRIPE_PUBLISHABLE_KEY, STRIPE_MODE,
     ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
     pwd_context, security, ConnectionManager, manager,
     verify_password, get_password_hash, create_access_token,
     _account_block_detail, get_current_user, get_current_user_from_request,
     prepare_for_mongo, parse_from_mongo, promote_user_role,
     client_ip, rate_limit_ok,
+    set_auth_cookie, clear_auth_cookie,
 )
 
 # Create the main app without a prefix
 app = FastAPI()
+
+
+@app.middleware("http")
+async def _readonly_impersonation_guard(request: Request, call_next):
+    """Block all mutations while an admin is viewing a user read-only (impersonation)."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        auth = request.headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            tok = auth.split(" ", 1)[1].strip().strip('"')
+            try:
+                from jose import jwt as _jwt
+                claims = _jwt.decode(tok, SECRET_KEY, algorithms=[ALGORITHM])
+                if claims.get("impersonated_by") and claims.get("readonly"):
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Read-only impersonation: changes are disabled while viewing as this user."},
+                    )
+            except Exception:
+                pass
+    return await call_next(request)
+
+
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -109,7 +135,11 @@ from wallet_service import (
 #       - PREMIUM ($1,400 TT/mo): platform takes 0%  → driver keeps 100%.
 #     Tips are ALWAYS 100% to the driver. (Drivers also receive monthly incentive payouts.)
 # ---------------------------------------------------------------------------
-PLATFORM_SERVICE_FEE = float(os.environ.get("PLATFORM_SERVICE_FEE", "3.00"))
+_SVC_FEE_TTD = float(os.environ.get("PLATFORM_SERVICE_FEE_TTD", "3.90"))
+_SVC_RATE = float(os.environ.get("RATE_TTD_PER_USD", "6.78"))
+# Flat customer service fee, authored in TT$ (shown to customers) and stored as its
+# USD equivalent to match the USD ledger. TT$3.90 -> ~US$0.575.
+PLATFORM_SERVICE_FEE = round(_SVC_FEE_TTD / _SVC_RATE, 4)
 
 # Platform's % cut of the delivery fee, keyed by the driver's subscription tier.
 DRIVER_PLAN_RATES = {
@@ -120,14 +150,24 @@ DRIVER_PLAN_RATES = {
 # Default cut applied at order-creation time (before a driver is assigned).
 DRIVER_FEE_RATE_NONSUBSCRIBER = DRIVER_PLAN_RATES["standard"]
 
+# Taxi rides use a per-tier fare cut: no subscription = 20%, Pro = 5%,
+# Premium = 0% (driver keeps 100% of the fare). Delivery keeps the 20/10/0 model.
+TAXI_PLAN_RATES = {
+    "standard": float(os.environ.get("TAXI_FEE_RATE_STANDARD", "0.20")),
+    "pro": float(os.environ.get("TAXI_FEE_RATE_PRO", "0.05")),
+    "premium": float(os.environ.get("TAXI_FEE_RATE_PREMIUM", "0.0")),
+}
+TAXI_FEE_RATE_NONSUBSCRIBER = TAXI_PLAN_RATES["standard"]
+
 # Driver subscription catalogue (prices in TTD).
 DRIVER_SUBSCRIPTION_PLANS = [
     {
         "tier": "standard", "name": "Standard", "price_ttd": 0,
-        "platform_cut_pct": 20, "driver_keep_pct": 80,
+        "platform_cut_pct": 20, "driver_keep_pct": 80, "taxi_cut_pct": 20,
         "tagline": "Start earning for free.",
         "features": [
             "Keep 80% of every delivery fee",
+            "Taxi rides: platform takes 20% of the fare",
             "Keep 100% of all tips",
             "Access to all delivery & taxi jobs",
             "Weekly payouts",
@@ -135,10 +175,11 @@ DRIVER_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "pro", "name": "Pro", "price_ttd": 700,
-        "platform_cut_pct": 10, "driver_keep_pct": 90,
+        "platform_cut_pct": 10, "driver_keep_pct": 90, "taxi_cut_pct": 5,
         "tagline": "Keep more of what you earn.",
         "features": [
             "Keep 90% of every delivery fee",
+            "Taxi rides: platform takes only 5% of the fare",
             "Keep 100% of all tips",
             "Priority job matching",
             "Weekly payouts",
@@ -146,10 +187,11 @@ DRIVER_SUBSCRIPTION_PLANS = [
     },
     {
         "tier": "premium", "name": "Premium", "price_ttd": 1400,
-        "platform_cut_pct": 0, "driver_keep_pct": 100,
+        "platform_cut_pct": 0, "driver_keep_pct": 100, "taxi_cut_pct": 0,
         "tagline": "Zero platform cut. Maximum earnings.",
         "features": [
             "Keep 100% of every delivery fee",
+            "Taxi rides: keep 100% of the fare (0% platform cut)",
             "Keep 100% of all tips",
             "Top priority job matching",
             "Premium support",
@@ -251,14 +293,25 @@ async def _driver_delivery_fee_rate(driver_user_id: Optional[str], driver_doc: O
     return DRIVER_PLAN_RATES.get(tier, DRIVER_PLAN_RATES["standard"])
 
 
+async def _driver_fare_rate(driver_user_id: Optional[str], driver_doc: Optional[dict],
+                            service_type: Optional[str]) -> float:
+    """Platform's % cut of the driver-facing fare.
+    Taxi rides: 20% with no subscription, 5% for any paid subscription.
+    Delivery/courier: the 20/10/0 tiered delivery-fee model."""
+    if service_type == "taxi":
+        tier = await _driver_plan_tier(driver_user_id, driver_doc)
+        return TAXI_PLAN_RATES.get(tier, TAXI_PLAN_RATES["standard"])
+    return await _driver_delivery_fee_rate(driver_user_id, driver_doc)
+
+
 
 async def _finalize_driver_split(order_id: str, driver_doc: dict) -> None:
-    """Re-split the delivery fee once the assigned driver is known (their tier
-    sets the 0% premium vs 20% standard platform cut). Idempotent."""
+    """Re-split the delivery fee / taxi fare once the assigned driver is known
+    (their subscription sets the platform cut). Idempotent."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
-    rate = await _driver_delivery_fee_rate((driver_doc or {}).get("user_id"), driver_doc)
+    rate = await _driver_fare_rate((driver_doc or {}).get("user_id"), driver_doc, order.get("service_type"))
     delivery_fee = float(order.get("delivery_fee", 0) or 0)
     tip = float(order.get("tip", 0) or 0)
     commission = float(order.get("commission_amount", 0) or 0)
@@ -516,7 +569,7 @@ async def process_daily_vendor_payouts():
 async def get_vendor_payouts(vendor_id: str, limit: int = 30):
     """Get vendor's payout history"""
     payouts = await db.vendor_payouts.find(
-        {"vendor_id": vendor_id}
+        {"vendor_id": vendor_id}, {"_id": 0}
     ).sort("payout_date", -1).limit(limit).to_list(length=None)
     return payouts
 
@@ -585,7 +638,7 @@ async def _persist_pending_referral(user: User) -> None:
 
 
 @api_router.post("/auth/register", response_model=Token)
-async def register(user_data: UserRegister):
+async def register(user_data: UserRegister, response: Response):
     """Register a new user. Optionally verifies a pending OTP for the phone and applies a referral code."""
     if await db.users.find_one({"email": user_data.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -612,6 +665,7 @@ async def register(user_data: UserRegister):
     await _persist_pending_referral(user)
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -619,7 +673,7 @@ async def register(user_data: UserRegister):
     }
 
 @api_router.post("/auth/login", response_model=Token)
-async def login(credentials: UserLogin):
+async def login(credentials: UserLogin, response: Response):
     """Login user"""
     # Find user
     user_doc = await db.users.find_one({"email": credentials.email})
@@ -648,7 +702,8 @@ async def login(credentials: UserLogin):
     
     # Create access token
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
-    
+    set_auth_cookie(response, access_token)
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -666,6 +721,7 @@ class UserProfileUpdate(BaseModel):
     phone: Optional[str] = None
     picture: Optional[str] = None  # base64 data URL or external URL
     address: Optional[Dict[str, str]] = None
+    banking_info: Optional[Dict[str, Any]] = None
 
 
 @api_router.put("/users/me", response_model=User)
@@ -696,7 +752,7 @@ class SocialAuthRequest(BaseModel):
 
 
 @api_router.post("/auth/social/google", response_model=Token)
-async def google_social_auth(payload: SocialAuthRequest):
+async def google_social_auth(payload: SocialAuthRequest, response: Response):
     """Exchange an Emergent Google OAuth session_id for our app JWT.
 
     Creates the user's profile automatically on first sign-in (no password),
@@ -741,6 +797,7 @@ async def google_social_auth(payload: SocialAuthRequest):
             logging.warning(f"Referral persist failed for social signup {email}: {e}")
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -814,7 +871,7 @@ async def microsoft_login_url(redirect_uri: str, state: str):
 
 
 @api_router.post("/auth/social/microsoft", response_model=Token)
-async def microsoft_social_auth(payload: MicrosoftAuthRequest):
+async def microsoft_social_auth(payload: MicrosoftAuthRequest, response: Response):
     """Exchange a Microsoft authorization code for our app JWT.
 
     Creates the user's profile automatically on first sign-in (no password),
@@ -864,6 +921,7 @@ async def microsoft_social_auth(payload: MicrosoftAuthRequest):
             logging.warning(f"Referral persist failed for social signup {email}: {e}")
 
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -1069,7 +1127,7 @@ async def logout(request: Request):
         )
     
     response = JSONResponse({"message": "Logged out successfully"})
-    response.delete_cookie("session_token")
+    clear_auth_cookie(response)
     return response
 
 # Restaurant Management Routes
@@ -1088,6 +1146,14 @@ async def create_restaurant(restaurant: Restaurant, request: Request):
     return restaurant
 
 # Global Search Endpoint
+_TEST_NAME_RE = re.compile(r"\b(test|demo|sample|dummy|example|placeholder|qa|sandbox)\b", re.I)
+
+
+def _is_test_name(name) -> bool:
+    """Heuristic: is this a placeholder/test business (so we can rank it last)."""
+    return bool(name) and bool(_TEST_NAME_RE.search(str(name)))
+
+
 @api_router.get("/search")
 async def global_search(q: str):
     """
@@ -1108,8 +1174,11 @@ async def global_search(q: str):
             {"description": search_query}
         ],
         "status": "active"
-    }).limit(5).to_list(length=None)
-    
+    }).limit(20).to_list(length=None)
+    # Real businesses first; test/demo/sample ones ranked last.
+    restaurants.sort(key=lambda x: 1 if _is_test_name(x.get("name")) else 0)
+    restaurants = restaurants[:8]
+
     for restaurant in restaurants:
         results.append({
             "id": restaurant.get("id"),
@@ -1127,7 +1196,10 @@ async def global_search(q: str):
             {"business_description": search_query}
         ],
         "status": "active"
-    }).limit(15).to_list(length=15)
+    }).limit(30).to_list(length=30)
+    # Real businesses first; test/demo/sample ones ranked last.
+    businesses.sort(key=lambda x: 1 if _is_test_name(x.get("business_name")) else 0)
+    businesses = businesses[:15]
 
     for biz in businesses:
         results.append({
@@ -1181,7 +1253,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
         restaurants = await db.restaurants.find(
             {"status": "active"}, {"_id": 0, "id": 1, "name": 1, "description": 1, "cuisine": 1, "featured": 1, "rating": 1}
         ).limit(50).to_list(length=50)
-        restaurants.sort(key=lambda x: (0 if x.get("featured") else 1, -(x.get("rating") or 0)))
+        restaurants.sort(key=lambda x: (1 if _is_test_name(x.get("name")) else 0, 0 if x.get("featured") else 1, -(x.get("rating") or 0)))
         for r in restaurants:
             rest_results.append({
                 "id": r.get("id"), "name": r.get("name"), "type": "vendor",
@@ -1200,6 +1272,7 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
         businesses = await db.businesses.find(
             biz_query, {"_id": 0, "id": 1, "business_name": 1, "business_description": 1, "business_type": 1}
         ).limit(40).to_list(length=40)
+        businesses.sort(key=lambda x: 1 if _is_test_name(x.get("business_name")) else 0)
         for b in businesses:
             biz_results.append({
                 "id": b.get("id"), "name": b.get("business_name"), "type": "vendor",
@@ -1221,6 +1294,9 @@ async def search_featured(category: Optional[str] = None, limit: int = 12):
                 results.append(biz_results[bi]); bi += 1
     else:
         results = (rest_results + biz_results)[:cap]
+
+    # Keep real partners ahead of test/demo ones even after interleaving.
+    results.sort(key=lambda x: 1 if _is_test_name(x.get("name")) else 0)
 
     return {"results": results}
 
@@ -1279,6 +1355,16 @@ async def get_restaurants():
     valid.sort(key=lambda x: (0 if x.featured else 1, -(x.rating or 0)))
     return valid
 
+@api_router.get("/restaurants/my-menu")
+async def get_my_menu(request: Request):
+    """Get menu items for current restaurant"""
+    current_user = await get_current_user_from_request(request)
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found for user")
+    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}, {"_id": 0}).limit(500).to_list(length=None)
+    return menu_items
+
 @api_router.get("/restaurants/{restaurant_id}", response_model=Restaurant)
 async def get_restaurant(restaurant_id: str):
     """Get restaurant by ID"""
@@ -1303,19 +1389,6 @@ async def create_menu_item(item: MenuItem, request: Request):
     await db.menu_items.insert_one(item_dict)
     
     return item
-
-@api_router.get("/restaurants/my-menu")
-async def get_my_menu(request: Request):
-    """Get menu items for current restaurant"""
-    current_user = await get_current_user_from_request(request)
-    
-    # Get restaurant for current user
-    restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restaurant not found for user")
-    
-    menu_items = await db.menu_items.find({"restaurant_id": restaurant["id"]}).limit(500).to_list(length=None)
-    return menu_items
 
 @api_router.get("/restaurants/{restaurant_id}/menu")
 async def get_restaurant_menu(restaurant_id: str):
@@ -1479,9 +1552,9 @@ async def get_vendor_orders(request: Request):
     business = await db.businesses.find_one({"user_id": current_user.id})
     
     if restaurant:
-        orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
+        orders = await db.orders.find({"$or": [{"restaurant_id": restaurant["id"]}, {"vendor_id": restaurant["id"]}]}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
     elif business:
-        orders = await db.orders.find({"vendor_id": business["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
+        orders = await db.orders.find({"$or": [{"restaurant_id": business["id"]}, {"vendor_id": business["id"]}]}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
     else:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
@@ -1498,47 +1571,49 @@ async def get_vendor_stats(request: Request):
     
     if restaurant:
         vendor_id = restaurant["id"]
-        filter_field = "restaurant_id"
     elif business:
         vendor_id = business["id"]
-        filter_field = "vendor_id"
     else:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    
+
+    # Match orders saved under either restaurant_id or vendor_id (storefront saves restaurant_id
+    # for all vendor types; some flows use vendor_id).
+    vendor_or = [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}]
+
     # Get today's date range
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
     
     # Today's orders
     today_orders = await db.orders.count_documents({
-        filter_field: vendor_id,
+        "$or": vendor_or,
         "created_at": {
             "$gte": today.isoformat(),
             "$lt": tomorrow.isoformat()
         }
     })
     
-    # Today's revenue
-    today_orders_list = await db.orders.find({
-        filter_field: vendor_id,
-        "created_at": {
-            "$gte": today.isoformat(),
-            "$lt": tomorrow.isoformat()
-        },
-        "status": {"$ne": "cancelled"}
-    }).to_list(length=None)
-    
-    today_revenue = sum(order.get("vendor_payout", 0) for order in today_orders_list)
+    # Today's revenue — aggregation avoids loading every order into memory
+    today_revenue_pipeline = [
+        {"$match": {
+            "$or": vendor_or,
+            "created_at": {"$gte": today.isoformat(), "$lt": tomorrow.isoformat()},
+            "status": {"$ne": "cancelled"},
+        }},
+        {"$group": {"_id": None, "total": {"$sum": "$vendor_payout"}}},
+    ]
+    today_revenue_rows = await db.orders.aggregate(today_revenue_pipeline).to_list(length=1)
+    today_revenue = today_revenue_rows[0]["total"] if today_revenue_rows else 0
     
     # Pending orders
     pending_orders = await db.orders.count_documents({
-        filter_field: vendor_id,
+        "$or": vendor_or,
         "status": "pending"
     })
     
     # Total earnings (all time) — aggregation avoids loading every delivered order
     vendor_earnings_pipeline = [
-        {"$match": {filter_field: vendor_id, "status": "delivered"}},
+        {"$match": {"$or": vendor_or, "status": "delivered"}},
         {"$group": {"_id": None, "total": {"$sum": "$vendor_payout"}}},
     ]
     vendor_earnings_rows = await db.orders.aggregate(vendor_earnings_pipeline).to_list(length=1)
@@ -1749,6 +1824,1146 @@ async def repair_driver_profile(user_id: str, request: Request):
         "driver_id": driver.id,
         "message": "Driver profile created as 'pending'. Review it under Approvals → Driver Applications, then Approve to activate.",
     }
+
+
+async def _ensure_driver_record(user: dict) -> Optional[dict]:
+    """Self-heal an APPROVED driver whose record in the drivers collection is missing.
+    A user's role becomes 'driver' only after admin approval (see create_driver), so
+    provisioning here can never grant unearned driver access. Returns the driver doc,
+    or None if the account isn't actually a driver."""
+    if not user:
+        return None
+    roles = user.get("available_roles") or []
+    if user.get("user_type") != "driver" and "driver" not in roles:
+        return None
+    existing = await db.drivers.find_one({"user_id": user["id"]}, {"_id": 0})
+    if existing:
+        return existing
+    driver = Driver(
+        user_id=user["id"],
+        license_number="",
+        vehicle_type="",
+        vehicle_plate="",
+        personal_info={"name": user.get("name"), "email": user.get("email"), "phone": user.get("phone")},
+        banking_info=user.get("banking_info"),
+        status="active",  # role already approved — restore an operational record
+    )
+    await db.drivers.insert_one(prepare_for_mongo(driver.dict()))
+    if not await db.driver_wallets.find_one({"driver_id": driver.id}, {"_id": 1}):
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=driver.id).dict())
+    logging.warning(f"Self-healed missing driver record for approved driver {user['id']} ({user.get('email')})")
+    return await db.drivers.find_one({"id": driver.id}, {"_id": 0})
+
+
+_MERCHANT_ROLE_FOR = {"restaurants": "restaurant", "businesses": "business", "car_rental_companies": "car_rental"}
+
+
+async def _merchant_health_entry(kind: str, doc: dict) -> dict:
+    """Diagnostic for a merchant vendor record (used by the admin storefront-repair tool)."""
+    vid = doc.get("id")
+    if kind == "restaurants":
+        name, vtype = doc.get("name"), "restaurant"
+    elif kind == "businesses":
+        name, vtype = doc.get("business_name"), (doc.get("business_type") or "business")
+    else:
+        name, vtype = (doc.get("company_name") or doc.get("name")), "car_rental"
+    uid = doc.get("user_id")
+    status = (doc.get("status") or "").lower()
+    sf = await db.merchant_storefronts.find_one({"vendor_id": vid}, {"_id": 0, "logo": 1, "cover": 1, "bio": 1})
+    user = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "email": 1}) if uid else None
+    role_ok = bool(user and user.get("user_type") in ("restaurant", "business", "car_rental", "admin"))
+    active = status == "active"
+    issues = []
+    if not active:
+        issues.append("vendor record not active (won't appear in search)")
+    if not uid or uid in ("seed_partner",):
+        issues.append("no linked user account")
+    elif not user:
+        issues.append("linked user account missing")
+    elif not role_ok:
+        issues.append(f"user role is '{user.get('user_type')}', not a merchant role")
+    return {
+        "kind": "vendor", "collection": kind, "vendor_id": vid, "name": name,
+        "vendor_type": vtype, "status": status or "unknown", "user_id": uid,
+        "user_email": (user or {}).get("email"),
+        "has_storefront_media": bool(sf and (sf.get("logo") or sf.get("cover") or sf.get("bio"))),
+        "appears_in_search": active,
+        "healthy": active and (role_ok or not uid),
+        "issues": issues,
+        "storefront_url": f"/restaurant/{vid}",
+    }
+
+
+async def _application_health_entry(app_doc: dict) -> dict:
+    uid = app_doc.get("user_id")
+    owner = app_doc.get("business_owner") or {}
+    email = app_doc.get("email") or owner.get("email")
+    vstatus = (app_doc.get("verification_status") or "").lower()
+    provisioned = False
+    if uid:
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            if await db[c].find_one({"user_id": uid}, {"_id": 1}):
+                provisioned = True
+                break
+    issues = []
+    if not provisioned:
+        if vstatus in ("verified", "approved"):
+            issues.append("approved but no vendor record — needs provisioning")
+        else:
+            issues.append(f"application status is '{vstatus or 'unknown'}'")
+    return {
+        "kind": "application", "application_id": app_doc.get("id"),
+        "name": app_doc.get("business_name") or (app_doc.get("business_details") or {}).get("business_name"),
+        "email": email, "user_id": uid, "verification_status": vstatus,
+        "provisioned": provisioned, "appears_in_search": provisioned,
+        "healthy": provisioned, "issues": issues,
+    }
+
+
+@api_router.get("/admin/merchants/lookup")
+async def admin_lookup_merchants(q: str, request: Request):
+    """Admin: search merchants by name/email and report storefront health (vendor record
+    active? user role promoted? provisioned?). Powers the 'Repair storefront' tool."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Enter at least 2 characters to search")
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    out = []
+    async for d in db.restaurants.find({"name": rx}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("restaurants", d))
+    async for d in db.businesses.find({"business_name": rx}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("businesses", d))
+    async for d in db.car_rental_companies.find({"$or": [{"company_name": rx}, {"name": rx}]}, {"_id": 0}).limit(20):
+        out.append(await _merchant_health_entry("car_rental_companies", d))
+    known_uids = {e.get("user_id") for e in out if e.get("user_id")}
+    async for a in db.business_applications.find(
+        {"$or": [{"business_name": rx}, {"email": rx}, {"business_owner.email": rx}]}, {"_id": 0}
+    ).limit(20):
+        if a.get("user_id") and a.get("user_id") in known_uids:
+            continue  # already represented by a provisioned vendor
+        out.append(await _application_health_entry(a))
+    return {"count": len(out), "results": out}
+
+
+@api_router.get("/admin/merchants/missing-country")
+async def admin_merchants_missing_country(request: Request):
+    """Admin: list ACTIVE merchants whose profile has no country set. Payment routing
+    (Stripe vs WiPay) depends on the merchant's country, so these must be fixed before
+    launch. Returns each merchant with a deep link to fix it."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    missing_filter = {
+        "status": "active",
+        "$or": [
+            {"address.country": {"$exists": False}},
+            {"address.country": None},
+            {"address.country": ""},
+            {"address": {"$exists": False}},
+            {"address": None},
+        ],
+    }
+    out = []
+    async for d in db.restaurants.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "restaurants", "vendor_id": d.get("id"),
+                    "name": d.get("name"), "type": "restaurant",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    async for d in db.businesses.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "businesses", "vendor_id": d.get("id"),
+                    "name": d.get("business_name"), "type": d.get("business_type") or "business",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    async for d in db.car_rental_companies.find(missing_filter, {"_id": 0}).limit(200):
+        out.append({"collection": "car_rental_companies", "vendor_id": d.get("id"),
+                    "name": d.get("company_name") or d.get("name"), "type": "car_rental",
+                    "email": d.get("email"), "user_id": d.get("user_id")})
+    return {"count": len(out), "results": out}
+
+
+class MerchantRepairRequest(BaseModel):
+    collection: Optional[str] = None   # restaurants | businesses | car_rental_companies
+    vendor_id: Optional[str] = None
+    application_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@api_router.post("/admin/merchants/repair-storefront")
+async def admin_repair_storefront(payload: MerchantRepairRequest, request: Request):
+    """Admin: fix a merchant whose storefront won't open — activate the vendor record,
+    promote the owner's account role, and/or provision the vendor from an approved
+    application. Idempotent. Returns the resolved storefront URL."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    actions = []
+    uid = None
+    vid = None
+
+    if payload.vendor_id and payload.collection in _MERCHANT_ROLE_FOR:
+        doc = await db[payload.collection].find_one({"id": payload.vendor_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Vendor record not found")
+        if (doc.get("status") or "").lower() != "active":
+            await db[payload.collection].update_one({"id": payload.vendor_id}, {"$set": {"status": "active"}})
+            actions.append("activated vendor record")
+        uid = doc.get("user_id")
+        vid = payload.vendor_id
+        if uid and await promote_user_role(uid, _MERCHANT_ROLE_FOR[payload.collection]):
+            actions.append(f"promoted user role to {_MERCHANT_ROLE_FOR[payload.collection]}")
+    elif payload.application_id or payload.user_id:
+        if payload.application_id:
+            app_doc = await db.business_applications.find_one({"id": payload.application_id}, {"_id": 0})
+        else:
+            app_doc = await db.business_applications.find_one(
+                {"user_id": payload.user_id, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0}
+            )
+        if not app_doc:
+            raise HTTPException(status_code=404, detail="No approved application found to provision from")
+        from routers.admin_records import _provision_merchant_vendor
+        await _provision_merchant_vendor(app_doc)
+        actions.append("provisioned vendor record from approved application")
+        # _provision_merchant_vendor may backfill user_id on the app when linking by email
+        refreshed = await db.business_applications.find_one({"id": app_doc.get("id")}, {"_id": 0, "user_id": 1})
+        uid = (refreshed or {}).get("user_id") or app_doc.get("user_id") or payload.user_id
+    else:
+        raise HTTPException(status_code=400, detail="Provide vendor_id+collection, application_id, or user_id")
+
+    if not vid and uid:
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            d = await db[c].find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            if d:
+                vid = d["id"]
+                break
+
+    if not vid:
+        actions.append(
+            "could not resolve a vendor record — this application has no linked user account "
+            "(external lead). Ask the owner to register/log in with the application's email, "
+            "then repair again (or approve it via Approvals)."
+        )
+
+    appears, vtype = False, None
+    if vid:
+        r = await db.restaurants.find_one({"id": vid}, {"_id": 0, "status": 1})
+        b = await db.businesses.find_one({"id": vid}, {"_id": 0, "status": 1, "business_type": 1})
+        if r:
+            appears, vtype = (r.get("status") or "").lower() == "active", "restaurant"
+        elif b:
+            appears, vtype = (b.get("status") or "").lower() == "active", (b.get("business_type") or "business")
+
+    if actions:
+        await _log_repair(current_user, kind="storefront",
+                          target={"vendor_id": vid, "vendor_type": vtype},
+                          actions=actions)
+    return {
+        "success": True,
+        "actions": actions or ["no changes needed — already healthy"],
+        "vendor_id": vid,
+        "vendor_type": vtype,
+        "appears_in_search": appears,
+        "storefront_url": f"/restaurant/{vid}" if vid else None,
+    }
+
+
+# ============================================================
+# Account Repair — heal driver + customer + merchant accounts
+# ============================================================
+_BLOCKED_ACCOUNT_STATES = {"paused", "restricted", "suspended", "banned", "disabled"}
+
+
+async def _log_repair(actor, *, kind: str, target: dict, actions: list):
+    """Append an admin repair to the audit trail (who repaired what, when, and the actions)."""
+    try:
+        await db.repair_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "kind": kind,  # 'account' | 'storefront' | 'bulk_drivers'
+            "actor_id": getattr(actor, "id", None),
+            "actor_email": getattr(actor, "email", None),
+            "actor_name": getattr(actor, "name", None),
+            "target": target,
+            "actions": actions,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_log_repair failed: {exc}")
+
+
+async def _account_health_entry(user: dict) -> dict:
+    """Build a health report for a user account (driver/customer/merchant)."""
+    uid = user.get("id")
+    utype = user.get("user_type") or "customer"
+    acct_status = (user.get("status") or "active").lower()
+    issues = []
+    repairable = False
+
+    driver = await db.drivers.find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+    driver_info = None
+    if driver:
+        d_status = (driver.get("status") or "").lower()
+        role_ok = utype in ("driver", "admin", "agent") or user.get("is_owner")
+        approved = d_status not in ("pending", "pending_approval", "rejected", "")
+        driver_info = {"id": driver.get("id"), "status": driver.get("status"),
+                       "role_promoted": bool(role_ok)}
+        if approved and not role_ok:
+            issues.append("Driver is approved but the account role was never promoted — no Driver panel.")
+            repairable = True
+        elif d_status in ("pending", "pending_approval"):
+            issues.append("Driver application is still pending — approve it in Approvals first.")
+
+    merchant = None
+    for coll, mtype in (("restaurants", "restaurant"), ("businesses", "business"),
+                        ("car_rental_companies", "car_rental")):
+        d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+        if d:
+            m_status = (d.get("status") or "").lower()
+            merchant = {"collection": coll, "id": d.get("id"), "type": mtype,
+                        "status": d.get("status"), "storefront_url": f"/restaurant/{d.get('id')}"}
+            role_ok = utype in ("restaurant", "business", "admin", "agent") or user.get("is_owner")
+            if m_status != "active" or not role_ok:
+                issues.append("Merchant record isn't active / role not promoted.")
+                repairable = True
+            break
+
+    # Approved merchant application but NO vendor record yet → needs provisioning.
+    # Skip this when the account already has a driver record: a single account can only hold
+    # one role, and an active driver takes precedence over a stray merchant application
+    # (provisioning it would clobber the driver role). This keeps driver accounts repairable
+    # to "healthy" instead of being stuck on a merchant provisioning flag.
+    if not merchant and not driver:
+        app = await db.business_applications.find_one(
+            {"user_id": uid, "verification_status": {"$in": ["verified", "approved"]}},
+            {"_id": 0, "id": 1},
+        )
+        if app:
+            issues.append("Approved merchant application but no vendor record yet — needs provisioning.")
+            repairable = True
+            merchant = {"application_id": app.get("id"), "unprovisioned": True}
+
+    if acct_status in _BLOCKED_ACCOUNT_STATES:
+        issues.append(f"Account is {acct_status} — the user is blocked from logging in.")
+        repairable = True
+
+    # Full inline diagnostics (the complete account picture for admins).
+    apps = await db.business_applications.find(
+        {"user_id": uid}, {"_id": 0, "verification_status": 1, "business_name": 1}
+    ).to_list(length=10)
+    drv_apps = await db.driver_applications.find(
+        {"user_id": uid}, {"_id": 0, "status": 1, "verification_status": 1}
+    ).to_list(length=10)
+    has_wallet = bool(driver_info and await db.driver_wallets.find_one({"driver_id": driver_info["id"]}, {"_id": 1}))
+    diagnostics = {
+        "role": utype,
+        "is_owner": bool(user.get("is_owner")),
+        "account_status": acct_status,
+        "driver_record": (
+            {"id": driver_info["id"], "status": driver_info["status"],
+             "role_promoted": driver_info["role_promoted"], "has_wallet": has_wallet}
+            if driver_info else None),
+        "vendor_record": (
+            {"type": merchant.get("type"), "status": merchant.get("status"),
+             "storefront_url": merchant.get("storefront_url")}
+            if merchant and not merchant.get("unprovisioned") else None),
+        "merchant_applications": [
+            {"name": a.get("business_name"), "status": a.get("verification_status")} for a in apps],
+        "driver_applications": [
+            {"status": a.get("status") or a.get("verification_status")} for a in drv_apps],
+    }
+
+    return {
+        "kind": "account",
+        "user_id": uid,
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "user_type": utype,
+        "is_owner": bool(user.get("is_owner")),
+        "account_status": acct_status,
+        "driver": driver_info,
+        "merchant": merchant,
+        "diagnostics": diagnostics,
+        "issues": issues,
+        "healthy": not issues,
+        "repairable": repairable,
+    }
+
+
+@api_router.get("/admin/accounts/lookup")
+async def admin_lookup_accounts(q: str, request: Request):
+    """Admin: search ANY account (driver/customer/merchant) by name or email and report
+    health (role promoted? driver/merchant record active? account blocked?). Powers the
+    'Repair account' tool alongside the storefront repair."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Enter at least 2 characters to search")
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    # Also match each word separately so "Ketura William" still finds "Ketura D. Williams",
+    # and match by phone. This makes the lookup forgiving of partial / variant names.
+    tokens = [t for t in re.split(r"[^A-Za-z0-9@.+]+", q) if len(t) >= 2]
+    all_rx = [rx] + [{"$regex": re.escape(t), "$options": "i"} for t in tokens]
+    user_or = []
+    for r in all_rx:
+        user_or += [{"name": r}, {"email": r}, {"phone": r}]
+    out = []
+    seen = set()
+    async for u in db.users.find({"$or": user_or}, {"_id": 0}).limit(40):
+        if u.get("id") in seen:
+            continue
+        seen.add(u.get("id"))
+        out.append(await _account_health_entry(u))
+    # Also surface drivers whose record matches by name/phone but whose user link may be broken.
+    drv_or = []
+    for r in all_rx:
+        drv_or += [{"personal_info.name": r}, {"personal_info.full_name": r},
+                   {"personal_info.email": r}, {"personal_info.phone": r},
+                   {"name": r}, {"email": r}, {"phone": r}]
+    async for d in db.drivers.find({"$or": drv_or}, {"_id": 0}).limit(25):
+        uid = d.get("user_id")
+        if uid and uid in seen:
+            continue
+        if uid:
+            u = await db.users.find_one({"id": uid}, {"_id": 0})
+            if u:
+                seen.add(uid)
+                out.append(await _account_health_entry(u))
+                continue
+        # Unlinked driver record (no account) — report so admin can relink.
+        pi = d.get("personal_info") or {}
+        out.append({
+            "kind": "unlinked_driver", "user_id": None, "driver_id": d.get("id"),
+            "name": pi.get("name"), "email": pi.get("email"),
+            "driver": {"id": d.get("id"), "status": d.get("status"), "role_promoted": False},
+            "issues": ["Driver record has no linked user account — the applicant must register/log in "
+                       "with the application email, then repair by user."],
+            "healthy": False, "repairable": False,
+        })
+    # Approved merchant applications (incl. website leads with no account yet).
+    async for app in db.business_applications.find(
+        {"verification_status": {"$in": ["verified", "approved"]},
+         "$or": [{"business_name": rx}, {"email": rx},
+                 {"business_details.business_name": rx}, {"business_owner.email": rx},
+                 {"business_owner.name": rx}]},
+        {"_id": 0},
+    ).limit(15):
+        uid = app.get("user_id")
+        if uid and uid in seen:
+            continue  # already reported via the user account (health entry flags provisioning)
+        details = app.get("business_details") or {}
+        owner = app.get("business_owner") or {}
+        name = app.get("business_name") or details.get("business_name") or owner.get("name")
+        email = (app.get("email") or owner.get("email") or "").strip().lower()
+        # Is it already provisioned for a linked account?
+        provisioned = False
+        if uid:
+            provisioned = bool(await db.restaurants.find_one({"user_id": uid}, {"_id": 1})
+                               or await db.businesses.find_one({"user_id": uid}, {"_id": 1}))
+        if provisioned:
+            continue
+        has_account = bool(uid) or bool(email and await db.users.find_one({"email": email}, {"_id": 1}))
+        issues = ["Approved merchant application but no vendor record yet — needs provisioning."]
+        if not has_account:
+            issues.append(f"No user account found for {email or 'this application'} — the merchant must "
+                          "sign up first, or provide their signup email below to link + provision.")
+        out.append({
+            "kind": "merchant_application",
+            "user_id": uid,
+            "application_id": app.get("id"),
+            "name": name,
+            "email": email,
+            "has_account": has_account,
+            "issues": issues,
+            "healthy": False,
+            "repairable": True,
+        })
+    return {"count": len(out), "results": out}
+
+
+class AccountRepairRequest(BaseModel):
+    user_id: Optional[str] = None
+    driver_id: Optional[str] = None
+    application_id: Optional[str] = None  # provision an approved merchant application
+    email: Optional[str] = None           # link an unlinked application to this signup email
+    link_user_id: Optional[str] = None    # link an unlinked application to this existing account
+    create_driver_application: Optional[bool] = False  # push a customer into the driver review queue
+
+
+@api_router.post("/admin/accounts/repair")
+async def admin_repair_account(payload: AccountRepairRequest, request: Request):
+    """Admin: heal a driver, customer or merchant account — promote the account role for an
+    approved driver/merchant, activate a stuck driver record, provision an approved merchant
+    application (optionally linking it to a signup email), and unblock a blocked account.
+    Idempotent. Provide user_id (preferred), driver_id, or application_id."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # --- Merchant application provisioning (approved but no vendor record) ---
+    if payload.application_id:
+        from routers.admin_records import _provision_merchant_vendor
+        app_doc = await db.business_applications.find_one({"id": payload.application_id}, {"_id": 0})
+        if not app_doc:
+            raise HTTPException(status_code=404, detail="Merchant application not found")
+        if app_doc.get("verification_status") not in ("verified", "approved"):
+            raise HTTPException(status_code=400, detail="Approve the application first, then provision it.")
+        override_email = (payload.email or "").strip().lower()
+        link_uid = (payload.link_user_id or "").strip()
+        if not app_doc.get("user_id") and link_uid:
+            acct = await db.users.find_one({"id": link_uid}, {"_id": 0, "id": 1, "email": 1})
+            if not acct:
+                raise HTTPException(status_code=404, detail="The account you picked to link no longer exists.")
+            app_doc["user_id"] = acct["id"]
+            await db.business_applications.update_one(
+                {"id": payload.application_id},
+                {"$set": {"user_id": acct["id"], "email": acct.get("email") or app_doc.get("email")}})
+        elif not app_doc.get("user_id") and override_email:
+            acct = await db.users.find_one({"email": override_email}, {"_id": 0, "id": 1})
+            if not acct:
+                raise HTTPException(status_code=404, detail=f"No user account found for {override_email}. "
+                                   "Ask the merchant to sign up with that email first, or pick an existing account to link.")
+            app_doc["user_id"] = acct["id"]
+            await db.business_applications.update_one(
+                {"id": payload.application_id}, {"$set": {"user_id": acct["id"], "email": override_email}})
+        if not app_doc.get("user_id"):
+            raise HTTPException(status_code=409, detail="This approved application has no linked account. "
+                               "Pick an existing account (or enter the merchant's signup email) to link + provision it.")
+        await _provision_merchant_vendor(app_doc)
+        uid = app_doc["user_id"]
+        r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        vid = (r or b or {}).get("id")
+        if not vid:
+            raise HTTPException(status_code=500, detail="Linked the account but provisioning did not create a vendor record.")
+        refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
+        actions = ["provisioned the vendor record + promoted the merchant role"]
+        await _log_repair(current_user, kind="account",
+                          target={"user_id": uid, "email": refreshed.get("email"),
+                                  "application_id": payload.application_id},
+                          actions=actions)
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "success": True, "actions": actions,
+            "storefront_url": f"/restaurant/{vid}",
+            "account": await _account_health_entry(refreshed),
+        }
+
+    uid = payload.user_id
+    if not uid and payload.driver_id:
+        d = await db.drivers.find_one({"id": payload.driver_id}, {"_id": 0, "user_id": 1})
+        if not d:
+            raise HTTPException(status_code=404, detail="Driver record not found")
+        uid = d.get("user_id")
+        if not uid:
+            raise HTTPException(status_code=400, detail="This driver record has no linked user account. "
+                               "Ask the applicant to register/log in with their application email, then repair by user.")
+    if not uid:
+        raise HTTPException(status_code=400, detail="Provide user_id or driver_id")
+
+    user = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    actions = []
+
+    # 1) Unblock a paused/restricted/suspended account.
+    if (user.get("status") or "active").lower() in _BLOCKED_ACCOUNT_STATES:
+        await db.users.update_one({"id": uid}, {"$set": {"status": "active"}})
+        actions.append("re-activated the blocked account")
+
+    # 2) Driver repair — activate an approved/stuck driver record + promote role + ensure wallet.
+    driver = await db.drivers.find_one({"user_id": uid}, {"_id": 0})
+    if not driver:
+        # Approved driver (role='driver') whose record is missing → recreate it.
+        healed = await _ensure_driver_record(user)
+        if healed:
+            driver = healed
+            actions.append("recreated the missing driver profile")
+    if not driver and payload.create_driver_application:
+        # Customer who tried to apply but no application landed → create a pending
+        # application from their profile so it shows in the Approvals review queue.
+        new_driver = Driver(
+            user_id=uid,
+            license_number="PENDING",
+            vehicle_type="PENDING",
+            vehicle_plate="PENDING",
+            personal_info={
+                "name": user.get("name"), "full_name": user.get("name"),
+                "email": user.get("email"), "phone": user.get("phone"),
+            },
+            status="pending",
+        )
+        await db.drivers.insert_one(prepare_for_mongo(new_driver.dict()))
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=new_driver.id).dict())
+        driver = await db.drivers.find_one({"id": new_driver.id}, {"_id": 0})
+        just_created_application = True
+        actions.append("created a pending driver application (now visible in Approvals → Driver Applications)")
+    if driver and not just_created_application:
+        d_status = (driver.get("status") or "").lower()
+        if d_status == "rejected":
+            actions.append("driver was previously REJECTED — not auto-activating (re-review in Approvals)")
+        else:
+            if d_status in ("", "pending", "pending_approval"):
+                await db.drivers.update_one({"id": driver["id"]},
+                                            {"$set": {"status": "active", "approval_method": "admin_repair"}})
+                actions.append("activated the driver record")
+            if await promote_user_role(uid, "driver"):
+                actions.append("promoted account role to driver")
+            if not await db.driver_wallets.find_one({"driver_id": driver["id"]}, {"_id": 1}):
+                await db.driver_wallets.insert_one(DriverWallet(driver_id=driver["id"]).dict())
+                actions.append("created the missing driver wallet")
+
+    # 3) Merchant repair — activate an existing vendor record + promote role.
+    merchant_found = False
+    for coll, role in (("restaurants", "restaurant"), ("businesses", "business"),
+                       ("car_rental_companies", "business")):
+        d = await db[coll].find_one({"user_id": uid}, {"_id": 0, "id": 1, "status": 1})
+        if d:
+            merchant_found = True
+            if (d.get("status") or "").lower() != "active":
+                await db[coll].update_one({"id": d["id"]}, {"$set": {"status": "active"}})
+                actions.append(f"activated the {coll[:-1]} record")
+            if await promote_user_role(uid, role):
+                actions.append(f"promoted account role to {role}")
+            break
+
+    # 3b) No vendor record but an APPROVED merchant application exists → provision it now
+    # (skip when the account is a driver — a single account can't hold both roles).
+    if not merchant_found and not driver:
+        app_doc = await db.business_applications.find_one(
+            {"user_id": uid, "verification_status": {"$in": ["verified", "approved"]}}, {"_id": 0})
+        if app_doc:
+            from routers.admin_records import _provision_merchant_vendor
+            await _provision_merchant_vendor(app_doc)
+            r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+            if r or b:
+                actions.append("provisioned the vendor record from the approved application + promoted the merchant role")
+
+    refreshed = await db.users.find_one({"id": uid}, {"_id": 0})
+    final_actions = actions or ["no changes needed — account already healthy"]
+    if actions:
+        await _log_repair(current_user, kind="account",
+                          target={"user_id": uid, "email": refreshed.get("email"),
+                                  "name": refreshed.get("name")},
+                          actions=final_actions)
+    health = await _account_health_entry(refreshed)
+    note = None
+    if any("role" in a for a in actions):
+        note = "Done. The user's session will refresh automatically; if they're offline they'll see it on next login."
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    return {
+        "success": True,
+        "actions": final_actions,
+        "note": note,
+        "storefront_url": (health.get("merchant") or {}).get("storefront_url"),
+        "account": health,
+    }
+
+
+@api_router.post("/admin/drivers/repair-all")
+async def admin_repair_all_drivers(request: Request):
+    """Admin: one-click bulk-heal EVERY approved driver whose account role was never promoted.
+    Promotes the role + ensures a driver wallet. Idempotent — safe to run repeatedly."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    healed = []
+    cursor = db.drivers.find(
+        {"status": {"$in": ["active", "approved", "online", "busy", "offline"]},
+         "user_id": {"$nin": [None, ""]}},
+        {"_id": 0, "id": 1, "user_id": 1},
+    )
+    async for drv in cursor:
+        uid = drv.get("user_id")
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "is_owner": 1, "email": 1, "name": 1})
+        if not u or u.get("is_owner") or u.get("user_type") in ("admin", "agent", "driver"):
+            continue
+        try:
+            promoted = await promote_user_role(uid, "driver")
+        except Exception:  # noqa: BLE001
+            promoted = False
+        if not promoted:
+            continue
+        if not await db.driver_wallets.find_one({"driver_id": drv["id"]}, {"_id": 1}):
+            await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
+        healed.append({"driver_id": drv["id"], "user_id": uid,
+                       "email": u.get("email"), "name": u.get("name")})
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    if healed:
+        await _log_repair(current_user, kind="bulk_drivers",
+                          target={"count": len(healed)},
+                          actions=[f"promoted {len(healed)} approved driver(s) to the driver role"])
+    return {"success": True, "healed_count": len(healed), "healed": healed}
+
+
+@api_router.get("/admin/repair-audit")
+async def admin_repair_audit(request: Request, limit: int = 50):
+    """Admin: recent account/storefront repair history (who repaired what, when)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rows = await db.repair_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(min(limit, 200)).to_list(length=200)
+    return {"count": len(rows), "results": rows}
+
+
+@api_router.post("/admin/merchants/provision-all")
+async def admin_provision_all_merchants(request: Request):
+    """Admin: one-click provision EVERY approved merchant application that has a linked account
+    but no vendor record yet (creates the storefront + promotes the merchant role). Idempotent."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from routers.admin_records import _provision_merchant_vendor
+    provisioned = []
+    cursor = db.business_applications.find(
+        {"verification_status": {"$in": ["verified", "approved"]}, "user_id": {"$nin": [None, ""]}},
+        {"_id": 0},
+    )
+    async for app in cursor:
+        uid = app.get("user_id")
+        if await db.restaurants.find_one({"user_id": uid}, {"_id": 1}) or \
+           await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
+            continue  # already has a vendor record
+        # Don't clobber a driver account (single active role); skip and let admin decide.
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1})
+        if u and u.get("user_type") == "driver":
+            continue
+        try:
+            await _provision_merchant_vendor(app)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"provision-all failed for app {app.get('id')}: {exc}")
+            continue
+        r = await db.restaurants.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        b = await db.businesses.find_one({"user_id": uid}, {"_id": 0, "id": 1})
+        vid = (r or b or {}).get("id")
+        if vid:
+            provisioned.append({"user_id": uid, "name": app.get("business_name"),
+                                "storefront_url": f"/restaurant/{vid}"})
+            try:
+                await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+            except Exception:  # noqa: BLE001
+                pass
+    if provisioned:
+        await _log_repair(current_user, kind="bulk_merchants",
+                          target={"count": len(provisioned)},
+                          actions=[f"provisioned {len(provisioned)} approved merchant(s)"])
+    return {"success": True, "provisioned_count": len(provisioned), "provisioned": provisioned}
+
+
+# ============================================================
+# Dual-Role support — one account can hold multiple roles (e.g. driver + merchant)
+# and switch which one is active.
+# ============================================================
+async def _available_roles(user) -> list:
+    """Derive the concrete roles this account can act as, from its records."""
+    uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
+    utype = getattr(user, "user_type", None) or (user.get("user_type") if isinstance(user, dict) else None)
+    is_owner = getattr(user, "is_owner", None) if not isinstance(user, dict) else user.get("is_owner")
+    if utype in ("admin", "agent") or is_owner:
+        return []  # staff use the admin panel, not the role switcher
+    roles = ["customer"]
+    drv = await db.drivers.find_one(
+        {"user_id": uid, "status": {"$nin": ["rejected", "pending", "pending_approval"]}}, {"_id": 1})
+    if drv:
+        roles.append("driver")
+    if await db.restaurants.find_one({"user_id": uid}, {"_id": 1}):
+        roles.append("restaurant")
+    elif await db.businesses.find_one({"user_id": uid}, {"_id": 1}):
+        roles.append("business")
+    return roles
+
+
+@api_router.get("/users/available-roles")
+async def get_available_roles(request: Request):
+    """The roles the current account can switch between (for the dual-role switcher)."""
+    current_user = await get_current_user_from_request(request)
+    roles = await _available_roles(current_user)
+    return {"active_role": current_user.user_type, "available_roles": roles,
+            "can_switch": len(roles) > 1}
+
+
+class SwitchRoleRequest(BaseModel):
+    role: str
+
+
+@api_router.post("/users/switch-role")
+async def switch_active_role(payload: SwitchRoleRequest, request: Request):
+    """Switch the account's ACTIVE role (only among roles it actually holds). Keeps a single
+    active user_type so all existing authorization keeps working."""
+    current_user = await get_current_user_from_request(request)
+    roles = await _available_roles(current_user)
+    if payload.role not in roles:
+        raise HTTPException(status_code=403, detail="You don't have access to that role")
+    await db.users.update_one({"id": current_user.id},
+                              {"$set": {"user_type": payload.role},
+                               "$addToSet": {"roles": {"$each": roles}}})
+    return {"success": True, "active_role": payload.role, "available_roles": roles}
+
+
+# ============================================================
+# Admin: merge accounts · deactivate account · delete a business
+# ============================================================
+async def _require_strict_admin(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+class AccountMergeRequest(BaseModel):
+    primary_user_id: str
+    secondary_user_id: str
+
+
+@api_router.post("/admin/accounts/merge")
+async def admin_merge_accounts(payload: AccountMergeRequest, request: Request):
+    """Admin: merge two accounts of the same person into ONE login. The secondary account's
+    records (merchant, driver, applications, orders, addresses) are reassigned to the primary,
+    roles are unified so they can switch between Customer/Merchant/Driver, and the duplicate
+    login is removed."""
+    current_user = await _require_strict_admin(request)
+    pid, sid = payload.primary_user_id, payload.secondary_user_id
+    if not pid or not sid or pid == sid:
+        raise HTTPException(status_code=400, detail="Pick two different accounts to merge")
+    primary = await db.users.find_one({"id": pid}, {"_id": 0})
+    secondary = await db.users.find_one({"id": sid}, {"_id": 0})
+    if not primary or not secondary:
+        raise HTTPException(status_code=404, detail="One of the accounts was not found")
+    for u in (primary, secondary):
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent"):
+            raise HTTPException(status_code=403, detail="Cannot merge an owner/admin/agent account")
+
+    actions = []
+    reassign_specs = [
+        ("drivers", "user_id"), ("restaurants", "user_id"), ("businesses", "user_id"),
+        ("car_rental_companies", "user_id"), ("business_applications", "user_id"),
+        ("driver_applications", "user_id"), ("addresses", "user_id"),
+        ("orders", "customer_id"), ("orders", "user_id"),
+        ("wallet_funding_requests", "user_id"),
+    ]
+    moved = []  # capture exact doc ids moved, so the merge can be undone
+    for coll, field in reassign_specs:
+        try:
+            ids = [d.get("id") async for d in db[coll].find({field: sid}, {"_id": 0, "id": 1})]
+            ids = [i for i in ids if i]
+            if not ids:
+                continue
+            res = await db[coll].update_many({field: sid, "id": {"$in": ids}}, {"$set": {field: pid}})
+            if res.modified_count:
+                moved.append({"coll": coll, "field": field, "ids": ids})
+                actions.append(f"moved {res.modified_count} {coll}.{field}")
+        except Exception:  # noqa: BLE001
+            pass
+
+    primary_before = {"user_type": primary.get("user_type"), "roles": primary.get("roles"),
+                      "banking_info": primary.get("banking_info")}
+    if not primary.get("banking_info") and secondary.get("banking_info"):
+        await db.users.update_one({"id": pid}, {"$set": {"banking_info": secondary["banking_info"]}})
+
+    refreshed_primary = await db.users.find_one({"id": pid}, {"_id": 0})
+    roles = await _available_roles(refreshed_primary)
+    active = next((r for r in ("restaurant", "business", "driver") if r in roles),
+                  refreshed_primary.get("user_type") or "customer")
+    await db.users.update_one({"id": pid},
+                              {"$set": {"user_type": active}, "$addToSet": {"roles": {"$each": roles}}})
+
+    drv = await db.drivers.find_one({"user_id": pid}, {"_id": 0, "id": 1})
+    if drv and not await db.driver_wallets.find_one({"driver_id": drv["id"]}, {"_id": 1}):
+        await db.driver_wallets.insert_one(DriverWallet(driver_id=drv["id"]).dict())
+
+    # Snapshot the secondary account + moved records BEFORE deleting, for a 24h undo window.
+    merge_id = str(uuid.uuid4())
+    await db.account_merges.insert_one({
+        "id": merge_id, "primary_id": pid, "secondary_id": sid,
+        "secondary_snapshot": {k: v for k, v in secondary.items() if k != "_id"},
+        "primary_before": primary_before,
+        "moved": moved,
+        "admin_id": current_user.id, "admin_email": current_user.email,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "undone": False,
+    })
+
+    await db.users.delete_one({"id": sid})
+    actions.append(f"removed the duplicate account ({secondary.get('email')})")
+
+    await _log_repair(current_user, kind="merge_accounts",
+                      target={"primary": pid, "primary_email": primary.get("email"),
+                              "secondary": sid, "secondary_email": secondary.get("email"),
+                              "merge_id": merge_id},
+                      actions=actions)
+    try:
+        await manager.send_personal_message(json.dumps({"type": "session_refresh"}), pid)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "merge_id": merge_id, "actions": actions, "available_roles": roles,
+            "account": await _account_health_entry(await db.users.find_one({"id": pid}, {"_id": 0}))}
+
+
+MERGE_UNDO_WINDOW_HOURS = 24
+
+
+@api_router.get("/admin/accounts/recent-merges")
+async def admin_recent_merges(request: Request):
+    """List merges still inside the undo window."""
+    await _require_strict_admin(request)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=MERGE_UNDO_WINDOW_HOURS)
+    out = []
+    async for m in db.account_merges.find({"undone": False}, {"_id": 0}).sort("created_at", -1).limit(25):
+        try:
+            created = datetime.fromisoformat(m["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+        except Exception:  # noqa: BLE001
+            continue
+        if created < cutoff:
+            continue
+        snap = m.get("secondary_snapshot") or {}
+        out.append({
+            "id": m["id"], "created_at": m["created_at"],
+            "primary_id": m["primary_id"], "secondary_email": snap.get("email"),
+            "secondary_name": snap.get("name"),
+            "moved_count": sum(len(x.get("ids", [])) for x in m.get("moved", [])),
+        })
+    return {"merges": out, "window_hours": MERGE_UNDO_WINDOW_HOURS}
+
+
+@api_router.post("/admin/accounts/merge/{merge_id}/undo")
+async def admin_undo_merge(merge_id: str, request: Request):
+    """Reverse an account merge within the recovery window: restores the removed login and
+    moves its records back."""
+    current_user = await _require_strict_admin(request)
+    m = await db.account_merges.find_one({"id": merge_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="No merge record found")
+    if m.get("undone"):
+        raise HTTPException(status_code=400, detail="This merge was already undone")
+    try:
+        created = datetime.fromisoformat(m["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:  # noqa: BLE001
+        created = datetime.now(timezone.utc)
+    if datetime.now(timezone.utc) - created > timedelta(hours=MERGE_UNDO_WINDOW_HOURS):
+        raise HTTPException(status_code=400, detail=f"The {MERGE_UNDO_WINDOW_HOURS}h undo window has expired")
+
+    sid = m["secondary_id"]
+    pid = m["primary_id"]
+    snap = m.get("secondary_snapshot") or {}
+    # Restore the removed login (only if the email isn't now taken by someone else)
+    if snap:
+        exists = await db.users.find_one({"id": sid}, {"_id": 1})
+        if not exists:
+            clash = await db.users.find_one({"email": snap.get("email"), "id": {"$ne": sid}}, {"_id": 1})
+            if clash and snap.get("email"):
+                raise HTTPException(status_code=400, detail="Cannot undo: that email is now used by another account")
+            await db.users.insert_one({k: v for k, v in snap.items() if k != "_id"})
+    # Move the previously-moved records back to the secondary account
+    restored = 0
+    for spec in m.get("moved", []):
+        try:
+            res = await db[spec["coll"]].update_many(
+                {spec["field"]: pid, "id": {"$in": spec.get("ids", [])}},
+                {"$set": {spec["field"]: sid}})
+            restored += res.modified_count
+        except Exception:  # noqa: BLE001
+            pass
+    # Recompute the primary's roles from what's left on it
+    primary_doc = await db.users.find_one({"id": pid}, {"_id": 0})
+    if primary_doc:
+        p_roles = await _available_roles(primary_doc)
+        p_active = next((r for r in ("restaurant", "business", "driver") if r in p_roles),
+                        "customer")
+        await db.users.update_one({"id": pid}, {"$set": {"user_type": p_active}})
+    await db.account_merges.update_one({"id": merge_id},
+                                       {"$set": {"undone": True,
+                                                 "undone_at": datetime.now(timezone.utc).isoformat(),
+                                                 "undone_by": current_user.id}})
+    await _log_repair(current_user, kind="undo_merge",
+                      target={"primary": pid, "secondary": sid, "merge_id": merge_id,
+                              "secondary_email": snap.get("email")},
+                      actions=[f"restored the account and {restored} records"])
+    for uid in (pid, sid):
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    return {"success": True, "restored_records": restored, "restored_email": snap.get("email")}
+
+
+@api_router.post("/admin/users/{user_id}/deactivate")
+async def admin_deactivate_user(user_id: str, request: Request):
+    """Admin: deactivate (soft-delete) an account. The user can no longer log in and is hidden,
+    but the data is kept. Reversible via account Repair (which re-activates blocked accounts)."""
+    current_user = await _require_strict_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_owner") or user_id == current_user.id or user.get("user_type") in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="This account is protected and cannot be deactivated")
+    await db.users.update_one({"id": user_id},
+                              {"$set": {"status": "disabled"}, "$unset": {"session_token": ""}})
+    await _log_repair(current_user, kind="deactivate_account",
+                      target={"user_id": user_id, "email": user.get("email")},
+                      actions=["deactivated the account (soft delete)"])
+    try:
+        await manager.send_personal_message(json.dumps({"type": "session_refresh"}), user_id)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "status": "disabled"}
+
+
+@api_router.delete("/admin/merchants/{vendor_id}")
+async def admin_delete_business(vendor_id: str, request: Request, reason: str = ""):
+    """Admin: delete a business from the app — removes the vendor record, storefront, products
+    and coupons, demotes the owner back to a normal customer (login kept), and emails the owner."""
+    current_user = await _require_strict_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Business not found")
+    owner_id = doc.get("user_id")
+    biz_name = doc.get("business_name") or doc.get("name") or "your business"
+    owner = await db.users.find_one({"id": owner_id}, {"_id": 0, "email": 1, "name": 1, "user_type": 1, "is_owner": 1}) if owner_id else None
+    await db[coll].delete_one({"id": vendor_id})
+    await db.merchant_storefronts.delete_many({"vendor_id": vendor_id})
+    for c in ("menu_items", "products"):
+        try:
+            await db[c].delete_many({"$or": [{"vendor_id": vendor_id}, {"restaurant_id": vendor_id}]})
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        await db.merchant_coupons.delete_many({"vendor_id": vendor_id})
+    except Exception:  # noqa: BLE001
+        pass
+    demoted = False
+    if owner_id:
+        still = None
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            if await db[c].find_one({"user_id": owner_id}, {"_id": 1}):
+                still = c
+                break
+        if not still and owner and not owner.get("is_owner") and owner.get("user_type") in ("restaurant", "business", "car_rental"):
+            await db.users.update_one({"id": owner_id}, {"$set": {"user_type": "customer"}})
+            demoted = True
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), owner_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    emailed = False
+    if owner and graph_mail.is_real_email(owner.get("email")):
+        reason_html = f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
+        html = f"""
+            <div style="font-family:Arial,sans-serif;color:#0f172a">
+              <h2 style="color:#0FA3A3;margin-bottom:4px">IslandHop</h2>
+              <p>Hi{(' ' + owner.get('name')) if owner.get('name') else ''},</p>
+              <p>We're letting you know that your business <strong>{biz_name}</strong> has been removed from IslandHop by our team, along with its storefront and product listings.</p>
+              {reason_html}
+              <p>Your login still works as a customer account. If you believe this was a mistake or you'd like to re-list, please contact IslandHop support.</p>
+            </div>
+        """
+        try:
+            await graph_mail.send_mail(owner["email"], f"Your IslandHop business \"{biz_name}\" was removed",
+                                       html, mailbox=graph_mail.notify_mailbox("merchant"))
+            emailed = True
+        except Exception:  # noqa: BLE001
+            pass
+
+    await _log_repair(current_user, kind="delete_business",
+                      target={"vendor_id": vendor_id, "collection": coll, "user_id": owner_id, "reason": reason or None},
+                      actions=["deleted business + storefront/products"
+                               + (" + demoted owner to customer" if demoted else "")
+                               + (" + emailed owner" if emailed else "")])
+    return {"success": True, "demoted_owner": demoted, "emailed": emailed}
+
+
+async def _merge_summary_for(user_id: str):
+    """Count what an account brings into a merge (used by preview)."""
+    orders = await db.orders.count_documents({"$or": [{"customer_id": user_id}, {"user_id": user_id}]})
+    addresses = await db.addresses.count_documents({"user_id": user_id})
+    merchants = []
+    for c in ("restaurants", "businesses", "car_rental_companies"):
+        async for m in db[c].find({"user_id": user_id}, {"_id": 0, "id": 1, "name": 1, "business_name": 1}):
+            has_sf = await db.merchant_storefronts.find_one({"vendor_id": m.get("id")}, {"_id": 1}) is not None
+            merchants.append({"collection": c, "id": m.get("id"),
+                              "name": m.get("business_name") or m.get("name") or "(unnamed)",
+                              "has_storefront": has_sf})
+    drv = await db.drivers.find_one({"user_id": user_id}, {"_id": 0, "id": 1, "status": 1, "vehicle_type": 1})
+    apps = (await db.business_applications.count_documents({"user_id": user_id})
+            + await db.driver_applications.count_documents({"user_id": user_id}))
+    return {"orders": orders, "addresses": addresses, "merchants": merchants,
+            "driver": ({"id": drv.get("id"), "status": drv.get("status"), "vehicle_type": drv.get("vehicle_type")} if drv else None),
+            "applications": apps}
+
+
+@api_router.get("/admin/accounts/merge-preview")
+async def admin_merge_preview(primary_user_id: str, secondary_user_id: str, request: Request):
+    """Admin: preview exactly what a merge will move + the resulting unified roles."""
+    await _require_strict_admin(request)
+    if not primary_user_id or not secondary_user_id or primary_user_id == secondary_user_id:
+        raise HTTPException(status_code=400, detail="Pick two different accounts")
+    primary = await db.users.find_one({"id": primary_user_id}, {"_id": 0})
+    secondary = await db.users.find_one({"id": secondary_user_id}, {"_id": 0})
+    if not primary or not secondary:
+        raise HTTPException(status_code=404, detail="One of the accounts was not found")
+    for u in (primary, secondary):
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent"):
+            raise HTTPException(status_code=403, detail="Cannot merge an owner/admin/agent account")
+    p_roles = set(await _available_roles(primary))
+    s_roles = set(await _available_roles(secondary))
+    return {
+        "primary": {"user_id": primary_user_id, "name": primary.get("name"), "email": primary.get("email"),
+                    "user_type": primary.get("user_type")},
+        "secondary": {"user_id": secondary_user_id, "name": secondary.get("name"), "email": secondary.get("email"),
+                      "user_type": secondary.get("user_type")},
+        "moves": await _merge_summary_for(secondary_user_id),
+        "resulting_roles": sorted(p_roles | s_roles),
+    }
+
+
+class BulkDeactivateRequest(BaseModel):
+    user_ids: List[str]
+
+
+@api_router.post("/admin/users/bulk-deactivate")
+async def admin_bulk_deactivate(payload: BulkDeactivateRequest, request: Request):
+    """Admin: deactivate several accounts at once (skips owner/self/admin/agent)."""
+    current_user = await _require_strict_admin(request)
+    results = {"deactivated": [], "skipped": []}
+    for uid in payload.user_ids[:200]:
+        user = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+        if not user:
+            results["skipped"].append({"user_id": uid, "reason": "not found"})
+            continue
+        if user.get("is_owner") or uid == current_user.id or user.get("user_type") in ("admin", "agent"):
+            results["skipped"].append({"user_id": uid, "email": user.get("email"), "reason": "protected"})
+            continue
+        await db.users.update_one({"id": uid}, {"$set": {"status": "disabled"}, "$unset": {"session_token": ""}})
+        results["deactivated"].append({"user_id": uid, "email": user.get("email")})
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), uid)
+        except Exception:  # noqa: BLE001
+            pass
+    await _log_repair(current_user, kind="bulk_deactivate",
+                      target={"count": len(results["deactivated"])},
+                      actions=[f"deactivated {len(results['deactivated'])} accounts, skipped {len(results['skipped'])}"])
+    return {"success": True, **results}
+
+
+
+
 
 
 
@@ -2081,22 +3296,30 @@ async def delete_promo_code(promo_id: str, request: Request):
     return {"success": True}
 
 # Address Management Routes
+class AddressCreate(BaseModel):
+    label: str
+    street_address: str
+    city: str
+    state: str
+    postal_code: Optional[str] = None
+    country: str = "Trinidad & Tobago"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    delivery_instructions: Optional[str] = None
+    is_default: bool = False
+
+
 @api_router.post("/addresses", response_model=Address)
-async def create_address(address: Address, request: Request):
+async def create_address(payload: AddressCreate, request: Request):
     """Create new address"""
     current_user = await get_current_user_from_request(request)
-    address.user_id = current_user.id
-    
-    # If this is set as default, unset other defaults
-    if address.is_default:
+    if payload.is_default:
         await db.addresses.update_many(
             {"user_id": current_user.id},
             {"$set": {"is_default": False}}
         )
-    
-    address_dict = prepare_for_mongo(address.dict())
-    await db.addresses.insert_one(address_dict)
-    
+    address = Address(user_id=current_user.id, **payload.dict())
+    await db.addresses.insert_one(prepare_for_mongo(address.dict()))
     return address
 
 @api_router.get("/addresses")
@@ -2107,34 +3330,28 @@ async def get_user_addresses(request: Request):
     return addresses
 
 @api_router.put("/addresses/{address_id}", response_model=Address)
-async def update_address(address_id: str, address: Address, request: Request):
+async def update_address(address_id: str, payload: AddressCreate, request: Request):
     """Update address"""
     current_user = await get_current_user_from_request(request)
-    
-    # Verify ownership
+
     existing = await db.addresses.find_one({"id": address_id, "user_id": current_user.id})
     if not existing:
         raise HTTPException(status_code=404, detail="Address not found")
-    
-    # Force server-controlled fields (prevent client from overwriting ownership)
-    address.id = address_id
-    address.user_id = current_user.id
-    
-    # If setting as default, unset other defaults
-    if address.is_default:
+
+    if payload.is_default:
         await db.addresses.update_many(
             {"user_id": current_user.id, "id": {"$ne": address_id}},
             {"$set": {"is_default": False}}
         )
-    
-    address.updated_at = datetime.now(timezone.utc)
-    address_dict = prepare_for_mongo(address.dict())
-    
-    await db.addresses.update_one(
-        {"id": address_id},
-        {"$set": address_dict}
+
+    address = Address(
+        id=address_id,
+        user_id=current_user.id,
+        created_at=existing.get("created_at") or datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        **payload.dict(),
     )
-    
+    await db.addresses.update_one({"id": address_id}, {"$set": prepare_for_mongo(address.dict())})
     return address
 
 @api_router.delete("/addresses/{address_id}")
@@ -2357,25 +3574,38 @@ async def close_ticket(ticket_id: str, request: Request):
 # ---- Customer Claims (built on top of support tickets) ----
 ALLOWED_CLAIM_TYPES = {"wrong_item", "missing_item", "damaged", "late", "quality", "other"}
 
+
+class ClaimCreate(BaseModel):
+    order_id: str
+    description: str
+    subject: Optional[str] = None
+    claim_type: Optional[str] = None
+    category: str = "claim"
+    photo_url: Optional[str] = None
+
 @api_router.post("/claims", response_model=SupportTicket)
-async def create_claim(claim: SupportTicket, request: Request):
+async def create_claim(payload: ClaimCreate, request: Request):
     """File a customer claim against an order (creates a support ticket with category='claim')."""
     current_user = await get_current_user_from_request(request)
-    if not claim.order_id:
+    if not payload.order_id:
         raise HTTPException(status_code=400, detail="order_id is required for a claim")
-    if claim.claim_type and claim.claim_type not in ALLOWED_CLAIM_TYPES:
+    if payload.claim_type and payload.claim_type not in ALLOWED_CLAIM_TYPES:
         raise HTTPException(status_code=400, detail=f"claim_type must be one of {sorted(ALLOWED_CLAIM_TYPES)}")
 
     # Verify the order belongs to the user
-    order = await db.orders.find_one({"id": claim.order_id, "customer_id": current_user.id}, {"_id": 0})
+    order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    claim.user_id = current_user.id
-    claim.category = "claim"
-    if not claim.subject:
-        claim.subject = f"Claim: {claim.claim_type or 'other'} (order {claim.order_id[:8]})"
-
+    claim = SupportTicket(
+        user_id=current_user.id,
+        category="claim",
+        order_id=payload.order_id,
+        description=payload.description,
+        subject=payload.subject or f"Claim: {payload.claim_type or 'other'} (order {payload.order_id[:8]})",
+        claim_type=payload.claim_type,
+        photo_url=payload.photo_url,
+    )
     await db.support_tickets.insert_one(prepare_for_mongo(claim.dict()))
     return claim
 
@@ -2597,6 +3827,63 @@ async def taxi_quote(payload: TaxiQuoteRequest):
     return taxi_pricing.compute_fare(distance_km, duration_min, payload.vehicle_type)
 
 
+# ============================================================
+# Store opening hours (Live Store Hours)
+# ============================================================
+_STORE_TZ = ZoneInfo("America/Port_of_Spain")  # AST, UTC-4, no DST
+_DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _hm_to_min(t: Optional[str]) -> Optional[int]:
+    try:
+        hh, mm = str(t).split(":")
+        return int(hh) * 60 + int(mm)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _compute_open_status(business_hours: Optional[dict]) -> dict:
+    """Given a vendor's business_hours dict, return {enabled, is_open, today, hours_today}.
+
+    When hours aren't enabled/configured, is_open defaults True (ordering not gated)."""
+    bh = business_hours or {}
+    if not bh.get("enabled"):
+        return {"enabled": False, "is_open": True}
+    now = datetime.now(_STORE_TZ)
+    key = _DAY_KEYS[now.weekday()]
+    day = (bh.get("days") or {}).get(key) or {}
+    if day.get("closed"):
+        return {"enabled": True, "is_open": False, "today": key, "hours_today": None}
+    o, c = day.get("open"), day.get("close")
+    om, cm = _hm_to_min(o), _hm_to_min(c)
+    if om is None or cm is None:
+        return {"enabled": True, "is_open": True, "today": key}
+    cur = now.hour * 60 + now.minute
+    is_open = (cur >= om or cur < cm) if cm <= om else (om <= cur < cm)
+    return {"enabled": True, "is_open": is_open, "today": key, "hours_today": {"open": o, "close": c}}
+
+
+async def _vendor_business_hours(vendor_id: str) -> Optional[dict]:
+    """Fetch a merchant vendor's business_hours from restaurants or businesses."""
+    if not vendor_id:
+        return None
+    r = await db.restaurants.find_one({"id": vendor_id}, {"_id": 0, "business_hours": 1})
+    if r:
+        return r.get("business_hours")
+    b = await db.businesses.find_one({"id": vendor_id}, {"_id": 0, "business_hours": 1})
+    if b:
+        return b.get("business_hours")
+    return None
+
+
+@api_router.get("/vendors/{vendor_id}/hours")
+async def get_vendor_hours(vendor_id: str):
+    """Public: a merchant's opening hours + current open/closed status."""
+    bh = await _vendor_business_hours(vendor_id)
+    return {"business_hours": bh or None, "open_status": _compute_open_status(bh)}
+
+
+
 @api_router.post("/orders", response_model=Order)
 async def create_order(order: Order, request: Request):
     """Create new order with automatic commission calculation"""
@@ -2621,7 +3908,38 @@ async def create_order(order: Order, request: Request):
     # Determine vendor ID and type
     vendor_id = order.restaurant_id or order.vendor_id
     vendor_type = _derive_vendor_type(order.service_type)
-    
+
+    # Stamp the merchant's pinned store location onto the pickup address when the client
+    # didn't provide coordinates, so dispatch + driver ETAs are accurate from the start.
+    if vendor_id and not _addr_coords(order.pickup_address):
+        vdoc, _vcoll = await _find_vendor_doc_by_vid(vendor_id)
+        vc = _addr_coords((vdoc or {}).get("pickup_coords")) or _addr_coords((vdoc or {}).get("address"))
+        if vc:
+            pa = dict(order.pickup_address or {})
+            pa["latitude"], pa["longitude"] = vc[0], vc[1]
+            order.pickup_address = pa
+
+    # Live Store Hours: block new orders while a storefront merchant is closed.
+    _hours = await _vendor_business_hours(vendor_id)
+    _open = _compute_open_status(_hours)
+    if _open.get("enabled") and not _open.get("is_open"):
+        raise HTTPException(status_code=400,
+                            detail="This store is currently closed. Please order during its opening hours.")
+
+    # Merchant catalog prices (menu items / products), delivery fees and courier fares
+    # are authored in TT$, but the platform ledger (wallet, Stripe, commissions, payouts)
+    # is USD. Convert TT$ -> USD once, here, for these services. Taxi fares are already
+    # computed in USD upstream (taxi_pricing.to_usd), so taxi is exempt.
+    if order.service_type in ("food", "grocery", "pharmacy", "courier", "car_rental"):
+        if order.items:
+            order.subtotal = round(float(order.subtotal or 0) / _TTD_PER_USD, 2)
+            for _it in order.items:
+                if _it.price is not None:
+                    _it.price = round(float(_it.price) / _TTD_PER_USD, 2)
+        order.delivery_fee = round(float(order.delivery_fee or 0) / _TTD_PER_USD, 2)
+        if order.discount:
+            order.discount = round(float(order.discount or 0) / _TTD_PER_USD, 2)
+
     # Calculate commission and payment splits
     order = await calculate_order_financials(order, vendor_id, vendor_type)
     
@@ -2647,32 +3965,53 @@ async def create_order(order: Order, request: Request):
             }),
             vendor_id
         )
-    
+        # Text/WhatsApp the merchant (best-effort, non-blocking)
+        asyncio.create_task(_notify_merchant_new_order(vendor_id, order_dict))
+        # Hands-free auto-dispatch (best-effort) when an admin has enabled it
+        asyncio.create_task(_maybe_auto_dispatch(order_dict))
+
+    # Signal every online driver that a new job is waiting in the open pool (delivery + taxi).
+    if order.service_type not in ("subscription",):
+        asyncio.create_task(manager.broadcast(json.dumps({
+            "type": "available_orders", "order_id": order.id, "service_type": order.service_type,
+        })))
+
     return order
 
-@api_router.get("/orders", response_model=List[Order])
+@api_router.get("/orders")
 async def get_user_orders(request: Request):
-    """Get orders for current user"""
+    """Get orders for current user. Returns raw docs (no strict response_model) so a
+    single legacy/partial order can never 500 the whole list."""
     current_user = await get_current_user_from_request(request)
-    
-    if current_user.user_type == "customer":
-        orders = await db.orders.find({"customer_id": current_user.id}).sort("created_at", -1).limit(200).to_list(length=200)
-    elif current_user.user_type == "restaurant":
-        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-        if restaurant:
-            orders = await db.orders.find({"restaurant_id": restaurant["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
-        else:
-            orders = []
+
+    query = None
+    if current_user.user_type in ("admin", "agent"):
+        query = {}
     elif current_user.user_type == "driver":
-        driver = await db.drivers.find_one({"user_id": current_user.id})
-        if driver:
-            orders = await db.orders.find({"driver_id": driver["id"]}).sort("created_at", -1).limit(200).to_list(length=200)
-        else:
-            orders = []
+        driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+        query = {"driver_id": driver["id"]} if driver else None
+    elif current_user.user_type in ("restaurant", "business", "car_rental"):
+        # A merchant may own a restaurant, a business, and/or a car-rental company.
+        vendor_ids = []
+        for coll in ("restaurants", "businesses", "car_rental_companies"):
+            async for v in db[coll].find({"user_id": current_user.id}, {"_id": 0, "id": 1}):
+                if v.get("id"):
+                    vendor_ids.append(v["id"])
+        if vendor_ids:
+            query = {"$or": [
+                {"restaurant_id": {"$in": vendor_ids}},
+                {"vendor_id": {"$in": vendor_ids}},
+                {"business_id": {"$in": vendor_ids}},
+            ]}
     else:
-        orders = []
-    
-    return [Order(**order) for order in orders]
+        # Customer (default): match either customer_id or user_id.
+        query = {"$or": [{"customer_id": current_user.id}, {"user_id": current_user.id}]}
+
+    if query is None:
+        return []
+
+    orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(length=200)
+    return orders
 
 def _status_timestamp_field(status: str) -> Optional[str]:
     """Map order status → the field to set with the current UTC timestamp."""
@@ -2688,10 +4027,15 @@ async def _authorize_order_status_change(current_user: User, order: dict) -> Non
     """Raise 403 if current_user cannot update this order's status."""
     if current_user.user_type in ("admin", "agent"):
         return
-    if current_user.user_type == "restaurant":
-        restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-        if restaurant and restaurant["id"] == order["restaurant_id"]:
-            return
+    # The order may store its vendor under either restaurant_id or vendor_id, and the
+    # merchant may be a restaurant (db.restaurants) or a business (db.businesses).
+    vendor_ids = {order.get("restaurant_id"), order.get("vendor_id")} - {None, ""}
+    restaurant = await db.restaurants.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if restaurant and restaurant["id"] in vendor_ids:
+        return
+    business = await db.businesses.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+    if business and business["id"] in vendor_ids:
+        return
     if current_user.user_type == "driver":
         driver = await db.drivers.find_one({"user_id": current_user.id})
         if driver and driver["id"] == order.get("driver_id"):
@@ -2740,17 +4084,20 @@ async def _credit_driver_on_delivery(order: dict, order_id: str) -> dict:
 
 async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
                      event: Optional[str] = None, order_id: Optional[str] = None,
-                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None):
-    """Send a WhatsApp-first notification and log it to whatsapp_messages. Never raises.
+                     content_sid: Optional[str] = None, content_variables: Optional[dict] = None,
+                     channel: str = "whatsapp"):
+    """Send a WhatsApp-first (or direct SMS) notification and log it to whatsapp_messages. Never raises.
 
-    Uses the unified WhatsApp-first engine: on 63005 (no 24h session) it logs and skips,
-    on other errors it falls back to SMS. Returns the send result (or None if no phone)."""
+    channel="whatsapp" (default): WhatsApp-first — on 63005 (no 24h session) it logs and skips,
+    on other create-time errors it falls back to SMS.
+    channel="sms": send SMS directly — use for time-critical transactional alerts (e.g. merchant
+    new-order) where WhatsApp free-form messages fail delivery (63005) for un-opted-in recipients."""
     norm = _normalize_phone(phone or "")
     if not norm:
         return None
     try:
         result = twilio_client.send_notification(
-            norm, body, channel="whatsapp",
+            norm, body, channel=channel,
             content_sid=content_sid, content_variables=content_variables,
         )
         await db.whatsapp_messages.insert_one({
@@ -2764,7 +4111,7 @@ async def _wa_notify(phone: str, body: str, user_id: Optional[str] = None,
             "twilio_sid": result.get("sid"),
             "automated": True,
             "event": event,
-            "channel_used": result.get("channel_used", "whatsapp"),
+            "channel_used": result.get("channel_used", channel),
             "skipped": result.get("skipped", False),
             "mock": result.get("mock", False),
             "error": result.get("error"),
@@ -2804,6 +4151,40 @@ async def _notify_order_whatsapp(order: dict, status: str):
         content_sid=content_sid,
         content_variables={"1": short} if content_sid else None,
     )
+
+
+async def _notify_merchant_new_order(vendor_id: str, order: dict):
+    """Best-effort WhatsApp/SMS to the merchant when a new order arrives. Never raises."""
+    if not vendor_id:
+        return
+    doc = None
+    for c in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[c].find_one(
+            {"id": vendor_id},
+            {"_id": 0, "phone": 1, "user_id": 1, "name": 1, "business_name": 1})
+        if doc:
+            break
+    if not doc:
+        return
+    phone = doc.get("phone") or ""
+    if not phone and doc.get("user_id"):
+        u = await db.users.find_one({"id": doc["user_id"]}, {"_id": 0, "phone": 1})
+        phone = (u or {}).get("phone") or ""
+    if not phone:
+        return
+    short = str(order.get("id", ""))[:8]
+    total = order.get("total")
+    body = f"New IslandHop order #{short}"
+    if total is not None:
+        try:
+            body += f" — ${float(total):.2f}"
+        except (TypeError, ValueError):
+            pass
+    body += ". Open your Vendor Dashboard to accept it."
+    # Merchant new-order alerts go via SMS (transactional): WhatsApp free-form messages
+    # fail delivery with 63005 for merchants who haven't opted into WhatsApp.
+    await _wa_notify(phone, body, user_id=doc.get("user_id"),
+                     event="merchant_new_order", order_id=order.get("id"), channel="sms")
 
 
 @api_router.put("/orders/{order_id}/status")
@@ -2854,6 +4235,12 @@ async def update_order_status(order_id: str, status: str, request: Request):
     # Best-effort WhatsApp update on key milestones (fire-and-forget).
     asyncio.create_task(_notify_order_whatsapp(order, status))
 
+    # If the merchant is progressing an order but no driver is assigned yet, (re)offer it to
+    # online drivers now — covers drivers who came online after checkout, or when the first
+    # dispatch found nobody. This is the core fix for "merchant can't get a driver".
+    if status in ("confirmed", "preparing", "ready", "ready_for_pickup") and not order.get("driver_id"):
+        asyncio.create_task(_redispatch_order(order_id))
+
     return {"message": f"Order status updated to {status}"}
 
 
@@ -2892,6 +4279,138 @@ async def confirm_order_cod(order_id: str, request: Request):
     asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
 
     return {"success": True, "order_id": order_id, "payment_method": "cash", "status": "confirmed"}
+
+
+class RejectOrderRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@api_router.post("/orders/{order_id}/reject")
+async def reject_order(order_id: str, payload: RejectOrderRequest, request: Request):
+    """Merchant declines an order with a reason; the customer is auto-notified."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await _authorize_order_status_change(current_user, order)
+    if order.get("status") in ("delivered", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Order is already {order.get('status')}")
+
+    reason = (payload.reason or "").strip() or "The store could not fulfill this order"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    was_paid = order.get("payment_status") == "paid"
+    update = {
+        "status": "cancelled",
+        "cancelled_by": "merchant",
+        "rejection_reason": reason,
+        "rejected_at": now_iso,
+        "updated_at": now_iso,
+    }
+    if was_paid:
+        update["payment_status"] = "refund_pending"
+    await db.orders.update_one({"id": order_id}, {"$set": update})
+
+    # Auto-refund a paid order (wallet / PayPal / Stripe) — best-effort.
+    refund_info = None
+    if was_paid:
+        refund_info = await _auto_refund_order(
+            {**order, **update}, reason="requested_by_customer", issued_by=current_user.id)
+        if refund_info and refund_info.get("refunded"):
+            asyncio.create_task(_send_refund_receipt_email({**order, **update}, refund_info, reason))
+
+    # Notify the customer (SMS + realtime).
+    phone = order.get("customer_phone")
+    if not phone and order.get("customer_id"):
+        cust = await db.users.find_one({"id": order["customer_id"]}, {"_id": 0, "phone": 1})
+        phone = (cust or {}).get("phone")
+    body = f"IslandHop: Sorry, your order #{str(order_id)[:8]} was declined by the store. Reason: {reason}."
+    if refund_info and refund_info.get("refunded"):
+        body += " Your payment has been refunded."
+    elif was_paid:
+        body += " A refund is being processed."
+    if phone:
+        asyncio.create_task(_wa_notify(phone, body, user_id=order.get("customer_id"),
+                                       event="order_rejected", order_id=order_id, channel="sms"))
+    try:
+        await manager.send_personal_message(
+            json.dumps({"type": "order_rejected", "order_id": order_id, "reason": reason,
+                        "refunded": bool(refund_info and refund_info.get("refunded"))}),
+            order.get("customer_id"))
+    except Exception:  # noqa: BLE001
+        pass
+    return {"success": True, "order_id": order_id, "status": "cancelled", "reason": reason,
+            "refund": refund_info}
+
+
+@api_router.get("/orders/{order_id}/pickup-eta")
+async def order_pickup_eta(order_id: str, request: Request):
+    """Merchant-facing ETA for when the assigned driver will arrive to collect the order."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await _authorize_order_status_change(current_user, order)
+
+    if not order.get("driver_id"):
+        return {"has_driver": False}
+    driver = await db.drivers.find_one({"id": order["driver_id"]}, {"_id": 0, "name": 1, "current_location": 1, "vehicle_type": 1})
+    if not driver:
+        return {"has_driver": False}
+    dloc = driver.get("current_location") or {}
+    dc = _addr_coords(dloc) or ((dloc.get("lat"), dloc.get("lng")) if dloc.get("lat") is not None else None)
+    pc = _addr_coords(order.get("pickup_address"))
+    if not dc or dc[0] is None or not pc:
+        return {"has_driver": True, "driver_name": driver.get("name"), "eta_available": False}
+    dist = _haversine_km(float(dc[0]), float(dc[1]), pc[0], pc[1])
+    return {
+        "has_driver": True,
+        "driver_name": driver.get("name"),
+        "vehicle_type": driver.get("vehicle_type"),
+        "eta_available": True,
+        "distance_km": round(dist, 2),
+        "eta_min": max(1, round((dist / BACKROAD_AVG_KMH) * 60)),
+        "picked_up": order.get("status") in ("picked_up", "in_transit", "delivered"),
+    }
+
+
+
+class MultiOrderRequest(BaseModel):
+    order_ids: List[str]
+
+
+@api_router.post("/orders/confirm-cod-multi")
+async def confirm_orders_cod_multi(payload: MultiOrderRequest, request: Request):
+    """Place several orders (one per merchant from a multi-store cart) as Cash on Delivery in one call."""
+    current_user = await get_current_user_from_request(request)
+    confirmed = []
+    for order_id in payload.order_ids:
+        order = await db.orders.find_one({"id": order_id})
+        if not order:
+            continue
+        if order.get("customer_id") != current_user.id and current_user.user_type != "admin":
+            continue
+        if order.get("payment_status") == "paid":
+            confirmed.append(order_id)
+            continue
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "payment_method": "cash",
+                "payment_status": "cod_pending",
+                "status": "confirmed",
+                "confirmed_at": now_iso,
+                "updated_at": now_iso,
+            }},
+        )
+        try:
+            if not order.get("driver_id"):
+                await find_and_assign_driver(order_id)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"COD driver assignment skipped for {order_id}: {exc}")
+        asyncio.create_task(_notify_order_whatsapp({**order, "status": "confirmed"}, "confirmed"))
+        confirmed.append(order_id)
+    return {"success": True, "order_ids": confirmed, "payment_method": "cash", "status": "confirmed"}
 
 
 @api_router.post("/orders/{order_id}/cash-collected")
@@ -2983,6 +4502,399 @@ async def admin_settle_driver_cash(driver_id: str, request: Request):
     return {"success": True, "settled_amount": settled}
 
 
+# ============================================================
+# END-OF-DAY AUTO SETTLEMENT (merchants + drivers)
+# Credits in-app wallets AND queues external payouts. Idempotent via per-order
+# settlement status flags. Runs nightly (scheduler) or on demand (admin).
+# ============================================================
+async def _resolve_vendor_user_id(vendor_id: str) -> Optional[str]:
+    vdoc, _ = await _find_vendor_doc_by_vid(vendor_id)
+    if vdoc and vdoc.get("user_id"):
+        return vdoc["user_id"]
+    app_doc = await db.business_applications.find_one({"id": vendor_id}, {"_id": 0, "user_id": 1})
+    return (app_doc or {}).get("user_id")
+
+
+async def run_daily_settlement(actor: str = "scheduler") -> dict:
+    """Settle all outstanding merchant payouts and driver earnings.
+    Merchants: sum unsettled delivered-order vendor_payout → credit wallet + queue external payout.
+    Drivers: sum unsettled prepaid driver_earnings, net against COD cash owed → credit wallet + queue payout.
+    Idempotent — only processes orders/records not already settled."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    batch_id = str(uuid.uuid4())
+    currency = "USD"
+    summary = {"merchants": {"count": 0, "total": 0.0},
+               "drivers": {"count": 0, "total": 0.0, "cash_offset": 0.0}}
+
+    # ---- Merchants ----
+    vendor_map: dict = {}
+    cursor = db.orders.find(
+        {"status": "delivered",
+         "$or": [{"vendor_payout_status": "pending"}, {"vendor_payout_status": {"$exists": False}}]},
+        {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "vendor_payout": 1},
+    )
+    async for o in cursor:
+        vid = o.get("restaurant_id") or o.get("vendor_id")
+        payout = float(o.get("vendor_payout") or 0)
+        if not vid or payout <= 0:
+            continue
+        agg = vendor_map.setdefault(vid, {"total": 0.0, "order_ids": []})
+        agg["total"] += payout
+        agg["order_ids"].append(o["id"])
+    for vid, agg in vendor_map.items():
+        user_id = await _resolve_vendor_user_id(vid)
+        amount = round(agg["total"], 2)
+        if not user_id or amount <= 0:
+            continue
+        await _credit_wallet_with_txn(
+            user_id, amount, currency, txn_type="merchant_settlement",
+            note=f"Daily merchant settlement ({len(agg['order_ids'])} orders)")
+        await db.orders.update_many(
+            {"id": {"$in": agg["order_ids"]}},
+            {"$set": {"vendor_payout_status": "settled", "vendor_settled_at": now_iso}})
+        await db.settlements.insert_one({
+            "id": str(uuid.uuid4()), "batch_id": batch_id, "party_type": "merchant",
+            "vendor_id": vid, "user_id": user_id, "amount": amount, "currency": currency,
+            "order_count": len(agg["order_ids"]), "order_ids": agg["order_ids"],
+            "wallet_credited": True, "external_payout_status": "queued", "created_at": now_iso})
+        summary["merchants"]["count"] += 1
+        summary["merchants"]["total"] += amount
+
+    # ---- Drivers (prepaid earnings netted against COD cash owed) ----
+    driver_map: dict = {}
+    cursor = db.orders.find(
+        {"status": "delivered", "driver_id": {"$nin": [None, ""]}, "payment_method": {"$ne": "cash"},
+         "$or": [{"driver_payout_status": "pending"}, {"driver_payout_status": {"$exists": False}}]},
+        {"_id": 0, "id": 1, "driver_id": 1, "driver_earnings": 1},
+    )
+    async for o in cursor:
+        did = o.get("driver_id")
+        earn = float(o.get("driver_earnings") or 0)
+        if not did or earn <= 0:
+            continue
+        agg = driver_map.setdefault(did, {"earnings": 0.0, "order_ids": []})
+        agg["earnings"] += earn
+        agg["order_ids"].append(o["id"])
+    for did, agg in driver_map.items():
+        d = await db.drivers.find_one({"id": did}, {"_id": 0, "user_id": 1, "cash_outstanding": 1})
+        if not d or not d.get("user_id"):
+            continue
+        earnings = round(agg["earnings"], 2)
+        cash_owed = round(float(d.get("cash_outstanding") or 0), 2)
+        applied = round(min(earnings, cash_owed), 2)       # earnings offset the cash they owe us
+        net_paid = round(earnings - applied, 2)            # remainder paid to the driver
+        new_cash_owed = round(cash_owed - applied, 2)
+        if net_paid > 0:
+            await _credit_wallet_with_txn(
+                d["user_id"], net_paid, currency, txn_type="driver_settlement",
+                note=f"Daily driver settlement ({len(agg['order_ids'])} orders" +
+                     (f", ${applied:.2f} applied to cash owed)" if applied > 0 else ")"))
+        await db.orders.update_many(
+            {"id": {"$in": agg["order_ids"]}},
+            {"$set": {"driver_payout_status": "settled", "driver_settled_at": now_iso}})
+        if applied > 0:
+            await db.drivers.update_one(
+                {"id": did}, {"$set": {"cash_outstanding": new_cash_owed, "updated_at": now_iso}})
+        await db.settlements.insert_one({
+            "id": str(uuid.uuid4()), "batch_id": batch_id, "party_type": "driver",
+            "driver_id": did, "user_id": d["user_id"], "amount": net_paid, "currency": currency,
+            "gross_earnings": earnings, "cash_offset": applied, "remaining_cash_owed": new_cash_owed,
+            "order_count": len(agg["order_ids"]), "order_ids": agg["order_ids"],
+            "wallet_credited": net_paid > 0,
+            "external_payout_status": "queued" if net_paid > 0 else "none", "created_at": now_iso})
+        summary["drivers"]["count"] += 1
+        summary["drivers"]["total"] += net_paid
+        summary["drivers"]["cash_offset"] += applied
+
+    batch = {
+        "id": batch_id, "actor": actor, "created_at": now_iso,
+        "merchants_settled": summary["merchants"]["count"],
+        "merchants_total": round(summary["merchants"]["total"], 2),
+        "drivers_settled": summary["drivers"]["count"],
+        "drivers_total": round(summary["drivers"]["total"], 2),
+        "drivers_cash_offset": round(summary["drivers"]["cash_offset"], 2),
+    }
+    await db.settlement_batches.insert_one(dict(batch))
+    logging.info(f"Settlement batch complete: {batch}")
+    return {"batch": batch}
+
+
+@api_router.post("/admin/settlements/run")
+async def admin_run_settlement(request: Request):
+    """Admin: run the merchant+driver settlement now (same engine as the nightly job)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    result = await run_daily_settlement(actor=f"admin:{current_user.id}")
+    return {"success": True, "batch": result["batch"]}
+
+
+@api_router.get("/admin/settlements")
+async def admin_list_settlements(request: Request, limit: int = 50):
+    """Admin: recent settlement batches (newest first)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    batches = await db.settlement_batches.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"batches": batches}
+
+
+# ============================================================
+# ADMIN PAYOUT MANAGEMENT + TEST-DATA PURGE (go-live tooling)
+# ============================================================
+async def _payout_party_info(party_type, user_id, vendor_id=None, driver_id=None):
+    """Name/email/bank/paypal + wallet balance for a payout party."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0}) if user_id else None
+    wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0}) if user_id else None
+    bal = (wallet or {}).get("balances", {}) if wallet else {}
+    banking = (user or {}).get("banking_info") or {}
+    name = (user or {}).get("name")
+    if party_type == "merchant" and vendor_id:
+        vdoc, _ = await _find_vendor_doc_by_vid(vendor_id)
+        if vdoc:
+            name = vdoc.get("business_name") or vdoc.get("name") or name
+            banking = vdoc.get("banking_info") or banking
+    if party_type == "driver" and driver_id:
+        d = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "banking_info": 1})
+        if d and d.get("banking_info"):
+            banking = d["banking_info"]
+    return {
+        "party_name": name, "party_email": (user or {}).get("email"),
+        "wallet_balance_usd": round(float(bal.get("USD", 0.0)), 2),
+        "wallet_balance_ttd": round(float(bal.get("TTD", 0.0)), 2),
+        "banking_info": banking,
+        "paypal_email": (banking or {}).get("paypal_email") or (user or {}).get("paypal_email"),
+    }
+
+
+@api_router.get("/admin/payouts")
+async def admin_list_payouts(request: Request, party_type: str = "all", status: str = "all", q: str = "", limit: int = 300):
+    """Admin: all driver + merchant payouts (from settlements) with party bank/wallet info."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query = {}
+    if party_type in ("merchant", "driver"):
+        query["party_type"] = party_type
+    if status in ("queued", "paid", "reversed", "none"):
+        query["external_payout_status"] = status
+    rows = await db.settlements.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    out = []
+    for r in rows:
+        info = await _payout_party_info(r.get("party_type"), r.get("user_id"), r.get("vendor_id"), r.get("driver_id"))
+        if q:
+            hay = f"{info.get('party_name') or ''} {info.get('party_email') or ''}".lower()
+            if q.lower() not in hay:
+                continue
+        out.append({**r, **info})
+    return {"payouts": out}
+
+
+@api_router.post("/admin/payouts/{settlement_id}/mark-paid")
+async def admin_mark_payout_paid(settlement_id: str, payload: dict, request: Request):
+    """Admin: mark a payout as paid (money disbursed externally) → debits the wallet to reflect it."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    s = await db.settlements.find_one({"id": settlement_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Payout not found")
+    if s.get("external_payout_status") == "paid":
+        raise HTTPException(status_code=400, detail="Already marked paid")
+    # PLATFORM FEES FIRST: a driver cannot be paid out while they still owe the platform
+    # collected cash (COD). They must remit what's owed before any payout.
+    if s.get("party_type") == "driver" and s.get("driver_id"):
+        drv = await db.drivers.find_one({"id": s["driver_id"]}, {"_id": 0, "cash_outstanding": 1})
+        owed = round(float((drv or {}).get("cash_outstanding") or 0), 2)
+        if owed > 0.02:
+            raise HTTPException(status_code=400,
+                detail=f"Driver still owes the platform ${owed:.2f} in collected cash. Settle the outstanding cash (Orders tab) before paying out.")
+    method = (payload or {}).get("method", "manual")
+    reference = (payload or {}).get("reference", "")
+    amount = float(s.get("amount") or 0)
+    currency = s.get("currency", "USD")
+    if amount > 0 and s.get("user_id"):
+        await _debit_wallet(s["user_id"], amount, currency)
+        w = await _get_or_create_wallet(s["user_id"])
+        await _record_txn(user_id=s["user_id"], wallet_id=w["id"], type="payout_disbursed",
+                          amount=_round_money(amount), currency=currency, status="completed",
+                          note=f"Payout paid via {method} {reference}".strip())
+    await db.settlements.update_one({"id": settlement_id}, {"$set": {
+        "external_payout_status": "paid", "paid_method": method, "paid_reference": reference,
+        "paid_at": datetime.now(timezone.utc).isoformat(), "paid_by": current_user.id}})
+    return {"success": True}
+
+
+@api_router.post("/admin/payouts/{settlement_id}/reverse")
+async def admin_reverse_payout(settlement_id: str, payload: dict, request: Request):
+    """Admin: reverse a payout (mistake). Undoes the wallet effect and re-opens the orders for re-settlement."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    s = await db.settlements.find_one({"id": settlement_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Payout not found")
+    if s.get("external_payout_status") == "reversed":
+        raise HTTPException(status_code=400, detail="Already reversed")
+    reason = (payload or {}).get("reason", "")
+    amount = float(s.get("amount") or 0)
+    currency = s.get("currency", "USD")
+    was_paid = s.get("external_payout_status") == "paid"
+    if amount > 0 and s.get("user_id"):
+        if was_paid:
+            await _credit_wallet_with_txn(s["user_id"], amount, currency, txn_type="payout_reversed",
+                                          note=f"Payout reversed: {reason}".strip())
+        else:
+            await _debit_wallet(s["user_id"], amount, currency)
+            w = await _get_or_create_wallet(s["user_id"])
+            await _record_txn(user_id=s["user_id"], wallet_id=w["id"], type="settlement_reversed",
+                              amount=_round_money(amount), currency=currency, status="completed",
+                              note=f"Settlement reversed: {reason}".strip())
+    field = "vendor_payout_status" if s.get("party_type") == "merchant" else "driver_payout_status"
+    if s.get("order_ids"):
+        await db.orders.update_many({"id": {"$in": s["order_ids"]}}, {"$set": {field: "pending"}})
+    await db.settlements.update_one({"id": settlement_id}, {"$set": {
+        "external_payout_status": "reversed", "reversed_reason": reason,
+        "reversed_at": datetime.now(timezone.utc).isoformat(), "reversed_by": current_user.id}})
+    return {"success": True}
+
+
+@api_router.post("/admin/payouts/adjust")
+async def admin_adjust_wallet(payload: dict, request: Request):
+    """Admin: manual wallet credit/debit to fix a payout or account mistake."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    user_id = (payload or {}).get("user_id")
+    amount = float((payload or {}).get("amount") or 0)
+    direction = (payload or {}).get("direction", "credit")
+    currency = (payload or {}).get("currency", "USD")
+    reason = (payload or {}).get("reason", "")
+    if not user_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="user_id and a positive amount are required")
+    if not await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+    if direction == "credit":
+        await _credit_wallet_with_txn(user_id, amount, currency, txn_type="admin_adjustment",
+                                      note=f"Admin credit: {reason}".strip())
+    else:
+        await _debit_wallet(user_id, amount, currency)
+        w = await _get_or_create_wallet(user_id)
+        await _record_txn(user_id=user_id, wallet_id=w["id"], type="admin_adjustment",
+                          amount=_round_money(amount), currency=currency, status="completed",
+                          note=f"Admin debit: {reason}".strip())
+    await db.wallet_adjustments.insert_one({"id": str(uuid.uuid4()), "user_id": user_id, "amount": amount,
+        "direction": direction, "currency": currency, "reason": reason, "by": current_user.id,
+        "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"success": True}
+
+
+@api_router.post("/admin/purge-test-data")
+async def admin_purge_test_data(payload: dict, request: Request):
+    """DANGER: wipe all transactional/test data for a clean go-live. Keeps user accounts, merchants,
+    drivers, products/catalog and saved addresses. Requires body {"confirm": "PURGE"}."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if (payload or {}).get("confirm") != "PURGE":
+        raise HTTPException(status_code=400, detail='Confirmation phrase required: {"confirm": "PURGE"}')
+    deleted = {}
+    for coll in ["orders", "settlements", "settlement_batches", "driver_cash_settlements",
+                 "payouts", "vendor_payouts", "order_requests", "wallet_transactions",
+                 "wallet_adjustments", "wallet_funding_requests"]:
+        deleted[coll] = (await db[coll].delete_many({})).deleted_count
+    deleted["claims"] = (await db.support_tickets.delete_many({"category": "claim"})).deleted_count
+    await db.wallets.update_many({}, {"$set": {"balances.USD": 0.0, "balances.TTD": 0.0}})
+    await db.drivers.update_many({}, {"$set": {"cash_outstanding": 0.0, "cash_collected_total": 0.0,
+        "total_earnings": 0.0, "total_deliveries": 0, "status": "offline"}})
+    logging.warning(f"TEST DATA PURGED by admin {current_user.id}: {deleted}")
+    return {"success": True, "deleted": deleted, "wallets_reset": True}
+
+
+@api_router.post("/admin/cleanup-orphan-menu-items")
+async def admin_cleanup_orphan_menu_items(payload: dict, request: Request):
+    """Remove menu items / products whose restaurant_id points at a store that no longer
+    exists (orphaned seed/test data that clutters search but attaches to no storefront).
+    Pass {"dry_run": true} to only count. Real merchants' menus are unaffected (their
+    items are linked to their live vendor id)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    dry_run = bool((payload or {}).get("dry_run"))
+    valid_ids = set()
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        async for d in db[coll].find({}, {"_id": 0, "id": 1}):
+            if d.get("id"):
+                valid_ids.add(d["id"])
+    orphan_ids = []
+    async for m in db.menu_items.find({}, {"_id": 0, "id": 1, "restaurant_id": 1}):
+        if m.get("restaurant_id") not in valid_ids:
+            orphan_ids.append(m.get("id"))
+    removed = 0
+    if not dry_run and orphan_ids:
+        removed = (await db.menu_items.delete_many({"id": {"$in": orphan_ids}})).deleted_count
+        logging.warning(f"ORPHAN MENU ITEMS cleaned by admin {current_user.id}: {removed}")
+    return {"success": True, "orphan_count": len(orphan_ids), "removed": removed, "dry_run": dry_run}
+
+
+@api_router.get("/admin/statements")
+async def admin_payout_statement(request: Request, user_id: str, party_type: str = "all"):
+    """Admin: downloadable CSV statement of everything a driver/merchant was paid and when."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query = {"user_id": user_id}
+    if party_type in ("merchant", "driver"):
+        query["party_type"] = party_type
+    rows = await db.settlements.find(query, {"_id": 0}).sort("created_at", 1).to_list(length=1000)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "name": 1, "email": 1})
+    lines = ["Date,Type,Amount,Currency,Orders,Status,PaidMethod,PaidReference,PaidAt"]
+    total = 0.0
+    for r in rows:
+        amt = float(r.get("amount") or 0)
+        if r.get("external_payout_status") == "paid":
+            total += amt
+        lines.append(",".join([
+            str(r.get("created_at", "")), str(r.get("party_type", "")), f"{amt:.2f}",
+            str(r.get("currency", "USD")), str(r.get("order_count", 0)),
+            str(r.get("external_payout_status", "")), str(r.get("paid_method", "")),
+            str(r.get("paid_reference", "")), str(r.get("paid_at", "")),
+        ]))
+    lines.append(f",,,,,,,,")
+    lines.append(f"Total paid,,{total:.2f},USD,,,,,")
+    csv = "\n".join(lines)
+    name = (user or {}).get("name") or user_id
+    fname = f"statement-{str(name).replace(' ', '_')}.csv"
+    return Response(content=csv, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+DRIVER_CASH_ALERT_USD = float(os.environ.get("DRIVER_CASH_ALERT_USD", "75"))
+
+
+@api_router.get("/admin/alerts/driver-cash")
+async def admin_driver_cash_alerts(request: Request, threshold: Optional[float] = None):
+    """Admin: drivers who owe the platform a large amount of collected cash (COD)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    limit_usd = float(threshold) if threshold is not None else DRIVER_CASH_ALERT_USD
+    rows = await db.drivers.find(
+        {"cash_outstanding": {"$gte": limit_usd}},
+        {"_id": 0, "id": 1, "user_id": 1, "cash_outstanding": 1, "name": 1},
+    ).sort("cash_outstanding", -1).to_list(length=200)
+    alerts = []
+    for d in rows:
+        u = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}) if d.get("user_id") else None
+        alerts.append({
+            "driver_id": d.get("id"), "user_id": d.get("user_id"),
+            "name": (u or {}).get("name") or d.get("name"), "email": (u or {}).get("email"),
+            "phone": (u or {}).get("phone"),
+            "cash_outstanding": round(float(d.get("cash_outstanding") or 0), 2),
+        })
+    return {"threshold_usd": limit_usd, "count": len(alerts), "alerts": alerts}
+
+
 @api_router.post("/orders/create", response_model=Order)
 async def create_new_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
     """Create new order with payment processing"""
@@ -3040,41 +4952,51 @@ async def create_new_order(order_data: OrderCreate, current_user: User = Depends
     
     return order
 
-@api_router.get("/orders/{order_id}", response_model=Order)
+@api_router.get("/orders/{order_id}")
 async def get_order(order_id: str, current_user: User = Depends(get_current_user)):
     """Get order by ID"""
-    order = await db.orders.find_one({"id": order_id})
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
     # Check if user has access to this order
-    if order['customer_id'] != current_user.id:
-        # Check if user is the driver or restaurant owner
-        if current_user.user_type == "driver":
-            driver = await db.drivers.find_one({"user_id": current_user.id})
-            if not driver or order.get('driver_id') != driver['id']:
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user.user_type == "restaurant":
-            restaurant = await db.restaurants.find_one({"user_id": current_user.id})
-            if not restaurant or order.get('restaurant_id') != restaurant['id']:
-                raise HTTPException(status_code=403, detail="Access denied")
-        else:
+    is_customer = order.get('customer_id') == current_user.id or order.get('user_id') == current_user.id
+    if not is_customer and current_user.user_type not in ('admin', 'agent'):
+        allowed = False
+        # Assigned driver?
+        if current_user.user_type == 'driver':
+            driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+            if driver and order.get('driver_id') == driver['id']:
+                allowed = True
+        # Vendor owner? (restaurant OR business OR car rental — match any vendor id on the order)
+        if not allowed:
+            order_vendor_ids = {order.get('restaurant_id'), order.get('vendor_id'), order.get('business_id')}
+            order_vendor_ids.discard(None)
+            if order_vendor_ids:
+                for coll in ('restaurants', 'businesses', 'car_rental_companies'):
+                    vdoc = await db[coll].find_one({"user_id": current_user.id}, {"_id": 0, "id": 1})
+                    if vdoc and vdoc.get('id') in order_vendor_ids:
+                        allowed = True
+                        break
+        if not allowed:
             raise HTTPException(status_code=403, detail="Access denied")
-    
-    return Order(**order)
 
-@api_router.get("/orders/user/history", response_model=List[Order])
+    # Return the raw document (minus _id) so partial/legacy orders never 500 the tracking UI.
+    return order
+
+@api_router.get("/orders/user/history")
 async def get_user_order_history(
     current_user: User = Depends(get_current_user),
     limit: int = 20,
     skip: int = 0
 ):
-    """Get order history for current user"""
+    """Get order history for current user (raw docs — resilient to legacy/partial orders)."""
     orders = await db.orders.find(
-        {"customer_id": current_user.id}
+        {"$or": [{"customer_id": current_user.id}, {"user_id": current_user.id}]},
+        {"_id": 0},
     ).sort("created_at", -1).skip(skip).limit(limit).to_list(length=None)
-    
-    return [Order(**order) for order in orders]
+
+    return orders
 
 # Chat/Messaging Routes — 3-party (customer ↔ driver ↔ merchant) order chat
 async def _resolve_order_participants(order: dict) -> dict:
@@ -3811,56 +5733,101 @@ async def confirm_payment(
 
 
 class DriverApplicationCreate(BaseModel):
-    license_number: str
-    vehicle_type: str
-    vehicle_plate: str
+    license_number: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    vehicle_plate: Optional[str] = None
     documents: Optional[Dict[str, str]] = None
     personal_info: Optional[Dict[str, Any]] = None
     vehicle_info: Optional[Dict[str, Any]] = None
     banking_info: Optional[Dict[str, Any]] = None
+    is_draft: Optional[bool] = False  # partial save while the applicant is still filling the form
+
+
+def _driver_app_is_complete(app: "DriverApplicationCreate") -> bool:
+    """An application is 'complete' (ready for review) when the core vehicle/licence fields
+    and at least one document are present. Otherwise it's captured as 'incomplete'."""
+    has_core = bool(app.license_number and app.vehicle_type and app.vehicle_plate)
+    has_docs = bool(app.documents)
+    return has_core and has_docs and not app.is_draft
 
 
 @api_router.post("/drivers", response_model=Driver)
 async def create_driver(application: DriverApplicationCreate, request: Request):
-    """Create a driver application. New applicants are 'pending' until an admin
-    approves them — they cannot go online or operate until then."""
+    """Create / update a driver application. Applicants are captured even when the form
+    isn't finished ('incomplete') so admins ALWAYS see them; a fully-filled app is 'pending'
+    review. Applicants can never go online until an admin approves them."""
     current_user = await get_current_user_from_request(request)
 
-    # Prevent duplicate applications
+    complete = _driver_app_is_complete(application)
+    pi = application.personal_info or {}
+    applicant_name = pi.get("name") or pi.get("full_name") or current_user.name
+    applicant_email = pi.get("email") or current_user.email
+    applicant_phone = pi.get("phone") or current_user.phone
+
+    # If a record already exists, decide based on its state instead of always blocking.
     existing = await db.drivers.find_one({"user_id": current_user.id})
     if existing:
-        raise HTTPException(status_code=400, detail="You already have a driver application on file.")
+        est = (existing.get("status") or "").lower()
+        if est in ("active", "approved", "online", "offline", "busy"):
+            raise HTTPException(status_code=400, detail="You're already an approved driver.")
+        if est == "rejected":
+            raise HTTPException(status_code=400, detail="Your driver application was rejected. Please contact support.")
+        # Complete → 'pending' (ready to review). Incomplete → 'incomplete' (unless it was
+        # already fully submitted before — never downgrade a real 'pending' to 'incomplete').
+        new_status = "pending" if complete else ("pending" if est in ("pending", "pending_approval") else "incomplete")
+        set_fields = {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}
+        # Only overwrite fields the applicant actually provided (partial saves don't wipe data).
+        for k, v in {
+            "license_number": application.license_number, "vehicle_type": application.vehicle_type,
+            "vehicle_plate": application.vehicle_plate, "documents": application.documents,
+            "personal_info": application.personal_info, "vehicle_info": application.vehicle_info,
+            "banking_info": application.banking_info,
+        }.items():
+            if v:
+                set_fields[k] = v
+        await db.drivers.update_one({"id": existing["id"]}, {"$set": set_fields})
+        refreshed = await db.drivers.find_one({"id": existing["id"]}, {"_id": 0})
+        info = {"id": existing["id"], "name": applicant_name, "email": applicant_email,
+                "phone": applicant_phone, "vehicle_type": application.vehicle_type, "city": pi.get("city")}
+        if complete:
+            info["source"] = "the app (resubmitted)"
+            asyncio.create_task(_notify_new_application("driver", info))
+        elif not existing.get("incomplete_notified"):
+            await db.drivers.update_one({"id": existing["id"]}, {"$set": {"incomplete_notified": True}})
+            asyncio.create_task(_notify_incomplete_application(info))
+        return refreshed
 
     driver = Driver(
         user_id=current_user.id,
-        license_number=application.license_number,
-        vehicle_type=application.vehicle_type,
-        vehicle_plate=application.vehicle_plate,
+        license_number=application.license_number or "PENDING",
+        vehicle_type=application.vehicle_type or "PENDING",
+        vehicle_plate=application.vehicle_plate or "PENDING",
         documents=application.documents,
         personal_info=application.personal_info,
         vehicle_info=application.vehicle_info,
         banking_info=application.banking_info,
-        status="pending",  # awaiting admin identity review
+        status="pending" if complete else "incomplete",
     )
 
     driver_dict = prepare_for_mongo(driver.dict())
+    if not complete:
+        driver_dict["incomplete_notified"] = True
     await db.drivers.insert_one(driver_dict)
 
     # Create driver wallet
     wallet = DriverWallet(driver_id=driver.id)
     await db.driver_wallets.insert_one(wallet.dict())
 
-    # Notify the team (email + WhatsApp) and acknowledge the applicant by email.
-    pi = application.personal_info or {}
-    asyncio.create_task(_notify_new_application("driver", {
-        "id": driver.id,
-        "name": pi.get("name") or current_user.name,
-        "email": pi.get("email") or current_user.email,
-        "phone": pi.get("phone") or current_user.phone,
-        "vehicle_type": application.vehicle_type,
-        "city": pi.get("city"),
+    # Notify the team (email + WhatsApp) and acknowledge/remind the applicant by email.
+    info = {
+        "id": driver.id, "name": applicant_name, "email": applicant_email,
+        "phone": applicant_phone, "vehicle_type": application.vehicle_type, "city": pi.get("city"),
         "source": "the app",
-    }))
+    }
+    if complete:
+        asyncio.create_task(_notify_new_application("driver", info))
+    else:
+        asyncio.create_task(_notify_incomplete_application(info))
 
     # NOTE: user_type is NOT switched to 'driver' until approval — keeps the
     # account restricted (still a customer) while the application is reviewed.
@@ -4216,6 +6183,35 @@ async def backfill_approved_merchants():
         logging.info(f"✅ backfill_approved_merchants: provisioned {healed} approved merchant(s)")
 
 
+async def backfill_approved_drivers():
+    """Idempotent self-heal: drivers approved under an older build may have an ACTIVE driver
+    record but an un-promoted `customer` account role — so the Driver panel/dashboard is
+    blocked and they can't go online. Promote the account role for every active/approved
+    driver that has a linked user_id. SECURE: only drivers with a real user_id are touched."""
+    healed = 0
+    cursor = db.drivers.find(
+        {"status": {"$in": ["active", "approved", "online", "busy", "offline"]},
+         "user_id": {"$nin": [None, ""]}},
+        {"_id": 0, "user_id": 1, "status": 1},
+    )
+    async for drv in cursor:
+        uid = drv.get("user_id")
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "user_type": 1, "is_owner": 1})
+        if not u:
+            continue
+        # Skip privileged accounts (owner/admin/agent) and already-promoted drivers.
+        if u.get("is_owner") or u.get("user_type") in ("admin", "agent", "driver"):
+            continue
+        try:
+            if await promote_user_role(uid, "driver"):
+                healed += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"backfill_approved_drivers: failed for user {uid}: {exc}")
+    if healed:
+        logging.info(f"✅ backfill_approved_drivers: promoted {healed} approved driver(s)")
+
+
+
 
 async def seed_owner_admin():
     """Idempotently create the owner/super-admin from env. Never demotes an
@@ -4343,7 +6339,7 @@ async def get_invite(token: str):
 
 
 @api_router.post("/auth/invite/accept", response_model=Token)
-async def accept_invite(payload: InviteAccept):
+async def accept_invite(payload: InviteAccept, response: Response):
     """Accept an invite (public): create or promote the account with the invited role."""
     invite = await db.admin_invites.find_one({"token": payload.token, "used": False})
     if not invite:
@@ -4370,6 +6366,7 @@ async def accept_invite(payload: InviteAccept):
     await db.admin_invites.update_one({"token": payload.token}, {"$set": {"used": True}})
     await _log_admin_action(user.id, user.email, "invite_accepted", email, role)
     access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    set_auth_cookie(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "user": user.dict()}
 
 
@@ -4382,7 +6379,7 @@ async def change_password(payload: ChangePassword, request: Request):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
-    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}})
+    await db.users.update_one({"id": current_user.id}, {"$set": {"hashed_password": get_password_hash(payload.new_password)}, "$unset": {"must_change_password": ""}})
     return {"success": True}
 
 
@@ -4460,6 +6457,124 @@ async def admin_mail_reply(mailbox: str, message_id: str, payload: MailReplyRequ
         return {"success": True}
     except graph_mail.GraphConsentMissing as exc:
         raise HTTPException(status_code=409, detail=f"Microsoft 365 admin consent not granted yet: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# AI-assisted reply drafting (DRAFT-ONLY) for Mail + WhatsApp support.
+# Admins get a suggested reply they review/edit before sending. Powered by the
+# Emergent LLM key (Claude Sonnet). Business FAQ + tone are admin-editable.
+# ---------------------------------------------------------------------------
+DEFAULT_AI_REPLY_BUSINESS_INFO = (
+    "IslandHop is a Caribbean delivery & taxi platform (food, groceries, pharmacy, courier, taxi) "
+    "serving Trinidad & Tobago and the wider Caribbean.\n"
+    "- Customers place orders in the IslandHop app; approved drivers deliver them.\n"
+    "- Support hours: 8am-10pm daily.\n"
+    "- For refunds/billing disputes: tell the customer a team member will review and follow up.\n"
+    "(ADMIN: replace this with your real FAQ — delivery areas, hours, fees, order & refund policy — "
+    "in Admin -> Mail -> 'AI reply knowledge'.)"
+)
+AI_REPLY_HARD_RULES = (
+    "HARD RULES (never break these):\n"
+    "- NEVER promise, approve, or confirm a refund. If asked, say the team will review and follow up.\n"
+    "- NEVER quote specific prices, fees, or dollar amounts. Point them to the app for exact pricing.\n"
+    "- Never invent order details, delivery times, or policies you were not given.\n"
+    "- If you don't know something, say a team member will follow up shortly.\n"
+)
+
+
+async def _get_ai_reply_settings() -> dict:
+    doc = await db.app_settings.find_one({"id": "ai_reply"}, {"_id": 0})
+    if not doc:
+        doc = {}
+    return {
+        "business_info": doc.get("business_info") or DEFAULT_AI_REPLY_BUSINESS_INFO,
+        "tone": doc.get("tone") or "Warm, friendly and Caribbean-branded",
+        "enabled": doc.get("enabled", True),
+        "auto_suggest": doc.get("auto_suggest", False),
+    }
+
+
+class AiReplySettings(BaseModel):
+    business_info: Optional[str] = None
+    tone: Optional[str] = None
+    enabled: Optional[bool] = None
+    auto_suggest: Optional[bool] = None
+
+
+@api_router.get("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_get(request: Request):
+    await _require_admin_or_agent(request)
+    return await _get_ai_reply_settings()
+
+
+@api_router.put("/admin/ai-reply/settings")
+async def admin_ai_reply_settings_put(payload: AiReplySettings, request: Request):
+    await _require_admin_or_agent(request)
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        await db.app_settings.update_one({"id": "ai_reply"}, {"$set": update}, upsert=True)
+    return await _get_ai_reply_settings()
+
+
+class AiReplyDraftRequest(BaseModel):
+    channel: str = "email"            # 'email' | 'whatsapp'
+    customer_message: str
+    customer_name: Optional[str] = None
+    context: Optional[str] = None     # recent thread text, optional
+    avoid_draft: Optional[str] = None  # a previous draft to reword differently (variations)
+
+
+@api_router.post("/admin/ai-reply/draft")
+async def admin_ai_reply_draft(payload: AiReplyDraftRequest, request: Request):
+    """Generate a suggested support reply for an admin to review & edit (draft-only)."""
+    await _require_admin_or_agent(request)
+    if not (payload.customer_message or "").strip():
+        raise HTTPException(status_code=400, detail="No customer message to draft a reply for.")
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    tone = s["tone"]
+    business_info = s["business_info"]
+    channel = "WhatsApp" if (payload.channel or "").lower() == "whatsapp" else "email"
+    length_hint = ("Keep it short — 1 to 3 sentences, suitable for a WhatsApp chat."
+                   if channel == "WhatsApp"
+                   else "Keep it concise and well structured, 1 to 2 short paragraphs.")
+    system_message = (
+        f"You are a customer-support agent for IslandHop, a Caribbean delivery & taxi platform. "
+        f"You draft a reply to a customer's {channel} message on behalf of the support team. "
+        f"Tone: {tone}. {length_hint}\n\n"
+        f"BUSINESS INFO / FAQ (use ONLY this for facts):\n{business_info}\n\n"
+        f"{AI_REPLY_HARD_RULES}\n"
+        f"LANGUAGE: Always write your reply in the SAME language the customer used in their latest "
+        f"message (e.g. Spanish → Spanish, French → French, Haitian Creole → Haitian Creole, "
+        f"English → English). Match their language and a natural, friendly local register.\n"
+        f"Write ONLY the reply text itself — no subject line, no 'Draft:' prefix, no meta commentary. "
+        f"Address the customer by their first name if provided, and sign off as 'The IslandHop Team'."
+    )
+    parts = []
+    if payload.customer_name:
+        parts.append(f"Customer name: {payload.customer_name}")
+    if payload.context:
+        parts.append(f"Recent conversation (oldest first):\n{payload.context}")
+    parts.append(f"Customer's latest message:\n{payload.customer_message}")
+    if (payload.avoid_draft or "").strip():
+        parts.append(
+            "The admin wasn't happy with this earlier draft — write a DIFFERENT reply with fresh "
+            "wording and a different structure (don't just tweak a word). Earlier draft to avoid "
+            f"repeating:\n{payload.avoid_draft.strip()}"
+        )
+    parts.append("Write the suggested reply now.")
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"ai-reply-{uuid.uuid4()}",
+            system_message=system_message,
+        ).with_model("anthropic", "claude-sonnet-4-6")
+        draft = await chat.send_message(UserMessage(text="\n\n".join(parts)))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI reply draft failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate a draft right now. Please try again.")
+    return {"draft": (draft or "").strip()}
 
 
 # ---------------------------------------------------------------------------
@@ -4971,7 +7086,7 @@ async def request_driver_withdrawal(driver_id: str, amount: float, method: str, 
 @api_router.get("/drivers/{driver_id}/withdrawals")
 async def get_driver_withdrawals(driver_id: str):
     """Get driver's withdrawal history"""
-    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}).to_list(length=None)
+    withdrawals = await db.driver_withdrawals.find({"driver_id": driver_id}, {"_id": 0}).to_list(length=None)
     return withdrawals
 
 # Driver Dashboard Routes
@@ -4980,6 +7095,10 @@ async def get_current_driver(request: Request):
     """Get current driver profile"""
     current_user = await get_current_user_from_request(request)
     driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        # Approved driver (role granted) whose drivers record went missing → self-heal
+        # so the profile always loads instead of showing a broken 404.
+        driver = await _ensure_driver_record(current_user.dict())
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     return driver
@@ -5034,6 +7153,11 @@ async def update_driver_status(payload: DriverStatusUpdate, request: Request):
         {"$set": {"status": status}}
     )
 
+    # When a driver comes online, re-offer any unassigned active orders so they immediately
+    # see pending pickups (covers orders created/readied before they came online).
+    if status == "online":
+        asyncio.create_task(_offer_open_orders_to_driver(driver["id"]))
+
     return {"success": True, "status": status}
 
 @api_router.get("/drivers/order-requests")
@@ -5044,13 +7168,33 @@ async def get_driver_order_requests(request: Request):
     if not driver:
         raise HTTPException(status_code=404, detail="Driver not found")
     
-    # Get orders where driver was notified but not yet assigned
+    # Orders this driver was offered that are still unassigned (any non-terminal status —
+    # not just "pending" — so ready/confirmed orders awaiting a driver still show up).
     orders = await db.orders.find({
         "drivers_notified": driver["id"],
-        "driver_id": None,
-        "status": "pending"
-    }).to_list(length=None)
+        "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
+        "status": {"$nin": ["cancelled", "delivered", "refunded"]},
+    }, {"_id": 0}).limit(50).to_list(length=50)
     
+    return orders
+
+@api_router.get("/drivers/available-orders")
+async def get_available_orders(request: Request):
+    """Open pool: every unassigned order (delivery, grocery, pharmacy, courier & taxi)
+    awaiting a driver — visible to ALL approved drivers so anyone can grab a waiting job."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    if driver.get("status") in ("pending", "pending_approval", "rejected", "suspended"):
+        return []
+    orders = await db.orders.find({
+        "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}, {"driver_id": ""}],
+        "status": {"$in": [
+            "confirmed", "preparing", "ready", "ready_for_pickup", "searching_driver",
+            "pending_driver", "accepted", "awaiting_driver", "pending",
+        ]},
+    }, {"_id": 0}).sort("created_at", 1).limit(50).to_list(length=50)
     return orders
 
 @api_router.get("/drivers/active-orders")
@@ -5064,8 +7208,8 @@ async def get_driver_active_orders(request: Request):
     # Get orders assigned to driver that are not yet delivered
     orders = await db.orders.find({
         "driver_id": driver["id"],
-        "status": {"$in": ["ready", "picked_up", "in_transit"]}
-    }).sort("created_at", 1).to_list(length=None)
+        "status": {"$in": ["assigned", "confirmed", "preparing", "ready", "picked_up", "in_transit"]}
+    }, {"_id": 0}).sort("created_at", 1).limit(100).to_list(length=100)
     
     return orders
 
@@ -5155,30 +7299,404 @@ async def get_order_driver_location(order_id: str):
 import math as _math
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in km between two lat/lng points."""
+    from math import radians, sin, cos, asin, sqrt
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 2 * R * asin(sqrt(a))
+
+
+def _addr_coords(addr: Optional[dict]):
+    """Pull (lat, lng) from an address dict, tolerating lat/latitude + lng/longitude keys."""
+    if not addr:
+        return None
+    lat = addr.get("latitude", addr.get("lat"))
+    lng = addr.get("longitude", addr.get("lng"))
+    if lat is None or lng is None:
+        return None
+    try:
+        return (float(lat), float(lng))
+    except (TypeError, ValueError):
+        return None
+
+
+# Trinidad centroid — a safe dispatch fallback so an order with an un-geocodable pickup
+# still reaches online drivers (T&T is small) instead of silently stalling forever.
+_TT_CENTER = (10.6918, -61.2225)
+
+
+def _address_query_string(addr) -> str:
+    """Flatten an address dict (or string) into a single geocodable query string."""
+    if isinstance(addr, dict):
+        parts = [addr.get("street"), addr.get("full_address"), addr.get("location"),
+                 addr.get("city"), addr.get("parish"), addr.get("state"), addr.get("country")]
+        seen, out = set(), []
+        for p in parts:
+            p = (p or "").strip()
+            if p and p.lower() not in seen:
+                seen.add(p.lower())
+                out.append(p)
+        return ", ".join(out)
+    return str(addr or "").strip()
+
+
+async def _geocode_address(addr) -> Optional[tuple]:
+    """Geocode an address dict/string via Google Maps Geocoding API → (lat, lng) or None."""
+    key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    q = _address_query_string(addr)
+    if not key or not q:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address": q, "region": "tt", "key": key},
+            )
+        data = resp.json()
+        if data.get("status") == "OK" and data.get("results"):
+            loc = data["results"][0]["geometry"]["location"]
+            return (float(loc["lat"]), float(loc["lng"]))
+        logging.info(f"Geocode returned {data.get('status')} for '{q}'")
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Geocode failed for '{q}': {exc}")
+    return None
+
+
+async def _find_vendor_doc_by_vid(vendor_id: str):
+    """Locate a vendor doc + its collection across restaurants/businesses/car_rental_companies."""
+    for coll in (db.restaurants, db.businesses, db.car_rental_companies):
+        doc = await coll.find_one({"id": vendor_id})
+        if doc:
+            return doc, coll
+    return None, None
+
+
+async def _resolve_pickup_coords(order: dict) -> Optional[tuple]:
+    """Return (lat, lng) for an order's pickup point, resolving+persisting coordinates from
+    the vendor's address (geocoded once, then cached) when the order's pickup_address has
+    none. This is the fix for orders whose pickup_address lacks lat/lng — the whole dispatch
+    chain used to silently bail, so drivers never got offered the job. Returns None only when
+    truly unresolvable (caller then falls back to a broad offer)."""
+    coords = _addr_coords(order.get("pickup_address"))
+    if coords:
+        return coords
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not vendor_id:
+        return None
+    vendor, vcoll = await _find_vendor_doc_by_vid(vendor_id)
+    if not vendor:
+        return None
+    # Cached vendor coords (from a prior geocode) or coords already on the vendor address.
+    vcoords = _addr_coords(vendor.get("address")) or _addr_coords(vendor.get("pickup_coords"))
+    if not vcoords:
+        vcoords = await _geocode_address(vendor.get("address"))
+        if vcoords:
+            await vcoll.update_one(
+                {"id": vendor_id},
+                {"$set": {"pickup_coords": {"lat": vcoords[0], "lng": vcoords[1]}}},
+            )
+    if not vcoords:
+        return None
+    # Persist onto the order's pickup_address so subsequent lookups are instant.
+    pa = dict(order.get("pickup_address") or {})
+    pa["latitude"], pa["longitude"] = vcoords[0], vcoords[1]
+    await db.orders.update_one({"id": order["id"]}, {"$set": {"pickup_address": pa}})
+    order["pickup_address"] = pa
+    return vcoords
+
+
+ACTIVE_DELIVERY_STATUSES = ["assigned", "confirmed", "preparing", "ready", "picked_up", "in_transit"]
+# Average back-road speed used to convert distance saved → time saved (km/h).
+BACKROAD_AVG_KMH = float(os.environ.get("BACKROAD_AVG_KMH", "22"))
+
+
+def _route_distance(start, ordered_stops) -> float:
+    """Total km travelling start → each stop in the given order."""
+    total = 0.0
+    prev = start
+    for s in ordered_stops:
+        total += _haversine_km(prev[0], prev[1], s["coords"][0], s["coords"][1])
+        prev = s["coords"]
+    return total
+
+
+def _optimize_route(start, stops):
+    """Greedy nearest-neighbour ordering of stops from `start`. Returns ordered list."""
+    remaining = list(stops)
+    ordered = []
+    cur = start
+    while remaining:
+        nxt = min(remaining, key=lambda s: _haversine_km(cur[0], cur[1], s["coords"][0], s["coords"][1]))
+        ordered.append(nxt)
+        cur = nxt["coords"]
+        remaining.remove(nxt)
+    return ordered
+
+
+@api_router.get("/driver/route/optimize")
+async def optimize_driver_route(request: Request):
+    """Smart back-road routing: orders the driver's active deliveries into the shortest
+    nearest-neighbour visit sequence from their current location, and reports the
+    distance + time saved vs. the order the jobs came in."""
+    current_user = await get_current_user_from_request(request)
+    driver = await db.drivers.find_one({"user_id": current_user.id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    orders = await db.orders.find(
+        {"driver_id": driver["id"], "status": {"$in": ACTIVE_DELIVERY_STATUSES}},
+        {"_id": 0, "id": 1, "delivery_address": 1, "status": 1, "total": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(length=100)
+
+    stops = []
+    for o in orders:
+        coords = _addr_coords(o.get("delivery_address"))
+        if not coords:
+            continue
+        stops.append({
+            "order_id": o["id"],
+            "label": (o.get("delivery_address") or {}).get("full_address")
+                     or (o.get("delivery_address") or {}).get("location") or "Delivery stop",
+            "coords": coords,
+        })
+
+    loc = driver.get("current_location") or {}
+    start = None
+    sc = _addr_coords(loc) or ((loc.get("lat"), loc.get("lng")) if loc.get("lat") is not None else None)
+    if sc and sc[0] is not None:
+        start = (float(sc[0]), float(sc[1]))
+    # Fall back to the first stop as the start if the driver has no live location.
+    if start is None and stops:
+        start = stops[0]["coords"]
+
+    if len(stops) < 2 or start is None:
+        return {
+            "optimizable": False,
+            "message": "Add at least two active deliveries with map locations to optimize your route.",
+            "stop_count": len(stops),
+        }
+
+    naive_km = _route_distance(start, stops)
+    optimized = _optimize_route(start, stops)
+    optimized_km = _route_distance(start, optimized)
+    saved_km = max(0.0, naive_km - optimized_km)
+    percent = round((saved_km / naive_km) * 100, 1) if naive_km > 0 else 0.0
+
+    ordered_out = []
+    prev = start
+    for i, s in enumerate(optimized):
+        leg = _haversine_km(prev[0], prev[1], s["coords"][0], s["coords"][1])
+        ordered_out.append({
+            "seq": i + 1,
+            "order_id": s["order_id"],
+            "label": s["label"],
+            "lat": s["coords"][0],
+            "lng": s["coords"][1],
+            "leg_km": round(leg, 2),
+        })
+        prev = s["coords"]
+
+    return {
+        "optimizable": True,
+        "start": {"lat": start[0], "lng": start[1]},
+        "stops": ordered_out,
+        "stop_count": len(stops),
+        "optimized_km": round(optimized_km, 2),
+        "naive_km": round(naive_km, 2),
+        "distance_saved_km": round(saved_km, 2),
+        "percent_saved": percent,
+        "time_saved_min": round((saved_km / BACKROAD_AVG_KMH) * 60, 0),
+    }
+
+
+@api_router.get("/admin/dispatch/board")
+async def dispatch_board(request: Request):
+    """Live courier-dispatch board: unassigned active orders + online drivers."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    unassigned = await db.orders.find(
+        {"$or": [{"driver_id": None}, {"driver_id": ""}, {"driver_id": {"$exists": False}}],
+         "status": {"$in": ["pending"] + ACTIVE_DELIVERY_STATUSES},
+         "service_type": {"$in": ["food", "grocery", "pharmacy", "courier"]}},
+        {"_id": 0, "id": 1, "service_type": 1, "status": 1, "total": 1, "driver_earnings": 1,
+         "pickup_address": 1, "delivery_address": 1, "created_at": 1, "customer_phone": 1},
+    ).sort("created_at", -1).limit(50).to_list(length=50)
+    for o in unassigned:
+        o["has_pickup_coords"] = _addr_coords(o.get("pickup_address")) is not None
+
+    drivers = await db.drivers.find(
+        {"status": "online"},
+        {"_id": 0, "id": 1, "name": 1, "current_location": 1, "rating": 1, "phone": 1, "vehicle_type": 1},
+    ).limit(100).to_list(length=100)
+
+    return {"unassigned_orders": unassigned, "online_drivers": drivers,
+            "unassigned_count": len(unassigned), "online_driver_count": len(drivers)}
+
+
+class DispatchRunRequest(BaseModel):
+    order_id: Optional[str] = None
+
+
+@api_router.post("/admin/dispatch/run")
+async def dispatch_run(payload: DispatchRunRequest, request: Request):
+    """Trigger the smart dispatch engine for one order or all unassigned active orders."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    query = {"$or": [{"driver_id": None}, {"driver_id": ""}, {"driver_id": {"$exists": False}}],
+             "status": {"$in": ["pending"] + ACTIVE_DELIVERY_STATUSES},
+             "service_type": {"$in": ["food", "grocery", "pharmacy", "courier"]}}
+    if payload.order_id:
+        query = {"id": payload.order_id}
+    targets = await db.orders.find(query, {"_id": 0, "id": 1, "pickup_address": 1}).limit(50).to_list(length=50)
+
+    results = []
+    for o in targets:
+        if not _addr_coords(o.get("pickup_address")):
+            results.append({"order_id": o["id"], "success": False, "message": "Missing pickup coordinates"})
+            continue
+        try:
+            res = await find_and_assign_driver(o["id"])
+            results.append({"order_id": o["id"], **(res if isinstance(res, dict) else {"success": True})})
+        except HTTPException as he:
+            results.append({"order_id": o["id"], "success": False, "message": he.detail})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"order_id": o["id"], "success": False, "message": str(exc)})
+
+    dispatched = sum(1 for r in results if r.get("success"))
+    return {"processed": len(results), "dispatched": dispatched, "results": results}
+
+
+async def _get_dispatch_auto_run() -> bool:
+    doc = await db.app_settings.find_one({"key": "dispatch"}, {"_id": 0, "auto_run": 1})
+    return bool((doc or {}).get("auto_run", False))
+
+
+@api_router.get("/admin/dispatch/settings")
+async def get_dispatch_settings(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return {"auto_run": await _get_dispatch_auto_run()}
+
+
+class DispatchSettingsRequest(BaseModel):
+    auto_run: bool
+
+
+@api_router.post("/admin/dispatch/settings")
+async def set_dispatch_settings(payload: DispatchSettingsRequest, request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    await db.app_settings.update_one(
+        {"key": "dispatch"},
+        {"$set": {"key": "dispatch", "auto_run": payload.auto_run,
+                  "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": current_user.id}},
+        upsert=True,
+    )
+    return {"auto_run": payload.auto_run}
+
+
+async def _maybe_auto_dispatch(order: dict):
+    """If hands-free dispatch is on and the order has pickup coordinates, auto-assign a driver."""
+    try:
+        if not await _get_dispatch_auto_run():
+            return
+        if (order.get("service_type") or "food") not in ("food", "grocery", "pharmacy", "courier"):
+            return
+        await find_and_assign_driver(order.get("id"))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Auto-dispatch skipped for {order.get('id')}: {exc}")
+
+
+
+async def _ensure_dispatch(order_id: str):
+    """Best-effort: offer an order to drivers if it has no driver yet. Idempotent, never raises.
+    This is the single entry point used across taxi booking + delivery payment paths so a
+    committed order always reaches available drivers."""
+    try:
+        order = await db.orders.find_one({"id": order_id})
+        if not order:
+            return
+        if order.get("driver_id") or order.get("drivers_notified"):
+            return  # already assigned or already offered
+        if order.get("status") in ("cancelled", "delivered", "refunded"):
+            return
+        await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_ensure_dispatch failed for {order_id}: {exc}")
+
+
+async def _redispatch_order(order_id: str):
+    """Force a FRESH driver offer for an unassigned order (bypasses the 'already offered'
+    guard). Used when a merchant marks an order ready or a driver comes online. Never raises."""
+    try:
+        order = await db.orders.find_one({"id": order_id})
+        if not order or order.get("driver_id"):
+            return
+        if order.get("status") in ("cancelled", "delivered", "refunded"):
+            return
+        await find_and_assign_driver(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_redispatch_order failed for {order_id}: {exc}")
+
+
+async def _offer_open_orders_to_driver(driver_id: str):
+    """When a driver comes online, (re)offer recent unassigned delivery orders so a
+    newly-online driver still receives pending jobs. Bounded + never raises."""
+    try:
+        cursor = db.orders.find({
+            "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
+            "status": {"$nin": ["cancelled", "delivered", "refunded", "rejected"]},
+        }, {"_id": 0, "id": 1, "pickup_address": 1}).sort("created_at", -1).limit(20)
+        async for o in cursor:
+            await _redispatch_order(o["id"])
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_offer_open_orders_to_driver failed for {driver_id}: {exc}")
+
+
 async def _find_nearby_drivers(pickup_lat: float, pickup_lng: float, radius_m: int = 10000) -> List[dict]:
-    """Find online drivers within radius. Falls back to any online driver if none nearby."""
-    nearby = await db.drivers.find({
-        "status": "online",
-        "current_location": {
-            "$near": {
-                "$geometry": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
-                "$maxDistance": radius_m,
-            }
-        },
-    }).to_list(length=100)
-    if nearby:
-        return nearby
+    """Find online drivers within radius. Falls back to any online driver if none nearby
+    (or if the geo query can't run because locations aren't stored as GeoJSON)."""
+    try:
+        nearby = await db.drivers.find({
+            "status": "online",
+            "current_location": {
+                "$near": {
+                    "$geometry": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
+                    "$maxDistance": radius_m,
+                }
+            },
+        }).to_list(length=100)
+        if nearby:
+            return nearby
+    except Exception as exc:  # noqa: BLE001 — no 2dsphere match / legacy {lat,lng} points
+        logging.info(f"_find_nearby_drivers geo query fell back to all-online: {exc}")
     return await db.drivers.find({"status": "online"}).limit(100).to_list(length=100)
 
 
 def _score_driver_for_pickup(driver: dict, pickup_lat: float, pickup_lng: float) -> Optional[dict]:
-    """Return {driver, distance_km, score} or None if the driver has no location."""
+    """Return {driver, distance, score}. Online drivers WITHOUT a stored GPS location are
+    still eligible (ranked last with a nominal distance) so they still get offered jobs —
+    previously they were silently dropped, which stalled dispatch for online-but-no-GPS drivers."""
     loc = driver.get("current_location") or {}
-    if not loc:
-        return None
-    distance = _math.sqrt(
-        (loc.get("lat", 0) - pickup_lat) ** 2 + (loc.get("lng", 0) - pickup_lng) ** 2
-    ) * 111  # rough km
+    lat = loc.get("lat", loc.get("latitude"))
+    lng = loc.get("lng", loc.get("longitude"))
+    if lat is None or lng is None:
+        distance = 999.0
+    else:
+        try:
+            distance = _math.sqrt((float(lat) - pickup_lat) ** 2 + (float(lng) - pickup_lng) ** 2) * 111
+        except (TypeError, ValueError):
+            distance = 999.0
     score = (driver.get("rating", 3.0) * 10) - distance
     return {"driver": driver, "distance": distance, "score": score}
 
@@ -5237,6 +7755,8 @@ async def _notify_drivers_about_order(order: dict, candidates: List[dict], top_n
 
 # Exclusive first-look window (seconds) subscribers get before Standard drivers see the job.
 DRIVER_PRIORITY_WINDOW_SECONDS = int(os.environ.get("DRIVER_PRIORITY_WINDOW_SECONDS", "30"))
+# How long an open offer waits for an accept before moving on to the next-nearest drivers.
+DRIVER_OFFER_TIMEOUT_SECONDS = int(os.environ.get("DRIVER_OFFER_TIMEOUT_SECONDS", "30"))
 
 
 async def _priority_second_wave(order_id: str, already_notified: List[str], delay: int):
@@ -5246,23 +7766,97 @@ async def _priority_second_wave(order_id: str, already_notified: List[str], dela
     order = await db.orders.find_one({"id": order_id})
     if not order or order.get("driver_id"):
         return  # a subscriber already accepted — never opens to Standard
-    pickup = order.get("pickup_address", {})
-    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
-    if not pickup_lat or not pickup_lng:
-        return
+    coords = await _resolve_pickup_coords(order) or _TT_CENTER
+    pickup_lat, pickup_lng = coords
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
     remaining = [s for s in scored if s["driver"]["id"] not in set(already_notified)]
     if not remaining:
         return
     notified = await _notify_drivers_about_order(order, remaining, top_n=3)
+    ids = [d["driver_id"] for d in notified]
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
-            "drivers_notified": already_notified + [d["driver_id"] for d in notified],
+            "drivers_notified": already_notified + ids,
             "dispatch_opened_to_all_at": datetime.now(timezone.utc).isoformat(),
+            "dispatch_phase": "open",
         }},
     )
+    await _arm_offer_timeout(order_id, already_notified + ids)
+
+
+_DISPATCH_TERMINAL = ("cancelled", "delivered", "refunded")
+
+
+async def _arm_offer_timeout(order_id: str, notified_ids: List[str]):
+    """Stamp an offer time, remember everyone offered so far, and schedule a watchdog that
+    moves the order on to the next-nearest drivers if nobody accepts in time."""
+    offer_at = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"last_offer_at": offer_at},
+         "$addToSet": {"drivers_offered_all": {"$each": list(notified_ids)}}},
+    )
+    asyncio.create_task(_offer_timeout_watchdog(order_id, offer_at))
+
+
+async def _offer_timeout_watchdog(order_id: str, offer_at: str):
+    """After DRIVER_OFFER_TIMEOUT_SECONDS, if the order is still unassigned and this is still
+    the latest offer, re-offer to the next batch of drivers."""
+    await asyncio.sleep(DRIVER_OFFER_TIMEOUT_SECONDS)
+    try:
+        order = await db.orders.find_one(
+            {"id": order_id},
+            {"_id": 0, "driver_id": 1, "status": 1, "last_offer_at": 1},
+        )
+        if not order or order.get("driver_id"):
+            return
+        if order.get("status") in _DISPATCH_TERMINAL:
+            return
+        if order.get("last_offer_at") != offer_at:
+            return  # a newer offer superseded this watchdog
+        await _reoffer_next_batch(order_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"_offer_timeout_watchdog failed for {order_id}: {exc}")
+
+
+async def _reoffer_next_batch(order_id: str) -> int:
+    """Offer an unassigned order to the next-nearest drivers who haven't been offered it yet
+    (and haven't declined). Marks the order 'no_drivers' when the pool is exhausted. Returns
+    the number of drivers newly offered."""
+    order = await db.orders.find_one({"id": order_id})
+    if not order or order.get("driver_id"):
+        return 0
+    if order.get("status") in _DISPATCH_TERMINAL:
+        return 0
+    pickup_lat, pickup_lng = await _resolve_pickup_coords(order) or _TT_CENTER
+    exclude = set(order.get("drivers_offered_all") or []) | set(order.get("drivers_declined") or [])
+    drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
+    scored = await _score_drivers_with_priority(drivers, pickup_lat, pickup_lng)
+    remaining = [s for s in scored if s["driver"]["id"] not in exclude]
+    if not remaining:
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"drivers_notified": [], "dispatch_status": "no_drivers",
+                      "dispatch_exhausted_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        try:
+            await manager.send_personal_message(
+                json.dumps({"type": "dispatch_no_drivers", "order_id": order_id}),
+                order.get("customer_id"))
+        except Exception:  # noqa: BLE001
+            pass
+        logging.info(f"Dispatch exhausted for order {order_id} — no more drivers to offer")
+        return 0
+    notified = await _notify_drivers_about_order(order, remaining, top_n=3)
+    ids = [d["driver_id"] for d in notified]
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"drivers_notified": ids, "dispatch_phase": "open"}},
+    )
+    await _arm_offer_timeout(order_id, ids)
+    return len(notified)
 
 
 # Smart Driver Matching Routes
@@ -5275,10 +7869,12 @@ async def find_and_assign_driver(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    pickup = order.get("pickup_address", {})
-    pickup_lat, pickup_lng = pickup.get("latitude"), pickup.get("longitude")
-    if not pickup_lat or not pickup_lng:
-        raise HTTPException(status_code=400, detail="Order missing pickup coordinates")
+    coords = await _resolve_pickup_coords(order)
+    if not coords:
+        coords = _TT_CENTER
+        logging.info(f"find_and_assign_driver: order {order_id} pickup coords unresolved; "
+                     f"using T&T-center fallback so online drivers still get offered the job")
+    pickup_lat, pickup_lng = coords
 
     drivers = await _find_nearby_drivers(pickup_lat, pickup_lng)
     if not drivers:
@@ -5308,64 +7904,106 @@ async def find_and_assign_driver(order_id: str):
 
     # No subscribers online — open to everyone immediately (priority ordering still applies).
     notified = await _notify_drivers_about_order(order, scored, top_n=3)
+    notified_ids = [d["driver_id"] for d in notified]
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
-            "drivers_notified": [d["driver_id"] for d in notified],
+            "drivers_notified": notified_ids,
             "driver_search_started": datetime.now(timezone.utc).isoformat(),
             "dispatch_phase": "open",
         }},
     )
+    await _arm_offer_timeout(order_id, notified_ids)
     return {"success": True, "drivers_notified": len(notified), "drivers": notified, "phase": "open"}
 
+class DriverAcceptRequest(BaseModel):
+    driver_id: str
+
+
 @api_router.post("/orders/{order_id}/accept-driver")
-async def driver_accept_order(order_id: str, driver_id: str):
-    """Driver accepts an order assignment"""
+async def driver_accept_order(order_id: str, payload: DriverAcceptRequest, request: Request):
+    """Driver accepts an order assignment. Atomic — only the first driver wins."""
+    current_user = await get_current_user_from_request(request)
+    driver_id = payload.driver_id
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    if current_user.user_type not in ("admin", "agent") and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only accept orders for your own driver account")
+
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
     if order.get("driver_id"):
         raise HTTPException(status_code=400, detail="Order already has a driver")
-    
-    # Assign driver
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "driver_id": driver_id,
-            "driver_assigned_at": datetime.now(timezone.utc).isoformat(),
-            "status": "confirmed"
-        }}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_fields = {"driver_id": driver_id, "driver_assigned_at": now_iso, "updated_at": now_iso}
+    # Don't downgrade a delivery the merchant has already progressed; only advance a fresh order.
+    if (order.get("status") or "pending") == "pending":
+        set_fields["status"] = "confirmed"
+
+    # Atomic claim: only assign if still driver-less (prevents two drivers grabbing one order).
+    res = await db.orders.update_one(
+        {"id": order_id, "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}]},
+        {"$set": set_fields},
     )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Order already has a driver")
 
     # Finalize delivery-fee split based on this driver's subscription (10% vs 20%)
     driver_doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
     await _finalize_driver_split(order_id, driver_doc or {})
-    
+
     # Update driver status
-    await db.drivers.update_one(
-        {"id": driver_id},
-        {"$set": {"status": "busy"}}
-    )
-    
+    await db.drivers.update_one({"id": driver_id}, {"$set": {"status": "busy"}})
+
     # Notify customer
     await manager.send_personal_message(
-        json.dumps({
-            "type": "driver_assigned",
-            "order_id": order_id,
-            "driver_id": driver_id
-        }),
-        order["customer_id"]
+        json.dumps({"type": "driver_assigned", "order_id": order_id, "driver_id": driver_id}),
+        order["customer_id"],
     )
-    
+    # Notify the merchant so their dashboard shows the assigned driver live (no manual refresh).
+    try:
+        vendor_id = order.get("vendor_id") or order.get("restaurant_id") or order.get("business_id")
+        owner_uid = order.get("vendor_user_id") or order.get("merchant_id")
+        if not owner_uid and vendor_id:
+            _, vdoc = await _find_vendor_by_id(vendor_id)
+            owner_uid = (vdoc or {}).get("user_id")
+        if owner_uid:
+            await manager.send_personal_message(
+                json.dumps({"type": "driver_assigned", "order_id": order_id, "driver_id": driver_id}),
+                owner_uid,
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return {"success": True, "message": "Order accepted"}
 
+
 @api_router.post("/orders/{order_id}/reject-driver")
-async def driver_reject_order(order_id: str, driver_id: str):
-    """Driver rejects an order assignment"""
-    # Continue searching for next driver
-    # In production, implement timeout and move to next driver automatically
-    return {"success": True, "message": "Order rejected, searching for another driver"}
+async def driver_reject_order(order_id: str, payload: DriverAcceptRequest, request: Request):
+    """Driver declines an order offer — remove them from the notified list so they aren't
+    re-offered, and keep the order open for other drivers."""
+    current_user = await get_current_user_from_request(request)
+    driver_id = payload.driver_id
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "user_id": 1})
+    if driver and current_user.user_type not in ("admin", "agent") and driver.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    # Remove the decliner from the active offer and remember the decline so they aren't re-offered.
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {"drivers_notified": driver_id},
+         "$addToSet": {"drivers_declined": driver_id}},
+    )
+    # If nobody else currently holds the offer and the order is still unassigned, immediately
+    # re-offer to the next-nearest driver instead of leaving it stuck.
+    order = await db.orders.find_one(
+        {"id": order_id}, {"_id": 0, "driver_id": 1, "status": 1, "drivers_notified": 1})
+    if (order and not order.get("driver_id")
+            and order.get("status") not in _DISPATCH_TERMINAL
+            and not (order.get("drivers_notified") or [])):
+        asyncio.create_task(_reoffer_next_batch(order_id))
+    return {"success": True, "message": "Order declined, searching for another driver"}
 
 # Rating & Review Routes
 async def _award_five_star_bonus(rating: Rating) -> None:
@@ -5741,7 +8379,7 @@ async def get_vendor_ratings(vendor_id: str, limit: int = 20, offset: int = 0):
     ratings = await db.ratings.find({
         "vendor_id": vendor_id,
         "vendor_rating": {"$ne": None}
-    }).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit).to_list(length=None)
 
     # Batch-fetch all customer names in a single query
     customer_ids = list({r["customer_id"] for r in ratings if r.get("customer_id")})
@@ -5889,7 +8527,7 @@ async def get_driver_ratings(driver_id: str, limit: int = 20):
     ratings = await db.ratings.find({
         "driver_id": driver_id,
         "driver_rating": {"$ne": None}
-    }).sort("created_at", -1).limit(limit).to_list(length=None)
+    }, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=None)
     
     return ratings
 
@@ -5934,7 +8572,7 @@ async def get_user_notifications(request: Request, unread_only: bool = False):
     if unread_only:
         query["read"] = False
     
-    notifications = await db.notifications.find(query).sort("created_at", -1).limit(50).to_list(length=None)
+    notifications = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=None)
     return notifications
 
 @api_router.put("/notifications/{notification_id}/read")
@@ -5969,6 +8607,22 @@ async def get_rental_companies():
     """Get all active car rental companies"""
     companies = await db.car_rental_companies.find({"status": "active"}).to_list(length=None)
     return [CarRentalCompany(**company) for company in companies]
+
+@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
+async def get_rental_bookings(request: Request):
+    """Get rental bookings for current user"""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type == "customer":
+        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
+    elif current_user.user_type == "car_rental":
+        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
+        if company:
+            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
+        else:
+            bookings = []
+    else:
+        bookings = []
+    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.get("/car-rentals/{company_id}", response_model=CarRentalCompany)
 async def get_rental_company(company_id: str):
@@ -6041,24 +8695,6 @@ async def create_rental_booking(booking: RentalBooking, request: Request):
     )
     
     return booking
-
-@api_router.get("/car-rentals/bookings", response_model=List[RentalBooking])
-async def get_rental_bookings(request: Request):
-    """Get rental bookings for current user"""
-    current_user = await get_current_user_from_request(request)
-    
-    if current_user.user_type == "customer":
-        bookings = await db.rental_bookings.find({"customer_id": current_user.id}).to_list(length=None)
-    elif current_user.user_type == "car_rental":
-        company = await db.car_rental_companies.find_one({"user_id": current_user.id})
-        if company:
-            bookings = await db.rental_bookings.find({"rental_company_id": company["id"]}).to_list(length=None)
-        else:
-            bookings = []
-    else:
-        bookings = []
-    
-    return [RentalBooking(**booking) for booking in bookings]
 
 @api_router.put("/car-rentals/bookings/{booking_id}/status")
 async def update_booking_status(booking_id: str, status: str, request: Request):
@@ -6730,6 +9366,9 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
             "address": doc.get("address") or {},
             "delivery_fee": doc.get("delivery_fee"),
             "minimum_order": doc.get("minimum_order"),
+            "banking_info": doc.get("banking_info") or {},
+            "business_hours": doc.get("business_hours") or None,
+            "pickup_coords": doc.get("pickup_coords") or None,
         }
     # restaurants / car rental companies use canonical fields
     return {
@@ -6743,7 +9382,45 @@ def _normalize_vendor_profile(coll: str, doc: dict) -> dict:
         "address": doc.get("address") or {},
         "delivery_fee": doc.get("delivery_fee"),
         "minimum_order": doc.get("minimum_order"),
+        "banking_info": doc.get("banking_info") or {},
+        "business_hours": doc.get("business_hours") or None,
+        "pickup_coords": doc.get("pickup_coords") or None,
     }
+
+
+async def _find_vendor_by_id(vendor_id: str):
+    """Return (collection_name, doc) for a vendor located by its vendor id (any type)."""
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0})
+        if doc:
+            return coll, doc
+    return None, None
+
+
+def _merchant_update_set(coll: str, fields: dict) -> dict:
+    """Map canonical profile fields to the correct per-collection storage keys."""
+    update = {}
+    if coll == "businesses":
+        if "name" in fields:
+            update["business_name"] = fields["name"].strip() if isinstance(fields["name"], str) else fields["name"]
+        if "description" in fields:
+            update["business_description"] = fields["description"]
+        for k in ("phone", "email", "address", "delivery_fee", "minimum_order",
+                  "banking_info", "business_hours", "pickup_coords"):
+            if k in fields:
+                update[k] = fields[k]
+    else:
+        for k in ("name", "description", "cuisine_type", "phone", "email",
+                  "address", "delivery_fee", "minimum_order"):
+            if k in fields:
+                update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+        if "banking_info" in fields:
+            update["banking_info"] = fields["banking_info"]
+        if "business_hours" in fields:
+            update["business_hours"] = fields["business_hours"]
+        if "pickup_coords" in fields:
+            update["pickup_coords"] = fields["pickup_coords"]
+    return update
 
 
 class MerchantProfileUpdate(BaseModel):
@@ -6755,6 +9432,9 @@ class MerchantProfileUpdate(BaseModel):
     address: Optional[Dict[str, str]] = None
     delivery_fee: Optional[float] = None
     minimum_order: Optional[float] = None
+    banking_info: Optional[Dict[str, Any]] = None
+    business_hours: Optional[Dict[str, Any]] = None
+    pickup_coords: Optional[Dict[str, float]] = None
 
 
 @api_router.get("/merchant/profile")
@@ -6779,21 +9459,7 @@ async def update_merchant_profile(payload: MerchantProfileUpdate, request: Reque
         raise HTTPException(status_code=404, detail="No merchant account found for this user")
 
     fields = {k: v for k, v in payload.dict().items() if v is not None}
-    update = {}
-    if coll == "businesses":
-        # Map canonical → businesses field names
-        if "name" in fields:
-            update["business_name"] = fields["name"].strip()
-        if "description" in fields:
-            update["business_description"] = fields["description"]
-        for k in ("phone", "email", "address"):
-            if k in fields:
-                update[k] = fields[k]
-    else:
-        for k in ("name", "description", "cuisine_type", "phone", "email",
-                  "address", "delivery_fee", "minimum_order"):
-            if k in fields:
-                update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+    update = _merchant_update_set(coll, fields)
 
     if update:
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6846,6 +9512,254 @@ async def update_my_storefront(payload: StorefrontUpdate, request: Request):
     await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
     doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
     return {"success": True, "storefront": doc}
+
+
+# ============================================================
+# Admin "Manage Profile" — admin can view & edit any merchant / driver /
+# customer profile directly (name, contact, address, banking, store hours,
+# vehicle/license, and logo/cover images). Fully admin-gated + audit-logged.
+# ============================================================
+class AdminAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    banking_info: Optional[Dict[str, Any]] = None
+
+
+class AdminStorefrontImages(BaseModel):
+    logo: Optional[str] = None
+    cover: Optional[str] = None
+
+
+async def _require_admin(request: Request):
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+@api_router.get("/admin/users/{user_id}/manage")
+async def admin_get_user_manage(user_id: str, request: Request):
+    """Admin: consolidated editable view of a user's account + merchant + driver records."""
+    await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    out = {
+        "user_id": user_id,
+        "account": {
+            "name": user.get("name"),
+            "phone": user.get("phone"),
+            "email": user.get("email"),
+            "user_type": user.get("user_type"),
+            "status": user.get("status") or "active",
+            "banking_info": user.get("banking_info") or {},
+        },
+        "merchant": None,
+        "driver": None,
+    }
+    coll, doc = await _find_vendor_doc(user_id)
+    if doc:
+        prof = _normalize_vendor_profile(coll, doc)
+        sf = await db.merchant_storefronts.find_one(
+            {"vendor_id": doc["id"]}, {"_id": 0, "logo": 1, "cover": 1})
+        prof["vendor_id"] = doc["id"]
+        prof["logo"] = (sf or {}).get("logo")
+        prof["cover"] = (sf or {}).get("cover")
+        out["merchant"] = prof
+    drv = await db.drivers.find_one({"user_id": user_id}, {"_id": 0})
+    if drv:
+        out["driver"] = {
+            "driver_id": drv.get("id"),
+            "license_number": drv.get("license_number"),
+            "vehicle_type": drv.get("vehicle_type"),
+            "vehicle_plate": drv.get("vehicle_plate"),
+            "status": drv.get("status"),
+            "personal_info": drv.get("personal_info") or {},
+            "vehicle_info": drv.get("vehicle_info") or {},
+            "banking_info": drv.get("banking_info") or {},
+        }
+    return out
+
+
+@api_router.put("/admin/users/{user_id}/account")
+async def admin_update_user_account(user_id: str, payload: AdminAccountUpdate, request: Request):
+    """Admin: edit a user's core account fields (name, phone, email, banking)."""
+    current_user = await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    fields = {k: v for k, v in payload.dict().items() if v is not None}
+    update = {}
+    for k in ("name", "phone"):
+        if k in fields:
+            update[k] = fields[k].strip() if isinstance(fields[k], str) else fields[k]
+    if "email" in fields:
+        new_email = fields["email"].strip().lower()
+        if new_email and new_email != (user.get("email") or "").lower():
+            clash = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}}, {"_id": 1})
+            if clash:
+                raise HTTPException(status_code=400, detail="Another account already uses that email")
+            update["email"] = new_email
+    if "banking_info" in fields:
+        update["banking_info"] = fields["banking_info"]
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.users.update_one({"id": user_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_account",
+                          target={"user_id": user_id, "email": user.get("email")},
+                          actions=[f"edited account: {', '.join(update.keys())}"])
+        try:
+            await manager.send_personal_message(json.dumps({"type": "session_refresh"}), user_id)
+        except Exception:  # noqa: BLE001
+            pass
+    new = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1, "banking_info": 1})
+    return {"success": True, "account": new}
+
+
+class AdminSetPassword(BaseModel):
+    password: Optional[str] = None
+    generate: bool = False
+    send_email: bool = False
+
+
+def _generate_temp_password(length: int = 14) -> str:
+    """Server-side strong temp password (stays well under bcrypt's 72-byte limit)."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*-_"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@api_router.put("/admin/users/{user_id}/password")
+async def admin_set_user_password(user_id: str, payload: AdminSetPassword, request: Request):
+    """Admin: set a temporary password for a stuck user so they can log back in.
+    Returns the temp password ONCE (never stored in plaintext / never logged)."""
+    current_user = await _require_admin(request)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "is_owner": 1, "user_type": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_owner") or (user.get("user_type") == "admin" and user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Cannot reset another admin/owner's password")
+
+    if payload.generate:
+        temp_password = _generate_temp_password()
+    else:
+        temp_password = (payload.password or "").strip()
+        if len(temp_password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        if len(temp_password.encode("utf-8")) > 72:
+            raise HTTPException(status_code=400, detail="Password is too long (max 72 bytes)")
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"hashed_password": get_password_hash(temp_password),
+                  "must_change_password": True,
+                  "password_temp_set_at": datetime.now(timezone.utc).isoformat(),
+                  "password_temp_set_by": current_user.id},
+         "$unset": {"session_token": ""}},
+    )
+    await _log_repair(current_user, kind="reset_password",
+                      target={"user_id": user_id, "email": user.get("email")},
+                      actions=["set a temporary password"])
+    logging.info(f"Admin {current_user.email} set a temporary password for {user.get('email')}")
+
+    emailed = False
+    email_error = None
+    if payload.send_email:
+        to = user.get("email")
+        if not graph_mail.is_real_email(to):
+            email_error = "This account has no valid email address to send to."
+        else:
+            subject = "Your IslandHop temporary password"
+            html = f"""
+                <div style="font-family:Arial,sans-serif;color:#0f172a">
+                  <h2 style="color:#0FA3A3;margin-bottom:4px">IslandHop</h2>
+                  <p>Hi{(' ' + user.get('name')) if user.get('name') else ''},</p>
+                  <p>An administrator has set a <strong>temporary password</strong> for your IslandHop account so you can log back in.</p>
+                  <p style="font-size:16px">Temporary password:
+                     <code style="background:#f1f5f9;padding:4px 8px;border-radius:6px;font-weight:700">{temp_password}</code>
+                  </p>
+                  <p>Please log in with this password. You'll be asked to set your own new password right away.</p>
+                  <p style="color:#64748b;font-size:13px">If you didn't request this, please contact IslandHop support.</p>
+                </div>
+            """
+            try:
+                await graph_mail.send_mail(to, subject, html, mailbox=graph_mail.notify_mailbox("support"))
+                emailed = True
+            except graph_mail.InvalidRecipientEmail:
+                email_error = "The email address was rejected as invalid."
+            except graph_mail.GraphNotConfigured:
+                email_error = "Email is not configured on the server."
+            except graph_mail.GraphConsentMissing:
+                email_error = "Email sending is pending admin consent."
+            except Exception as e:  # noqa: BLE001
+                email_error = f"Could not send email: {e}"
+
+    return {"success": True, "temp_password": temp_password, "email": user.get("email"),
+            "emailed": emailed, "email_error": email_error}
+
+
+@api_router.put("/admin/merchants/{vendor_id}/profile")
+async def admin_update_merchant_profile(vendor_id: str, payload: MerchantProfileUpdate, request: Request):
+    """Admin: edit any merchant's business profile (name, contact, address, fees, hours, banking)."""
+    current_user = await _require_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+    fields = {k: v for k, v in payload.dict().items() if v is not None}
+    update = _merchant_update_set(coll, fields)
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db[coll].update_one({"id": vendor_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_merchant",
+                          target={"vendor_id": vendor_id, "user_id": doc.get("user_id")},
+                          actions=[f"edited merchant: {', '.join(update.keys())}"])
+    new_doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0})
+    return {"success": True, "profile": _normalize_vendor_profile(coll, new_doc)}
+
+
+@api_router.put("/admin/merchants/{vendor_id}/storefront")
+async def admin_update_merchant_storefront(vendor_id: str, payload: AdminStorefrontImages, request: Request):
+    """Admin: upload/replace a merchant's logo & cover image."""
+    current_user = await _require_admin(request)
+    coll, doc = await _find_vendor_by_id(vendor_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Merchant not found")
+    for field in ("logo", "cover"):
+        val = getattr(payload, field)
+        if val and len(val) > MAX_STOREFRONT_IMG_LEN:
+            raise HTTPException(status_code=413, detail=f"{field.capitalize()} image is too large (max ~1MB)")
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        vt = ("restaurant" if coll == "restaurants"
+              else "car_rental" if coll == "car_rental_companies"
+              else (doc.get("business_type") or "business"))
+        update.update({"vendor_id": vendor_id, "vendor_type": vt,
+                       "updated_at": datetime.now(timezone.utc).isoformat()})
+        await db.merchant_storefronts.update_one({"vendor_id": vendor_id}, {"$set": update}, upsert=True)
+        await _log_repair(current_user, kind="edit_merchant",
+                          target={"vendor_id": vendor_id, "user_id": doc.get("user_id")},
+                          actions=[f"updated images: {', '.join(k for k in update if k in ('logo', 'cover'))}"])
+    sf = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    return {"success": True, "storefront": sf}
+
+
+@api_router.put("/admin/drivers/{driver_id}/profile")
+async def admin_update_driver_profile(driver_id: str, payload: DriverProfileUpdate, request: Request):
+    """Admin: edit any driver's license, vehicle & banking details."""
+    current_user = await _require_admin(request)
+    driver = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.drivers.update_one({"id": driver_id}, {"$set": update})
+        await _log_repair(current_user, kind="edit_driver",
+                          target={"driver_id": driver_id, "user_id": driver.get("user_id")},
+                          actions=[f"edited driver: {', '.join(update.keys())}"])
+    doc = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    return {"success": True, "driver": doc}
 
 
 @api_router.get("/merchant/fee-savings")
@@ -6914,6 +9828,15 @@ async def _vendor_menu_items(vendor_id: str, fallback_field):
     return fallback_field or []
 
 
+@api_router.get("/vendors/{vendor_id}/media")
+async def get_vendor_media(vendor_id: str):
+    """Slim public endpoint returning only a vendor's cover + logo (no gallery),
+    so search result cards can lazy-load a business's cover photo cheaply."""
+    doc = await db.merchant_storefronts.find_one({"vendor_id": vendor_id}, {"_id": 0, "cover": 1, "logo": 1}) or {}
+    return {"vendor_id": vendor_id, "cover": doc.get("cover"), "logo": doc.get("logo")}
+
+
+
 @api_router.get("/merchants/{vendor_id}/storefront")
 async def get_public_storefront(vendor_id: str):
     """Public storefront for a merchant (used by the customer-facing store page).
@@ -6936,6 +9859,8 @@ async def get_public_storefront(vendor_id: str):
             "cuisine_type": r.get("cuisine_type"), "delivery_fee": r.get("delivery_fee"),
             "minimum_order": r.get("minimum_order"), "estimated_delivery_time": r.get("estimated_delivery_time"),
             "address": r.get("address"),
+            "business_hours": r.get("business_hours"),
+            "open_status": _compute_open_status(r.get("business_hours")),
         })
         out["menu_items"] = await _vendor_menu_items(vendor_id, r.get("menu_items"))
         return out
@@ -6945,6 +9870,10 @@ async def get_public_storefront(vendor_id: str):
             "name": b.get("business_name"), "vendor_type": b.get("business_type") or "business",
             "description": b.get("business_description", ""),
             "address": b.get("address"),
+            "delivery_fee": b.get("delivery_fee"),
+            "minimum_order": b.get("minimum_order"),
+            "business_hours": b.get("business_hours"),
+            "open_status": _compute_open_status(b.get("business_hours")),
         })
         out["menu_items"] = await _vendor_menu_items(vendor_id, b.get("products") or b.get("menu_items"))
     return out
@@ -7129,6 +10058,206 @@ class CheckoutForOrderRequest(BaseModel):
     order_id: str
     origin_url: str  # window.location.origin from frontend
 
+# Per-category Stripe Tax codes (US). Starting defaults — verify against your tax advisor
+# and override per category via env STRIPE_TAX_CODE_<TYPE> (e.g. STRIPE_TAX_CODE_PHARMACY).
+_STRIPE_TAX_CODE_MAP = {
+    "restaurant": "txcd_40060003",   # prepared / immediate-consumption food
+    "food": "txcd_40060003",
+    "grocery": "txcd_40040000",      # food for non-immediate (home) consumption
+    "convenience": "txcd_40040000",
+    "pharmacy": "txcd_99999999",     # fallback — many Rx are exempt; set per-state via env
+    "digital": "txcd_10000000",      # general electronically-supplied / digital goods
+    "retail": "txcd_99999999",
+    "business": "txcd_99999999",
+    "car_rental": "txcd_99999999",
+}
+
+
+def _tax_code_for_type(vendor_type: str) -> str:
+    vt = (vendor_type or "").lower()
+    return (
+        os.environ.get(f"STRIPE_TAX_CODE_{vt.upper()}")
+        or _STRIPE_TAX_CODE_MAP.get(vt)
+        or os.environ.get("STRIPE_TAX_CODE", "txcd_99999999")
+    )
+
+
+async def _vendor_destination_account(vendor_id: str):
+    """Return the vendor's Stripe connected account id if they can receive payouts, else None."""
+    if not vendor_id:
+        return None
+    acct = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id})
+    if acct and acct.get("payouts_enabled") and acct.get("stripe_account_id"):
+        return acct["stripe_account_id"]
+    return None
+
+
+# ---- Dual payment-processor routing (WiPay for Caribbean, Stripe for US) ----
+# Stripe Connect cannot onboard Trinidad & Tobago (and most Caribbean) merchant
+# accounts, so those merchants collect via WiPay (platform is merchant of record,
+# earnings settled via the VendorPayout batch). US merchants keep Stripe.
+_US_COUNTRY_NAMES = {
+    "US", "USA", "USUSA", "U S", "U S A", "UNITED STATES",
+    "UNITED STATES OF AMERICA", "AMERICA",
+}
+
+
+def _norm_country(value) -> str:
+    return (value or "").strip().upper().replace(".", "").replace("-", " ")
+
+
+async def _vendor_country_for_order(order: dict) -> str:
+    """Best-effort merchant country for an order (from the vendor's stored address)."""
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    if not vendor_id:
+        return ""
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        doc = await db[coll].find_one({"id": vendor_id}, {"_id": 0, "address": 1})
+        if doc:
+            addr = doc.get("address") or {}
+            return addr.get("country") or addr.get("country_code") or ""
+    return ""
+
+
+async def _payment_processor_for_order(order: dict):
+    """Decide which online processor handles an order.
+    Intent: merchant country primary (US -> Stripe, else -> WiPay), currency fallback.
+    WiPay is gated behind WIPAY_ENABLED (credentials not yet supplied) — while it is
+    off, the active processor is always Stripe (which still routes correctly per
+    merchant: US connected accounts get an instant destination-charge split, Caribbean
+    merchants collect to the platform and settle via the VendorPayout batch)."""
+    country = _norm_country(await _vendor_country_for_order(order))
+    if country:
+        intended = "stripe" if country in _US_COUNTRY_NAMES else "wipay"
+        reason = "merchant_country"
+    else:
+        currency = (order.get("currency") or "").strip().upper()
+        if currency == "USD":
+            intended, reason = "stripe", "currency"
+        elif currency in {"TTD", "JMD", "BBD", "GYD"}:
+            intended, reason = "wipay", "currency"
+        else:
+            intended, reason = "wipay", "default"
+    return intended, reason
+
+
+def _wipay_enabled() -> bool:
+    return (os.environ.get("WIPAY_ENABLED", "false") or "false").strip().lower() == "true"
+
+
+@api_router.get("/orders/{order_id}/payment-options")
+async def get_order_payment_options(order_id: str, request: Request):
+    """Tell the checkout screen which online processor to use for this order.
+    Stripe is the active card processor; WiPay is shown as 'coming soon' (disabled)
+    for merchants it would apply to until WiPay credentials are supplied."""
+    current_user = await get_current_user_from_request(request)
+    order = await db.orders.find_one(
+        {"id": order_id, "customer_id": current_user.id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    intended, reason = await _payment_processor_for_order(order)
+    wipay_on = _wipay_enabled()
+    # Active online processor: WiPay only if enabled AND intended; otherwise Stripe.
+    processor = "wipay" if (wipay_on and intended == "wipay") else "stripe"
+    return {
+        "order_id": order_id,
+        "processor": processor,               # active: 'wipay' | 'stripe'
+        "intended_processor": intended,        # what it would be once WiPay is live
+        "reason": reason,
+        "wipay_enabled": wipay_on,
+        "wipay_coming_soon": (intended == "wipay" and not wipay_on),
+        "paypal_enabled": paypal_client.is_configured(),
+        "cod_enabled": True,
+        "wallet_enabled": True,
+        "wipay_environment": wipay_client.environment(),
+        "already_paid": order.get("payment_status") == "paid",
+    }
+
+
+@api_router.get("/merchant/payouts")
+async def get_merchant_payouts(request: Request):
+    """Merchant-facing payouts screen: onboarding status, summary, and each paid order's
+    split (their net, platform fee, tax)."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if not vendor_id:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+    acct = await db.vendor_stripe_accounts.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    onboarding = {
+        "connected": bool(acct),
+        "payouts_enabled": bool(acct and acct.get("payouts_enabled")),
+        "charges_enabled": bool(acct and acct.get("charges_enabled")),
+    }
+
+    q = {"$or": [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}], "payment_status": "paid"}
+    orders = await db.orders.find(q, {"_id": 0}).sort("paid_at", -1).limit(50).to_list(length=50)
+    order_rows = []
+    for o in orders:
+        net = float(o.get("vendor_payout") or 0.0)
+        total = float(o.get("total") or 0.0)
+        commission = float(o.get("commission_amount") or 0.0)
+        tax = float(o.get("tax") or o.get("tax_amount") or 0.0)
+        pstatus = o.get("vendor_payout_status") or "pending"
+        order_rows.append({
+            "order_id": o.get("id"),
+            "date": o.get("paid_at") or o.get("created_at"),
+            "customer_total": round(total, 2),
+            "your_net": round(net, 2),
+            "platform_fee": round(commission, 2),
+            "tax": round(tax, 2),
+            "payout_status": pstatus,
+            "payout_method": o.get("vendor_payout_method") or ("instant" if pstatus == "paid" else "pending"),
+        })
+
+    paid = [r for r in order_rows if r["payout_status"] == "paid"]
+    pending = [r for r in order_rows if r["payout_status"] != "paid"]
+    summary = {
+        "total_paid_out": round(sum(r["your_net"] for r in paid), 2),
+        "pending_amount": round(sum(r["your_net"] for r in pending), 2),
+        "orders_count": len(order_rows),
+    }
+    return {
+        "vendor_id": vendor_id,
+        "vendor_type": vendor_type,
+        "onboarding": onboarding,
+        "summary": summary,
+        "orders": order_rows,
+        "payout_note": (
+            "Order splits arrive in your bank on your Stripe payout schedule (usually daily rolling). "
+            "Pending amounts settle automatically once your Stripe onboarding is complete."
+        ),
+    }
+
+
+@api_router.get("/merchant/payouts/weekly")
+async def get_merchant_weekly_payout(request: Request):
+    """Lightweight 'owed to you this week' summary for the merchant dashboard card."""
+    current_user = await get_current_user_from_request(request)
+    vendor_id, vendor_type = await _resolve_vendor_for_user(current_user)
+    if not vendor_id:
+        raise HTTPException(status_code=404, detail="No merchant account found for this user")
+
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=7)).isoformat()
+    q = {
+        "$or": [{"restaurant_id": vendor_id}, {"vendor_id": vendor_id}],
+        "status": {"$ne": "cancelled"},
+        "created_at": {"$gte": week_start},
+    }
+    orders = await db.orders.find(q, {"_id": 0, "vendor_payout": 1, "vendor_payout_status": 1, "total": 1}).to_list(length=1000)
+    owed = round(sum(float(o.get("vendor_payout") or 0.0) for o in orders if (o.get("vendor_payout_status") or "pending") != "paid"), 2)
+    paid = round(sum(float(o.get("vendor_payout") or 0.0) for o in orders if (o.get("vendor_payout_status") or "pending") == "paid"), 2)
+    return {
+        "owed_this_week": owed,
+        "paid_this_week": paid,
+        "orders_this_week": len(orders),
+        "currency": "USD",
+        "week_start": week_start,
+    }
+
+
 @api_router.post("/payments/checkout/session")
 async def create_order_checkout_session(payload: CheckoutForOrderRequest, request: Request):
     """
@@ -7147,42 +10276,182 @@ async def create_order_checkout_session(payload: CheckoutForOrderRequest, reques
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Invalid order total")
 
-    host_url = str(request.base_url).rstrip('/')
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-
     origin = payload.origin_url.rstrip('/')
     success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&order_id={payload.order_id}"
     cancel_url = f"{origin}/payment/cancel?order_id={payload.order_id}"
 
-    checkout_request = CheckoutSessionRequest(
-        amount=float(amount),
-        currency="usd",
+    # Connect destination-charge split: the merchant's pre-tax net (vendor_payout) is
+    # routed to their connected account; commission + delivery + tip + TAX stay on the
+    # platform (we are merchant of record and remit the tax). Falls back to a plain
+    # platform charge when the merchant hasn't finished Stripe onboarding yet.
+    vendor_id = order.get("restaurant_id") or order.get("vendor_id")
+    dest_account = await _vendor_destination_account(vendor_id)
+    vendor_payout = float(order.get("vendor_payout") or 0.0)
+    vendor_type = order.get("vendor_type") or _derive_vendor_type(order.get("service_type"))
+
+    tax_enabled = os.environ.get("STRIPE_TAX_ENABLED", "false").lower() == "true"
+    tax_code = _tax_code_for_type(vendor_type)
+
+    product_data = {"name": f"IslandHop order {str(payload.order_id)[:8]}"}
+    price_data = {"currency": "usd", "unit_amount": int(round(amount * 100)), "product_data": product_data}
+    if tax_enabled:
+        product_data["tax_code"] = tax_code
+        price_data["tax_behavior"] = "exclusive"
+
+    payment_intent_data = {"metadata": {"order_id": str(payload.order_id)}}
+    use_destination = bool(dest_account and vendor_payout > 0)
+    if use_destination:
+        payment_intent_data["transfer_data"] = {
+            "destination": dest_account,
+            "amount": int(round(vendor_payout * 100)),
+        }
+
+    session_kwargs = dict(
+        mode="payment",
+        line_items=[{"price_data": price_data, "quantity": 1}],
         success_url=success_url,
         cancel_url=cancel_url,
+        payment_intent_data=payment_intent_data,
         metadata={
-            "order_id": payload.order_id,
+            "order_id": str(payload.order_id),
             "user_id": current_user.id,
             "user_email": current_user.email,
         },
-        # 'card' on Stripe Checkout automatically enables Apple Pay & Google Pay
-        # wallets on supported devices (Safari/iOS for Apple Pay, Chrome/Android for Google Pay).
-        payment_methods=["card"],
     )
-    session = await stripe_checkout.create_checkout_session(checkout_request)
+    if tax_enabled:
+        session_kwargs["automatic_tax"] = {"enabled": True}
+
+    try:
+        session = stripe.checkout.Session.create(**session_kwargs)
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe checkout create failed for order {payload.order_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
 
     payment = PaymentTransaction(
-        session_id=session.session_id,
+        session_id=session.id,
         user_id=current_user.id,
         email=current_user.email,
         amount=amount,
         currency="usd",
         payment_status="initiated",
-        metadata={"order_id": payload.order_id, "user_id": current_user.id},
+        metadata={
+            "order_id": str(payload.order_id),
+            "user_id": current_user.id,
+            "payout_method": "destination" if use_destination else "platform",
+            "vendor_id": vendor_id or "",
+            "vendor_type": vendor_type or "",
+            "vendor_payout": str(vendor_payout),
+        },
     )
     await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
 
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
+
+
+class MultiCheckoutRequest(BaseModel):
+    order_ids: List[str]
+    origin_url: str
+
+
+@api_router.post("/payments/checkout/session-multi")
+async def create_multi_order_checkout_session(payload: MultiCheckoutRequest, request: Request):
+    """Combined card checkout for a multi-store cart. The customer pays the full basket
+    total once; the platform collects centrally and each merchant is settled via the
+    existing vendor-payout system (no per-merchant Stripe destination split here, since a
+    single card charge can't route to multiple connected accounts)."""
+    current_user = await get_current_user_from_request(request)
+    if not payload.order_ids:
+        raise HTTPException(status_code=400, detail="No orders to pay")
+
+    orders = await db.orders.find(
+        {"id": {"$in": payload.order_ids}, "customer_id": current_user.id}, {"_id": 0}
+    ).to_list(length=100)
+    if not orders:
+        raise HTTPException(status_code=404, detail="Orders not found")
+    unpaid = [o for o in orders if o.get("payment_status") != "paid"]
+    if not unpaid:
+        raise HTTPException(status_code=400, detail="Orders are already paid")
+
+    amount = round(sum(float(o.get("total") or 0.0) for o in unpaid), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid order total")
+
+    order_ids = [o["id"] for o in unpaid]
+    ids_csv = ",".join(order_ids)
+    origin = payload.origin_url.rstrip('/')
+    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&group=1"
+    cancel_url = f"{origin}/cart"
+
+    price_data = {
+        "currency": "usd",
+        "unit_amount": int(round(amount * 100)),
+        "product_data": {"name": f"IslandHop order ({len(order_ids)} store{'s' if len(order_ids) > 1 else ''})"},
+    }
+    session_kwargs = dict(
+        mode="payment",
+        line_items=[{"price_data": price_data, "quantity": 1}],
+        success_url=success_url,
+        cancel_url=cancel_url,
+        payment_intent_data={"metadata": {"order_ids": ids_csv}},
+        metadata={"order_ids": ids_csv, "user_id": current_user.id, "user_email": current_user.email},
+    )
+    try:
+        session = stripe.checkout.Session.create(**session_kwargs)
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe multi-checkout create failed for {ids_csv}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
+
+    payment = PaymentTransaction(
+        session_id=session.id,
+        user_id=current_user.id,
+        email=current_user.email,
+        amount=amount,
+        currency="usd",
+        payment_status="initiated",
+        metadata={"order_ids": ids_csv, "user_id": current_user.id, "payout_method": "platform"},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+    return {"url": session.url, "session_id": session.id, "order_ids": order_ids}
+
+
+class WalletDepositCheckoutRequest(BaseModel):
+    amount: float
+    origin_url: str
+    currency: str = "usd"
+
+
+@api_router.post("/payments/checkout/wallet-deposit")
+async def create_wallet_deposit_checkout(payload: WalletDepositCheckoutRequest, request: Request):
+    """Stripe-hosted card top-up for the signed-in user's wallet. On successful payment,
+    the status poll (get_checkout_status) credits the wallet exactly once."""
+    current_user = await get_current_user_from_request(request)
+    amount = round(float(payload.amount or 0), 2)
+    if amount <= 0 or amount > 50000:
+        raise HTTPException(status_code=400, detail="Amount must be between 0.01 and 50,000")
+    origin = payload.origin_url.rstrip('/')
+    success_url = f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&wallet=1"
+    cancel_url = f"{origin}/wallet?cancelled=1"
+    price_data = {"currency": "usd", "unit_amount": int(round(amount * 100)),
+                  "product_data": {"name": "IslandHop wallet top-up"}}
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price_data": price_data, "quantity": 1}],
+            success_url=success_url, cancel_url=cancel_url,
+            payment_intent_data={"metadata": {"purpose": "wallet_deposit", "user_id": current_user.id}},
+            metadata={"purpose": "wallet_deposit", "user_id": current_user.id, "user_email": current_user.email},
+        )
+    except stripe.error.StripeError as e:  # type: ignore[attr-defined]
+        logging.error(f"Stripe wallet-deposit create failed for {current_user.id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment setup failed: {getattr(e, 'user_message', None) or str(e)}")
+
+    payment = PaymentTransaction(
+        session_id=session.id, user_id=current_user.id, email=current_user.email,
+        amount=amount, currency="usd", payment_status="initiated",
+        metadata={"purpose": "wallet_deposit", "user_id": current_user.id},
+    )
+    await db.payment_transactions.insert_one(prepare_for_mongo(payment.dict()))
+    return {"url": session.url, "session_id": session.id}
 
 
 @api_router.get("/payments/checkout/status/{session_id}")
@@ -7193,13 +10462,22 @@ async def get_checkout_status(session_id: str):
     """
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
     try:
-        status = await stripe_checkout.get_checkout_status(session_id)
+        session = stripe.checkout.Session.retrieve(session_id)
     except stripe.error.InvalidRequestError as e:  # type: ignore[attr-defined]
         raise HTTPException(status_code=404, detail=f"Checkout session not found: {e.user_message or str(e)}")
     except stripe.error.StripeError as e:  # type: ignore[attr-defined]
         raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Checkout session not found: {e}")
+
+    class _S:  # normalize to the shape the rest of this handler expects
+        pass
+    status = _S()
+    status.status = session.get("status")
+    status.payment_status = session.get("payment_status")
+    status.amount_total = session.get("amount_total")
+    status.currency = session.get("currency")
+    status.metadata = session.get("metadata") or {}
 
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not txn:
@@ -7216,15 +10494,65 @@ async def get_checkout_status(session_id: str):
     )
 
     if status.payment_status == "paid" and not already_paid:
-        order_id = (txn.get("metadata") or {}).get("order_id")
+        meta = txn.get("metadata") or {}
+        # Multi-store combined checkout: mark every order in the basket paid.
+        ids_csv = meta.get("order_ids")
+        if ids_csv:
+            group_ids = [i for i in ids_csv.split(",") if i]
+            paid_at = datetime.now(timezone.utc).isoformat()
+            for oid in group_ids:
+                await db.orders.update_one(
+                    {"id": oid, "payment_status": {"$ne": "paid"}},
+                    {"$set": {"payment_status": "paid", "paid_at": paid_at}},
+                )
+                asyncio.create_task(_ensure_dispatch(oid))
+            try:
+                customer_id = txn.get("user_id")
+                if customer_id:
+                    await _maybe_complete_referral(customer_id)
+            except Exception as ref_exc:
+                logging.warning(f"Referral completion failed for txn {session_id}: {ref_exc}")
+            return {
+                "status": status.status,
+                "payment_status": status.payment_status,
+                "amount_total": status.amount_total,
+                "currency": status.currency,
+                "metadata": status.metadata,
+            }
+        order_id = meta.get("order_id")
         if order_id:
+            order_set = {
+                "payment_status": "paid",
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # Destination-charge orders are already split to the merchant at checkout —
+            # mark the payout settled so the nightly batch never re-transfers (no double pay).
+            if meta.get("payout_method") == "destination":
+                order_set["vendor_payout_status"] = "paid"
+                order_set["vendor_payout_method"] = "stripe_destination_charge"
+                order_set["vendor_payout_date"] = datetime.now(timezone.utc).isoformat()
             await db.orders.update_one(
                 {"id": order_id, "payment_status": {"$ne": "paid"}},
-                {"$set": {
-                    "payment_status": "paid",
-                    "paid_at": datetime.now(timezone.utc).isoformat(),
-                }},
+                {"$set": order_set},
             )
+            asyncio.create_task(_ensure_dispatch(order_id))
+            # Record the instant split for the merchant payouts screen.
+            if meta.get("payout_method") == "destination":
+                try:
+                    payout = VendorPayout(
+                        vendor_id=meta.get("vendor_id") or "",
+                        vendor_type=meta.get("vendor_type") or "unknown",
+                        amount=float(meta.get("vendor_payout") or 0.0),
+                        order_ids=[order_id],
+                        payout_date=datetime.now(timezone.utc),
+                        status="completed",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    pd = prepare_for_mongo(payout.dict())
+                    pd["method"] = "stripe_destination_charge"
+                    await db.vendor_payouts.insert_one(pd)
+                except Exception as pexc:
+                    logging.warning(f"Could not record destination payout for {order_id}: {pexc}")
             # Referral completion: credit referrer + referee on first paid order
             try:
                 customer_id = txn.get("user_id")
@@ -7232,6 +10560,14 @@ async def get_checkout_status(session_id: str):
                     await _maybe_complete_referral(customer_id)
             except Exception as ref_exc:
                 logging.warning(f"Referral completion failed for txn {session_id}: {ref_exc}")
+
+        # Wallet top-up via card: credit the user's wallet exactly once.
+        if meta.get("purpose") == "wallet_deposit":
+            credit_amount = (float(status.amount_total) / 100.0) if status.amount_total else float(txn.get("amount") or 0)
+            await _credit_wallet_with_txn(
+                txn.get("user_id"), credit_amount, (status.currency or "usd").upper(),
+                txn_type="deposit", external_transfer_id=session_id, note="Card top-up (Stripe)",
+            )
 
     return {
         "status": status.status,
@@ -7255,6 +10591,8 @@ class WiPayCheckoutRequest(BaseModel):
 @api_router.post("/payments/wipay/checkout/session")
 async def create_wipay_checkout_session(payload: WiPayCheckoutRequest, request: Request):
     """Create a WiPay hosted payment request for an EXISTING order (amount from DB)."""
+    if not _wipay_enabled():
+        raise HTTPException(status_code=503, detail="WiPay is not available yet. Please pay by card, wallet, or cash on delivery.")
     current_user = await get_current_user_from_request(request)
 
     order = await db.orders.find_one({"id": payload.order_id, "customer_id": current_user.id}, {"_id": 0})
@@ -7426,6 +10764,7 @@ async def _settle_paypal_order(order_id: str, capture: dict, current_user_id: Op
             {"id": rec["linked_order_id"], "payment_status": {"$ne": "paid"}},
             {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
         )
+        asyncio.create_task(_ensure_dispatch(rec["linked_order_id"]))
     return {"success": True, "purpose": rec.get("purpose"), "amount": amount, "currency": currency}
 
 
@@ -7504,6 +10843,161 @@ async def admin_paypal_payout(payload: PayPalPayoutRequest, request: Request):
     return {"success": True, "payout_batch_id": result.get("batch_id"), "status": result.get("status")}
 
 
+@api_router.get("/admin/payouts/paypal/recipients")
+async def admin_paypal_recipients(request: Request):
+    """Admin/agent: merchants & drivers who chose PayPal payouts and have a PayPal email,
+    so the admin can send them their earnings via PayPal Payouts."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    out = []
+    specs = [("restaurants", "restaurant"), ("businesses", "business"),
+             ("car_rental_companies", "car_rental"), ("drivers", "driver")]
+    for coll, label in specs:
+        async for d in db[coll].find({"banking_info.payout_method": "paypal"}, {"_id": 0}):
+            bi = d.get("banking_info") or {}
+            email = (bi.get("paypal_email") or "").strip()
+            if not email:
+                continue
+            pi = d.get("personal_info") or {}
+            out.append({
+                "collection": coll,
+                "entity_id": d.get("id"),
+                "type": label,
+                "name": d.get("name") or d.get("business_name") or d.get("company_name") or pi.get("name") or d.get("email") or "Unnamed",
+                "paypal_email": email,
+                "country": bi.get("country") or "",
+            })
+    return {"count": len(out), "results": out}
+
+
+# ---- Bank bulk-payout: review what's owed + export + mark paid ----
+class PayoutMarkPaidItem(BaseModel):
+    type: str                      # 'merchant' | 'driver'
+    entity_id: str
+    amount: float
+    order_ids: List[str] = []
+
+
+class PayoutMarkPaidRequest(BaseModel):
+    method: str = "bank_transfer"
+    items: List[PayoutMarkPaidItem]
+
+
+@api_router.get("/admin/payouts/owing")
+async def admin_payouts_owing(request: Request):
+    """Admin/agent: everyone currently owed a payout — merchants (unpaid delivered-order
+    earnings) and drivers (wallet balance) — with their bank details, for a bulk bank file."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    bank_keys = ("country", "bank_name", "account_name", "account_number", "branch", "swift", "iban")
+    merchants = []
+    pipeline = [
+        {"$match": {"status": "delivered", "vendor_payout_status": "pending"}},
+        {"$group": {
+            "_id": {"$ifNull": ["$restaurant_id", "$vendor_id"]},
+            "amount": {"$sum": "$vendor_payout"},
+            "orders": {"$sum": 1},
+            "order_ids": {"$push": "$id"},
+        }},
+    ]
+    async for g in db.orders.aggregate(pipeline):
+        vid = g.get("_id")
+        if not vid:
+            continue
+        doc = coll = None
+        for c in ("restaurants", "businesses", "car_rental_companies"):
+            d = await db[c].find_one({"id": vid}, {"_id": 0})
+            if d:
+                doc, coll = d, c
+                break
+        if not doc:
+            continue
+        bi = doc.get("banking_info") or {}
+        merchants.append({
+            "type": "merchant", "collection": coll, "entity_id": vid,
+            "name": doc.get("name") or doc.get("business_name") or doc.get("company_name") or "Unnamed",
+            "amount": round(g.get("amount") or 0, 2), "orders_count": g.get("orders"),
+            "order_ids": g.get("order_ids") or [],
+            "payout_method": bi.get("payout_method") or "bank",
+            "paypal_email": bi.get("paypal_email") or "",
+            "bank": {k: bi.get(k, "") for k in bank_keys},
+        })
+
+    drivers = []
+    async for w in db.driver_wallets.find({"balance": {"$gt": 0}}, {"_id": 0}):
+        did = w.get("driver_id")
+        d = await db.drivers.find_one({"id": did}, {"_id": 0})
+        if not d:
+            continue
+        bi = d.get("banking_info") or {}
+        pi = d.get("personal_info") or {}
+        drivers.append({
+            "type": "driver", "collection": "drivers", "entity_id": did,
+            "name": d.get("name") or pi.get("name") or d.get("email") or "Driver",
+            "amount": round(float(w.get("balance") or 0), 2), "orders_count": None, "order_ids": [],
+            "payout_method": bi.get("payout_method") or "bank",
+            "paypal_email": bi.get("paypal_email") or "",
+            "bank": {k: bi.get(k, "") for k in bank_keys},
+        })
+
+    mtot = round(sum(m["amount"] for m in merchants), 2)
+    dtot = round(sum(x["amount"] for x in drivers), 2)
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "currency": "USD",
+        "merchants": merchants, "drivers": drivers,
+        "totals": {"merchant_total": mtot, "driver_total": dtot,
+                   "grand_total": round(mtot + dtot, 2),
+                   "recipient_count": len(merchants) + len(drivers)},
+    }
+
+
+@api_router.post("/admin/payouts/mark-paid")
+async def admin_payouts_mark_paid(payload: PayoutMarkPaidRequest, request: Request):
+    """Admin/agent: after uploading the bulk file to the bank, mark recipients paid.
+    Merchants → delivered orders flip to 'paid' + a vendor_payouts record.
+    Drivers → wallet balance reduced by the paid amount + a driver_withdrawals record."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    now = datetime.now(timezone.utc)
+    marked, total = 0, 0.0
+    for it in payload.items:
+        if it.type == "merchant":
+            if it.order_ids:
+                await db.orders.update_many(
+                    {"id": {"$in": it.order_ids}},
+                    {"$set": {"vendor_payout_status": "paid", "vendor_payout_date": now.isoformat()}})
+            await db.vendor_payouts.insert_one({
+                "id": str(uuid.uuid4()), "vendor_id": it.entity_id, "vendor_type": "merchant",
+                "amount": round(it.amount, 2), "order_ids": it.order_ids,
+                "payout_date": now.isoformat(), "status": "completed", "method": payload.method,
+                "completed_at": now.isoformat(), "recorded_by": current_user.email})
+            marked += 1
+            total += it.amount
+        elif it.type == "driver":
+            w = await db.driver_wallets.find_one({"driver_id": it.entity_id})
+            if not w:
+                continue
+            amt = min(round(it.amount, 2), round(float(w.get("balance") or 0), 2))
+            if amt <= 0:
+                continue
+            await db.driver_wallets.update_one(
+                {"driver_id": it.entity_id},
+                {"$inc": {"balance": -amt, "total_withdrawn": amt}, "$set": {"updated_at": now.isoformat()}})
+            await db.driver_withdrawals.insert_one({
+                "id": str(uuid.uuid4()), "driver_id": it.entity_id, "amount": amt,
+                "method": payload.method, "status": "completed", "created_at": now.isoformat(),
+                "recorded_by": current_user.email})
+            marked += 1
+            total += amt
+    return {"success": True, "marked": marked, "total": round(total, 2)}
+
+
+
 @api_router.post("/webhooks/paypal")
 async def paypal_webhook(request: Request):
     body = await request.json()
@@ -7534,15 +11028,28 @@ async def paypal_webhook(request: Request):
                    "amount": float((resource.get("amount") or {}).get("value", 0) or 0),
                    "currency": (resource.get("amount") or {}).get("currency_code")}
             await _settle_paypal_order(order_id, cap)
-    elif event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+    elif event_type.startswith("PAYMENT.PAYOUTS-ITEM.") or event_type in ("PAYOUTS-ITEM.SUCCEEDED", "PAYOUTS-ITEM.FAILED"):
+        # Automated merchant/driver payout status updates.
         batch_id = resource.get("payout_batch_id")
-        if batch_id:
+        item_id = resource.get("payout_item_id")
+        txn_status = resource.get("transaction_status") or event_type.split(".")[-1]
+        query = {"payout_batch_id": batch_id} if batch_id else ({"payout_item_id": item_id} if item_id else None)
+        if query:
             await db.paypal_payouts.update_one(
-                {"payout_batch_id": batch_id},
-                {"$set": {"item_status": resource.get("transaction_status") or event_type}},
+                query,
+                {"$set": {"item_status": txn_status,
+                          "payout_item_id": item_id,
+                          "updated_at": datetime.now(timezone.utc).isoformat()}},
             )
     return {"received": True, "verified": True}
 
+
+
+@api_router.get("/stripe/config")
+async def stripe_public_config():
+    """Public: the mode-aware Stripe PUBLISHABLE key (safe to expose) so the frontend
+    uses the correct test/live key at runtime — going live needs no frontend rebuild."""
+    return {"publishable_key": STRIPE_PUBLISHABLE_KEY, "mode": STRIPE_MODE}
 
 
 @api_router.post("/webhook/stripe")
@@ -7871,6 +11378,126 @@ async def _refund_via_stripe(order: dict, order_id: str, payload: "RefundRequest
 # ============================================================
 # Phase C: Driver Payouts via Stripe Transfer to connected account
 # ============================================================
+async def _auto_refund_order(order: dict, *, reason: str, issued_by: str) -> dict:
+    """Best-effort automatic FULL refund when a paid order is declined/cancelled.
+
+    Routes by payment_method: wallet → wallet credit; PayPal → capture refund;
+    card → Stripe refund. Never raises. Returns {refunded, method?, amount?, error?}."""
+    order_id = order.get("id")
+    total = float(order.get("total") or 0)
+    method = (order.get("payment_method") or "").lower()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if total <= 0:
+        return {"refunded": False, "reason": "zero_total"}
+    try:
+        # 1) Wallet-paid orders
+        if method == "wallet":
+            lock = await db.orders.update_one(
+                {"id": order_id, "payment_status": {"$in": ["paid", "refund_pending"]}},
+                {"$set": {"payment_status": "refunded", "refunded_amount": total,
+                          "refunded_at": now_iso, "vendor_payout_status": "reversed"}},
+            )
+            if lock.matched_count == 0:
+                return {"refunded": False, "reason": "not_refundable"}
+            await _credit_wallet_with_txn(
+                order.get("customer_id"), total, "USD",
+                txn_type="refund", order_id=order_id, note="Auto-refund: order declined")
+            await _record_refund(order_id, total, method="wallet",
+                                 stripe_refund_id=None, reason=reason, issued_by=issued_by)
+            return {"refunded": True, "method": "wallet", "amount": total}
+
+        # 2) PayPal-paid orders (capture refund)
+        pp = await db.paypal_orders.find_one(
+            {"linked_order_id": order_id, "purpose": "order", "status": "COMPLETED"}, {"_id": 0})
+        if pp and pp.get("capture_id"):
+            res = await paypal_client.refund_capture(
+                pp["capture_id"], amount=None, currency=(pp.get("currency") or "USD"),
+                note="IslandHop: your order was declined by the store")
+            if res.get("success"):
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {"payment_status": "refunded", "refunded_amount": total,
+                              "refund_id": res.get("refund_id"), "refunded_at": now_iso,
+                              "vendor_payout_status": "reversed"}})
+                await _record_refund(order_id, total, method="paypal",
+                                     stripe_refund_id=res.get("refund_id"), reason=reason, issued_by=issued_by)
+                return {"refunded": True, "method": "paypal", "amount": total}
+            return {"refunded": False, "method": "paypal", "error": res.get("error")}
+
+        # 3) Card (Stripe) orders
+        txn = await db.payment_transactions.find_one(
+            {"metadata.order_id": order_id, "payment_status": "paid"}, {"_id": 0})
+        if txn and STRIPE_API_KEY and txn.get("session_id"):
+            session = await asyncio.to_thread(stripe.checkout.Session.retrieve, txn["session_id"])
+            pi = session.payment_intent
+            if pi:
+                refund = await asyncio.to_thread(stripe.Refund.create, payment_intent=pi)
+                amt = (refund.amount or 0) / 100.0
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {"payment_status": "refunded", "refunded_amount": amt,
+                              "refund_id": refund.id, "refunded_at": now_iso,
+                              "vendor_payout_status": "reversed"}})
+                await _record_refund(order_id, amt, method="stripe",
+                                     stripe_refund_id=refund.id, reason=reason, issued_by=issued_by)
+                return {"refunded": True, "method": "stripe", "amount": amt}
+        return {"refunded": False, "reason": "no_processor_txn"}
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Auto-refund failed for order {order_id}: {e}")
+        return {"refunded": False, "error": str(e)}
+
+
+_REFUND_METHOD_LABELS = {
+    "wallet": "IslandHop Wallet",
+    "stripe": "Card",
+    "paypal": "PayPal",
+}
+
+
+async def _send_refund_receipt_email(order: dict, refund_info: dict, reason: str) -> None:
+    """Best-effort: email the customer a refund confirmation (amount + method). Never raises."""
+    try:
+        cust_id = order.get("customer_id")
+        email = order.get("customer_email")
+        name = None
+        if cust_id:
+            user = await db.users.find_one({"id": cust_id}, {"_id": 0, "email": 1, "name": 1})
+            if user:
+                email = email or user.get("email")
+                name = user.get("name")
+        if not email or not graph_mail.is_real_email(email):
+            return
+        amount = float(refund_info.get("amount") or order.get("total") or 0)
+        currency = (order.get("currency") or "USD").upper()
+        method = _REFUND_METHOD_LABELS.get((refund_info.get("method") or "").lower(), "your original payment method")
+        order_no = str(order.get("id") or "")[:8]
+        greeting = name or "there"
+        eta_line = ("The amount is already back in your IslandHop Wallet."
+                    if refund_info.get("method") == "wallet"
+                    else "Depending on your bank, it may take 5–10 business days to appear.")
+        subject = f"Your IslandHop refund of {currency} ${amount:.2f} — order #{order_no}"
+        html = (
+            "<div style='font-family:Arial,sans-serif;color:#1a1a1a;line-height:1.6;max-width:520px'>"
+            f"<p>Hi {greeting},</p>"
+            f"<p>Your order <strong>#{order_no}</strong> was declined by the store, so we've issued a full refund.</p>"
+            "<table style='border-collapse:collapse;margin:16px 0;font-size:14px'>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Refund amount</td>"
+            f"<td style='padding:6px 0;font-weight:bold'>{currency} ${amount:.2f}</td></tr>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Refunded to</td>"
+            f"<td style='padding:6px 0'>{method}</td></tr>"
+            f"<tr><td style='padding:6px 16px 6px 0;color:#666'>Reason</td>"
+            f"<td style='padding:6px 0'>{reason}</td></tr>"
+            "</table>"
+            f"<p>{eta_line}</p>"
+            "<p>We're sorry for the inconvenience — you can find another store on IslandHop anytime.</p>"
+            "<p style='margin-top:24px;color:#888;font-size:12px'>— The IslandHop Team</p></div>"
+        )
+        await graph_mail.send_mail(email, subject, html, mailbox=graph_mail.notify_mailbox("support"))
+        logging.info(f"Refund receipt emailed to {email} for order {order.get('id')}")
+    except Exception as e:  # noqa: BLE001
+        logging.warning(f"Refund receipt email failed for order {order.get('id')}: {e}")
+
+
 @api_router.post("/drivers/{driver_id}/payout")
 async def process_driver_payout(driver_id: str, request: Request):
     """Phase C: Pay out a driver's accumulated wallet balance to their connected Stripe account."""
@@ -8159,6 +11786,7 @@ async def root():
 
 
 @api_router.get("/download/android-project")
+@api_router.get("/download/android-project-v2")
 async def download_android_project():
     """Public download of the Capacitor Android project zip (for local .aab builds)."""
     zip_path = ROOT_DIR / "static" / "android-project.zip"
@@ -8167,7 +11795,7 @@ async def download_android_project():
     return FileResponse(
         path=str(zip_path),
         media_type="application/zip",
-        filename="islandhop-android-project.zip",
+        filename="islandhop-android-20260727-v2.zip",
     )
 
 
@@ -8480,12 +12108,19 @@ async def _maybe_complete_referral(referee_id: str):
 # Paid immediately if the promoter is ELIGIBLE (admin-approved Ambassador
 # OR an active/approved account); otherwise HELD until they become eligible.
 # ============================================================
+# Promoter referral rewards are set in Trinidad dollars (customer TT$20, driver TT$50,
+# merchant/supplier TT$80) but STORED in USD — the platform's base currency that the
+# frontend currency formatter converts for display — so they render as exactly TT$20/50/80
+# (and their US$ equivalent). Divide the TT$ target by the same rate the UI uses.
+_TTD_PER_USD = float(os.environ.get("RATE_TTD_PER_USD", "6.78"))
+def _ttd_to_usd(amount_ttd: float) -> float:
+    return round(float(amount_ttd) / _TTD_PER_USD, 4)
 PROMO_REWARD_CURRENCY = os.environ.get("PROMO_REWARD_CURRENCY", "USD")
 PROMO_REWARDS = {
-    "customer": float(os.environ.get("PROMO_REWARD_CUSTOMER", "5")),
-    "driver": float(os.environ.get("PROMO_REWARD_DRIVER", "15")),
-    "merchant": float(os.environ.get("PROMO_REWARD_MERCHANT", "20")),
-    "supplier": float(os.environ.get("PROMO_REWARD_SUPPLIER", "25")),
+    "customer": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_CUSTOMER_TTD", "20"))),
+    "driver": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_DRIVER_TTD", "50"))),
+    "merchant": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_MERCHANT_TTD", "80"))),
+    "supplier": _ttd_to_usd(float(os.environ.get("PROMO_REWARD_SUPPLIER_TTD", "100"))),
 }
 PROMO_TYPE_LABEL = {
     "customer": "Customer", "driver": "Driver",
@@ -8767,7 +12402,8 @@ async def admin_payment_mode(request: Request):
     current_user = await get_current_user_from_request(request)
     if current_user.user_type not in ("admin", "agent"):
         raise HTTPException(status_code=403, detail="Admin access required")
-    stripe_key = os.environ.get("STRIPE_API_KEY", "") or ""
+    # Use the mode-selected key (respects STRIPE_MODE), not the raw injected STRIPE_API_KEY.
+    stripe_key = STRIPE_API_KEY or ""
     if stripe_key.startswith("sk_live"):
         stripe_mode = "live"
     elif stripe_key.startswith("sk_test"):
@@ -9276,7 +12912,8 @@ _CLEANUP_SEED_RESTAURANTS = {"island spice kitchen", "tropical grill", "beach bi
 _CLEANUP_TEST_RE = re.compile(
     r"(test|sub pizza|slice pizza|chat pizza|e2e|\bqa\b|qa[_ ]|\bdemo\b|sample|\bprobe\b|"
     r"tier hut|ui eatery|ui merch|ad spice kitchen|featured_iter|jerk hut|"
-    r"\bfe diner\b|\bi14|diner\s*\d|@example\.com|@x\.tt|\+test|noreply\+)",
+    r"agentrole_\d|invited_\d|@islandhop-demo\.com|_\d{9,}|"
+    r"\bfe diner\b|\bi14|diner\s*\d|@example\.com|@x\.tt|@x\.com|\+test|noreply\+)",
     re.I,
 )
 _CLEANUP_PROTECTED_USER_TYPES = {"admin", "staff", "owner"}
@@ -9302,10 +12939,22 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     """Return {collection: {ids, labels, ...}} describing exactly what would be deleted."""
     plan = {}
     keep_owner_ids = set()
+    # Snapshot of live account ids so we can flag orphaned drivers/orders (their owning
+    # user was already deleted in a prior run) — these are stale test data.
+    existing_user_ids = set()
+    user_by_id = {}
+    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}):
+        if u.get("id"):
+            existing_user_ids.add(u["id"])
+            user_by_id[u["id"]] = (u.get("name"), u.get("email"))
+
+    def _owner_is_test(uid):
+        info = user_by_id.get(uid)
+        return bool(info) and _cleanup_is_test(info[0], info[1])
 
     del_rest_ids, rest_labels = [], []
     async for r in db.restaurants.find({}, {"_id": 0, "id": 1, "name": 1, "user_id": 1}):
-        if _cleanup_restaurant_should_delete(r):
+        if _cleanup_restaurant_should_delete(r) or _owner_is_test(r.get("user_id")):
             del_rest_ids.append(r.get("id")); rest_labels.append(r.get("name"))
         elif r.get("user_id"):
             keep_owner_ids.add(r.get("user_id"))
@@ -9314,7 +12963,7 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_biz_ids, biz_labels = [], []
     async for b in db.businesses.find({}, {"_id": 0, "id": 1, "business_name": 1, "name": 1, "user_id": 1}):
         nm = b.get("business_name") or b.get("name")
-        if _cleanup_is_test(nm):
+        if _cleanup_is_test(nm) or _owner_is_test(b.get("user_id")):
             del_biz_ids.append(b.get("id")); biz_labels.append(nm)
         elif b.get("user_id"):
             keep_owner_ids.add(b.get("user_id"))
@@ -9323,7 +12972,7 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_cr_ids, cr_labels = [], []
     async for cr in db.car_rental_companies.find({}, {"_id": 0, "id": 1, "name": 1, "company_name": 1, "user_id": 1}):
         nm = cr.get("company_name") or cr.get("name")
-        if _cleanup_is_test(nm):
+        if _cleanup_is_test(nm) or _owner_is_test(cr.get("user_id")):
             del_cr_ids.append(cr.get("id")); cr_labels.append(nm)
         elif cr.get("user_id"):
             keep_owner_ids.add(cr.get("user_id"))
@@ -9332,11 +12981,14 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     del_driver_ids, del_driver_user_ids, drv_labels = [], [], []
     async for d in db.drivers.find({}, {"_id": 0, "id": 1, "user_id": 1, "name": 1, "email": 1, "personal_info": 1, "license_number": 1}):
         pi = d.get("personal_info") or {}
-        if _cleanup_is_test(d.get("name"), d.get("email"), pi.get("name"), pi.get("email"), d.get("license_number")):
+        duid = d.get("user_id")
+        is_test = _cleanup_is_test(d.get("name"), d.get("email"), pi.get("name"), pi.get("email"), d.get("license_number"))
+        is_orphan = bool(duid) and duid not in existing_user_ids
+        if is_test or is_orphan:
             del_driver_ids.append(d.get("id"))
-            if d.get("user_id"):
-                del_driver_user_ids.append(d.get("user_id"))
-            drv_labels.append(d.get("name") or pi.get("name") or d.get("id"))
+            if duid:
+                del_driver_user_ids.append(duid)
+            drv_labels.append((d.get("name") or pi.get("name") or d.get("id")) + (" — orphaned" if (is_orphan and not is_test) else ""))
     plan["drivers"] = {"ids": del_driver_ids, "labels": drv_labels, "user_ids": del_driver_user_ids}
 
     del_app_ids, app_labels = [], []
@@ -9347,29 +12999,45 @@ async def _build_cleanup_plan(requesting_user_id: str) -> dict:
     plan["business_applications"] = {"ids": del_app_ids, "labels": app_labels}
 
     del_user_ids, user_labels = [], []
-    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1}):
+    admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    async for u in db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "user_type": 1, "is_owner": 1}):
         uid = u.get("id")
+        email = (u.get("email") or "").strip().lower()
         if not uid or uid == requesting_user_id:
             continue
-        if (u.get("user_type") or "").lower() in _CLEANUP_PROTECTED_USER_TYPES:
+        # NEVER delete the platform owner (is_owner flag or the seeded ADMIN_EMAIL).
+        if u.get("is_owner") or (email and email == admin_email):
             continue
         if uid in keep_owner_ids:
             continue
+        # Test admins/agents (auto-generated invite/agent accounts, qa/demo emails) are
+        # removed too — only genuine, non-test-pattern accounts survive.
         if _cleanup_is_test(u.get("name"), u.get("email")):
             del_user_ids.append(uid); user_labels.append(u.get("email") or u.get("name"))
     plan["users"] = {"ids": del_user_ids, "labels": user_labels}
 
     deleted_vendor_ids = set(del_rest_ids) | set(del_biz_ids) | set(del_cr_ids)
     deleted_user_ids_all = set(del_user_ids) | set(del_driver_user_ids)
+    existing_vendor_ids = set()
+    for coll in ("restaurants", "businesses", "car_rental_companies"):
+        async for v in db[coll].find({}, {"_id": 0, "id": 1}):
+            if v.get("id"):
+                existing_vendor_ids.add(v["id"])
     del_order_ids, order_labels = [], []
     async for o in db.orders.find({}, {"_id": 0, "id": 1, "restaurant_id": 1, "vendor_id": 1, "customer_id": 1, "customer_phone": 1, "notes": 1, "restaurant_name": 1, "status": 1}):
         reason = None
+        vid = o.get("restaurant_id") or o.get("vendor_id")
+        cid = o.get("customer_id")
         if o.get("restaurant_id") in deleted_vendor_ids or o.get("vendor_id") in deleted_vendor_ids:
             reason = "test vendor"
-        elif o.get("customer_id") in deleted_user_ids_all:
+        elif cid in deleted_user_ids_all:
             reason = "test customer"
         elif _cleanup_is_test(o.get("customer_phone"), o.get("notes")):
             reason = "test data"
+        elif cid and cid not in existing_user_ids and cid not in keep_owner_ids:
+            reason = "orphaned (deleted customer)"
+        elif vid and vid not in existing_vendor_ids:
+            reason = "orphaned (deleted vendor)"
         if reason:
             del_order_ids.append(o.get("id"))
             order_labels.append(f"{o.get('restaurant_name') or 'order'} #{str(o.get('id'))[:8]} ({o.get('status')}) — {reason}")
@@ -9439,68 +13107,174 @@ async def admin_cleanup_execute(request: Request):
 
 
 
+_TERMINAL_DRIVER_STATUSES = [
+    "active", "approved", "online", "offline", "busy", "on_delivery", "en_route",
+    "delivering", "available", "rejected", "suspended", "deactivated", "banned",
+    "disabled", "deleted",
+]
+
+
+async def _serialize_driver_applicant(d: dict) -> dict:
+    pi = d.get("personal_info") or {}
+    docs = []
+    if d.get("user_id"):
+        async for doc in db.driver_documents.find(
+            {"user_id": d["user_id"], "is_deleted": False},
+            {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1},
+        ):
+            docs.append({"document_id": doc["id"], "doc_type": doc.get("doc_type"), "filename": doc.get("original_filename")})
+    return {
+        "id": d.get("id"), "user_id": d.get("user_id"),
+        "name": d.get("name") or pi.get("name"),
+        "email": d.get("email") or pi.get("email"),
+        "phone": d.get("phone") or pi.get("phone"),
+        "city": d.get("city") or pi.get("city"),
+        "status": d.get("status") or "pending",
+        "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
+        "license_number": d.get("license_number"),
+        "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),
+        "created_at": d.get("created_at"), "documents": docs,
+    }
+
+
+def _serialize_merchant_applicant(b: dict) -> dict:
+    bd = b.get("business_details") or {}
+    bo = b.get("business_owner") or {}
+    raw_docs = b.get("documents") or bd.get("documents") or {}
+    docs = []
+    if isinstance(raw_docs, dict):
+        for k, v in raw_docs.items():
+            if v:
+                docs.append({"label": k, "url": v})
+    elif isinstance(raw_docs, list):
+        for it in raw_docs:
+            docs.append(it if isinstance(it, dict) else {"label": "document", "url": it})
+    return {
+        "id": b.get("id"), "user_id": b.get("user_id"),
+        "business_name": b.get("business_name") or bd.get("business_name"),
+        "owner_name": bo.get("name"),
+        "email": b.get("email") or bo.get("email"),
+        "phone": b.get("phone") or bo.get("phone"),
+        "business_type": bd.get("business_type"),
+        "status": b.get("verification_status") or b.get("status") or "pending",
+        "address": bd.get("address") or bo.get("address"),
+        "description": bd.get("description"), "website": bd.get("website"),
+        "source": b.get("source"), "is_external_lead": bool(b.get("is_external_lead")),
+        "created_at": b.get("created_at") or b.get("application_date"), "documents": docs,
+    }
+
+
 @api_router.get("/admin/applicants")
 async def admin_list_applicants(request: Request):
-    """Admin-only: full detail of pending Driver + Merchant applications, incl. uploaded files."""
+    """Admin-only: full detail of pending Driver + Merchant applications, incl. uploaded files.
+
+    Shows every driver awaiting an admin decision — EXCLUDES only operational/terminal
+    statuses rather than matching one exact "pending" string, so applicants left in
+    "pending_approval", "identity_pending", "under_review", "incomplete" etc. by the
+    Stripe-Identity flow are never hidden."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
     drivers = []
-    async for d in db.drivers.find({"status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
-        pi = d.get("personal_info") or {}
-        docs = []
-        if d.get("user_id"):
-            async for doc in db.driver_documents.find(
-                {"user_id": d["user_id"], "is_deleted": False},
-                {"_id": 0, "id": 1, "doc_type": 1, "original_filename": 1},
-            ):
-                docs.append({"document_id": doc["id"], "doc_type": doc.get("doc_type"), "filename": doc.get("original_filename")})
-        drivers.append({
-            "id": d.get("id"), "user_id": d.get("user_id"),
-            "name": d.get("name") or pi.get("name"),
-            "email": d.get("email") or pi.get("email"),
-            "phone": d.get("phone") or pi.get("phone"),
-            "city": d.get("city") or pi.get("city"),
-            "vehicle_type": d.get("vehicle_type"), "vehicle_plate": d.get("vehicle_plate"),
-            "license_number": d.get("license_number"),
-            "source": d.get("source"), "is_external_lead": bool(d.get("is_external_lead")),
-            "created_at": d.get("created_at"), "documents": docs,
-        })
+    async for d in db.drivers.find(
+        {"status": {"$nin": _TERMINAL_DRIVER_STATUSES}}, {"_id": 0}
+    ).sort("created_at", -1).limit(500):
+        drivers.append(await _serialize_driver_applicant(d))
 
     merchants = []
-    async for b in db.business_applications.find({"verification_status": "pending"}, {"_id": 0}).sort("created_at", -1).limit(500):
-        bd = b.get("business_details") or {}
-        bo = b.get("business_owner") or {}
-        raw_docs = b.get("documents") or bd.get("documents") or {}
-        docs = []
-        if isinstance(raw_docs, dict):
-            for k, v in raw_docs.items():
-                if v:
-                    docs.append({"label": k, "url": v})
-        elif isinstance(raw_docs, list):
-            for it in raw_docs:
-                docs.append(it if isinstance(it, dict) else {"label": "document", "url": it})
-        merchants.append({
-            "id": b.get("id"), "user_id": b.get("user_id"),
-            "business_name": b.get("business_name") or bd.get("business_name"),
-            "owner_name": bo.get("name"),
-            "email": b.get("email") or bo.get("email"),
-            "phone": b.get("phone") or bo.get("phone"),
-            "business_type": bd.get("business_type"),
-            "address": bd.get("address") or bo.get("address"),
-            "description": bd.get("description"), "website": bd.get("website"),
-            "source": b.get("source"), "is_external_lead": bool(b.get("is_external_lead")),
-            "created_at": b.get("created_at") or b.get("application_date"), "documents": docs,
-        })
+    async for b in db.business_applications.find(
+        {"verification_status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).limit(500):
+        merchants.append(_serialize_merchant_applicant(b))
 
     return {"drivers": drivers, "merchants": merchants,
             "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
 
 
+@api_router.get("/admin/applicants/search")
+async def admin_search_applicants(request: Request, q: str = ""):
+    """Admin-only: find ANY driver or merchant applicant by name / email / phone —
+    regardless of status. Catches edge cases the default queue hides (already approved,
+    rejected, external website leads, odd statuses)."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"drivers": [], "merchants": [], "query": q,
+                "counts": {"drivers": 0, "merchants": 0}}
+
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    driver_query = {"$or": [
+        {"name": rx}, {"email": rx}, {"phone": rx}, {"vehicle_plate": rx},
+        {"license_number": rx},
+        {"personal_info.name": rx}, {"personal_info.email": rx},
+        {"personal_info.phone": rx}, {"personal_info.city": rx},
+    ]}
+    drivers = []
+    async for d in db.drivers.find(driver_query, {"_id": 0}).sort("created_at", -1).limit(100):
+        drivers.append(await _serialize_driver_applicant(d))
+
+    biz_query = {"$or": [
+        {"business_name": rx}, {"email": rx}, {"phone": rx},
+        {"business_owner.name": rx}, {"business_owner.email": rx},
+        {"business_owner.phone": rx}, {"business_details.business_name": rx},
+    ]}
+    merchants = []
+    async for b in db.business_applications.find(biz_query, {"_id": 0}).sort("created_at", -1).limit(100):
+        merchants.append(_serialize_merchant_applicant(b))
+
+    return {"drivers": drivers, "merchants": merchants, "query": q,
+            "counts": {"drivers": len(drivers), "merchants": len(merchants)}}
+
+
+@api_router.post("/admin/applicants/{driver_id}/remind")
+async def admin_remind_applicant(driver_id: str, request: Request):
+    """Admin-only: re-send the 'finish your driver application' reminder to an incomplete
+    applicant (and ping the ops inbox). Used by the Incomplete Applications panel."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    d = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    pi = d.get("personal_info") or {}
+    # Enrich contact info from the linked user account when the driver doc is sparse.
+    user = await db.users.find_one({"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}) if d.get("user_id") else None
+    user = user or {}
+    info = {
+        "id": driver_id,
+        "name": d.get("name") or pi.get("name") or pi.get("full_name") or user.get("name"),
+        "email": d.get("email") or pi.get("email") or user.get("email"),
+        "phone": d.get("phone") or pi.get("phone") or user.get("phone"),
+        "city": d.get("city") or pi.get("city"),
+    }
+    if not info["email"]:
+        raise HTTPException(status_code=400, detail="This applicant has no email on file to remind.")
+    await _notify_incomplete_application(info)
+    return {"success": True, "reminded": info["email"]}
+
+
+@api_router.post("/admin/applicants/remind-incomplete")
+async def admin_remind_incomplete_batch(request: Request, max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48):
+    """Admin-only: run the gentle 'finish your application' nudge across ALL incomplete
+    applicants right now (same job the daily scheduler runs). Throttled/capped inside."""
+    current_user = await get_current_user_from_request(request)
+    if current_user.user_type not in ("admin", "agent"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    n = await _remind_incomplete_applicants(max_reminders=max_reminders, min_age_hours=min_age_hours, cooldown_hours=cooldown_hours)
+    return {"success": True, "reminded_count": n}
+
+
+
+
+
 @api_router.post("/admin/impersonate/{user_id}")
-async def admin_impersonate(user_id: str, request: Request):
-    """Admin-only: mint a short-lived token so the admin can view a user's own portal.
+async def admin_impersonate(user_id: str, request: Request, response: Response, edit: bool = False):
+    """Admin-only: mint a short-lived token so the admin can view (or edit) a user's own portal.
+    `?edit=1` mints an editable token (writes allowed); default is read-only inspection.
     Refuses to impersonate other admins; audit-logged."""
     current_user = await get_current_user_from_request(request)
     if current_user.user_type != "admin":
@@ -9510,18 +13284,22 @@ async def admin_impersonate(user_id: str, request: Request):
         raise HTTPException(status_code=404, detail="This applicant has no user account yet (external lead) — nothing to view.")
     if (target.get("user_type") or "").lower() == "admin":
         raise HTTPException(status_code=403, detail="Cannot impersonate another admin")
+    readonly = not edit
     token = create_access_token(
-        {"sub": user_id, "impersonated_by": current_user.id},
+        {"sub": user_id, "impersonated_by": current_user.id, "readonly": readonly},
         expires_delta=timedelta(minutes=30),
     )
     await db.impersonation_logs.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": current_user.id, "admin_email": current_user.email,
         "target_user_id": user_id, "target_email": target.get("email"),
+        "mode": "edit" if edit else "readonly",
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    logging.info(f"Admin {current_user.email} started viewing portal of {target.get('email')}")
-    return {"token": token, "user": target, "expires_in_minutes": 30}
+    logging.info(f"Admin {current_user.email} started {'editing' if edit else 'viewing'} portal of {target.get('email')}")
+    # NOTE: do NOT set the admin's auth cookie — the frontend uses this token as an
+    # impersonation Bearer so the admin keeps their own session.
+    return {"token": token, "user": target, "readonly": readonly, "expires_in_minutes": 30}
 
 
 # ---------------------------------------------------------------------------
@@ -9534,24 +13312,56 @@ PUBLIC_APP_RATE_LIMIT = 5
 PUBLIC_APP_RATE_WINDOW_MIN = 60
 
 
+def _pick_field(data: dict, *keys):
+    """Return the first present, non-empty value among the given alias keys (case-insensitive)."""
+    if not isinstance(data, dict):
+        return None
+    lowered = {str(k).strip().lower().replace(" ", "").replace("-", "").replace("_", ""): v for k, v in data.items()}
+    for k in keys:
+        norm = k.lower().replace(" ", "").replace("-", "").replace("_", "")
+        v = lowered.get(norm)
+        if v not in (None, ""):
+            return v
+    return None
+
+
 class PublicDriverApplication(BaseModel):
     full_name: str
-    email: str
-    phone: str
-    vehicle_type: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    vehicle_type: Optional[str] = ""
     license_number: Optional[str] = None
     vehicle_plate: Optional[str] = None
     city: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        """Accept common field-name variants from external marketing forms
+        (islandhopapp.com / islandhoptt.com) so leads always map correctly."""
+        if not isinstance(data, dict):
+            return data
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "driver_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "vehicle_type": _pick_field(data, "vehicle_type", "vehicleType", "vehicle", "car_type") or "",
+            "license_number": _pick_field(data, "license_number", "licenseNumber", "license", "dl_number", "drivers_license"),
+            "vehicle_plate": _pick_field(data, "vehicle_plate", "vehiclePlate", "plate", "license_plate", "number_plate"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
 
 class PublicMerchantApplication(BaseModel):
     business_name: str
-    owner_name: str
-    email: str
-    phone: str
-    business_type: str
+    owner_name: Optional[str] = ""
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    business_type: Optional[str] = ""
     category: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
@@ -9559,6 +13369,28 @@ class PublicMerchantApplication(BaseModel):
     description: Optional[str] = None
     notes: Optional[str] = None
     hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        business_name = _pick_field(data, "business_name", "businessName", "company", "companyName", "restaurant_name", "restaurantName", "store_name", "storeName", "name")
+        owner_name = _pick_field(data, "owner_name", "ownerName", "contact_name", "contactName", "owner", "full_name", "fullName", "contact")
+        return {
+            "business_name": business_name or owner_name,
+            "owner_name": owner_name or business_name or "",
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "business_type": _pick_field(data, "business_type", "businessType", "type", "category_type") or "",
+            "category": _pick_field(data, "category", "category_id", "categoryId", "cuisine"),
+            "address": _pick_field(data, "address", "street", "line1", "address_line1"),
+            "city": _pick_field(data, "city", "town", "location", "area", "region"),
+            "website": _pick_field(data, "website", "url", "site", "web"),
+            "description": _pick_field(data, "description", "about", "bio"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
 
 
 def _client_ip(request: Request) -> str:
@@ -9600,6 +13432,16 @@ async def _notify_new_application(kind: str, doc: dict):
             f"<li><b>Email:</b> {doc.get('email','')}</li>"
             f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
             f"<li><b>Vehicle:</b> {doc.get('vehicle_type','')}</li>"
+            f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        )
+    elif kind == "service_pro":
+        inbox = graph_mail.notify_mailbox("support")   # support@islandhoptt.com
+        label = "service professional"
+        summary = (
+            f"<li><b>Name:</b> {doc.get('name','')}</li>"
+            f"<li><b>Email:</b> {doc.get('email','')}</li>"
+            f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+            f"<li><b>Service:</b> {doc.get('service_type','')}</li>"
             f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
         )
     else:
@@ -9652,6 +13494,110 @@ async def _notify_new_application(kind: str, doc: dict):
             f"📧 Email routed to {inbox}. Review it in Admin → Approvals.",
             event=f"new_{label}_application",
         )
+
+
+async def _notify_incomplete_application(doc: dict, notify_admin: bool = True):
+    """An applicant started a driver application but hasn't finished it. Nudge the applicant
+    (to finish) and — when `notify_admin` — the admin/ops team too. Best-effort.
+    The automated daily reminder passes notify_admin=False so ops isn't spammed."""
+    inbox = graph_mail.notify_mailbox("driver")  # drivers@islandhoptt.com
+    name = doc.get("name") or "there"
+    admin_html = (
+        f"<h2>Incomplete driver application ⏳</h2>"
+        f"<p>An applicant started a driver application but hasn't finished it. "
+        f"You can follow up, or approve them once they complete it — they already show in "
+        f"<b>Admin → Approvals → Driver Applications → “Incomplete”</b>.</p>"
+        f"<ul>"
+        f"<li><b>Name:</b> {doc.get('name','')}</li>"
+        f"<li><b>Email:</b> {doc.get('email','')}</li>"
+        f"<li><b>Phone:</b> {doc.get('phone','')}</li>"
+        f"<li><b>City:</b> {doc.get('city','') or '—'}</li>"
+        f"</ul>"
+        f"<p style='color:#888'>Applicant ID: {doc.get('id')}</p>"
+    )
+    applicant_html = (
+        f"<h2>Almost there, {name}! Finish your IslandHop driver application 🚗</h2>"
+        f"<p>Thanks for starting your driver application with IslandHop. You're just a few "
+        f"steps away — please log back into the app and complete your details and document "
+        f"uploads so our team can review and approve you.</p>"
+        f"<p>Open the IslandHop app → <b>Become a Driver</b> to pick up where you left off.</p>"
+        f"<p>— The IslandHop Team</p>"
+    )
+    if notify_admin:
+        try:
+            await graph_mail.send_mail(
+                inbox, f"Incomplete driver application — {doc.get('name','')}",
+                admin_html, mailbox=inbox)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Incomplete-application admin alert failed: {exc}")
+    try:
+        if doc.get("email"):
+            await graph_mail.send_mail(
+                doc["email"], "Finish your IslandHop driver application",
+                applicant_html, mailbox=inbox)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning(f"Incomplete-application applicant reminder failed: {exc}")
+
+    admin_phone = os.environ.get("ADMIN_NOTIFY_PHONE")
+    if notify_admin and admin_phone:
+        await _wa_notify(
+            admin_phone,
+            f"⏳ Incomplete driver application: {doc.get('name','')} ({doc.get('phone','')}). "
+            f"Shows under Admin → Approvals → Incomplete.",
+            event="incomplete_driver_application",
+        )
+
+
+_INCOMPLETE_REMINDER_STATUSES = ["incomplete", "draft", "started"]
+
+
+async def _remind_incomplete_applicants(max_reminders: int = 2, min_age_hours: int = 24, cooldown_hours: int = 48) -> int:
+    """Scheduled gentle nudge: email driver applicants who started but never finished.
+    Capped & throttled — only once the application is at least `min_age_hours` old, at most
+    `max_reminders` times total, and never more than once per `cooldown_hours`. Returns the
+    number of applicants nudged. Never raises."""
+    now = datetime.now(timezone.utc)
+    age_cutoff = (now - timedelta(hours=min_age_hours)).isoformat()
+    cooldown_cutoff = (now - timedelta(hours=cooldown_hours)).isoformat()
+    query = {
+        "status": {"$in": _INCOMPLETE_REMINDER_STATUSES},
+        "created_at": {"$lte": age_cutoff},
+        "$and": [
+            {"$or": [{"reminder_count": {"$exists": False}}, {"reminder_count": {"$lt": max_reminders}}]},
+            {"$or": [{"last_reminder_at": {"$in": [None]}}, {"last_reminder_at": {"$exists": False}},
+                     {"last_reminder_at": {"$lte": cooldown_cutoff}}]},
+        ],
+    }
+    nudged = 0
+    async for d in db.drivers.find(query, {"_id": 0}).limit(500):
+        pi = d.get("personal_info") or {}
+        user = await db.users.find_one(
+            {"id": d.get("user_id")}, {"_id": 0, "name": 1, "email": 1, "phone": 1}
+        ) if d.get("user_id") else None
+        user = user or {}
+        email = d.get("email") or pi.get("email") or user.get("email")
+        if not email or not graph_mail.is_real_email(email):
+            continue
+        info = {
+            "id": d.get("id"),
+            "name": d.get("name") or pi.get("name") or pi.get("full_name") or user.get("name"),
+            "email": email,
+            "phone": d.get("phone") or pi.get("phone") or user.get("phone"),
+            "city": d.get("city") or pi.get("city"),
+        }
+        try:
+            await _notify_incomplete_application(info, notify_admin=False)
+            await db.drivers.update_one(
+                {"id": d.get("id")},
+                {"$set": {"last_reminder_at": now.isoformat()}, "$inc": {"reminder_count": 1}},
+            )
+            nudged += 1
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Auto-reminder failed for applicant {d.get('id')}: {exc}")
+    if nudged:
+        logger.info(f"📨 Auto-reminded {nudged} incomplete driver applicant(s)")
+    return nudged
+
 
 
 @api_router.post("/public/applications/driver")
@@ -9729,6 +13675,472 @@ async def public_merchant_application(payload: PublicMerchantApplication, reques
     return {"success": True, "id": doc["id"], "message": "Merchant application received — our team will review it shortly."}
 
 
+class PublicServiceProApplication(BaseModel):
+    full_name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    service: Optional[str] = ""            # handyman|cleaning|tech_support|events
+    specialty: Optional[str] = None
+    location: Optional[str] = None
+    years_experience: Optional[int] = None
+    has_insurance: Optional[bool] = None
+    portfolio_url: Optional[str] = None
+    notes: Optional[str] = None
+    hp: Optional[str] = ""  # honeypot — must stay empty
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data):
+        if not isinstance(data, dict):
+            return data
+        yrs = _pick_field(data, "years_experience", "yearsExperience", "experience", "years")
+        try:
+            yrs = int(yrs) if yrs not in (None, "") else None
+        except (TypeError, ValueError):
+            yrs = None
+        ins = data.get("has_insurance")
+        if ins is None:
+            ins = data.get("hasInsurance")
+        if isinstance(ins, str):
+            ins = ins.strip().lower() in ("true", "yes", "1", "y")
+        return {
+            "full_name": _pick_field(data, "full_name", "fullName", "name", "provider_name", "applicant_name", "applicantName"),
+            "email": _pick_field(data, "email", "emailAddress", "email_address", "e_mail") or "",
+            "phone": _pick_field(data, "phone", "phoneNumber", "phone_number", "mobile", "tel", "contact_number", "whatsapp") or "",
+            "service": _pick_field(data, "service", "service_type", "serviceType", "profession", "trade", "category", "skill", "job_type") or "",
+            "specialty": _pick_field(data, "specialty", "speciality", "expertise"),
+            "location": _pick_field(data, "location", "city", "town", "area", "region"),
+            "years_experience": yrs,
+            "has_insurance": bool(ins) if ins is not None else None,
+            "portfolio_url": _pick_field(data, "portfolio_url", "portfolioUrl", "portfolio", "website", "url"),
+            "notes": _pick_field(data, "notes", "message", "comments", "comment", "note", "details", "bio", "about"),
+            "hp": data.get("hp") or data.get("honeypot") or "",
+        }
+
+
+@api_router.post("/public/applications/service-pro")
+async def public_service_pro_application(payload: PublicServiceProApplication, request: Request):
+    """Receive a service professional application from the external site (islandhoptt.com),
+    accepted the same way (X-API-Key + rate limit) as driver & merchant applications."""
+    ip = await _check_public_app_guard(request)
+    if payload.hp:  # honeypot — pretend success, store nothing
+        return {"success": True, "message": "Application received."}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": None,
+        "status": "pending",
+        "source": "islandhoptt.com",
+        "is_external_lead": True,
+        "name": payload.full_name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "service": payload.service,
+        "service_type": payload.service,   # admin list display reads service_type
+        "specialty": payload.specialty,
+        "location": payload.location,
+        "city": payload.location,
+        "years_experience": payload.years_experience,
+        "has_insurance": payload.has_insurance,
+        "portfolio_url": payload.portfolio_url,
+        "lead_notes": payload.notes,
+        "created_at": now,
+    }
+    await db.service_pro_applications.insert_one({**doc})
+    await _log_public_app(ip, "service_pro")
+    asyncio.create_task(_notify_new_application("service_pro", doc))
+    return {"success": True, "id": doc["id"], "message": "Service professional application received — our team will review it shortly."}
+
+
+class ApplicantContactRequest(BaseModel):
+    channel: str                       # 'email' | 'sms'
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+    category: Optional[str] = None     # to tie the message to an applicant record
+    record_id: Optional[str] = None
+
+
+@api_router.post("/admin/applicants/contact")
+async def admin_contact_applicant(payload: ApplicantContactRequest, request: Request):
+    """Admin: message an applicant by email or SMS (e.g. to request documents needed to
+    move their application forward). Every message is logged to the applicant's thread."""
+    current_user = await _require_admin_or_agent(request)
+    body = (payload.message or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    ch = (payload.channel or "").lower().strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    async def _log_outbound(to_val: str):
+        try:
+            await db.applicant_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "category": payload.category, "record_id": payload.record_id,
+                "direction": "outbound", "channel": ch, "to": to_val,
+                "name": payload.name, "subject": payload.subject if ch == "email" else None,
+                "body": body, "sent_by": getattr(current_user, "id", None),
+                "created_at": now,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"applicant message log failed: {exc}")
+
+    if ch == "email":
+        if not payload.email or not graph_mail.is_real_email(payload.email):
+            raise HTTPException(status_code=400, detail="A valid applicant email is required.")
+        greeting = f"Hi {payload.name}," if payload.name else "Hello,"
+        html = (
+            f"<p>{greeting}</p>"
+            f"<div style='white-space:pre-wrap'>{body}</div>"
+            f"<p style='margin-top:16px'>Warm regards,<br/>The IslandHop Team 🌴</p>"
+        )
+        try:
+            await graph_mail.send_mail(
+                payload.email, payload.subject or "Your IslandHop application",
+                html, mailbox=graph_mail.notify_mailbox("driver"))
+        except Exception as exc:  # noqa: BLE001
+            logging.error(f"Applicant email failed: {exc}")
+            raise HTTPException(status_code=502, detail="Could not send the email right now. Please try again.")
+        await _log_outbound(payload.email)
+        return {"success": True, "channel": "email", "to": payload.email}
+    if ch == "sms":
+        if not payload.phone:
+            raise HTTPException(status_code=400, detail="An applicant phone number is required.")
+        res = twilio_client.send_sms(payload.phone, body)
+        if not res.get("success"):
+            raise HTTPException(status_code=502, detail=res.get("error") or "Could not send the text message.")
+        await _log_outbound(payload.phone)
+        return {"success": True, "channel": "sms", "to": payload.phone, "sid": res.get("sid")}
+    raise HTTPException(status_code=400, detail="channel must be 'email' or 'sms'.")
+
+
+@api_router.get("/admin/applicants/{category}/{record_id}/messages")
+async def admin_applicant_messages(category: str, record_id: str, request: Request,
+                                   email: Optional[str] = None):
+    """Full message thread for an applicant: outbound (email/SMS we sent) + inbound EMAIL
+    replies (matched from the shared mailboxes by the applicant's email address)."""
+    await _require_admin_or_agent(request)
+    thread = []
+    async for m in db.applicant_messages.find({"category": category, "record_id": record_id}, {"_id": 0}):
+        thread.append(m)
+    # Reply capture (email): pull messages FROM the applicant's address in our mailboxes.
+    if email and graph_mail.is_real_email(email):
+        for box in [graph_mail.notify_mailbox("driver"), graph_mail.notify_mailbox("support")]:
+            try:
+                listing = await graph_mail.list_messages(box, top=40)
+            except Exception:
+                continue
+            for msg in listing.get("value", []):
+                frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address", "").lower()
+                if frm and frm == email.lower():
+                    thread.append({
+                        "direction": "inbound", "channel": "email", "from": frm,
+                        "subject": msg.get("subject"), "body": msg.get("bodyPreview") or "",
+                        "created_at": msg.get("receivedDateTime"),
+                    })
+    thread.sort(key=lambda x: x.get("created_at") or "")
+    return {"messages": thread, "count": len(thread)}
+
+
+class AiSuggestRequest(BaseModel):
+    channel: str = "email"                 # 'email' | 'sms'
+    context: Optional[str] = ""            # applicant's last message / situation
+    applicant_name: Optional[str] = None
+    applicant_type: Optional[str] = None   # driver | merchant | service_pro
+    tone_style: Optional[str] = None       # friendly | firm | brief
+
+
+@api_router.post("/admin/applicants/ai-suggestions")
+async def admin_applicant_ai_suggestions(payload: AiSuggestRequest, request: Request):
+    """Generate 3 distinct, professional reply options an admin can pick from when
+    responding to an applicant on the approval platform (email or text)."""
+    await _require_admin_or_agent(request)
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured.")
+    s = await _get_ai_reply_settings()
+    channel = "SMS/WhatsApp text" if (payload.channel or "").lower() == "sms" else "email"
+    length_hint = "1-2 short sentences" if channel.startswith("SMS") else "2-4 short sentences"
+    system_message = (
+        f"You are a support agent for IslandHop (Caribbean delivery/taxi platform) helping an "
+        f"admin reply to a partner APPLICANT (driver/merchant/service pro) on the approval platform. "
+        f"Tone: {s['tone']}. Each option is a {channel} reply, {length_hint}.\n"
+        f"BUSINESS INFO:\n{s['business_info']}\n\n{AI_REPLY_HARD_RULES}\n"
+        f"Also NEVER promise or confirm that their application is approved.\n"
+        f"Write THREE DISTINCT, professional reply options that help move the application forward "
+        f"(e.g. requesting missing documents, acknowledging, asking a clarifying question). "
+        f"Return ONLY a JSON array of exactly 3 strings, no other text."
+    )
+    ptype = payload.applicant_type or "applicant"
+    tone_map = {
+        "friendly": "Make them warm, upbeat and encouraging.",
+        "firm": "Make them polite but firm and direct about what's required.",
+        "brief": "Make them very short and to the point (one or two sentences max).",
+    }
+    tone_extra = tone_map.get((payload.tone_style or "").lower(), "")
+    user_text = (
+        f"Applicant name: {payload.applicant_name or 'the applicant'} (type: {ptype}). "
+        f"Situation / their latest message: {payload.context or 'New applicant — likely needs to submit documents (ID, licence, registration/insurance) to proceed.'} "
+        f"Write 3 distinct {channel} reply options now as a JSON array of 3 strings. {tone_extra}"
+    )
+    try:
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ai-suggest-{uuid.uuid4()}",
+                       system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
+        raw = await chat.send_message(UserMessage(text=user_text))
+    except Exception as exc:  # noqa: BLE001
+        logging.error(f"AI suggestions failed: {exc}")
+        raise HTTPException(status_code=502, detail="Could not generate suggestions right now.")
+    suggestions = []
+    try:
+        m = re.search(r"\[.*\]", raw or "", re.S)
+        if m:
+            suggestions = [str(x).strip() for x in json.loads(m.group(0)) if str(x).strip()]
+    except Exception:
+        suggestions = []
+    if len(suggestions) < 2:  # fallback: split on blank lines / numbering
+        parts = [re.sub(r"^\s*\d+[\.\)]\s*", "", b).strip() for b in re.split(r"\n\s*\n", raw or "") if b.strip()]
+        suggestions = [p for p in parts if p][:3]
+    return {"suggestions": suggestions[:3]}
+
+
+class ReplyFavourite(BaseModel):
+    body: str
+    title: Optional[str] = None
+
+
+@api_router.get("/admin/reply-favourites")
+async def list_reply_favourites(request: Request):
+    await _require_admin_or_agent(request)
+    items = await db.reply_favourites.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
+    return {"favourites": items}
+
+
+@api_router.post("/admin/reply-favourites")
+async def add_reply_favourite(payload: ReplyFavourite, request: Request):
+    await _require_admin_or_agent(request)
+    body = (payload.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Cannot save an empty reply.")
+    doc = {"id": str(uuid.uuid4()), "body": body,
+           "title": (payload.title or body[:40]).strip(),
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.reply_favourites.insert_one({**doc})
+    return {"success": True, "favourite": doc}
+
+
+@api_router.delete("/admin/reply-favourites/{fav_id}")
+async def delete_reply_favourite(fav_id: str, request: Request):
+    await _require_admin_or_agent(request)
+    await db.reply_favourites.delete_one({"id": fav_id})
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Automatic application ingestion from the shared notification mailboxes.
+# ALL IslandHop apps (this one + islandhopapp.com + islandhoptt.com) email their
+# "New driver/merchant application" alerts to drivers@/partners@islandhoptt.com.
+# This app can read those mailboxes, so we auto-import any application that isn't
+# already in our DB — giving one admin a single source of truth without touching
+# the external sites. Also exposed as a manual "Import" + "Sync now" for admins.
+# ---------------------------------------------------------------------------
+def _html_to_plain(html: str) -> str:
+    if not html:
+        return ""
+    txt = re.sub(r"<\s*/?(li|p|ul|div|br|h[1-6])[^>]*>", "\n", html, flags=re.I)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = txt.replace("&nbsp;", " ").replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", '"')
+    return re.sub(r"[ \t]+", " ", txt)
+
+
+def _extract_labeled(text: str, label: str) -> str:
+    m = re.search(rf"{re.escape(label)}\s*:\s*(.+)", text, flags=re.I)
+    if not m:
+        return ""
+    return m.group(1).split("\n")[0].strip()
+
+
+def _extract_source(text: str, kind: str) -> str:
+    m = re.search(rf"New {kind} application from\s+([^\n<]+)", text, flags=re.I)
+    return (m.group(1).strip().rstrip(".") if m else "islandhoptt.com")
+
+
+async def _ingest_application_emails(limit_per_box: int = 40) -> dict:
+    """Scan the shared driver/merchant notification inboxes and create any application
+    that isn't already in our DB. Idempotent (dedup by source Application ID, then by
+    email/phone). Never raises."""
+    results = {"drivers_created": 0, "merchants_created": 0, "scanned": 0, "skipped": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    plan = [
+        ("driver", graph_mail.notify_mailbox("driver"), "new driver application"),
+        ("merchant", graph_mail.notify_mailbox("merchant"), "new merchant application"),
+    ]
+    for kind, mbox, subject_key in plan:
+        try:
+            listing = await graph_mail.list_messages(mbox, top=limit_per_box)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"App-ingest: cannot read {mbox}: {exc}")
+            continue
+        for m in listing.get("value", []):
+            subj = (m.get("subject") or "").lower()
+            if subject_key not in subj:
+                continue
+            results["scanned"] += 1
+            msgid = m.get("id")
+            if not msgid or await db.ingested_app_emails.find_one({"message_id": msgid}):
+                results["skipped"] += 1
+                continue
+            try:
+                full = await graph_mail.get_message(mbox, msgid)
+            except Exception:
+                continue
+            body = (full.get("body") or {}).get("content") or full.get("bodyPreview") or ""
+            text = _html_to_plain(body)
+            app_id = _extract_labeled(text, "Application ID") or None
+            source = _extract_source(text, kind)
+            created = False
+            if kind == "driver":
+                name = _extract_labeled(text, "Name")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.drivers.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    await db.drivers.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "name": name, "email": email, "phone": phone,
+                        "vehicle_type": _extract_labeled(text, "Vehicle"),
+                        "city": _extract_labeled(text, "City") or None,
+                        "created_at": now,
+                    })
+                    results["drivers_created"] += 1
+                    created = True
+            else:
+                business_name = _extract_labeled(text, "Business")
+                owner = _extract_labeled(text, "Owner")
+                email = _extract_labeled(text, "Email")
+                phone = _extract_labeled(text, "Phone")
+                if not (business_name or email or phone):
+                    await db.ingested_app_emails.insert_one({"message_id": msgid, "at": now, "unparsed": True})
+                    results["skipped"] += 1
+                    continue
+                dup = None
+                if app_id:
+                    dup = await db.business_applications.find_one({"id": app_id}, {"_id": 1})
+                if not dup and (email or phone):
+                    ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+                    dup = await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}) if ors else None
+                if not dup:
+                    btype = _extract_labeled(text, "Type")
+                    addr = {"line1": "", "city": ""}
+                    await db.business_applications.insert_one({
+                        "id": app_id or str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                        "source": source, "is_external_lead": True, "imported_via": "email_sync",
+                        "business_name": business_name, "name": business_name, "email": email, "phone": phone,
+                        "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                        "business_details": {"business_name": business_name, "business_type": btype,
+                                             "address": addr, "phone": phone, "email": email},
+                        "application_date": now, "created_at": now,
+                    })
+                    results["merchants_created"] += 1
+                    created = True
+            await db.ingested_app_emails.insert_one({"message_id": msgid, "app_id": app_id, "kind": kind,
+                                                     "created": created, "at": now})
+    total = results["drivers_created"] + results["merchants_created"]
+    if total:
+        logger.info(f"📥 Auto-imported {total} application(s) from notification mailboxes: {results}")
+    return results
+
+
+@api_router.post("/admin/applicants/sync-email")
+async def admin_sync_applications_from_email(request: Request):
+    """Admin: pull any applications sitting in the shared notification inboxes into this
+    app right now (same job the scheduler runs every 15 min)."""
+    await _require_admin_or_agent(request)
+    return {"success": True, **(await _ingest_application_emails())}
+
+
+class ApplicantImportItem(BaseModel):
+    category: str = "driver"  # 'driver' | 'merchant'
+    class Config:
+        extra = "allow"
+
+
+class ApplicantImportRequest(BaseModel):
+    category: str = "driver"          # default category for all items
+    items: List[Dict[str, Any]]
+
+
+@api_router.post("/admin/applicants/import")
+async def admin_import_applicants(payload: ApplicantImportRequest, request: Request):
+    """Admin: bulk-import applicants pasted/exported from another system. Each item is a
+    free-form dict; field names are normalized (fullName/name, phoneNumber/mobile, etc.).
+    Creates pending leads, de-duplicating by email/phone. Category can be per-item ('category')."""
+    await _require_admin_or_agent(request)
+    now = datetime.now(timezone.utc).isoformat()
+    created = {"drivers": 0, "merchants": 0}
+    skipped = 0
+    for raw in payload.items:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        cat = str(raw.get("category") or payload.category or "driver").lower()
+        email = _pick_field(raw, "email", "emailAddress", "email_address") or ""
+        phone = _pick_field(raw, "phone", "phoneNumber", "phone_number", "mobile", "tel", "whatsapp") or ""
+        if "merchant" in cat or "business" in cat or "restaurant" in cat:
+            business_name = _pick_field(raw, "business_name", "businessName", "company", "restaurant_name", "store_name", "name") or ""
+            owner = _pick_field(raw, "owner_name", "ownerName", "contact_name", "owner", "full_name", "name") or ""
+            if not (business_name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.business_applications.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            addr = {"line1": _pick_field(raw, "address", "street", "line1") or "", "city": _pick_field(raw, "city", "town") or ""}
+            await db.business_applications.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "verification_status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "business_name": business_name or owner, "name": business_name or owner, "email": email, "phone": phone,
+                "business_owner": {"name": owner, "email": email, "phone": phone, "address": addr},
+                "business_details": {"business_name": business_name or owner,
+                                     "business_type": _pick_field(raw, "business_type", "businessType", "type") or "",
+                                     "address": addr, "phone": phone, "email": email},
+                "application_date": now, "created_at": now,
+            })
+            created["merchants"] += 1
+        else:
+            name = _pick_field(raw, "full_name", "fullName", "name", "driver_name") or ""
+            if not (name or email or phone):
+                skipped += 1
+                continue
+            ors = [c for c in [{"email": email} if email else None, {"phone": phone} if phone else None] if c]
+            if ors and await db.drivers.find_one({"is_external_lead": True, "$or": ors}, {"_id": 1}):
+                skipped += 1
+                continue
+            await db.drivers.insert_one({
+                "id": str(uuid.uuid4()), "user_id": None, "status": "pending",
+                "source": _pick_field(raw, "source") or "imported", "is_external_lead": True, "imported_via": "manual_import",
+                "name": name, "email": email, "phone": phone,
+                "vehicle_type": _pick_field(raw, "vehicle_type", "vehicleType", "vehicle") or "",
+                "city": _pick_field(raw, "city", "town", "location") or None,
+                "created_at": now,
+            })
+            created["drivers"] += 1
+    return {"success": True, "created": created, "skipped": skipped,
+            "total_created": created["drivers"] + created["merchants"]}
+
+
+
 
 
 # Initialize data on startup
@@ -9794,14 +14206,50 @@ async def _seed_marketplace_partners():
             {"business_name": "Massy Stores Express", "business_type": "grocery", "business_description": "Groceries, fresh produce and household goods."},
             {"business_name": "FreshMart Grocery", "business_type": "grocery", "business_description": "Everyday groceries and local favourites to your door."},
         ]
+        business_products = {
+            "pharmacy": [
+                _mi("Paracetamol 500mg (24)", "Pain and fever relief tablets.", 25.0, "Pain Relief"),
+                _mi("Vitamin C 1000mg (30)", "Immune-support effervescent tablets.", 40.0, "Vitamins"),
+                _mi("Hand Sanitizer 250ml", "70% alcohol antibacterial gel.", 18.0, "Personal Care"),
+                _mi("Digital Thermometer", "Fast, accurate temperature reading.", 55.0, "Devices"),
+            ],
+            "grocery": [
+                _mi("Rice 5kg", "Long-grain parboiled rice.", 60.0, "Pantry"),
+                _mi("Fresh Eggs (dozen)", "Grade-A local eggs.", 22.0, "Dairy & Eggs"),
+                _mi("Ripe Plantains (3)", "Sweet local plantains.", 15.0, "Produce"),
+                _mi("Orange Juice 1L", "100% not-from-concentrate juice.", 28.0, "Beverages"),
+            ],
+        }
         for b in businesses:
-            if not await db.businesses.find_one({"business_name": b["business_name"]}, {"_id": 1}):
+            existing_b = await db.businesses.find_one({"business_name": b["business_name"]}, {"_id": 1, "id": 1})
+            if not existing_b:
+                biz_id = str(uuid.uuid4())
                 await db.businesses.insert_one({
-                    "id": str(uuid.uuid4()), "user_id": "seed_partner",
+                    "id": biz_id, "user_id": "seed_partner",
                     "business_name": b["business_name"], "business_type": b["business_type"],
                     "business_description": b["business_description"],
+                    "address": {"street": "Ariapita Ave", "city": "Port of Spain", "parish": "POS", "country": "Trinidad & Tobago"},
+                    "phone": "+1-868-555-0110", "email": f"hello@{b['business_name'].lower().replace(' ', '')}.tt",
                     "status": "active", "created_at": now,
                 })
+            else:
+                biz_id = existing_b.get("id")
+            # Seed catalog into the shared menu_items collection (keyed by vendor id) if empty.
+            if biz_id and await db.menu_items.count_documents({"restaurant_id": biz_id}) == 0:
+                items = business_products.get(b["business_type"], [])
+                for it in items:
+                    doc = {**it, "restaurant_id": biz_id, "vendor_id": biz_id, "created_at": now}
+                    await db.menu_items.insert_one(doc)
+        # Backfill a country on any seed-partner vendor missing one so payment routing resolves.
+        for coll in ("businesses", "car_rental_companies", "restaurants"):
+            async for d in db[coll].find(
+                {"user_id": "seed_partner"}, {"_id": 1, "address": 1}):
+                addr = d.get("address")
+                if not isinstance(addr, dict):
+                    addr = {}
+                if not (addr.get("country") or "").strip():
+                    addr["country"] = "Trinidad & Tobago"
+                    await db[coll].update_one({"_id": d["_id"]}, {"$set": {"address": addr}})
         logger.info("✅ Marketplace partners seeded/verified")
     except Exception as e:
         logger.error(f"Marketplace partner seeding failed: {e}")
@@ -9828,14 +14276,16 @@ async def initialize_data():
         if not hasattr(app.state, "scheduler") or app.state.scheduler is None:
             scheduler = AsyncIOScheduler(timezone="UTC")
 
-            async def _nightly_payouts():
+            async def _nightly_settlement():
                 try:
-                    await process_daily_vendor_payouts()
-                    logger.info("✅ Nightly vendor payout batch completed")
+                    res = await run_daily_settlement(actor="scheduler")
+                    logger.info(f"✅ Nightly settlement completed: {res['batch']}")
                 except Exception as e:
-                    logger.error(f"❌ Nightly vendor payout failed: {e}")
+                    logger.error(f"❌ Nightly settlement failed: {e}")
 
-            scheduler.add_job(_nightly_payouts, CronTrigger(hour=2, minute=0), id="nightly_vendor_payouts", replace_existing=True)
+            # End-of-day (00:00 AST = 04:00 UTC): settle merchants + drivers,
+            # credit wallets and queue external payouts.
+            scheduler.add_job(_nightly_settlement, CronTrigger(hour=4, minute=0), id="daily_settlement", replace_existing=True)
 
             async def _weekly_top_drivers():
                 try:
@@ -9845,6 +14295,30 @@ async def initialize_data():
                     logger.error(f"❌ Weekly top-driver bonus failed: {e}")
 
             scheduler.add_job(_weekly_top_drivers, CronTrigger(day_of_week="mon", hour=3, minute=0), id="weekly_top_driver_bonus", replace_existing=True)
+
+            async def _daily_applicant_reminders():
+                try:
+                    n = await _remind_incomplete_applicants()
+                    if n:
+                        logger.info(f"✅ Daily applicant reminders sent to {n} incomplete applicant(s)")
+                except Exception as e:
+                    logger.error(f"❌ Daily applicant reminder job failed: {e}")
+
+            # Gentle daily nudge (10:00 UTC ≈ 06:00 AST) to applicants who started a driver
+            # application but never finished. Capped & throttled inside the helper.
+            scheduler.add_job(_daily_applicant_reminders, CronTrigger(hour=10, minute=0), id="daily_applicant_reminders", replace_existing=True)
+
+            async def _auto_ingest_applications():
+                try:
+                    r = await _ingest_application_emails()
+                    if r.get("drivers_created") or r.get("merchants_created"):
+                        logger.info(f"✅ Auto-ingest imported applications: {r}")
+                except Exception as e:
+                    logger.error(f"❌ Auto-ingest applications job failed: {e}")
+
+            from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
+            # Pull applications from the shared notification inboxes into this app every 15 min.
+            scheduler.add_job(_auto_ingest_applications, _IntervalTrigger(minutes=15), id="auto_ingest_applications", replace_existing=True)
 
             from apscheduler.triggers.interval import IntervalTrigger
 
@@ -9882,6 +14356,11 @@ async def initialize_data():
         await backfill_approved_merchants()
     except Exception as e:
         print(f"⚠️ Could not backfill approved merchants: {e}")
+
+    try:
+        await backfill_approved_drivers()
+    except Exception as e:
+        print(f"⚠️ Could not backfill approved drivers: {e}")
 
     try:
         # Create geospatial index for driver locations (for smart matching)
