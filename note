@@ -1,0 +1,10 @@
+mkdir -p docs
+cat > docs/emergent-chat-input-2026-07-14.md <<'EOF'
+Save to GitHub (Emergent chat input) and pull the repo locally.
+Open frontend/android/BUILD_AAB.md and run ./build-aab.sh (or use Android Studio via section 4C).
+Upload the resulting app-release.aab to Play Console → Production → new release → roll out.
+EOF
+
+git add docs/emergent-chat-input-2026-07-14.md
+git commit -m "docs: add emergent chat input instructions"
+git push

@@ -22,12 +22,16 @@ if [ ! -f "android/keystore.properties" ]; then
   echo "       Copy android/keystore.properties.example to android/keystore.properties and fill in your signing values."
   exit 1
 fi
+if [ ! -f "android/keystore/islandhop-upload.jks" ]; then
+  echo "ERROR: android/keystore/islandhop-upload.jks is missing."
+  exit 1
+fi
 if [ -z "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
   echo "WARNING: ANDROID_HOME / ANDROID_SDK_ROOT not set. If gradle fails, open the project once in Android Studio to install the SDK."
 fi
 
 echo "==> [1/4] Installing web dependencies…"
-yarn install
+yarn install --frozen-lockfile
 
 echo "==> [2/4] Building the production web app…"
 GENERATE_SOURCEMAP=false CI=false yarn build

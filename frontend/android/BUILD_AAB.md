@@ -76,10 +76,10 @@ cp keystore.properties.example keystore.properties
 Google Play rejects a release if `versionCode` isn’t higher than what’s live.
 Edit `frontend/android/app/build.gradle`:
 ```gradle
-versionCode 2        // increment by 1 every release (3, 4, 5, …)
-versionName "1.1"    // human-readable, e.g. "1.1", "1.2"
+versionCode 3        // increment by 1 every release (4, 5, 6, …)
+versionName "1.2"    // human-readable, e.g. "1.2", "1.3"
 ```
-(It’s already set to `versionCode 2 / versionName 1.1` for this update.)
+(It’s already set to `versionCode 3 / versionName 1.2` for this update.)
 
 ---
 
